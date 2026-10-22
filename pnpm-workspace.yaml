@@ -24,7 +24,7 @@ catalogs:
     "@agntn/web": ^0.5.5
     "@ai-sdk/gateway": 4.0.103
     "@ai-sdk/mcp": 2.0.69
-    "@ai-sdk/vue": 4.0.127
+    "@ai-sdk/vue": 4.0.130
     "@modelcontextprotocol/sdk": ^1.32.1
     "@types/json-schema": ^7.0.15
     advocaat: ^0.0.6

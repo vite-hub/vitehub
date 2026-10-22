@@ -16,8 +16,8 @@ catalogs:
       specifier: 2.0.69
       version: 2.0.69
     '@ai-sdk/vue':
-      specifier: 4.0.127
-      version: 4.0.127
+      specifier: 4.0.130
+      version: 4.0.130
     '@modelcontextprotocol/sdk':
       specifier: ^1.32.1
       version: 1.32.1
@@ -645,7 +645,7 @@ importers:
         version: 7.0.130(zod@4.6.7)
       docus:
         specifier: catalog:nuxt
-        version: https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(19e1e8eef783e65bb8f2e003ab731519)
+        version: https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(f33b1090cbc6cf717c24b050f3b8552c)
       h3:
         specifier: catalog:h3-v1-compat
         version: 1.15.11
@@ -818,7 +818,7 @@ importers:
         version: 4.43.0(ai@7.0.130(zod@4.6.7))(workflow@5.0.1(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7)
       '@github-tools/eve-extension':
         specifier: 0.8.1
-        version: 0.8.1(06cce5a3b9ba81523484a060a5982c28)
+        version: 0.8.1(2f2e295e3286ed32c7f6326b6270ee9a)
       '@t3tools/provider-runtime':
         specifier: 'catalog:'
         version: https://pkg.pr.new/vite-hub/t3code/@t3tools/provider-runtime@ee5848bfdff74af1d14ad9464403d275e47f8822
@@ -863,7 +863,7 @@ importers:
         version: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.43.0(ai@7.0.130(zod@4.6.7))(workflow@5.0.1(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       evlog:
         specifier: ^2.32.0
-        version: 2.33.1(1934344371ed9ae9493e1eb6157dbc23)
+        version: 2.33.1(b5b2e8e0190e68f89469c1a9e50a9692)
       forges:
         specifier: 'catalog:'
         version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
@@ -897,7 +897,7 @@ importers:
         version: 2.0.69(zod@4.6.7)
       '@ai-sdk/vue':
         specifier: catalog:ai
-        version: 4.0.127(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
+        version: 4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)
 
   packages/agent/examples/vite:
     dependencies:
@@ -3010,6 +3010,12 @@ packages:
 
   '@ai-sdk/vue@4.0.127':
     resolution: {integrity: sha512-GehYH93DCLhyOr8YPBL30HplF7CuImtzvZdwjzagEYvrkC+G/BqcC5RaQI4BDk98reBUyVP3l6ZqkH7fr2HvGA==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      vue: 3.5.44
+
+  '@ai-sdk/vue@4.0.130':
+    resolution: {integrity: sha512-vELr/KOp9xQV8qhA+mdMoWtmIlYquxFVmZv3jqJg/lx87UWVEUQnf793/EFXXuFcMhlVwvqg0ohS3/6DWk8W1A==}
     engines: {node: '>=22'}
     peerDependencies:
       vue: 3.5.44
@@ -13069,10 +13075,6 @@ packages:
     resolution: {integrity: sha512-Vdw0ATsQ9V+LuegM/BTwQqV/6cTl5lbGcIrU+BCgLxyf6bo38ybOr372tuSIxir3CN720flu1meYR6XzNMwQnw==}
     hasBin: true
 
-  katex@0.19.0:
-    resolution: {integrity: sha512-v6Tznz3zJ7u3niRCoDTsumM2+HA2XXcCu+WAacCeHD2z3p9A9Ks987o5FzfTGBN0e8A0vjEgIDvLbICrXpdw/Q==}
-    hasBin: true
-
   keyv@5.6.0:
     resolution: {integrity: sha512-CYDD3SOtsHtyXeEORYRx2qBtpDJFjRTGXUtmNEMGyzYOKj1TE3tycdlho7kA1Ufx9OYWZzg52QFBGALTirzDSw==}
 
@@ -16811,6 +16813,17 @@ snapshots:
       - '@vue/test-utils'
       - zod
 
+  '@ai-sdk/vue@4.0.130(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))(zod@4.6.7)':
+    dependencies:
+      '@ai-sdk/provider-utils': 5.0.56(zod@4.6.7)
+      ai: 7.0.130(zod@4.6.7)
+      swrv: 1.3.0(@vue/test-utils@2.5.1(@vue/compiler-dom@3.5.44)(@vue/server-renderer@3.5.44)(vue@3.5.44(typescript@6.0.3)))(vue@3.5.44(typescript@6.0.3))
+      vue: 3.5.44(typescript@6.0.3)
+    transitivePeerDependencies:
+      - '@vue/test-utils'
+      - zod
+    optional: true
+
   '@alloc/quick-lru@5.3.0': {}
 
   '@antfu/install-pkg@2.1.0':
@@ -18458,9 +18471,9 @@ snapshots:
 
   '@fontsource-variable/geist@5.3.0': {}
 
-  '@github-tools/eve-extension@0.8.1(06cce5a3b9ba81523484a060a5982c28)':
+  '@github-tools/eve-extension@0.8.1(2f2e295e3286ed32c7f6326b6270ee9a)':
     dependencies:
-      '@github-tools/sdk': 1.18.0(f66f066ed25865a4887e04c0a321b404)
+      '@github-tools/sdk': 1.18.0(af577792f5776622a70739f28ac4a88a)
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.43.0(ai@7.0.130(zod@4.6.7))(workflow@5.0.1(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       zod: 4.6.7
     optionalDependencies:
@@ -18490,10 +18503,10 @@ snapshots:
       - vite
       - workflow
 
-  '@github-tools/sdk@1.18.0(f66f066ed25865a4887e04c0a321b404)':
+  '@github-tools/sdk@1.18.0(af577792f5776622a70739f28ac4a88a)':
     dependencies:
       ai: 7.0.130(zod@4.6.7)
-      evlog: 2.33.1(1934344371ed9ae9493e1eb6157dbc23)
+      evlog: 2.33.1(b5b2e8e0190e68f89469c1a9e50a9692)
       octokit: 5.0.5
       zod: 4.6.7
     optionalDependencies:
@@ -27039,16 +27052,6 @@ snapshots:
       katex: 0.17.0
       shiki: 4.5.0
 
-  comark@0.7.0(katex@0.19.0)(shiki@4.5.0):
-    dependencies:
-      entities: 8.1.0
-      htmlparser2: 12.0.0
-      js-yaml: 5.4.2
-      markdown-exit: 1.1.0-beta.2
-    optionalDependencies:
-      katex: 0.19.0
-      shiki: 4.5.0
-
   combined-stream@1.0.8:
     dependencies:
       delayed-stream: 1.0.0
@@ -27378,7 +27381,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  docus@https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(19e1e8eef783e65bb8f2e003ab731519):
+  docus@https://pkg.pr.new/docus@c229a86(patch_hash=1705889b386ca987bc0f1a10b86252e036b3e07eed8f0ac604452c04ebd980e7)(f33b1090cbc6cf717c24b050f3b8552c):
     dependencies:
       '@ai-sdk/gateway': 4.0.106(zod@4.6.7)
       '@ai-sdk/mcp': 2.0.69(zod@4.6.7)
@@ -28125,7 +28128,7 @@ snapshots:
       react: 19.2.6
       vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
 
-  evlog@2.33.1(1934344371ed9ae9493e1eb6157dbc23):
+  evlog@2.33.1(b5b2e8e0190e68f89469c1a9e50a9692):
     optionalDependencies:
       '@nestjs/common': 11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2)
       '@nestjs/core': 11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2)
@@ -28135,10 +28138,10 @@ snapshots:
       eve: 0.80.1(@opentelemetry/api@1.9.1)(ai@7.0.130(zod@4.6.7))(chat@4.43.0(ai@7.0.130(zod@4.6.7))(workflow@5.0.1(@aws-sdk/credential-provider-web-identity@3.972.78)(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19(@nestjs/common@11.1.19(reflect-metadata@0.2.2)(rxjs@7.8.2))(reflect-metadata@0.2.2)(rxjs@7.8.2))(@opentelemetry/api@1.9.1)(@swc/cli@0.8.1(@swc/core@1.15.3(@swc/helpers@0.5.23))(chokidar@5.0.0))(@swc/core@1.15.3(@swc/helpers@0.5.23))(@swc/helpers@0.5.23)(magicast@0.5.5)(react@19.2.6)(typescript@6.0.3)(ws@8.22.0))(zod@4.6.7))(just-bash@3.6.0)
       express: 5.2.1
       fastify: 5.12.5
-      h3: 1.15.11
+      h3: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       hono: 4.13.12
       nitro: 3.0.260903-beta(patch_hash=e755d40c7b68a5a47e937a85112ebd7b955521d973a26f16115c8161a302962b)
-      nitropack: 2.13.4(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@libsql/client@0.18.0)(@netlify/blobs@10.7.5)(@parcel/watcher@2.5.6)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(oxc-parser@0.151.0)(rolldown@1.2.12)(srvx@1.0.5)(uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3))
+      nitropack: 2.13.4(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@libsql/client@0.18.0)(@netlify/blobs@10.7.5)(@parcel/watcher@2.5.6)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1))(aws4fetch@1.0.20)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))(oxc-parser@0.151.0)(rolldown@1.2.12)(srvx@1.0.5)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3))
       ofetch: 1.5.1
       react: 19.2.6
       vite: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -29580,10 +29583,6 @@ snapshots:
   katex@0.17.0:
     dependencies:
       commander: 8.3.0
-
-  katex@0.19.0:
-    dependencies:
-      commander: 15.0.0
 
   keyv@5.6.0:
     dependencies:
@@ -35063,7 +35062,7 @@ snapshots:
       aws4fetch: 1.0.20
       db0: 0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2))
       ioredis: 5.11.1
-      uploadthing: 7.7.4(express@5.2.1)(fastify@5.12.5)(h3@1.15.11)(tailwindcss@4.3.3)
+      uploadthing: 7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)
 
   unstorage@1.17.5(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.3.4(@libsql/client@0.18.0)(better-sqlite3@12.9.0)(drizzle-orm@0.45.3(@cloudflare/workers-types@5.20261019.1)(@libsql/client@0.18.0)(@opentelemetry/api@1.9.1)(@upstash/redis@1.39.0)(better-sqlite3@12.9.0)(bun-types@1.4.3)(kysely@0.29.6)(postgres@3.4.9)(sql.js@1.14.2)))(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
@@ -35107,7 +35106,7 @@ snapshots:
       aws4fetch: 1.0.20
       db0: 0.4.1
       ioredis: 5.11.1
-      uploadthing: 7.7.4(express@5.2.1)(fastify@5.12.5)(h3@1.15.11)(tailwindcss@4.3.3)
+      uploadthing: 7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3)
 
   unstorage@1.17.5(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.78)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(uploadthing@7.7.4(express@5.2.1)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
@@ -35158,20 +35157,6 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  uploadthing@7.7.4(express@5.2.1)(fastify@5.12.5)(h3@1.15.11)(tailwindcss@4.3.3):
-    dependencies:
-      '@effect/platform': 0.90.3(effect@3.17.7)
-      '@standard-schema/spec': 1.0.0-beta.4
-      '@uploadthing/mime-types': 0.3.6
-      '@uploadthing/shared': 7.1.10
-      effect: 3.17.7
-    optionalDependencies:
-      express: 5.2.1
-      fastify: 5.12.5
-      h3: 1.15.11
-      tailwindcss: 4.3.3
-    optional: true
-
   uploadthing@7.7.4(express@5.2.1)(fastify@5.12.5)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3):
     dependencies:
       '@effect/platform': 0.90.3(effect@3.17.7)
@@ -35184,6 +35169,19 @@ snapshots:
       fastify: 5.12.5
       h3: 2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0)
       tailwindcss: 4.3.3
+
+  uploadthing@7.7.4(express@5.2.1)(h3@1.15.11)(tailwindcss@4.3.3):
+    dependencies:
+      '@effect/platform': 0.90.3(effect@3.17.7)
+      '@standard-schema/spec': 1.0.0-beta.4
+      '@uploadthing/mime-types': 0.3.6
+      '@uploadthing/shared': 7.1.10
+      effect: 3.17.7
+    optionalDependencies:
+      express: 5.2.1
+      h3: 1.15.11
+      tailwindcss: 4.3.3
+    optional: true
 
   uqr@0.1.3: {}
 
