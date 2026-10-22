@@ -282,6 +282,8 @@ export interface ViteHubConsoleDocumentSummary {
   updatedAt: string | null
   /** The scheduled publish of the document, when it has one. */
   schedule?: ViteHubConsoleDocumentSchedule
+  /** How many field issues the draft has. Absent when it validates. Publish refuses the document until they are fixed. */
+  issues?: number
 }
 
 /** One unpublished change of a collection, with the draft digest the editor showed. */
@@ -290,6 +292,8 @@ export interface ViteHubConsoleDocumentChange {
   state: Exclude<ViteHubConsoleDocumentState, "published">
   /** Draft digest, or null when the change deletes the document. */
   digest: string | null
+  /** How many field issues the draft has. Absent when it validates. "Publish all" leaves such drafts out. */
+  issues?: number
 }
 
 export interface ViteHubConsoleDocumentListInput {
@@ -340,6 +344,11 @@ export interface ViteHubConsoleDocument {
   url?: string | null
   /** The scheduled publish of the document, when it has one. */
   schedule?: ViteHubConsoleDocumentSchedule
+  /**
+   * Field issues of a draft saved in progress. `save` stores invalid fields and returns them here, so autosave keeps
+   * working; `publish` and `schedule` refuse the document with `CONTENT_INVALID` until the list is empty.
+   */
+  issues?: Array<{ field?: string, path: Array<string | number>, message: string }>
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */

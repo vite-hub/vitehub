@@ -10,6 +10,7 @@ import {
   contentDocumentUrl,
   compileDocumentsPath,
   contentInvalid,
+  contentInvalidDocuments,
   fieldsJsonSchema,
   normalizeFrontmatter,
   parseDocumentFile,
@@ -28,6 +29,7 @@ import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
 import type {
   CompiledDocumentsPath,
+  ContentInvalidDocument,
   ContentCollectionDefinition,
   ContentFieldIssue,
   ContentFields,
@@ -60,7 +62,10 @@ export interface ContentDocument<TData = Record<string, unknown>> {
   id: string
   /** Workspace path of the file, such as `posts/hello.md` or `settings.json`. */
   path: string
-  /** Validated fields: the frontmatter of a Markdown file, or the whole object of a JSON or YAML file. */
+  /**
+   * Validated fields: the frontmatter of a Markdown file, or the whole object of a JSON or YAML file. A draft with
+   * `issues` holds the stored values as written, without validation.
+   */
   data: TData
   /** Markdown body after the frontmatter. Always empty for JSON and YAML documents. */
   body: string
@@ -78,6 +83,11 @@ export interface ContentDocument<TData = Record<string, unknown>> {
    * that added or changed its file. Null when the change is older than the 5,000 revisions Content scans.
    */
   updatedAt: string | null
+  /**
+   * Field issues of a draft saved while it was still in progress. Drafts accept invalid fields; `publish()` and
+   * `schedule()` refuse the document with `CONTENT_INVALID` until they are fixed. Absent when the document validates.
+   */
+  issues?: ContentFieldIssue[]
 }
 
 /** A listed document. `list()` leaves out the body; read it with `get()`. */
@@ -184,6 +194,8 @@ export interface ContentDocumentStatus {
   draft: string | null
   /** Digest on the `published` ref, or null when it is not published. */
   published: string | null
+  /** How many field issues the draft has. Absent when the draft validates. Publish refuses the document until it is 0. */
+  issues?: number
   /**
    * The schedule from `content.schedule()` that publishes this document: its pending or overdue one, or else a failed
    * one. Absent when none names it.
@@ -287,11 +299,17 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly components: Readonly<Record<string, DocumentComponent>>
   /** List documents with filters, search, sort, facets, and a total. Reads `published`, or `draft` in a preview request, unless `ref` says otherwise. */
   list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
-  /** Read one document, or null when it does not exist. Throws `CONTENT_INVALID` when its frontmatter no longer validates. */
+  /**
+   * Read one document, or null when it does not exist. A draft or revision with invalid fields carries `issues`. On
+   * `published`, or for a file that cannot be parsed, it throws `CONTENT_INVALID`.
+   */
   get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
   /** Read one stored file without parsing or validating it, or null when it does not exist. Use it to show and diff any version. */
   raw(id: string, options?: ContentReadOptions): Promise<ContentRawDocument | null>
-  /** Validate and commit a document to the `draft` ref. */
+  /**
+   * Commit a document to the `draft` ref. Fields that fail validation are stored and returned as `issues`; data that
+   * cannot be stored, such as a non-object or a body on a JSON document, throws `CONTENT_INVALID`.
+   */
   save(id: string, input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
   /** Delete a document from the `draft` ref. It stays published until the next publish. */
   remove(id: string, options?: ContentWriteOptions): Promise<void>
@@ -420,9 +438,14 @@ interface RefState {
   opened?: OpenedRevision
 }
 
+/**
+ * A stored file read back: valid; parsed with field issues, which a draft may hold; or malformed, which no ref may hold
+ * because the file has no object of fields to edit.
+ */
 type ParsedText =
-  | { data: Record<string, unknown>, body: string, issues?: undefined }
-  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[] }
+  | { data: Record<string, unknown>, body: string, issues?: undefined, malformed?: undefined }
+  | { data: Record<string, unknown>, body: string, issues: ContentFieldIssue[], malformed?: undefined }
+  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[], malformed: true }
 
 type IndexedDocument = ContentDocument<Record<string, unknown>>
 
@@ -684,7 +707,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const text = textOf(input.content)
           if (text === undefined) return
           const parsed = await collection.parseText(text)
-          if (parsed.issues) throw contentInvalid(collection.name, collection.idFor(path), path, parsed.issues)
+          // The draft holds work in progress: only a file that cannot be parsed is refused there. Every other ref,
+          // `published` above all, and the working tree get full field validation.
+          if (parsed.issues && (parsed.malformed || input.ref !== "draft")) throw contentInvalid(collection.name, collection.idFor(path), path, parsed.issues)
         }
       },
     },
@@ -765,9 +790,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function parseText(text: string): Promise<ParsedText> {
       const file = parseDocumentFile(text, format)
-      if ("issues" in file) return { issues: file.issues }
+      if ("issues" in file) return { issues: file.issues, malformed: true }
       const result = await validateFields(definition.fields, file.frontmatter)
-      if (result.issues) return { issues: result.issues }
+      if (result.issues) return { data: file.frontmatter, body: file.body, issues: result.issues }
       return { data: result.data, body: file.body }
     }
 
@@ -778,11 +803,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function documentOf(
       id: string,
       entry: CollectionEntry,
-      parsed: { data: Record<string, unknown>, body: string },
+      parsed: { data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined },
       revision: WorkspaceRevision,
       updatedAt: string | null,
     ): IndexedDocument {
       const document: IndexedDocument = { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      if (parsed.issues?.length) document.issues = parsed.issues.map(issue => ({ ...issue, path: [...issue.path] }))
       if (definition.url !== undefined) document.url = contentDocumentUrl(definition.url, document)
       return document
     }
@@ -792,8 +818,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const updated = await updatedAtMap(opened)
         const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          if (!parsed.issues) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
-          // Listing skips a document that no longer validates; get() reports why.
+          // A draft lists work in progress with its issues. `published` and malformed files list only what validates.
+          if (!parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
+          // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
         })
@@ -854,7 +881,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (!opened || digest === undefined) return null
       const entry = { path, digest }
       const parsed = await parseEntry(opened, entry)
-      if (parsed.issues) throw contentInvalid(name, id, path, parsed.issues)
+      if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) throw contentInvalid(name, id, path, parsed.issues)
       return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
     }
 
@@ -869,7 +896,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function commitDocument(
       id: string,
       path: string,
-      change: { text: string, digest: string, data: Record<string, unknown>, body: string } | { delete: true },
+      change: { text: string, digest: string, data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined } | { delete: true },
       writeOptions: ContentWriteOptions,
       action: "save" | "remove" | "restore",
     ): Promise<IndexedDocument | undefined> {
@@ -907,7 +934,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (!("delete" in change) && current === change.digest && opened) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
-          if (!parsed.issues) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
+          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
         }
         try {
           const release = await acquireMutation()
@@ -950,15 +977,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       catch (cause) {
         throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
       }
+      // Drafts accept fields in progress. The issues come back with the document, and publish() refuses it until they are fixed.
       const validated = await validateFields(definition.fields, frontmatter)
-      if (validated.issues) throw contentInvalid(name, id, path, validated.issues)
       // Fields are stored in definition order, then other keys, so the same values give the same bytes from any writer.
       const text = renderDocumentFile(inFieldOrder(frontmatter), body, format)
-      // Read the stored text back so `body` matches what get() returns.
+      // Read the stored text back so `body` and `data` match what get() returns.
       const stored = parseDocumentFile(text, format)
-      const storedBody = "issues" in stored ? body : stored.body
+      if ("issues" in stored) throw contentInvalid(name, id, path, stored.issues)
+      const change = validated.issues
+        ? { text, digest: await sha256(text), data: stored.frontmatter, body: stored.body, issues: validated.issues }
+        : { text, digest: await sha256(text), data: validated.data, body: stored.body }
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, { text, digest: await sha256(text), data: validated.data, body: storedBody }, writeOptions, "save"))!
+      return (await commitDocument(id, path, change, writeOptions, "save"))!
     }
 
     async function remove(id: string, writeOptions: ContentWriteOptions = {}): Promise<void> {
@@ -971,9 +1001,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (!opened.files.has(path)) throw contentNotFound(name, id)
       const text = await readText(opened, path)
       const parsed = await parseText(text)
-      if (parsed.issues) throw contentInvalid(name, id, path, parsed.issues)
+      // An earlier version with invalid fields restores as a draft in progress; a file that cannot be parsed does not.
+      if (parsed.malformed) throw contentInvalid(name, id, path, parsed.issues)
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body }, writeOptions, "restore"))!
+      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body, issues: parsed.issues }, writeOptions, "restore"))!
     }
 
     function status(id: string): Promise<ContentDocumentStatus | null>
@@ -983,6 +1014,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const [draft, published, scheduled] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules()])
       const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
+      // Issue counts of the drafts, from the parse cache that list() shares.
+      const issueCounts = new Map<string, number>()
+      const counted = id === undefined ? [...draftEntries] : draftEntries.has(id) ? [[id, draftEntries.get(id)!] as const] : []
+      await mapLimit(counted, 8, async ([documentId, entry]) => {
+        const parsed = await parseEntry(draft.opened!, entry)
+        if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
+      })
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
@@ -991,6 +1029,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           ? "deleted"
           : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
         const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const issues = issueCounts.get(documentId)
+        if (issues) status.issues = issues
         const schedule = scheduled.get(contentScheduleKey(name, documentId))
         if (schedule) status.schedule = schedule
         return status
@@ -1181,6 +1221,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const put: Record<string, Uint8Array> = {}
       const remove: string[] = []
       const documents: ContentPublishedDocument[] = []
+      const invalid: ContentInvalidDocument[] = []
       for (const { collection, id, path } of targets) {
         const draftDigest = draft.files.get(path)
         const publishedDigest = published?.files.get(path)
@@ -1194,10 +1235,15 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const bytes = await draft.view.readFile(path, { encoding: "binary" })
         // A file written before the validation hook was installed must not reach `published`.
         const parsed = await collection.parseText(new TextDecoder().decode(bytes))
-        if (parsed.issues) throw contentInvalid(collection.name, id, path, parsed.issues)
+        if (parsed.issues) {
+          invalid.push({ collection: collection.name, id, path, issues: parsed.issues })
+          continue
+        }
         put[path] = bytes
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
       }
+      // A draft in progress never reaches `published`. Every invalid document is named, and nothing is published.
+      if (invalid.length) throw contentInvalidDocuments("publish", invalid)
       if (!documents.length) return { revision: null, documents: [] }
       const release = await acquireMutation()
       try {
@@ -1339,6 +1385,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       })
     },
     mismatch: mismatchError,
+    validate: async (expect: readonly ContentScheduledDocument[]) => {
+      const draft = await refState("draft")
+      const invalid: ContentInvalidDocument[] = []
+      for (const { collection: name, id } of expect) {
+        const collection = requireCollection(name)
+        const path = collection.pathFor(id)
+        const digest = draft.opened?.files.get(path)
+        if (!draft.opened || digest === undefined) continue
+        const parsed = await collection.parseText(await readText(draft.opened, path))
+        if (parsed.issues) invalid.push({ collection: name, id, path, issues: parsed.issues })
+      }
+      if (invalid.length) throw contentInvalidDocuments("schedule", invalid)
+    },
     publish: async (scheduled, beforeCommit) => await publish({
       expect: scheduled.expect,
       ...(scheduled.message === undefined ? {} : { message: scheduled.message }),

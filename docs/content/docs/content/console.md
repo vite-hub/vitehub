@@ -63,7 +63,7 @@ A field without a Standard JSON Schema, such as a Valibot validator, has the sch
 
 Each save sends the digest of the version the editor opened. When someone else saved the document in the meantime, Content returns `WORKSPACE_CONFLICT`. Saving pauses, the header reads **Not saved · newer version**, and a toast offers **Compare**. The comparison shows both versions: choose **Overwrite with mine** to save over the version you just compared, or **Load theirs**. **Keep editing** closes it and keeps your changes in the editor, still unsaved.
 
-When a field does not validate, Content returns `CONTENT_INVALID` with one issue per field. The editor shows each message next to its field and saves nothing. A save that runs on its own never moves focus; the header links to the first invalid field.
+When a field does not validate, the draft still saves, so nothing you type is lost. The editor shows each message next to its field, and the header links to the first one. **Publish** stays off with "Fix 2 fields to publish" until the fields validate. The list and the dashboard mark such drafts with their issue count, and **Publish all** leaves them out.
 
 ## Editing together
 
@@ -135,7 +135,7 @@ Every publish names the documents and the draft digests that the editor showed, 
 
 When someone saved one of those drafts after it loaded, Content publishes nothing and returns `WORKSPACE_CONFLICT` with the documents that changed. The list names them: choose **Refresh** to load the latest drafts, review them, and publish again. The document editor loads the newer draft for you.
 
-When a draft no longer validates, for example after a field changed in `server/content.ts`, publishing returns `CONTENT_INVALID` for that document and publishes nothing. The list names the document, and the editor highlights its fields. Fix them, save, and publish again.
+When a draft does not validate, for example after a field changed in `server/content.ts`, publishing returns `CONTENT_INVALID` for that document and publishes nothing. The list names the document, and the editor highlights its fields. Fix them, save, and publish again.
 
 ## Give editors only the Content section
 

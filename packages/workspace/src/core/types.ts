@@ -70,6 +70,8 @@ export interface WorkspaceWriteInput {
   workspace: string
   operation: WorkspaceWriteOperation
   path: string
+  /** The history ref of a history commit, such as `draft`. Undefined for writes to the working tree. */
+  ref?: string
   content?: WorkspaceContent
   mediaType?: string
   metadata?: Record<string, unknown>
