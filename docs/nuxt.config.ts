@@ -114,7 +114,7 @@ export default defineNuxtConfig({
     build: {
       rolldownOptions: {
         // Shiki loads this binary at runtime; Rolldown otherwise parses it as an ES module.
-        external: [/node_modules[\\/]shiki[\\/]dist[\\/]onig\\.wasm$/],
+        external: ["shiki/dist/onig.wasm", /(?:^|[/\\])shiki[/\\]dist[/\\]onig\.wasm$/],
       },
     },
     resolve: {
