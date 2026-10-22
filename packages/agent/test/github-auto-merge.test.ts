@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { createGitHubPullRequestOperations, type GitHubPullRequestOperationsOptions } from "../src/server/github-auto-merge.ts"
 
-import { repairCapability } from "../src/presets/babysitter/repair.ts"
+import { repairCapability } from "../../presets/src/babysitter/repair.ts"
 import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { githubError, githubForge, type GitHubTestRequest } from "./fixtures/github-forge.ts"
 
