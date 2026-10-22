@@ -38,8 +38,20 @@ export class ConsoleRequestError extends Diagnostic {
   /** JSON details of an owner action failure, such as per-field issues. */
   readonly details?: Record<string, unknown>
 
-  constructor(status: number, message = `Console request failed with status ${status}.`, failure: { code?: string, details?: Record<string, unknown> } = {}) {
-    super({ code: "VITE_HUB_R0110", docs: "https://vitehub.dev/docs/reference/diagnostics", why: message }, ConsoleRequestError)
+  /**
+   * `fields` is the diagnostic body, or only its message. `failure` carries the code and JSON details of an owner
+   * action failure, which forms read to show field issues and conflicts.
+   */
+  constructor(status: number, fields: ConsoleErrorFields | string = {}, failure: { code?: string, details?: Record<string, unknown> } = {}) {
+    const body: ConsoleErrorFields = fields instanceof Object ? fields : { message: fields }
+    const code = body.code || failure.code || consoleStatusDiagnosticCode(status)
+    const known = isConsoleDiagnosticCode(code) ? consoleDiagnostic(code, body.message) : undefined
+    super({
+      code,
+      docs: body.docs || known?.docs,
+      fix: body.fix || known?.fix,
+      why: body.message?.trim() || known?.message || `Console request failed with status ${status}.`,
+    }, ConsoleRequestError)
     this.name = "ConsoleRequestError"
     this.status = status
     if (failure.code !== undefined) this.failureCode = failure.code
@@ -204,7 +216,7 @@ export async function requestConsole(
   const details = record(result?.details)
   if (details) failure.details = details
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  throw new ConsoleRequestError(status, typeof result?.message === "string" ? result.message : undefined, failure)
+  throw new ConsoleRequestError(status, consoleErrorFields(result), failure)
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
