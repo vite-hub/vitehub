@@ -25,6 +25,17 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorTiptapPeers: Readonly<Record<string, OptionalPeerUsage>> = {
+  "comark": "runtime",
+  "comark-tiptap": "both",
+  "@tiptap/core": "both",
+  "@tiptap/extension-code-block": "runtime",
+  "@tiptap/extension-image": "runtime",
+  "@tiptap/extension-table": "runtime",
+  "@tiptap/pm": "runtime",
+  "@tiptap/starter-kit": "runtime",
+}
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
   ["@vite-hub/agent/cli", { "vite": "both" }],
@@ -40,10 +51,10 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
-  // The editor renders through comark-tiptap, which needs Tiptap at runtime and in its declarations.
-  ["@vite-hub/content/editor", { "comark": "runtime", "comark-tiptap": "both", "@tiptap/core": "both", "@vite-hub/realtime": "declaration" }],
+  // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.
+  ["@vite-hub/content/editor", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
-  ["@vite-hub/content/realtime", { "comark": "runtime", "comark-tiptap": "both", "@tiptap/core": "both", "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
+  ["@vite-hub/content/realtime", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
   ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
