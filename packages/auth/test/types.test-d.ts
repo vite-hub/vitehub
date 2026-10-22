@@ -1,3 +1,4 @@
+import { admin } from "better-auth/plugins"
 import type { UserConfig } from "vite"
 import handleVirtualAuth, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
@@ -14,6 +15,7 @@ import {
   type AuthAuthorization,
   type AuthDefinition,
   type AuthDefinitionResolver,
+  type AuthFor,
   type AuthModuleOptions,
   type AuthRequest,
   type AuthReservedOption,
@@ -21,11 +23,14 @@ import {
   type AuthRuntimeContext,
   type AuthRuntimeEnv,
   type AuthRuntimeOptions,
+  type RegisteredAuth,
   type ResolvedAuthDatabaseConfiguration,
+  type ViteHubAuth,
 } from "../src/index.ts"
 import {
   auth,
   createAuthForRequest,
+  getAuthForDefinition,
   handleAuthRequest,
   withAuth,
   withAuthorization,
@@ -192,6 +197,26 @@ describe("types", () => {
 
   it("marks every ViteHub-owned Auth Definition field as reserved", () => {
     expectTypeOf<"access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
+  })
+
+  it("types the Better Auth instance with the plugins of its Auth Definition", () => {
+    const definition = defineAuth({ appName: "ViteHub", plugins: [admin()] })
+    expectTypeOf(getAuthForDefinition(definition)).toEqualTypeOf<AuthFor<typeof definition>>()
+    expectTypeOf(getAuthForDefinition(definition).api.listUsers).toBeFunction()
+    expectTypeOf<ViteHubAuth["api"]>().not.toHaveProperty("listUsers")
+
+    const resolved = defineAuth(() => ({ appName: "ViteHub", plugins: [admin()] }))
+    expectTypeOf(getAuthForDefinition(resolved).api.banUser).toBeFunction()
+  })
+
+  it("types the app's Auth instance from the generated Auth registry", () => {
+    const definition = defineAuth({ appName: "ViteHub", plugins: [admin()] })
+    expectTypeOf<RegisteredAuth<{ definition: typeof definition }>>().toEqualTypeOf<AuthFor<typeof definition>>()
+    expectTypeOf<RegisteredAuth<{ definition: typeof definition }>["api"]["listUsers"]>().toBeFunction()
+    expectTypeOf<RegisteredAuth<{}>>().toEqualTypeOf<ViteHubAuth>()
+    expectTypeOf(authServer.getAuthForRequest).returns.toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
+    expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
   })
 
   it("rejects runtime-only and raw storage options in definitions", () => {

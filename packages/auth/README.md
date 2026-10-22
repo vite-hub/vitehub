@@ -246,7 +246,7 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 
 ## Production checks
 
-- Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces.
+- Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth uses `deriveSecret("vitehub:auth")` from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`).
 - Set request-aware `baseURL` or use `requestOrigin` so callback and cookie origins match the deployed host.
 - Configure a concrete Better Auth database adapter and migrations. ViteHub `database` and `secondaryStorage` fields are placement metadata, not adapters.
 - Protect application and Console page/API routes explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.

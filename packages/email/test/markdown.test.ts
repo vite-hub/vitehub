@@ -39,6 +39,12 @@ describe("renderEmailMarkdown", () => {
     })
   })
 
+  it("rejects a binding used as the link destination", async () => {
+    await expect(renderEmailMarkdown("[Open and share your visual recap]({{ data.url }})", {
+      data: { url: "https://prs.onmax.me/recap/2026-09" },
+    })).rejects.toThrow("Use [label](){:href=\"data.url\"}.")
+  })
+
   it("rejects a scalar link destination whose meaning would change", async () => {
     await expect(renderEmailMarkdown("[Open recap](){:href=\"data.url\"}", {
       data: { url: "https://example.com/?x=&#x29;*Injected*" },

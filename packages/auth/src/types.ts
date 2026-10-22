@@ -4,6 +4,8 @@ import type { Auth, BetterAuthOptions } from "better-auth"
 declare global {
   namespace ViteHub {
     interface AuthRuntimeEnv extends Record<string, unknown> {}
+    /** Generated declarations set `definition` to the type of the app's Auth Definition. */
+    interface AuthRegistry {}
   }
 }
 
@@ -160,4 +162,13 @@ export interface AuthNodeRequestEvent {
 }
 export type AuthRequestInput = AuthRequest | { req: AuthRequest } | AuthNodeRequestEvent
 export type ViteHubAuth<Options extends BetterAuthOptions = BetterAuthOptions> = Auth<Options>
+/** The Better Auth instance of an Auth Definition, with the endpoints and fields of its plugins. */
+export type AuthFor<TDefinition extends AuthDefinition> = ViteHubAuth<Extract<Omit<
+  TDefinition["options"] extends AuthDefinitionResolver<infer TResolved> ? TResolved : TDefinition["options"],
+  AuthReservedOption
+>, BetterAuthOptions>>
+/** The Better Auth instance of the app's discovered Auth Definition. Without generated types, the plain instance. */
+export type RegisteredAuth<TRegistry = ViteHub.AuthRegistry> = TRegistry extends { definition: infer TDefinition extends AuthDefinition }
+  ? AuthFor<TDefinition>
+  : ViteHubAuth
 export type AuthModuleOptions = false | Record<string, never>
