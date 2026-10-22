@@ -114,6 +114,8 @@ describe("scheduled publishing", { timeout: 30_000 }, () => {
     const { revisions } = await history.list({ ref: contentSchedulesRef })
     expect(revisions.map(revision => revision.metadata?.content)).toMatchObject([
       { action: "schedule-published", schedule: schedule.id, revision: published!.id },
+      // A run claims the schedule before it publishes, so overlapping runs settle it once.
+      { action: "schedule-claimed", schedule: schedule.id },
       { action: "schedule", schedule: schedule.id, at: schedule.at, documents: [{ collection: "posts", id: "hello" }] },
     ])
     // A second run finds nothing due.

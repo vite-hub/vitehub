@@ -69,7 +69,8 @@ import { drizzle } from "drizzle-orm/libsql"
 import { z } from "zod"
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
 import { registerWorkspace } from "@vite-hub/workspace/test"
-import { defineContent, documents } from ${JSON.stringify(join(packages, "content/src/index.ts"))}
+import { defineContent } from ${JSON.stringify(join(packages, "content/src/index.ts"))}
+import { documents } from ${JSON.stringify(join(packages, "content/src/collections.ts"))}
 import { createBlobStorage } from ${JSON.stringify(join(packages, "blob/src/storage.ts"))}
 import { createDriver } from ${JSON.stringify(join(packages, "blob/src/drivers/fs.ts"))}
 

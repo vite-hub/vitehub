@@ -415,7 +415,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
         const renewed = `${Date.now()}:${previous.slice(previous.indexOf(":") + 1)}`
         void commit(({ entries }) => {
           const current = entries.get(stored.id)
-          if (!current || current.digest !== digest || current.stored.running !== previous) return
+          if (!current || current.stored.running !== previous) return
           return { put: { [path]: render({ ...current.stored, running: renewed }) }, message: `Renew schedule ${stored.id}`, metadata: { content: { action: "schedule-heartbeat", schedule: stored.id } } }
         }).then((ok) => {
           if (ok && publishing) {
@@ -442,7 +442,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
             errors.push(error)
             await commit(({ entries }) => {
               const current = entries.get(stored.id)
-              if (!current || current.digest !== digest || current.stored.running !== claim) return
+              if (!current || current.stored.running !== claim) return
               const { running: _running, ...unclaimed } = current.stored
               return { put: { [path]: render(unclaimed) }, message: `Release schedule ${stored.id}`, metadata: { content: { action: "schedule-released", schedule: stored.id } } }
             })
@@ -450,10 +450,11 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
           }
         }
         const failed: StoredSchedule | undefined = failure ? (({ running: _running, ...publicSchedule }) => ({ ...publicSchedule, failure }))(stored) : undefined
-        // Finish only the schedule this run read: a concurrent run or an unschedule() already settled any other version.
+        // Finish only the schedule this run claimed. The claim changed the file digest, so the claim token identifies it:
+        // a concurrent run or an unschedule() already settled any other version.
         const settled = await commit(({ entries }) => {
           const current = entries.get(stored.id)
-          if (!current || current.digest !== digest || current.stored.running !== claim) return
+          if (!current || current.stored.running !== claim) return
           const documents = stored.expect.map(({ collection, id }) => ({ collection, id }))
           return failed
             ? { put: { [path]: render(failed) }, message: `Schedule ${stored.id} failed: ${failed.failure!.code}`, metadata: { content: { action: "schedule-failed", schedule: stored.id, documents } } }

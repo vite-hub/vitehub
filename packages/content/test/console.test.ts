@@ -416,7 +416,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
     expect(listed.states).toEqual({ draft: 0, published: 1, changed: 0, deleted: 0 })
 
     const overview = await actions.overview({}, reader)
-    expect(overview.collections).toEqual([{ name: "posts", states: { draft: 0, published: 1, changed: 0, deleted: 0 }, changes: [] }])
+    expect(overview.collections).toEqual([{ name: "posts", states: { draft: 0, published: 1, changed: 0, deleted: 0 }, changes: [], scheduled: [] }])
     const named = overview.activity.flatMap(entry => entry.documents)
     expect(named.length).toBeGreaterThan(0)
     expect(named.map(document => document.id)).toEqual(named.map(() => "hello"))
@@ -469,7 +469,7 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
       { collection: "notes", id: "balanced", title: "Balanced", refs: ["draft"] },
       { collection: "notes", id: "escaped", title: "Escaped", refs: ["draft"] },
     ]))
-    expect(found.references["heroes/launch.jpg"]).toHaveLength(4)
+    expect(found.references["heroes/launch.jpg"]).toHaveLength(5)
     // Only collections the user may read.
     const scoped = await actions.references({ pathnames: ["heroes/launch.jpg"] }, writer)
     expect(scoped.references["heroes/launch.jpg"]!.map(reference => reference.collection)).toEqual(["posts", "posts"])
