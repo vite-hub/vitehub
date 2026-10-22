@@ -175,8 +175,12 @@ describe("generated readiness route", () => {
   it("makes the Workspace preparation route wait for the warm-up and generates no second route", async () => {
     const { read } = await generate({ preparation: { workspace: "docs" } })
     const preparation = await read("preparation-route.ts")
+    const preparationPlugin = await read("preparation-plugin.ts")
     expect(preparation).toContain("if (!webhookRoutesReadiness().ready) return webhookRoutesReadyResponse(method)")
     expect(preparation).toContain("return preparation.response(method)")
+    expect(preparationPlugin).toContain('import { onShutdown } from "@vite-hub/agent/server/internal"')
+    expect(preparationPlugin).toContain('onShutdown(nitroApp, "agent.preparation", () => preparation.stop())')
+    expect(preparationPlugin).not.toContain('nitroApp.hooks.hook("close"')
     await expect(read("ready-route.ts")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
