@@ -288,7 +288,7 @@ function frameworkDependencyResolver(
         (config as typeof config & { kv?: KVModuleOptions }).kv ?? presetKVOptions,
       )
     },
-    async resolveId(id, importer, resolveOptions) {
+    resolveId(id, importer, resolveOptions) {
       if (!blobEnabled && id === "@vite-hub/blob") {
         throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
       }
@@ -301,8 +301,9 @@ function frameworkDependencyResolver(
       if (!isGeneratedImporter(importer)) return
       const nitroFallbackImporter = getNitroFallbackImporter(id)
       if (nitroFallbackImporter) {
+        // Only this branch is asynchronous, so the other imports keep resolving, and throwing, synchronously.
         const options = { ...resolveOptions, skipSelf: true }
-        return await this.resolve(id, importer, options) ?? await this.resolve(id, nitroFallbackImporter, options)
+        return this.resolve(id, importer, options).then(resolved => resolved ?? this.resolve(id, nitroFallbackImporter, options))
       }
       const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
       const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
