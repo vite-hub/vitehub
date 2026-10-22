@@ -265,6 +265,7 @@ describe("framework package contract", () => {
     ).toEqual([
       ".",
       "./_internal/agent/invocations",
+      "./_internal/task/runtime/dev",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
       "./agent",
@@ -286,6 +287,7 @@ describe("framework package contract", () => {
       "./doctor",
       "./nuxt",
       "./source/vite",
+      "./task",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {
