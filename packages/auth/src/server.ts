@@ -63,6 +63,32 @@ interface RequestInitWithDuplex extends RequestInit {
   duplex?: "half"
 }
 
+function isAbortSignalLike(value: unknown): value is AbortSignal {
+  if (!value || (typeof value !== "object" && typeof value !== "function")) return false
+  try {
+    let prototype = Object.getPrototypeOf(value)
+    const seen = new Set<object>()
+    while (prototype && !seen.has(prototype)) {
+      seen.add(prototype)
+      const descriptor = Object.getOwnPropertyDescriptor(prototype, "aborted")
+      if (descriptor?.get) return typeof Reflect.apply(descriptor.get, value, []) === "boolean"
+      prototype = Object.getPrototypeOf(prototype)
+    }
+  }
+  catch { return false }
+  return false
+}
+
+type HeadersInput = ConstructorParameters<typeof Headers>[0]
+
+function headersInit(headers: AuthRequest["headers"]): HeadersInput {
+  const value: unknown = headers
+  if (typeof value !== "object" || value === null || typeof Reflect.get(value, Symbol.iterator) === "function") return headers as HeadersInput
+  const entries: unknown = Reflect.get(value, "entries")
+  if (typeof entries !== "function") return headers as HeadersInput
+  return Array.from(Reflect.apply(entries, value, []) as Iterable<[string, string]>)
+}
+
 function isRequestLike(value: AuthRequest): value is Request {
   try {
     const isBrandCheckError = (error: unknown): boolean => {
@@ -200,8 +226,8 @@ function toRequest(request: AuthRequest): Request {
   }
   // Preserve conversion failures instead of silently dropping authentication
   // headers such as cookies, authorization, or content type.
-  init.headers = new Headers(request.headers as ConstructorParameters<typeof Headers>[0])
-  if (request.signal instanceof AbortSignal) init.signal = request.signal
+  init.headers = new Headers(headersInit(request.headers))
+  if (isAbortSignalLike(request.signal)) init.signal = request.signal
   if (request.body) {
     init.body = request.body
     init.duplex = "half"
@@ -562,6 +588,16 @@ function hasNativePromiseBrand(value: object): boolean {
 
 function getDirectRuntimeResponse(value: Response): Response | undefined {
   try {
+    // A response created by this runtime is already safe to return as-is.
+    // This includes consumed bodies and instances with shadowed accessors;
+    // re-normalizing either case changes observable identity and body state.
+    if (value instanceof Response) {
+      if (Object.prototype.hasOwnProperty.call(value, "then")) {
+        try { return nativeResponseClone ? Reflect.apply(nativeResponseClone, value, []) : undefined }
+        catch { return }
+      }
+      return value
+    }
     if (!nativeResponseStatus || !nativeResponseBodyUsed || !nativeResponseHeaders || !nativeResponseBody || !nativeResponseStatusText) return
     if (Reflect.apply(nativeResponseBodyUsed, value, [])) return
     const body = Reflect.apply(nativeResponseBody, value, [])
