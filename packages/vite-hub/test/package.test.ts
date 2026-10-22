@@ -268,6 +268,7 @@ describe("framework package contract", () => {
       "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
+      "./_internal/task/runtime/dev",
       "./agent",
       "./agent/capabilities",
       "./agent/invocations/database",
@@ -288,6 +289,7 @@ describe("framework package contract", () => {
       "./doctor",
       "./nuxt",
       "./source/vite",
+      "./task",
     ]);
 
     for (const { subpath, targets } of manifestForwarders) {

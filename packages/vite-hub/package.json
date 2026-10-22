@@ -219,6 +219,12 @@
       "require": "./dist/_internal/schedule/runtime/static.js",
       "default": "./dist/_internal/schedule/runtime/static.js"
     },
+    "./_internal/task/runtime/dev": {
+      "types": "./dist/_internal/task/runtime/dev.d.ts",
+      "import": "./dist/_internal/task/runtime/dev.js",
+      "require": "./dist/_internal/task/runtime/dev.js",
+      "default": "./dist/_internal/task/runtime/dev.js"
+    },
     "./_internal/workflow": {
       "types": "./dist/_internal/workflow.d.ts",
       "import": "./dist/_internal/workflow.js",
@@ -782,6 +788,12 @@
       "import": "./dist/shell/workspace.js",
       "require": "./dist/shell/workspace.js",
       "default": "./dist/shell/workspace.js"
+    },
+    "./task": {
+      "types": "./dist/task.d.ts",
+      "import": "./dist/task.js",
+      "require": "./dist/task.js",
+      "default": "./dist/task.js"
     },
     "./source": {
       "types": "./dist/source.d.ts",

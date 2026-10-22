@@ -58,19 +58,6 @@ const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "host-man
 const objectToString = Object.prototype.toString
 const invalidAuthorizationResponse = Symbol("invalid authorization response")
 
-function isRuntimeResponse(value: ConsoleAccess | Response): value is Response {
-  if (!(value instanceof Response)) return false
-  try {
-    // `instanceof` also accepts proxies. The native accessor requires the
-    // Fetch internal slots while leaving the body untouched.
-    Object.getOwnPropertyDescriptor(Response.prototype, "status")!.get!.call(value)
-    return true
-  }
-  catch {
-    return false
-  }
-}
-
 async function authorizationResponse(value: unknown): Promise<Response | typeof invalidAuthorizationResponse | undefined> {
   try {
     if (value instanceof Response) {
@@ -553,13 +540,21 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
         : "Cloudflare Access Console Auth is not configured.")
     }
     const response = await policy.check(event)
-    if (response) return response
+    const normalizedResponse = await authorizationResponse(response)
+    if (normalizedResponse === invalidAuthorizationResponse) {
+      return rejection(500, "CONSOLE_REQUEST_FAILED", "Console access returned an invalid Response.")
+    }
+    if (normalizedResponse) return normalizedResponse
     if (policy.user && (options.user || policy.authorize)) user = await policy.user(event)
   }
   let sections: ConsoleAccess["sections"] = "all"
   if (policy.mode !== "local" && policy.authorize) {
     const result: unknown = await policy.authorize(user ? { request: consoleRequest(event), user } : { request: consoleRequest(event) })
-    if (isRuntimeResponse(result)) return result
+    const normalizedResult = await authorizationResponse(result)
+    if (normalizedResult === invalidAuthorizationResponse) {
+      return rejection(500, "CONSOLE_REQUEST_FAILED", "console.authorize returned an invalid Response.")
+    }
+    if (normalizedResult) return normalizedResult
     if (result === false) return rejection(403, "CONSOLE_ACCESS_DENIED")
     if (result !== true) {
       const allowed = authorizedSections(result)

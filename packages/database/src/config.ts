@@ -210,6 +210,24 @@ function readStringExpression(expression: Expression | undefined): string | unde
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
+function resolveObjectLiteral(value: Expression | undefined, file: string): ObjectExpression | undefined {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  const seen = new Set<string>()
+  let expression = value && unwrapExpression(value)
+  while (expression?.type === "Identifier" && expression.name !== "undefined" && !seen.has(expression.name)) {
+    seen.add(expression.name)
+    expression = readModuleDeclaration(module, expression.name)
+  }
+  return objectLiteral(expression)
+}
+
+/** Whether a Database Definition's source sets `cloudflare.readReplication`. Undefined when it does not set it as a literal. */
+export function readDatabaseDefinitionReadReplication(file: string): boolean | undefined {
+  const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "cloudflare"), file)
+  const expression = readObjectPropertyValue(body, "readReplication")
+  return expression?.type === "Literal" && typeof expression.value === "boolean" ? expression.value : undefined
+}
+
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
 function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
@@ -409,6 +427,7 @@ function readStaticStringReference(module: ScannedModule, expression: Expression
 
 interface DefinitionCloudflareConfig {
   resource: DefinitionCloudflareResource
+  readReplication?: "opaque"
   /** The Definition sets `cloudflare` to something other than `undefined`. */
   configured: boolean
   /** For an opaque value: whether it sets its own D1 resource. Undefined when the source cannot tell. */
@@ -447,7 +466,12 @@ function readDefinitionCloudflareConfig(file: string): DefinitionCloudflareConfi
     const ownsOpaqueResource = readOpaqueResourceOwnership(module, expression)
     const opaqueHttpOnly = readOpaqueHttpOnly(module, expression)
     const opaqueBinding = readStaticStringReference(module, readOpaquePropertyExpression(module, expression, "binding"))
-    const opaque = { resource, ownsOpaqueResource, opaqueHttpOnly, ...(opaqueBinding ? { opaqueBinding } : {}) }
+    const opaqueReadReplication = readOpaquePropertyExpression(module, expression, "readReplication")
+    const opaqueReadReplicationProjection = opaqueReadReplication !== undefined
+      && !(opaqueReadReplication.type === "Literal" && typeof opaqueReadReplication.value === "boolean")
+      ? "opaque" as const
+      : undefined
+    const opaque = { resource, ownsOpaqueResource, opaqueHttpOnly, ...(opaqueBinding ? { opaqueBinding } : {}), ...(opaqueReadReplicationProjection ? { readReplication: opaqueReadReplicationProjection } : {}) }
     return cloudflareEntries.length && !isUndefinedIdentifier(expression)
       ? { ...opaque, configured: true, value: {} }
       : { ...opaque, configured: false }
@@ -468,18 +492,27 @@ function readDefinitionCloudflareConfig(file: string): DefinitionCloudflareConfi
           url: readConfigValue(httpBody, "url"),
         } satisfies CloudflareD1HttpConfig
       : undefined
+  const readReplicationExpression = property("readReplication")
   const value: CloudflareD1BindingConfig = {
     binding: readStringExpression(property("binding")),
     databaseId: readConfigExpression(property("databaseId")),
     databaseName: readConfigExpression(property("databaseName")),
     migrationsTable: readStringExpression(property("migrationsTable")),
     previewDatabaseId: readConfigExpression(property("previewDatabaseId")),
+    readReplication: readReplicationExpression?.type === "Literal" && typeof readReplicationExpression.value === "boolean"
+      ? readReplicationExpression.value
+      : undefined,
   }
+  const readReplicationProjection = readReplicationExpression !== undefined
+    && !(readReplicationExpression.type === "Literal" && typeof readReplicationExpression.value === "boolean")
+    ? "opaque" as const
+    : undefined
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
     resource,
     configured,
     ownsOpaqueResource: false,
+    ...(readReplicationProjection ? { readReplication: readReplicationProjection } : {}),
     ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
   }
 }
@@ -777,6 +810,7 @@ function normalizeCloudflareConfig(
     ...(typeof value.http !== "undefined" ? { http: value.http } : {}),
     ...(typeof value.previewDatabaseId !== "undefined" ? { previewDatabaseId: value.previewDatabaseId } : {}),
     ...(typeof value.databaseName !== "undefined" ? { databaseName: value.databaseName } : {}),
+    ...(typeof value.readReplication === "boolean" ? { readReplication: value.readReplication } : {}),
     migrationsDir,
     ...(typeof value.migrationsTable === "string" && value.migrationsTable.trim() ? { migrationsTable: value.migrationsTable.trim() } : {}),
   }
@@ -877,7 +911,10 @@ export function resolveDBViteConfig(
     }
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
     definitionCloudflareByName.set(definition.name, definitionCloudflare)
-    const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
+    const projection: CloudflareD1Projection = {
+      resource: definitionCloudflare.resource,
+      ...(definitionCloudflare.readReplication ? { readReplication: definitionCloudflare.readReplication } : {}),
+    }
     cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
     if (cloudflare) {

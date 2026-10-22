@@ -513,6 +513,7 @@ function resolveDatabaseViteOptions(options: ResolvedDatabaseNuxtIntegrationOpti
     viteOptions.local = options.local
     viteOptions.migrationsTable = options.migrationsTable
     viteOptions.previewDatabaseId = options.previewDatabaseId
+    viteOptions.readReplication = options.readReplication
   }
   return Object.keys(viteOptions).length ? viteOptions : undefined
 }
@@ -607,11 +608,11 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
   config.rollupConfig = rollupConfig
   await writeFileIfChanged(resolve(root, generatedNitroDatabaseMiddleware), [
     "import { env as vitehubEnv } from 'cloudflare:workers'",
-    "import { runWithActiveCloudflareEnv, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
+    "import { runWithActiveCloudflareEnv, runWithDatabaseRequest, setActiveCloudflareEnv } from '@vite-hub/database/runtime/state'",
     "",
     "const nativeEnv = (globalThis as typeof globalThis & { __env__?: Record<string, unknown> }).__env__ ?? vitehubEnv",
     "",
-    "// h3 v2 passes next(). Running it inside the env scope gives each request its own database clients.",
+    "// h3 v2 passes next(). Running it inside the env scope gives each request its own database clients and D1 sessions.",
     "export default (event: unknown, next?: () => unknown) => {",
     "  const target = event as { env?: Record<string, unknown>, context?: { cloudflare?: { env?: Record<string, unknown> }, _platform?: { cloudflare?: { env?: Record<string, unknown> } } }, req?: { runtime?: { cloudflare?: { env?: Record<string, unknown> } } } }",
     "  const mergedEnv = Object.assign({}, nativeEnv, target.req?.runtime?.cloudflare?.env, target.context?._platform?.cloudflare?.env, target.context?.cloudflare?.env, target.env)",
@@ -620,7 +621,7 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
     "  }",
     "  const env = new Proxy(mergedEnv, { get: (target, property, receiver) => Reflect.has(target, property) ? Reflect.get(target, property, receiver) : undefined })",
     "  setActiveCloudflareEnv(env)",
-    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, next)",
+    "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "}",
     "",
   ].join("\n"))

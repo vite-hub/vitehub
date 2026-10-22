@@ -3,6 +3,7 @@ import { drizzle as drizzleD1 } from "drizzle-orm/d1"
 
 import { resolveConfigValue } from "../config-value.ts"
 import { createCloudflareD1HttpResolver } from "./d1-http.ts"
+import { useD1Session } from "./d1-sessions.ts"
 
 import type { RuntimeDrizzleDatabase, RuntimeDrizzleDatabaseConfig } from "../types.ts"
 import { databaseErrorDiagnostics } from "../error-diagnostics.ts"
@@ -18,6 +19,7 @@ interface D1PreparedStatement {
 interface D1DatabaseLike {
   batch: (statements: unknown[]) => Promise<Array<{ results: Record<string, unknown>[] }>>
   prepare: (query: string) => D1PreparedStatement
+  withSession?: (constraint: string) => D1DatabaseLike & { getBookmark: () => string | null }
 }
 
 interface LibsqlClientFactory {
@@ -46,6 +48,7 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
   schema: TSchema,
   options: DrizzleSqliteAdapterOptions,
 ) {
+  // By binding, or by D1 session with read replication.
   const d1Instances = new WeakMap<D1DatabaseLike, RuntimeDrizzleDatabase<TSchema>>()
   const getD1HttpDb = createCloudflareD1HttpResolver(config, schema)
   let libsqlInstance: RuntimeDrizzleDatabase<TSchema> | undefined
@@ -60,16 +63,17 @@ export function createDrizzleSqliteAdapter<TSchema extends Record<string, unknow
       : undefined
 
     if (d1Binding) {
-      const cached = d1Instances.get(d1Binding)
+      const client = (config.cloudflare?.readReplication && bindingName ? useD1Session(bindingName, d1Binding) : undefined) ?? d1Binding
+      const cached = d1Instances.get(client)
       if (cached) {
         return cached
       }
 
-      const instance = drizzleD1(d1Binding, {
+      const instance = drizzleD1(client, {
         casing: config.drizzle.casing,
         schema,
       }) as RuntimeDrizzleDatabase<TSchema>
-      d1Instances.set(d1Binding, instance)
+      d1Instances.set(client, instance)
       return instance
     }
 
