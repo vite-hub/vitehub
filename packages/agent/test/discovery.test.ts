@@ -1168,6 +1168,53 @@ describe("agent chat capability discovery", () => {
     expect(response.body).toBe("Agent Invocation Stream timed out after 1ms.")
   })
 
+  it("keeps a nested TimeoutError from a Capability CLI command as its own failure", async () => {
+    const root = await createTempRoot("vitehub-agent-invocation-stream-cli-nested-timeout-")
+    await mkdir(join(root, "server", "agents"), { recursive: true })
+    await writeFile(join(root, "server", "agents", "chat.ts"), "export default {}", "utf8")
+
+    const { defineAgent, defineCapability } = await import("../src/index.ts")
+    const { agentInvocationStreamHeader, agentInvocationStreamHeaderValue, agentInvocationStreamRoute } = await import("../src/invocation-stream.ts")
+    const agent = defineAgent({
+      capabilities: [
+        defineCapability({
+          cli: {
+            commands: {
+              nested: {
+                run: () => {
+                  throw new DOMException("MCP call timed out.", "TimeoutError")
+                },
+              },
+            },
+            name: "inventory",
+          },
+          id: "inventory-runtime",
+        }),
+      ],
+      driver: { run: () => "chat fallback" },
+    })
+    const { handlers, server } = createFakeServer(root, { default: agent })
+    const plugin = (await import("../src/vite.ts")).hubAgent()
+
+    await configurePluginServer(plugin, server)
+
+    const response = await invokeMiddleware(handlers, {
+      agent: "chat",
+      cli: {
+        argv: ["nested"],
+        name: "inventory",
+      },
+      timeout: 60_000,
+    }, agentInvocationStreamRoute, {
+      "content-type": "application/json",
+      [agentInvocationStreamHeader]: agentInvocationStreamHeaderValue,
+      ...await devLoopTokenHeaders(root),
+    })
+
+    expect(response.statusCode).not.toBe(504)
+    expect(response.body).not.toContain("Agent Invocation Stream timed out")
+  })
+
   it("normalizes Agent Invocation Stream usage before serializing endpoint events", async () => {
     const root = await createTempRoot("vitehub-agent-invocation-stream-usage-")
     await mkdir(join(root, "server", "agents"), { recursive: true })
