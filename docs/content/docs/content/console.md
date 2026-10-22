@@ -65,6 +65,21 @@ Each save sends the digest of the version the editor opened. When someone else s
 
 When a field does not validate, Content returns `CONTENT_INVALID` with one issue per field. The editor shows each message next to its field and saves nothing. A save that runs on its own never moves focus; the header links to the first invalid field.
 
+## Editing together
+
+The Console shows who else has a document open and gives one tab at a time the [edit lease](/docs/content/editing-together). It needs `contentSessionsSchema` in the Database of the Workspace history.
+
+- **Avatars.** The editor header shows up to three people, then `+N`. Hover one for `Ana · Editing` or `Ana · Viewing`. List rows show one small avatar, such as `Ana is editing`, and the dashboard lists documents under **Open now**.
+- **First edit.** Opening a document does not lock it. The first keystroke claims the lease, and the edit stays on screen while the claim answers. Saving starts once this tab holds it.
+- **Someone else is editing.** The dialog says `Ana is editing this page`, with **Open read-only** and **Take over**. <kbd>Esc</kbd> opens it read-only. People without write access never see **Take over**.
+- **Read-only.** A line above the title says `Read-only · Ana is editing`, with **Take over**. When Ana leaves, it says `Ana stopped editing`, with **Reload and edit**.
+- **Taken over.** The former editor sees `Ben took over · Your changes up to 10:42 are saved`, with **Compare** and **Take back**. Edits that could not save show as `1 edit wasn't saved`, with **Copy**.
+- **Another tab of yours.** A second tab says `You're editing this in another tab` and offers the same choices.
+- **Updates.** A page without unsaved edits reloads when someone else saves it. A page with unsaved edits keeps them, and the next save shows the comparison.
+- **Unreachable.** When the Console cannot check sessions, the header says `Can't check who else is editing` and the page stays editable. Saves still refuse to overwrite a newer version.
+
+The editor reports every 15 seconds while the tab is visible and every 60 seconds while it is hidden. After 15 minutes without input the tab views again and frees the lease; the next keystroke claims it again if it is free. Closing the tab releases the lease at once.
+
 ## The body round-trips
 
 The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`.

@@ -536,6 +536,11 @@ export interface ViteHubConsoleDocumentPresence {
   sessions: ViteHubConsoleDocumentSession[]
   /** The owner clock, as an ISO timestamp. */
   now: string
+  /**
+   * The draft digest of the document now, or null when the draft has none. The editor reloads a clean page when it
+   * differs from the version on screen. Absent after `release`, or when sessions are unavailable.
+   */
+  digest?: string | null
 }
 
 /** Every open tab in collections the user may read, for list rows and the dashboard. */

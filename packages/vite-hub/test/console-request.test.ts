@@ -75,6 +75,12 @@ describe("Console requests", () => {
     })
   })
 
+  it("lets a release outlive the page with keepalive", async () => {
+    mocks.call.mockResolvedValueOnce({ ok: true, value: null })
+    await requestConsole("/api/_vitehub/console/documents", { body: { action: "release" }, keepalive: true, method: "POST" })
+    expect(fetchMock.mock.calls.at(-1)?.[1]).toMatchObject({ keepalive: true, method: "POST" })
+  })
+
   it("keeps an application mount that contains the Console API marker", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
 
