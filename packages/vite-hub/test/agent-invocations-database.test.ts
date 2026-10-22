@@ -139,4 +139,19 @@ describe("createDatabaseAgentInvocationStore", () => {
       await miniflare.dispose()
     }
   })
+
+  it("counts direct D1 batches in the request's database stats", async () => {
+    const batch = vi.fn(async () => [{ results: [{ vitehub_probe: 1 }] }])
+    const d1 = { batch, prepare: () => ({ bind: () => ({}) }) }
+    useDatabase.mockReturnValue({ db: { $client: d1, all: vi.fn(async () => []), batch: vi.fn() } })
+    const { createDatabaseAgentInvocationStore } = await import("../src/agent/invocations/database.ts")
+    const { runWithDatabaseRequestStats } = await import("@vite-hub/database/runtime/request-stats")
+    const set = vi.fn()
+    const store = createDatabaseAgentInvocationStore({ maxAge: false, maxRecords: false })
+
+    await runWithDatabaseRequestStats({ req: { context: { log: { set } } } }, () => store.get(input.id))
+
+    expect(batch).toHaveBeenCalled()
+    expect(set).toHaveBeenCalledWith({ database: expect.objectContaining({ calls: batch.mock.calls.length }) })
+  })
 })
