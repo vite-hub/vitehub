@@ -142,6 +142,8 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
   state.trap = "pending"
   const existing = new Map(signals.map(signal => [signal, new Set(runtime.listeners(signal))]))
   const serverListeners: [ShutdownSignal, (signal: ShutdownSignal) => unknown][] = []
+  let resolveSetup!: () => void
+  const setup = new Promise<void>(resolve => { resolveSetup = resolve })
   const stop = (signal: ShutdownSignal) => {
     if (state.status !== "running") return
     state.status = "draining"
@@ -150,6 +152,13 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     const names = [...state.entries].map(entry => entry.name)
     console.info("[vitehub]", JSON.stringify({ drainMs: drainBudget(runtime), drains: names, event: "shutdown.draining", signal, timestamp: new Date().toISOString() }))
     void (async () => {
+      // The host installs its stop listener on the next turn. Wait for that handoff
+      // before draining so an early signal cannot bypass the HTTP/Nitro close path.
+      await setup
+      if (!serverListeners.length) {
+        state.status = "running"
+        return
+      }
       const results = await runShutdownDrains(undefined, runtime)
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.drained", results, signal, timestamp: new Date().toISOString() }))
       // Hooks run in order, so a hook added now runs after every other close hook.
@@ -220,12 +229,14 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
     if (serverListeners.length) {
       state.trap = "installed"
       state.signals = true
+      resolveSetup()
       return
     }
     // No server handles stop signals here: development, prerender, serverless functions, or
     // a server with graceful shutdown turned off. Keep the default signal behavior.
     for (const signal of signals) runtime.off(signal, stop)
     state.trap = "skipped"
+    resolveSetup()
   }, 0)
 }
 
