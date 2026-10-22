@@ -60,6 +60,7 @@ const RESOLVED_DB_VIRTUAL_DATABASES_ID = `\0${DB_VIRTUAL_DATABASES_ID}`
 const RESOLVED_DB_VIRTUAL_DEFINITION_DEFAULTS_ID = `\0${DB_VIRTUAL_DEFINITION_DEFAULTS_ID}`
 const NITRO_MIGRATIONS_DIR = ".vitehub/database/migrations"
 const NITRO_REQUEST_SCOPE_MIDDLEWARE = ".vitehub/nitro/database/request-scope.mjs"
+const NITRO_REQUEST_STATS_MIDDLEWARE = ".vitehub/nitro/database/request-stats.mjs"
 const HOSTED_RUNTIME_DIR = ".vitehub/database"
 const DB_DRIZZLE_ENTRY_PATTERN = /(?:^|\/)(?:@vite-hub\/database|database)\/dist\/drizzle\.js$/
 
@@ -82,7 +83,7 @@ interface DBCliContributingPlugin {
 interface DatabaseNitroHost {
   hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
   options: {
-    cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown } }
+    cloudflare?: { wrangler?: { d1_databases?: unknown, hyperdrive?: unknown, compatibility_flags?: unknown } }
     handlers?: Array<{ handler: string, middleware?: boolean, route?: string }>
     output: { serverDir: string }
     preset?: string
@@ -165,6 +166,15 @@ function renderNitroRequestScopeMiddleware() {
     "  if (typeof next === 'function') return runWithActiveCloudflareEnv(env, () => runWithDatabaseRequest(event, next))",
     "  setActiveCloudflareEnv(env)",
     "}",
+    "",
+  ].join("\n")
+}
+
+function renderNitroRequestStatsMiddleware() {
+  return [
+    `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(computePackageDir(import.meta.url), "runtime/request-stats"))}`,
+    "",
+    "export default (event, next) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",
   ].join("\n")
 }
@@ -317,6 +327,22 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
     if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
   }
 
+  // Each request's database calls go on its evlog wide event (`database`), whatever the host.
+  function installNitroRequestStats() {
+    if (!nitroOptions || !runtimeConfig) return
+    const handler = resolve(databaseRoot(), NITRO_REQUEST_STATS_MIDDLEWARE)
+    if (getHostingProvider(nitroOptions.preset) === "cloudflare") {
+      const wrangler = (nitroOptions.cloudflare ??= {}).wrangler ??= {}
+      const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+      if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
+      wrangler.compatibility_flags = flags
+    }
+    mkdirSync(dirname(handler), { recursive: true })
+    writeFileSync(handler, renderNitroRequestStatsMiddleware())
+    const handlers = nitroOptions.handlers ??= []
+    if (!handlers.some(item => item.handler === handler)) handlers.unshift({ handler, middleware: true })
+  }
+
   async function copyNitroMigrations(serverDir: string) {
     if (!nitroMigrations.length) return
     await rm(resolve(serverDir, NITRO_MIGRATIONS_DIR), { force: true, recursive: true })
@@ -348,6 +374,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
         nitroOptions = nitro.options
         mergeNitroCloudflareD1Bindings()
         installNitroPostgresRequestScope()
+        installNitroRequestStats()
         nitro.hooks.hook("compiled", () => copyNitroMigrations(nitro.options.output.serverDir))
       },
     },
@@ -409,6 +436,7 @@ export function hubDb(options?: DBModulePublicOptions): DBVitePlugin {
       await refreshRuntimeConfig()
       mergeNitroCloudflareD1Bindings()
       installNitroPostgresRequestScope()
+      installNitroRequestStats()
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) {

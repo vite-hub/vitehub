@@ -135,6 +135,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/default-database",
   "@vite-hub/database/runtime/hosted",
   "@vite-hub/database/runtime/postgres",
+  "@vite-hub/database/runtime/request-stats",
   "@vite-hub/database/runtime/state",
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",

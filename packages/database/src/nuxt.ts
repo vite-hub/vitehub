@@ -33,6 +33,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 type ResolvedDatabaseNuxtIntegrationOptions = Exclude<DatabaseNuxtIntegrationOptions, false>
 const generatedNitroDatabaseMiddleware = ".vitehub/nitro/database/middleware.ts"
+const generatedNitroRequestStatsMiddleware = ".vitehub/nitro/database/request-stats.ts"
 const generatedNitroLocalDatabaseRuntime = "database/local-runtime.mjs"
 const generatedNitroMigrationsDir = ".vitehub/database/migrations"
 const databaseDefinitionDefaultsImport = "#vitehub/database/definition-defaults"
@@ -308,6 +309,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
           mergeNitroRuntimeContentConfig(config, d1)
           mergeNitroConfigCloudflareConfig(config, d1)
         }
+        await installNitroRequestStats(config, root, provider)
       })
     }
 
@@ -627,6 +629,29 @@ async function installNitroCloudflareEnvBridge(config: Record<string, unknown>, 
   ].join("\n"))
 }
 
+/** Each request's database calls go on its evlog wide event (`database`), on every host and in `nuxt dev`. */
+async function installNitroRequestStats(config: Record<string, unknown>, root: string, provider?: string) {
+  // Nitro's hook receives the resolved options object without Nuxt's preset. Use
+  // the provider resolved before the hook so incidental Cloudflare config on
+  // another preset cannot enable Cloudflare-only compatibility flags.
+  if (provider === "cloudflare") {
+    const cloudflare = ensureRecord(config, "cloudflare")
+    const wrangler = ensureRecord(cloudflare, "wrangler")
+    const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+    if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
+    wrangler.compatibility_flags = flags
+  }
+  const kit = createNitroServerKit(config)
+  kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
+  config.handlers = kit.config.handlers
+  await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
+    "import { runWithDatabaseRequestStats } from '@vite-hub/database/runtime/request-stats'",
+    "",
+    "export default (event: unknown, next?: () => unknown) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
+    "",
+  ].join("\n"))
+}
+
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string) {
   const modules = Array.isArray(config.modules) ? [...config.modules] : []
   modules.push((nitro: {
@@ -664,6 +689,9 @@ function mergeNitroCloudflareConfig(config: Record<string, unknown>, d1: Resolve
   const nitro = ensureRecord(config, "nitro")
   const cloudflare = ensureRecord(nitro, "cloudflare")
   const wrangler = ensureRecord(cloudflare, "wrangler")
+  const flags = Array.isArray(wrangler.compatibility_flags) ? [...wrangler.compatibility_flags] : []
+  if (!flags.includes("nodejs_als")) flags.push("nodejs_als")
+  wrangler.compatibility_flags = flags
   wrangler.d1_databases = mergeCloudflareD1Bindings(wrangler.d1_databases, [d1.d1Database])
 }
 

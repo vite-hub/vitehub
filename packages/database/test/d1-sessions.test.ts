@@ -110,6 +110,17 @@ describe("D1 read replication", () => {
     expect(constraints).toEqual(["first-primary", "bookmark-1"])
   })
 
+  it("routes direct $client queries through the request's session", async () => {
+    const { binding, constraints, queries } = createReplicatedD1()
+    const db = createDb(true)
+    await inRequest(binding, createEvent("GET"), async () => {
+      const client = (db as unknown as { $client: ReturnType<typeof createReplicatedD1>["binding"] }).$client
+      await client.prepare("select 1").bind().all()
+    })
+    expect(constraints).toEqual(["first-unconstrained"])
+    expect(queries).toEqual(["session 1: select 1"])
+  })
+
   it("leaves Secure off over plain HTTP", async () => {
     const { binding } = createReplicatedD1()
     const db = createDb(true)
