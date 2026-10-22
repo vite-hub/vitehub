@@ -81,7 +81,7 @@ const collection = computed(() => collections.value.find(entry => entry.name ===
 const unknownPage = computed(() => (collectionName.value === consoleSectionPageSegment ? documentId.value ?? "" : undefined));
 const page = computed<ConsoleSectionPage | undefined>(() => {
   const id = route.meta.consolePage;
-  if (String(id) === id) return (props.details.pages ?? []).find(entry => entry.id === id);
+  if (String(id) === id) return pages.value.find(entry => entry.id === id);
   return collectionName.value ? undefined : indexPage.value;
 });
 const counts = computed(() => new Map((overview.value?.collections ?? []).map(entry => [entry.name, entry.states])));
