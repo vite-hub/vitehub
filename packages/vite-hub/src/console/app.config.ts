@@ -107,6 +107,38 @@ export const consoleAppConfig = {
       label: "text-xs font-medium text-muted",
     },
   },
+  // Body editor. The block handle follows the pointer at once, and the `/` menu, opened from the keyboard, appears
+  // without animation (Rauno Freiberg, Emil Kowalski). Item descriptions show the Markdown shortcut on the right.
+  editorDragHandle: {
+    slots: {
+      root: "transition-none",
+      handle: "px-0.5 text-dimmed hover:text-highlighted",
+    },
+  },
+  editorSuggestionMenu: {
+    defaultVariants: {
+      size: "md",
+    },
+    slots: {
+      content: "w-72 max-w-72 rounded-xl ring-0 bg-(color:--vitehub-console-floating) shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md data-[state=open]:animate-none data-[state=closed]:animate-none",
+      viewport: "divide-y-0",
+      group: "p-1.5",
+      label: "px-2 pt-1.5 pb-1 text-xs font-medium text-muted",
+      item: "h-8 items-center rounded-md px-2 text-[13px]",
+      itemWrapper: "flex-row items-center justify-between gap-3",
+      itemLabel: "truncate",
+      itemDescription: "shrink-0 font-mono text-xs text-dimmed",
+    },
+  },
+  editorToolbar: {
+    variants: {
+      layout: {
+        bubble: {
+          base: "rounded-lg border-0 bg-(color:--vitehub-console-floating) p-1 shadow-[0_0_0_1px_var(--ui-border),0_4px_8px_-4px_rgb(0_0_0/4%),0_16px_24px_-8px_rgb(0_0_0/8%)] backdrop-blur-md",
+        },
+      },
+    },
+  },
   empty: {
     slots: {
       root: "gap-3 p-5",

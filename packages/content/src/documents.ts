@@ -40,6 +40,29 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * the Markdown body.
    */
   search?: ReadonlyArray<keyof TFields & string | "body" | "id">
+  /**
+   * Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. Editors such as the Console
+   * offer them in their insert menu. Content still stores and returns the Markdown as written.
+   */
+  components?: Record<string, DocumentComponent>
+}
+
+/** One Comark component that document bodies may use. */
+export interface DocumentComponent {
+  /** `block` wraps Markdown between `::alert` and `::`. `inline` sits inside text, as in `:badge[New]`. Defaults to `block`. */
+  kind?: "block" | "inline"
+  /** Name in insert menus. Defaults to the tag in sentence case, such as `Alert`. */
+  label?: string
+  /** One line that says what the component shows. */
+  description?: string
+  /** Props and how each round-trips through Comark attributes. `default` is what a new component starts with. */
+  props?: Record<string, DocumentComponentProp>
+}
+
+/** How a component prop round-trips: strings as written (`type="info"`), other types with Comark's `:` prefix. */
+export interface DocumentComponentProp {
+  type: "string" | "number" | "boolean" | "json"
+  default?: unknown
 }
 
 const documentsDefinition: unique symbol = Symbol.for("vitehub.content.documents")
@@ -50,6 +73,7 @@ export interface DocumentsDefinition<TFields extends ContentFields = ContentFiel
   readonly path: string
   readonly fields: TFields
   readonly search?: ReadonlyArray<string>
+  readonly components?: Readonly<Record<string, DocumentComponent>>
 }
 
 /**
@@ -82,7 +106,49 @@ export function documents<const TFields extends ContentFields>(options: Document
     path: options.path,
   }
   if (options.search) definition.search = [...options.search]
+  if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
   return definition
+}
+
+const componentTag = /^[a-z][a-z0-9-]*$/
+const componentPropTypes: ReadonlyArray<DocumentComponentProp["type"]> = ["string", "number", "boolean", "json"]
+
+function isComponentPropType(value: unknown): value is DocumentComponentProp["type"] {
+  return componentPropTypes.some(type => type === value)
+}
+
+function documentComponents(path: string, components: unknown): Record<string, DocumentComponent> {
+  const where = `documents(${JSON.stringify(path)}) components`
+  if (Object(components) !== components || Array.isArray(components)) throw invalidDefinition(`${where} must be a record of component definitions keyed by tag, such as { alert: {} }.`)
+  const result: Record<string, DocumentComponent> = {}
+  for (const [tag, value] of Object.entries(Object(components))) {
+    if (!componentTag.test(tag)) throw invalidDefinition(`${where}: ${JSON.stringify(tag)} must be a lowercase Comark tag, such as alert or call-out.`)
+    if (Object(value) !== value || Array.isArray(value)) throw invalidDefinition(`${where}.${tag} must be an object, such as { kind: 'block' }.`)
+    const kind: unknown = Reflect.get(Object(value), "kind")
+    if (kind !== undefined && kind !== "block" && kind !== "inline") throw invalidDefinition(`${where}.${tag}.kind must be 'block' or 'inline'.`)
+    const component: DocumentComponent = { kind: kind === "inline" ? "inline" : "block" }
+    for (const key of ["label", "description"] as const) {
+      const text: unknown = Reflect.get(Object(value), key)
+      if (text === undefined) continue
+      if (String(text) !== text) throw invalidDefinition(`${where}.${tag}.${key} must be a string.`)
+      component[key] = text
+    }
+    const props: unknown = Reflect.get(Object(value), "props")
+    if (props !== undefined) {
+      if (Object(props) !== props || Array.isArray(props)) throw invalidDefinition(`${where}.${tag}.props must be a record such as { type: { type: 'string' } }.`)
+      component.props = {}
+      for (const [name, prop] of Object.entries(Object(props))) {
+        const type: unknown = Reflect.get(Object(prop), "type")
+        if (!isComponentPropType(type)) throw invalidDefinition(`${where}.${tag}.props.${name}.type must be string, number, boolean, or json.`)
+        const entry: DocumentComponentProp = { type }
+        const fallback: unknown = Reflect.get(Object(prop), "default")
+        if (fallback !== undefined) entry.default = JSON.parse(JSON.stringify(fallback))
+        component.props[name] = entry
+      }
+    }
+    result[tag] = component
+  }
+  return result
 }
 
 export function isDocumentsDefinition(value: unknown): value is DocumentsDefinition {

@@ -1,12 +1,19 @@
 <script setup lang="ts">
+import { CalendarDate, parseDate, Time } from "@internationalized/date";
 import { computed, ref, watch } from "vue";
 
 import { consoleFieldValueIssue } from "../client/documents";
+import ConsolePropertyRow from "./console-property-row.vue";
 
-import type { ConsoleSchemaField } from "../client/documents";
+import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/documents";
 
 defineOptions({ name: "ConsoleSchemaField" });
 
+/**
+ * One document field as a property row. The control follows the JSON Schema of the field: text, long text, number,
+ * switch, choice, date and time, tags, a nested object as a one-line summary that expands in place, a Blob reference,
+ * or JSON for any other shape.
+ */
 const props = defineProps<{
   disabled?: boolean;
   /** Server issues keyed by dotted field path, such as `author.name`. */
@@ -20,6 +27,11 @@ const props = defineProps<{
   parentOptional?: boolean;
 }>();
 
+const emit = defineEmits<{
+  /** ⌘Enter in a text area. */
+  submit: [];
+}>();
+
 const model = defineModel<unknown>();
 
 const path = computed(() => (props.parent ? `${props.parent}.${props.field.name}` : props.field.name));
@@ -31,8 +43,33 @@ const error = computed(() => {
     .filter(([key]) => key.startsWith(`${path.value}.`))
     .flatMap(([, messages]) => messages);
   const messages = [...own, ...nested];
-  return messages.length ? messages.join(" ") : blurIssue.value;
+  return messages.length ? messages.join(" ") : blurIssue.value ?? jsonError.value;
 });
+const nestedError = computed(() => Object.keys(props.errors).some(key => key.startsWith(`${path.value}.`)));
+const missing = computed(() => props.field.required && !props.parentOptional && props.field.kind !== "boolean" && props.field.kind !== "object"
+  && (model.value === undefined || model.value === null || model.value === "" || (Array.isArray(model.value) && !model.value.length)));
+
+const icons: Record<ConsoleSchemaFieldKind, string> = {
+  blob: "i-lucide-image",
+  boolean: "i-lucide-square-check",
+  date: "i-lucide-calendar",
+  "date-time": "i-lucide-calendar-clock",
+  enum: "i-lucide-circle-chevron-down",
+  integer: "i-lucide-hash",
+  json: "i-lucide-braces",
+  number: "i-lucide-hash",
+  object: "i-lucide-list-tree",
+  string: "i-lucide-type",
+  "string-list": "i-lucide-tags",
+  text: "i-lucide-align-left",
+};
+const icon = computed(() => (props.field.kind === "blob" && record(props.field.schema["x-vitehub-blob"]).kind !== "image" ? "i-lucide-paperclip" : icons[props.field.kind]));
+
+// Date and time segments size to their digits instead of fixed cells, so `9/1/2026 00:00` reads as one value.
+const segment = "px-0.5 tabular-nums data-[segment=day]:w-auto data-[segment=month]:w-auto data-[segment=year]:w-auto data-[segment=hour]:w-auto data-[segment=minute]:w-auto data-[segment=literal]:px-0";
+
+// Ghost controls: no fill, a border on hover and focus (Notion property values, Geist input ring).
+const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-[13px]";
 
 // Text-like fields validate when focus leaves them, then clear the message as soon as the value is valid again.
 // Choices and dates leave validation to the save, since their menus move focus while someone is still choosing.
@@ -53,6 +90,13 @@ watch(model, (value) => {
 
 function record(value: unknown): Record<string, unknown> {
   return value instanceof Object && !Array.isArray(value) ? Object.fromEntries(Object.entries(value)) : {};
+}
+
+function onTextKeydown(event: KeyboardEvent): void {
+  if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault();
+    emit("submit");
+  }
 }
 
 const text = computed({
@@ -92,23 +136,38 @@ const enumValue = computed({
 });
 
 // Dates are stored as ISO strings. A date field keeps `YYYY-MM-DD`; a date-time field edits the UTC date and time.
-const datePart = computed({
-  get: () => (String(model.value) === model.value ? model.value.slice(0, 10) : ""),
-  set: (value: string) => {
-    if (props.field.kind === "date") {
-      model.value = value || undefined;
+function stored(): string {
+  return String(model.value) === model.value ? model.value : "";
+}
+const date = computed<CalendarDate | undefined>({
+  get: () => {
+    try {
+      return stored().length >= 10 ? parseDate(stored().slice(0, 10)) : undefined;
+    }
+    catch {
+      return undefined;
+    }
+  },
+  set: (value) => {
+    if (!value) {
+      model.value = undefined;
       return;
     }
-    model.value = value ? `${value}T${timePart.value || "00:00"}:00.000Z` : undefined;
+    const day = value.toString();
+    model.value = props.field.kind === "date" ? day : `${day}T${(time.value ?? new Time(0, 0)).toString().slice(0, 5)}:00.000Z`;
   },
 });
-const timePart = computed({
-  get: () => (String(model.value) === model.value && model.value.length >= 16 ? model.value.slice(11, 16) : ""),
-  set: (value: string) => {
-    if (!datePart.value) return;
-    model.value = `${datePart.value}T${value || "00:00"}:00.000Z`;
+const time = computed<Time | undefined>({
+  get: () => {
+    const match = /T(\d{2}):(\d{2})/.exec(stored());
+    return match ? new Time(Number(match[1]), Number(match[2])) : undefined;
+  },
+  set: (value) => {
+    if (!date.value) return;
+    model.value = `${date.value.toString()}T${(value ?? new Time(0, 0)).toString().slice(0, 5)}:00.000Z`;
   },
 });
+const calendarOpen = ref(false);
 
 // JSON fields keep their text while it is invalid, so a half-typed value is not lost.
 const jsonText = ref("");
@@ -149,24 +208,21 @@ const blob = computed(() => {
   const hint = record(props.field.schema["x-vitehub-blob"]);
   return {
     contentType: String(value.contentType ?? ""),
-    kind: hint.kind === "image" ? "Image" : "File",
+    kind: hint.kind === "image" ? "image" : "file",
     pathname: String(value.pathname ?? ""),
-    size: Number.isFinite(value.size) ? Number(value.size) : undefined,
     store: String(hint.store ?? "default"),
   };
 });
 
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  const units = ["KB", "MB", "GB"];
-  let value = bytes / 1024;
-  let unit = 0;
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024;
-    unit++;
-  }
-  return `${value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
-}
+// A nested object reads as one line, such as `Ada · https://vitehub.dev`, and expands in place.
+const expanded = ref(false);
+watch(nestedError, (invalid) => {
+  if (invalid) expanded.value = true;
+}, { immediate: true });
+const summary = computed(() => {
+  const values = (props.field.fields ?? []).map(child => record(model.value)[child.name]).filter(value => value !== undefined && value !== null && value !== "");
+  return values.map(value => (String(value) === value ? value : JSON.stringify(value))).join(" · ");
+});
 
 function child(name: string): unknown {
   return record(model.value)[name];
@@ -181,89 +237,169 @@ function updateChild(name: string, value: unknown): void {
 </script>
 
 <template>
-  <fieldset v-if="field.kind === 'object'" class="grid gap-4 rounded-md border border-default p-4" :aria-describedby="field.description ? `${inputId}-description` : undefined">
-    <legend class="px-1 text-xs font-medium text-highlighted">
-      {{ field.label }}<span v-if="field.required" class="ms-0.5 text-error">*</span>
-    </legend>
-    <p v-if="field.description" :id="`${inputId}-description`" class="-mt-2 text-xs text-muted">{{ field.description }}</p>
-    <ConsoleSchemaField
-      v-for="nested in field.fields"
-      :key="nested.name"
-      :disabled="disabled"
-      :errors="errors"
-      :field="nested"
-      :model-value="child(nested.name)"
-      :parent="path"
-      :parent-label="field.label"
-      :parent-optional="!field.required"
-      @update:model-value="updateChild(nested.name, $event)"
-    />
-    <p v-if="errors[path]?.length" class="text-xs text-error">{{ errors[path]!.join(" ") }}</p>
-  </fieldset>
+  <div v-if="field.kind === 'object'" class="grid">
+    <ConsolePropertyRow :icon="icon" :label="field.label" :description="field.description" :control="inputId" :error="errors[path]?.join(' ')">
+      <button
+        :id="inputId"
+        type="button"
+        class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-[13px] hover:ring-1 hover:ring-(--ui-border) hover:ring-inset focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none"
+        :aria-expanded="expanded"
+        :aria-controls="`${inputId}-fields`"
+        @click="expanded = !expanded"
+      >
+        <span class="truncate" :class="summary ? 'text-highlighted' : 'text-dimmed'">{{ summary || "Empty" }}</span>
+        <UIcon name="i-lucide-chevron-right" class="ms-auto size-3.5 shrink-0 text-dimmed" :class="expanded ? 'rotate-90' : ''" aria-hidden="true" />
+      </button>
+    </ConsolePropertyRow>
+    <div v-if="expanded" :id="`${inputId}-fields`" class="ms-3.5 grid border-s border-default ps-2">
+      <ConsoleSchemaField
+        v-for="nested in field.fields"
+        :key="nested.name"
+        :disabled="disabled"
+        :errors="errors"
+        :field="nested"
+        :model-value="child(nested.name)"
+        :parent="path"
+        :parent-label="field.label"
+        :parent-optional="!field.required"
+        @update:model-value="updateChild(nested.name, $event)"
+        @submit="emit('submit')"
+      />
+    </div>
+  </div>
 
-  <UFormField
+  <ConsolePropertyRow
     v-else
-    :name="path"
+    :icon="icon"
     :label="field.label"
     :description="field.description"
-    :required="field.required"
-    :error="error ?? jsonError"
-    :ui="{ label: 'text-xs', description: 'text-xs' }"
+    :control="inputId"
+    :error="error"
+    :missing="missing && !error"
     @focusout="validate"
   >
-    <UInput v-if="field.kind === 'string'" :id="inputId" v-model="text" class="w-full" :disabled="disabled" :maxlength="field.maxLength" />
-    <UTextarea v-else-if="field.kind === 'text'" :id="inputId" v-model="text" class="w-full" autoresize :rows="3" :disabled="disabled" :maxlength="field.maxLength" />
+    <UInput
+      v-if="field.kind === 'string'"
+      :id="inputId"
+      v-model="text"
+      class="w-full"
+      variant="ghost"
+      placeholder="Empty"
+      :ui="{ base: ghost }"
+      :disabled="disabled"
+      :maxlength="field.maxLength"
+      :aria-invalid="error ? 'true' : undefined"
+      :aria-describedby="error ? `${inputId}-error` : undefined"
+    />
+    <UTextarea
+      v-else-if="field.kind === 'text'"
+      :id="inputId"
+      v-model="text"
+      class="w-full"
+      variant="ghost"
+      autoresize
+      :rows="1"
+      placeholder="Empty"
+      :ui="{ base: `${ghost} leading-5` }"
+      :disabled="disabled"
+      :maxlength="field.maxLength"
+      :aria-invalid="error ? 'true' : undefined"
+      :aria-describedby="error ? `${inputId}-error` : undefined"
+      @keydown="onTextKeydown"
+    />
     <UInputNumber
       v-else-if="field.kind === 'number' || field.kind === 'integer'"
       :id="inputId"
       v-model="number"
-      class="w-full max-w-60"
+      class="w-full max-w-48"
+      variant="ghost"
+      placeholder="Empty"
+      orientation="vertical"
+      :ui="{ root: 'group/number', base: `${ghost} tabular-nums` }"
       :disabled="disabled"
       :min="field.minimum"
       :max="field.maximum"
       :step="field.kind === 'integer' ? 1 : 0.01"
-      :increment="{ color: 'neutral' }"
-      :decrement="{ color: 'neutral' }"
+      :increment="{ color: 'neutral', variant: 'link', size: 'xs', class: 'opacity-0 group-hover/number:opacity-100 group-focus-within/number:opacity-100' }"
+      :decrement="{ color: 'neutral', variant: 'link', size: 'xs', class: 'opacity-0 group-hover/number:opacity-100 group-focus-within/number:opacity-100' }"
+      :aria-invalid="error ? 'true' : undefined"
     />
-    <USwitch v-else-if="field.kind === 'boolean'" :id="inputId" v-model="boolean" :disabled="disabled" />
+    <div v-else-if="field.kind === 'boolean'" class="flex h-8 items-center px-2.5">
+      <USwitch :id="inputId" v-model="boolean" size="sm" :disabled="disabled" />
+    </div>
     <USelect
       v-else-if="field.kind === 'enum'"
       :id="inputId"
       v-model="enumValue"
-      class="w-full max-w-80"
+      class="w-full max-w-64"
+      variant="ghost"
       :items="enumItems"
+      :ui="{ base: `${ghost} group/select`, trailingIcon: 'opacity-0 group-hover/select:opacity-75 group-focus-visible/select:opacity-75 group-data-[state=open]/select:opacity-75' }"
       :disabled="disabled"
       :placeholder="field.required ? 'Choose…' : 'None'"
+      :aria-invalid="error ? 'true' : undefined"
     />
-    <UInput v-else-if="field.kind === 'date'" :id="inputId" v-model="datePart" type="date" class="w-full max-w-60" :disabled="disabled" />
-    <div v-else-if="field.kind === 'date-time'" class="flex items-center gap-2">
-      <UInput :id="inputId" v-model="datePart" type="date" class="min-w-0 flex-1" :disabled="disabled" :aria-label="`${field.label} date`" />
-      <UInput v-model="timePart" type="time" class="w-28 shrink-0" :disabled="disabled || !datePart" :aria-label="`${field.label} time, UTC`" />
-      <span class="text-xs text-dimmed">UTC</span>
+    <div v-else-if="field.kind === 'date' || field.kind === 'date-time'" class="flex min-w-0 flex-wrap items-center gap-x-1">
+      <UInputDate
+        :id="inputId"
+        v-model="date"
+        variant="ghost"
+        :ui="{ base: `${ghost} gap-0`, segment }"
+        :disabled="disabled"
+        :aria-label="field.kind === 'date-time' ? `${field.label} date` : field.label"
+        :aria-invalid="error ? 'true' : undefined"
+      >
+        <template #trailing>
+          <UPopover v-model:open="calendarOpen" :content="{ align: 'start' }">
+            <UButton variant="link" size="xs" icon="i-lucide-calendar" :aria-label="`Pick ${field.label.toLowerCase()} from a calendar`" class="px-0 text-dimmed hover:text-highlighted" :disabled="disabled" />
+            <template #content>
+              <UCalendar v-model="date" class="p-2" :ui="{ cellTrigger: 'tabular-nums' }" @update:model-value="calendarOpen = false" />
+            </template>
+          </UPopover>
+        </template>
+      </UInputDate>
+      <template v-if="field.kind === 'date-time'">
+        <UInputTime
+          v-model="time"
+          variant="ghost"
+          :hour-cycle="24"
+          :ui="{ base: `${ghost} gap-0`, segment }"
+          :disabled="disabled || !date"
+          :aria-label="`${field.label} time, UTC`"
+        />
+        <span class="text-xs text-dimmed">UTC</span>
+      </template>
     </div>
-    <UInputTags v-else-if="field.kind === 'string-list'" :id="inputId" v-model="list" class="w-full" :disabled="disabled" placeholder="Add and press Enter" />
-    <div v-else-if="field.kind === 'blob'" class="flex items-center gap-3 rounded-md border border-dashed border-default px-3 py-2.5" :aria-describedby="`${inputId}-blob`">
-      <UIcon :name="blob.kind === 'Image' ? 'i-lucide-image' : 'i-lucide-paperclip'" class="size-4 shrink-0 text-muted" />
-      <div class="min-w-0 flex-1">
-        <p class="truncate font-mono text-xs text-highlighted">{{ blob.pathname || `No ${blob.kind.toLowerCase()}` }}</p>
-        <p :id="`${inputId}-blob`" class="truncate text-xs text-muted">
-          <template v-if="blob.pathname">{{ [blob.contentType, blob.size === undefined ? '' : formatBytes(blob.size), `Blob store ${blob.store}`].filter(Boolean).join(" · ") }}</template>
-          <template v-else>Blob store {{ blob.store }}. Choosing media from the Console is not available yet.</template>
-        </p>
-      </div>
-      <UBadge color="neutral" variant="soft" size="sm" label="Read-only" />
+    <UInputTags
+      v-else-if="field.kind === 'string-list'"
+      :id="inputId"
+      v-model="list"
+      class="w-full"
+      variant="ghost"
+      :ui="{ base: ghost, item: 'text-xs' }"
+      :disabled="disabled"
+      placeholder="Empty"
+      :aria-invalid="error ? 'true' : undefined"
+    />
+    <div v-else-if="field.kind === 'blob'" class="flex h-8 min-w-0 items-center gap-2 px-2.5 text-[13px]" :title="`Blob store ${blob.store}`">
+      <span v-if="blob.pathname" class="truncate font-mono text-xs text-highlighted">{{ blob.pathname }}</span>
+      <span v-else class="text-dimmed">Empty</span>
+      <span class="truncate text-xs text-dimmed">{{ blob.pathname ? blob.contentType : `Choosing ${blob.kind === 'image' ? 'images' : 'files'} from the Console is not available yet` }}</span>
     </div>
     <UTextarea
       v-else
       :id="inputId"
       :model-value="jsonText"
-      class="w-full font-mono"
-      :ui="{ base: 'font-mono text-xs' }"
+      class="w-full"
+      variant="ghost"
+      :ui="{ base: `${ghost} font-mono text-xs leading-5` }"
       autoresize
-      :rows="3"
+      :rows="1"
       :disabled="disabled"
       placeholder="JSON value"
+      :aria-invalid="error ? 'true' : undefined"
       @update:model-value="updateJson(String($event ?? ''))"
+      @keydown="onTextKeydown"
     />
-  </UFormField>
+  </ConsolePropertyRow>
 </template>

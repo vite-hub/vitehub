@@ -8,6 +8,7 @@ import type {
   ViteHubConsoleDocumentActionsFactory,
   ViteHubConsoleDocumentChange,
   ViteHubConsoleDocumentCollection,
+  ViteHubConsoleDocumentComponent,
   ViteHubConsoleDocumentListInput,
   ViteHubConsoleDocumentPage,
   ViteHubConsoleDocumentPublishExpectation,
@@ -224,6 +225,12 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         }
         const titleField = titleFieldOf(schema)
         if (titleField) entry.titleField = titleField
+        const components = Object.entries(collection.components).map(([name, component]) => {
+          const described: ViteHubConsoleDocumentComponent = { name, kind: component.kind ?? "block", label: component.label ?? label(name), props: json(component.props ?? {}) }
+          if (component.description) described.description = component.description
+          return described
+        })
+        if (components.length) entry.components = components
         collections.push(entry)
       }
       return collections

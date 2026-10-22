@@ -507,7 +507,7 @@ export function parseConsoleListQuery(
     filters,
     search: queryText(query.q) ?? "",
     sort: sort && options.sorts.includes(sort) ? sort : options.sorts[0] ?? "id:asc",
-    state: state && (consoleDocumentStates as readonly string[]).includes(state) ? state as ConsoleDocumentState : "all",
+    state: consoleDocumentStates.find(entry => entry === state) ?? "all",
   }
 }
 
@@ -578,6 +578,42 @@ export function groupConsoleRevisions(revisions: readonly ConsoleDocumentRevisio
     else groups.push({ label, revisions: [revision] })
   }
   return groups
+}
+
+/** What a revision did, as History names it: `Saved`, `Published`, `Restored`, `Deleted`, or `Started draft`. */
+export function consoleRevisionLabel(revision: ConsoleDocumentRevision): string {
+  if (revision.ref === "published" || revision.action === "publish") return "Published"
+  return new Map([["remove", "Deleted"], ["restore", "Restored"], ["save", "Saved"], ["seed", "Started draft"]]).get(revision.action) ?? "Changed"
+}
+
+export function consoleRevisionTone(revision: ConsoleDocumentRevision): "error" | "neutral" | "success" {
+  if (revision.ref === "published" || revision.action === "publish") return "success"
+  return revision.action === "remove" ? "error" : "neutral"
+}
+
+/** Consecutive saves by one author, newest first. `revisions[0]` is the latest save of the run. */
+export interface ConsoleRevisionRun {
+  revisions: ConsoleDocumentRevision[]
+}
+
+/** Saves further apart than this start a new run, even from the same author. */
+const revisionRunGap = 15 * 60_000
+
+/**
+ * Collapses consecutive saves by the same author into runs for History. The editor saves a draft after each pause in
+ * typing, so one sitting writes many revisions; History shows them as one row. Publishes, restores, deletes, saves by
+ * someone else, and saves more than 15 minutes apart each start a new run. Storage keeps every revision.
+ */
+export function groupConsoleRevisionRuns(revisions: readonly ConsoleDocumentRevision[]): ConsoleRevisionRun[] {
+  const runs: ConsoleRevisionRun[] = []
+  for (const revision of revisions) {
+    const last = runs.at(-1)?.revisions.at(-1)
+    const joins = last && revision.action === "save" && last.action === "save" && revision.ref === last.ref && revision.author === last.author
+      && Math.abs(Date.parse(last.createdAt) - Date.parse(revision.createdAt)) <= revisionRunGap
+    if (joins) runs.at(-1)!.revisions.push(revision)
+    else runs.push({ revisions: [revision] })
+  }
+  return runs
 }
 
 export type { ConsoleDocumentCollection }

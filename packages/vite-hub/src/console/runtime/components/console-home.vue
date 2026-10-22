@@ -332,7 +332,7 @@ onBeforeUnmount(() => request++);
                       <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
                   </li>
-                  <span
+                  <li
                     v-for="filler in group.fillers"
                     :key="filler.index"
                     class="vitehub-console__overview-filler hidden"

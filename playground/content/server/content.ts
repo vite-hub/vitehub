@@ -18,6 +18,11 @@ export const content = defineContent({
         author: z.object({ name: z.string().min(1), url: z.url().optional() }).optional(),
         readingTime: z.number().int().min(1).optional(),
       },
+      // The Console offers these in the body's `/` menu. The site renders them with its own Vue components.
+      components: {
+        alert: { description: "A highlighted note", props: { type: { type: "string", default: "info" } } },
+        badge: { kind: "inline", description: "A short inline label" },
+      },
     }),
     pages: documents({
       path: "pages/**/*.md",

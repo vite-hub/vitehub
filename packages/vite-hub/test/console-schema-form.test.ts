@@ -15,6 +15,7 @@ import {
   consoleSingularLabel,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
+  groupConsoleRevisionRuns,
   groupConsoleRevisions,
   humanizeConsoleFieldIssues,
   isConsoleDocumentId,
@@ -205,5 +206,20 @@ describe("Console schema form model", () => {
     expect(consoleSingularLabel("News")).toBe("Document")
     expect(consoleSingularLabel("Glass")).toBe("Document")
     expect(consoleSingularLabel("Release notes")).toBe("Document")
+  })
+
+  it("collapses consecutive autosaves by one author into one History run", () => {
+    const save = (id: string, createdAt: string, author = "Ada", action = "save") => ({ action, author, createdAt, id, ref: "draft" })
+    const runs = groupConsoleRevisionRuns([
+      save("a", "2026-10-14T11:10:00.000Z"),
+      save("b", "2026-10-14T11:09:00.000Z"),
+      save("c", "2026-10-14T11:00:00.000Z"),
+      save("d", "2026-10-14T10:58:00.000Z", "Wes"),
+      save("e", "2026-10-14T10:57:00.000Z", "Ada", "publish"),
+      save("f", "2026-10-14T10:56:00.000Z"),
+      save("g", "2026-10-14T10:30:00.000Z"),
+    ])
+    // Wes's save, the publish, and a save after a 26-minute pause each break the run.
+    expect(runs.map(run => run.revisions.map(entry => entry.id).join(""))).toEqual(["abc", "d", "e", "f", "g"])
   })
 })

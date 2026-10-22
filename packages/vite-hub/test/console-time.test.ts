@@ -12,6 +12,13 @@ describe("recentTimestamp", () => {
     expect(recentTimestamp("2026-08-30T15:42:31.000Z", now)).toBe("Aug 30")
   })
 
+  it("counts the first minute in seconds for a save status", () => {
+    expect(recentTimestamp("2026-10-06T11:59:58.000Z", now, { seconds: true })).toBe("now")
+    expect(recentTimestamp("2026-10-06T11:59:55.000Z", now, { seconds: true })).toBe("5s ago")
+    expect(recentTimestamp("2026-10-06T11:59:30.000Z", now, { seconds: true })).toBe("30s ago")
+    expect(recentTimestamp("2026-10-06T11:55:00.000Z", now, { seconds: true })).toBe("5m ago")
+  })
+
   it("treats future timestamps as now and rejects invalid values", () => {
     expect(recentTimestamp("2026-10-06T12:05:00.000Z", now)).toBe("now")
     expect(recentTimestamp("not a date", now)).toBeUndefined()
