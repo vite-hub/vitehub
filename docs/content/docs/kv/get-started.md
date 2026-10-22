@@ -1,7 +1,7 @@
 ---
 
 title: Store your first KV value
-description: Write a theme setting to local KV and read the same key back.
+description: Install KV, write a theme setting to a local KV Store from a server route, and read the same key back.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

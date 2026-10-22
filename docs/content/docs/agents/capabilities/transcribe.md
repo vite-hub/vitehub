@@ -1,6 +1,6 @@
 ---
 title: Transcribe
-description: Convert audio input parts into transcript text before an Agent runs.
+description: Convert audio input parts into transcript text before an Agent runs, with streaming and asynchronous remote transcription.
 navigation.title: Transcribe
 navigation.order: 250
 navigation.group: Capabilities

@@ -1,6 +1,6 @@
 ---
 title: Sync Status
-description: "Show whether edits are loading, saving, saved, or not saved."
+description: "Show whether edits are loading, saving, saved, or not saved, with a custom label and an accessible live status."
 navigation.order: 32
 navigation.group: Collaboration
 icon: i-ph-cloud-check-light

@@ -1,7 +1,7 @@
 ---
 title: Definition discovery
 navigation.title: Definition discovery
-description: Understand how a ViteHub file becomes a named runtime entry.
+description: Understand how a file location becomes a named ViteHub runtime entry, and check which Definitions the integration found.
 navigation.order: 33.1
 navigation.group: Build state
 icon: i-lucide-file-code-2

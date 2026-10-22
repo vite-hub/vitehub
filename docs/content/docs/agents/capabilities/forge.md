@@ -1,6 +1,6 @@
 ---
 title: Forge
-description: Read and change repositories on GitHub, GitLab and Forgejo.
+description: Give an Agent tools to read and change repositories, pull requests, and issues on GitHub, GitLab, and Forgejo.
 navigation.title: Forge
 navigation.order: 166
 navigation.group: Capabilities

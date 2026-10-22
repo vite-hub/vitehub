@@ -1,6 +1,6 @@
 ---
 title: KV configuration
-description: Configure the Default KV Store, named KV Stores, and KV drivers.
+description: Configure the Default KV Store, add named KV Stores, and select the KV driver that each host uses in production.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal

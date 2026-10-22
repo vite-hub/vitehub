@@ -1,7 +1,7 @@
 ---
 
 title: Run your first Browser Definition
-description: Read a page with Cloudflare Browser Run and return its rendered HTML.
+description: Define a browser operation, run it by name with Cloudflare Browser Run, and verify the rendered HTML it returns.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

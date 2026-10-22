@@ -1,6 +1,6 @@
 ---
 title: Browser hosts
-description: Browser providers, host support, and Cloudflare Provider Output.
+description: "Choose a Browser provider for each host: Cloudflare Browser Run on Workers, or a local Chromium process on trusted Node hosts."
 navigation.title: Hosts
 navigation.order: 6
 icon: i-lucide-cloud-cog
