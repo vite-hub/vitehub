@@ -18,6 +18,7 @@ const landingFiles = [
   "AgentStory.vue",
   "Closing.vue",
   "PrimitiveMotion.vue",
+  "PrimitiveLines.vue",
   "content.ts",
 ];
 
@@ -160,6 +161,7 @@ describe("landing page", () => {
     for (const primitive of landingPrimitives) {
       expect(primitiveMotion).toContain(`name === '${primitive.id}'`);
       expect(primitive.to).toMatch(/^\/docs\//);
+      expect(primitive.icon).toMatch(/^i-(?:lucide|ph)-/);
     }
     expect(portabilityExamples.map((example) => example.id)).toEqual([
       "storage",
@@ -209,6 +211,13 @@ describe("landing page", () => {
     );
     expect(primitives).not.toContain("Replay scenes");
     expect(primitives).toContain(':play="visible"');
+    // The line field draws once and stops. It runs frames only for the entrance and the active tile.
+    const primitiveLines = await readFile(
+      new URL("../app/components/landing/PrimitiveLines.vue", import.meta.url),
+      "utf8",
+    );
+    expect(primitiveLines).toContain("usePreferredReducedMotion()");
+    expect(primitiveLines).toContain("pause();");
     expect(primitives).toContain("useIntersectionObserver(");
     expect(installCommand).toContain(":tabindex=\"activeTab === 'package' ? 0 : -1\"");
     expect(installCommand).toContain("transition: none;");

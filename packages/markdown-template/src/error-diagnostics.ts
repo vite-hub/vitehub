@@ -42,5 +42,6 @@ export const markdownTemplateErrorDiagnostics = /*#__PURE__*/ defineDiagnostics(
     MARKDOWN_TEMPLATE_R0030: dynamicError,
     MARKDOWN_TEMPLATE_R0031: dynamicError,
     MARKDOWN_TEMPLATE_R0032: dynamicError,
+    MARKDOWN_TEMPLATE_R0033: dynamicError,
   },
 })
