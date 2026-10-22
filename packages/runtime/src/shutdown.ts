@@ -166,11 +166,11 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       }
       const results = await runShutdownDrains(undefined, runtime)
       console.info("[vitehub]", JSON.stringify({ durationMs: Date.now() - startedAt, event: "shutdown.drained", results, signal, timestamp: new Date().toISOString() }))
-      // Hooks run in order, so a hook added now runs after every other close hook.
-      const closed = new Promise<void>((resolve) => { app.hooks.hook("close", () => resolve()) })
       const listeners = serverListeners.filter(([name]) => name === signal)
       const closeServer = Promise.all(listeners.map(([, listener]) => Promise.resolve().then(() => listener(signal)))).then(
-        () => listeners.length ? closed : undefined,
+        // The host listener owns Nitro's close lifecycle; once it returns, its close
+        // hooks have completed and the process can publish the final shutdown record.
+        () => undefined,
         (error: unknown) => console.error("[vitehub] Server shutdown failed.", error),
       )
       await Promise.race([
