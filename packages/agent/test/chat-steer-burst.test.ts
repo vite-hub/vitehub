@@ -99,7 +99,11 @@ describe("steer concurrency with debounceMs", () => {
     ])
 
     expect(model.doGenerateCalls).toHaveLength(1)
-    expect(promptUserTexts(model.doGenerateCalls[0]!.prompt)).toEqual(["I had two different things", "Both!"])
+    // Since #2388 each chat message starts with a readable header that names its message ID.
+    expect(promptUserTexts(model.doGenerateCalls[0]!.prompt)).toEqual([
+      expect.stringMatching(/^\[[^\]]+ · msg 8101\]\nI had two different things$/),
+      expect.stringMatching(/^\[[^\]]+ · msg 8102\]\nBoth!$/),
+    ])
     expect(sent).toHaveLength(1)
     expect(JSON.stringify(sent[0])).toContain("One reply")
   })
@@ -144,7 +148,10 @@ describe("steer concurrency with debounceMs", () => {
 
     expect(run).toHaveBeenCalledTimes(1)
     expect(sendInput.mock.calls[0]).toEqual([
-      expect.objectContaining({ message: expect.objectContaining({ parts: [expect.objectContaining({ text: "Second", type: "text" })] }) }),
+      expect.objectContaining({ message: expect.objectContaining({ parts: [
+        expect.objectContaining({ id: "message-header", type: "data-chat-message-header" }),
+        expect.objectContaining({ text: "Second", type: "text" }),
+      ] }) }),
       { mode: "steer" },
     ])
   })

@@ -9,6 +9,8 @@ import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import type { Plugin } from "esbuild"
+
 import {
   captureProviderDeploymentOutputGeneration,
   contributeProviderDeploymentOutput,
@@ -29,6 +31,19 @@ type BundledProviderOutput = Pick<typeof import("../src/build/deployment-output.
 
 const tempDirs: string[] = []
 const execFileAsync = promisify(execFile)
+
+// Owner packages bundle @vite-hub/internal and keep npm packages external. Since #2567 the provider output sources
+// import `vite`, which esbuild cannot bundle, so test bundles import npm packages from this package's node_modules.
+const externalPackages: Plugin = {
+  name: "external-packages",
+  setup(build) {
+    // esbuild filters are Go regular expressions without lookahead, so relative, absolute, and node: imports return here.
+    build.onResolve({ filter: /.*/ }, (args) => {
+      if (/^[./]|^node:/.test(args.path)) return undefined
+      return { external: true, path: import.meta.resolve(args.path) }
+    })
+  },
+}
 
 async function createTempProject(): Promise<string> {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-provider-output-finalizer-"))
@@ -1056,8 +1071,8 @@ describe("Provider Output finalizer", () => {
       writeFile(kvEntry, entry, "utf8"),
     ])
     await Promise.all([
-      bundleEsmEntry(browserEntry, browserBundle, { format: "esm", platform: "node" }),
-      bundleEsmEntry(kvEntry, kvBundle, { format: "esm", platform: "node" }),
+      bundleEsmEntry(browserEntry, browserBundle, { format: "esm", platform: "node", plugins: [externalPackages] }),
+      bundleEsmEntry(kvEntry, kvBundle, { format: "esm", platform: "node", plugins: [externalPackages] }),
     ])
 
     const browserProvider: BundledProviderOutput = await import(pathToFileURL(browserBundle).href)

@@ -86,11 +86,12 @@ export function errorResponse(error: unknown): Response {
 
 /**
  * The same-origin check of the action route. It accepts the public origin from `vitehub({ publicUrl })`
- * and the origin of the request URL that the server sees. Behind a TLS-terminating proxy without a public
+ * and the origin of the request URL that the server sees, when its host is the public host. Behind a TLS-terminating proxy without a public
  * URL, the server can see `http:` while the browser sends an `https:` Origin.
  */
 function originRejection(request: Request, agentName?: string): Response | undefined {
-  const expected = resolvePublicUrl({ agentName, request });
+  // The configured URL of the Agent binds the check, so another request host cannot widen it.
+  const expected = (agentName ? resolvePublicUrl({ agentName }) : undefined) ?? resolvePublicUrl({ agentName, request });
   const origin = request.headers.get("origin");
   const requestOrigin = new URL(request.url).origin;
   const requestHostMatchesPublic = new URL(expected).host === new URL(request.url).host;

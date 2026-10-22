@@ -81,7 +81,10 @@ const debugInputCommand: ConsoleInputCommand = {
     if (!consoleRuntime) return await context.reply("The ViteHub Console is not enabled for this Agent.")
     const id = context.invocation.id
     if (!id) return await context.reply("This invocation is not recorded in the ViteHub Console.")
-    const previous = await previousConsoleInvocation(consoleRuntime.invocations, id)
+    const invocations = consoleRuntime.invocations
+    // Workers without D1 or a remote libSQL URL keep the journal in memory, without the history query.
+    if (!("db" in invocations)) return await context.reply("Invocation history is not available on this Worker journal.")
+    const previous = await previousConsoleInvocation(invocations, id)
     if (!previous) return await context.reply("No previous invocation was found in the ViteHub Console.")
     return await context.reply(consoleRuntime.invocationUrl(previous))
   },

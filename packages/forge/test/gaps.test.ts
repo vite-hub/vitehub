@@ -3,6 +3,7 @@ import { Buffer } from "node:buffer"
 import { fixtureFetch } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
+
 import { BranchMovedError, forgeArchive, forgeBlob, forgeCommitFiles, forgeGitAuthHeader, forgeGitCredentials, forgeProvider } from "../src/index.ts"
 
 function repo(provider: Awaited<ReturnType<typeof forgeProvider>>, owner: string, name: string) {
@@ -96,6 +97,7 @@ describe("forgeGitCredentials", () => {
   })
 })
 
+
 interface RecordedCall {
   body?: unknown
   method: string
@@ -133,6 +135,29 @@ describe("forgeBlob", () => {
 
   it("rejects a malformed blob response", async () => {
     const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json({ sha: "abc" }) })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
+  })
+
+  it("accepts empty blobs and base64 response whitespace", async () => {
+    const encoded = Buffer.from("target.md").toString("base64")
+    const fake = githubRoutes({
+      "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: ` ${encoded.slice(0, 4)}\n${encoded.slice(4)}\n`, encoding: "base64", sha: "abc" }),
+    })
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+    await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).resolves.toEqual(Uint8Array.from(Buffer.from("target.md")))
+
+    const empty = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: "", encoding: "base64", sha: "abc" }) })
+    const emptyProvider = await forgeProvider({ forge: "github", token: "secret", fetch: empty.fetch })
+    await expect(forgeBlob(emptyProvider, repo(emptyProvider, "acme", "app"), "abc")).resolves.toEqual(new Uint8Array())
+  })
+
+  it.each([
+    { content: "not-base64", encoding: "base64", sha: "abc" },
+    { content: Buffer.from("target.md").toString("base64"), encoding: "base64", sha: "" },
+  ])("rejects an invalid blob payload: %j", async (payload) => {
+    const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json(payload) })
     const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
 
     await expect(forgeBlob(provider, repo(provider, "acme", "app"), "abc")).rejects.toThrow("malformed blob abc")
@@ -184,6 +209,22 @@ describe("forgeCommitFiles", () => {
       ],
     })
     expect(fake.calls.find(call => call.method === "PATCH")?.body).toEqual({ force: false, sha: "new-commit" })
+  })
+
+  it("creates an empty GitHub commit through the Git database", async () => {
+    const fake = commitRoutes(() => Response.json({ object: { sha: "new-commit" } }))
+    const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
+
+    await expect(forgeCommitFiles(provider, repo(provider, "acme", "app"), {
+      branch: "main",
+      changes: [],
+      expectedHead: parentSha,
+      message: "empty revision",
+    })).resolves.toBe("new-commit")
+    expect(fake.calls.find(call => call.method === "POST" && call.path.endsWith("/git/trees"))?.body).toEqual({
+      base_tree: "base-tree",
+      tree: [],
+    })
   })
 
   it("rejects with BranchMovedError when the branch moved", async () => {

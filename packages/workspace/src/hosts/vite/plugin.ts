@@ -1192,7 +1192,7 @@ export type NitroConfig = {
   } & Record<string, unknown>
 } & Record<string, unknown>
 
-type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "plugins"> & {
+type ViteConfigWithWorkspaceNitro = Omit<UserConfig, "nitro" | "plugins"> & {
   nitro?: NitroConfig
 }
 
@@ -1723,7 +1723,7 @@ export function hubWorkspace(options?: WorkspaceModuleOptions): WorkspaceVitePlu
       const runtimeOptions = resolvedHosting && normalized && normalized.store.provider !== "local"
         ? { ...workspaceOptions, store: workspaceOptions && workspaceOptions.store ? workspaceOptions.store : normalized.store }
         : workspaceOptions
-      const viteConfig: ViteConfigWithWorkspaceNitro = {
+      const viteConfig: Omit<UserConfig, "plugins"> = {
         server: {
           watch: {
             ignored: generatedViteHubWatchIgnoredAddition(config.server?.watch?.ignored),

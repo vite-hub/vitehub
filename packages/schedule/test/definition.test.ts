@@ -28,6 +28,7 @@ describe("defineSchedule", () => {
     expect(() => defineSchedule({ cron: " 0 9 * * *", handler: () => {} })).toThrow(/cron string/)
     expect(() => defineSchedule({ cron: "0 9 * * *", handler: "handler" as never })).toThrow(/schedule handler/)
     expect(() => defineSchedule({ cron: "0 9 * * *", handler: () => {}, id: "daily" } as never)).toThrow(/does not support the "id" option/)
+    expect(() => defineSchedule({ allowRuntimeSchedules: true, cron: "0 9 * * *", handler: () => {} } as never)).toThrow(/does not support the "allowRuntimeSchedules" option/)
   })
 
   it("keeps a declared IANA time zone", () => {
@@ -43,22 +44,5 @@ describe("defineSchedule", () => {
       expect(() => defineSchedule({ cron: "0 8 * * *", handler: () => {}, timeZone } as never)).toThrow(/timeZone must be an IANA time zone/)
     }
     expect(() => defineSchedule("0 8 * * *", () => {}, { timeZone: "PST" })).toThrow(/timeZone must be an IANA time zone/)
-  })
-})
-
-describe("defineScheduleTarget", () => {
-  it("creates a cronless Runtime Schedule target", () => {
-    const handler = () => "ok"
-
-    expect(defineScheduleTarget({ handler })).toEqual({
-      handler,
-      options: { allowRuntimeSchedules: true },
-    })
-  })
-
-  it("rejects invalid target inputs", () => {
-    expect(() => defineScheduleTarget(undefined as never)).toThrow(/expects an object/)
-    expect(() => defineScheduleTarget({ handler: "handler" as never })).toThrow(/schedule handler/)
-    expect(() => defineScheduleTarget({ cron: "0 9 * * *", handler: () => {} } as never)).toThrow(/does not support the "cron" option/)
   })
 })

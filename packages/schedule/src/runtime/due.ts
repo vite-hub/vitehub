@@ -1,6 +1,5 @@
 import { parseCronExpression } from "cron-schedule"
 
-import type { RuntimeScheduleRecord } from "../types.ts"
 import { scheduleErrorDiagnostics } from "../error-diagnostics.ts"
 
 const weekdayIndexes = new Map([
@@ -9,7 +8,6 @@ const weekdayIndexes = new Map([
 const minuteMs = 60_000
 const hourMinutes = 60
 const dayMinutes = 24 * hourMinutes
-const nextRunHorizonMs = 4 * 366 * dayMinutes * minuteMs
 const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>()
 
 type ScheduleCron = ReturnType<typeof parseCronExpression>
@@ -82,40 +80,10 @@ function isRepeatedFixedLocalTime(cron: ScheduleCron, fields: ScheduleDateFields
   return sameLocalMinute(scheduleDateFields(firstOccurrence, timeZone), fields)
 }
 
+/** Returns `true` when `schedule` is due at the exact minute `scheduledAt`. */
 export function isScheduleDue(schedule: ScheduleCronRecord, scheduledAt: Date): boolean {
   if (scheduledAt.getUTCSeconds() !== 0 || scheduledAt.getUTCMilliseconds() !== 0) return false
   const cron = parseScheduleCron(schedule)
   const fields = scheduleDateFields(scheduledAt, schedule.timeZone)
   return cron.minutes.includes(fields.minute) && matchesCronHour(cron, fields) && !isRepeatedFixedLocalTime(cron, fields, scheduledAt, schedule.timeZone)
-}
-
-export function isRuntimeScheduleDue(schedule: RuntimeScheduleRecord, scheduledAt: Date): boolean {
-  return isScheduleDue(schedule, scheduledAt)
-}
-
-function safeAdvance(cursor: number, minutes: number, fields: ScheduleDateFields, timeZone: string | undefined): number {
-  if (!timeZone || timeZone === "UTC" || minutes === 1) return cursor + minutes * minuteMs
-  const advanced = scheduleDateFields(new Date(cursor + minutes * minuteMs), timeZone)
-  const expected = (fields.hour * hourMinutes + fields.minute + minutes) % dayMinutes
-  return advanced.hour * hourMinutes + advanced.minute === expected ? cursor + minutes * minuteMs : cursor + minuteMs
-}
-
-export function nextRuntimeScheduleRunAt(schedule: RuntimeScheduleRecord, after: Date): Date | undefined {
-  const cron = parseScheduleCron(schedule)
-  let cursor = Math.floor(after.getTime() / minuteMs) * minuteMs + minuteMs
-  const end = cursor + nextRunHorizonMs
-  while (cursor <= end) {
-    const fields = scheduleDateFields(new Date(cursor), schedule.timeZone)
-    if (matchesCronHour(cron, fields)) {
-      const minute = cron.minutes.find(value => value >= fields.minute)
-      if (minute !== undefined) {
-        const candidate = new Date(safeAdvance(cursor, minute - fields.minute, fields, schedule.timeZone))
-        if (isRuntimeScheduleDue(schedule, candidate)) return candidate
-        cursor += minuteMs
-        continue
-      }
-    }
-    cursor = safeAdvance(cursor, hourMinutes - fields.minute, fields, schedule.timeZone)
-  }
-  return undefined
 }
