@@ -1,6 +1,6 @@
 ---
 title: Sandbox server API
-description: Run Sandbox Task Definitions from server code and read their results.
+description: Run Sandbox Task Definitions from server code with runSandboxTask(), and read the result, output, and errors of each run.
 navigation.title: Server API
 navigation.order: 5
 icon: i-lucide-code-2

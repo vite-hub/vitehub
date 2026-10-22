@@ -1,6 +1,6 @@
 ---
 title: Sandbox limits and errors
-description: Sandbox timeouts, Sandbox reuse, and production checks.
+description: Know Sandbox timeouts, cancellation, and session reuse on each provider, and check a Sandbox before you ship it to production.
 navigation.title: Limits and errors
 navigation.order: 8
 icon: i-lucide-circle-alert

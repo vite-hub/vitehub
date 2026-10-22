@@ -1,6 +1,6 @@
 ---
 title: Run your first Sandbox
-description: "Open a trusted-host Sandbox, run one command, and inspect the result."
+description: Install the Sandbox package, open a trusted-host Sandbox session, run one command, and inspect the result.
 layout: tutorial
 navigation.title: Sandbox tutorial
 navigation.order: 49

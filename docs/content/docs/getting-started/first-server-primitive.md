@@ -1,7 +1,7 @@
 ---
 title: First Server Primitive
 navigation.title: First Server Primitive
-description: Add local KV to a small Vite server and return one stored value.
+description: Create a small Vite server, add local KV through the ViteHub integration, and return one stored value from a route.
 layout: tutorial
 navigation.order: 3
 icon: i-lucide-server-cog

@@ -1,7 +1,7 @@
 ---
 title: Runtime policy, approvals, and traces
 navigation.title: Runtime policy, approvals, and traces
-description: Choose when an Agent tool can run and inspect the decision afterward.
+description: Choose when an Agent tool can run, know who owns each approval, and inspect the policy decision after the Invocation.
 navigation.order: 23
 navigation.group: Core
 icon: i-lucide-shield-alert
