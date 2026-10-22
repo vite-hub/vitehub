@@ -22,9 +22,13 @@ function hasAgentOptOut(source: string, file: string): boolean {
   }
   const options: ObjectExpression[] = []
   walk(module.program, (node) => {
-    if (node.type === "Property" && !node.computed && node.key.type === "Identifier" && node.key.name === "vitehub") {
-      const value = unwrapExpression(node.value)
-      if (value.type === "ObjectExpression") options.push(value)
+    // Only object literal members: destructuring patterns also have Property nodes, with pattern values.
+    if (node.type === "ObjectExpression") {
+      for (const property of node.properties) {
+        if (property.type !== "Property" || property.computed || property.key.type !== "Identifier" || property.key.name !== "vitehub") continue
+        const value = unwrapExpression(property.value)
+        if (value.type === "ObjectExpression") options.push(value)
+      }
     }
     if (node.type === "CallExpression" && node.callee.type === "Identifier" && pluginNames.has(node.callee.name)) {
       const value = argumentExpression(node.arguments[0])

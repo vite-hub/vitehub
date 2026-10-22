@@ -76,8 +76,8 @@ describe("package entry result transport", () => {
     })
 
     expect(execution.code).toBe(0)
-    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
-    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    const sandbox = {} as Parameters<typeof decodeSandboxTaskValue>[0]
+    const response = await decodeSandboxTaskValue(sandbox, execution.output.result, "", "result")
     if (!(response instanceof Response)) throw new TypeError("Expected Response")
     expect(response.headers.get("x-clone-count")).toBe("1")
     expect(response.status).toBe(bytes.length ? 201 : 204)
@@ -95,8 +95,8 @@ describe("package entry result transport", () => {
     ].join("\n"))
 
     expect(execution.code).toBe(0)
-    const sandbox = {} as Parameters<typeof decodeSandboxValue>[0]
-    const response = await decodeSandboxValue(sandbox, execution.output.result, "", "result")
+    const sandbox = {} as Parameters<typeof decodeSandboxTaskValue>[0]
+    const response = await decodeSandboxTaskValue(sandbox, execution.output.result, "", "result")
 
     expect(response).toBeInstanceOf(Response)
     if (!(response instanceof Response)) throw new TypeError("Expected Response")
@@ -181,11 +181,8 @@ describe("package entry result transport", () => {
       `export default () => {`,
       `  const headers = {}`,
       `  Object.defineProperties(headers, { get: { value: () => 'preserved' }, [Symbol.iterator]: { value: function* () {} } })`,
-      `  const prototype = { clone() { return Object.create(prototype) }, get body() { return null } }`,
-      `  class Response { static error() {}; static json() {}; static redirect() {} }`,
-      `  Response.prototype = prototype`,
-      `  Object.defineProperty(prototype, 'constructor', { value: Response })`,
-      `  const value = Object.assign(Object.create(prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
+      `  class Response { static error() {}; static json() {}; static redirect() {}; clone() { return Object.create(Response.prototype) }; get body() { return null } }`,
+      `  const value = Object.assign(Object.create(Response.prototype), { status: 201, statusText: 'Created', headers, requestId: 'kept' })`,
       `  return Object.defineProperty(value, 'arrayBuffer', { value: async () => new ArrayBuffer() })`,
       `}`,
     ].join("\n"))

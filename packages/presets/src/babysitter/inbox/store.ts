@@ -52,7 +52,7 @@ export interface GitHubInboxSummary {
   stackBlocked?: boolean; stackParent?: { number: number; state: string }
 }
 export type Claim = { token: string; generation: number; snapshot: Snapshot; runId?: string; startedAt?: number; activity?: AgentRunActivity }
-export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; requestId?: string; enqueued?: boolean }
+export type DirectMergeAttempt = { token: string; generation: number; revision: number; head: string; startedAt: number; asynchronous?: boolean; enqueued?: boolean }
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 const statusContentKey = (snapshot: Snapshot, head = snapshot.wait?.headSha ?? snapshot.pr?.head?.sha) =>
   digest([head, snapshot.generation, snapshot.status, snapshot.lastResult])
@@ -712,18 +712,7 @@ export class PullRequestInbox {
     // SAFETY: the required fields were validated above before this DirectMergeAttempt assertion.
     return attempt as DirectMergeAttempt
   }
-  /** Save the provider's request identity without releasing the merge fence. */
-  async recordDirectMergeRequest(repository: string, number: number, token: string, requestId: string): Promise<boolean> {
-    if (!/^[a-f\d]{8}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{4}-[a-f\d]{12}$/i.test(requestId)) throw new TypeError('Expected an asynchronous merge UUID.')
-    return await this.transaction(async tx => {
-      const key = this.directMergeKey(repository, number)
-      const attempt = await this.metaIn(tx, key)
-      if (!isRuntimeRecord(attempt) || attempt.token !== token || attempt.asynchronous !== true) return false
-      await this.setMetaIn(tx, key, { ...attempt, requestId })
-      return true
-    })
-  }
-  /** Preserve a final enqueued result, including an immediate response without a UUID. */
+  /** Preserve a final enqueued result. */
   async recordDirectMergeEnqueued(repository: string, number: number, token: string): Promise<boolean> {
     return await this.transaction(async tx => {
       const key = this.directMergeKey(repository, number)
@@ -1210,6 +1199,20 @@ export class PullRequestInbox {
     })
   }
   /**
+   * Whether this claim still holds the lease on its claimed head, with no source push since the claim.
+   * Unrelated events can move the generation or revision; a pinned wait from `finish()` still accepts them.
+   */
+  async holdsClaimedHead(claim: Claim): Promise<boolean> {
+    return await this.transaction(async tx => {
+      const s = await this.getIn(tx, claim.snapshot.repository, claim.snapshot.number)
+      const head = claim.snapshot.pr?.head?.sha
+      return Boolean(s && head && s.status !== 'terminal' && s.lease === claim.token && s.leaseUntil > this.clock()
+        && s.pr?.head?.sha === head && !s.sourcePushOverflow
+        && (s.sourcePushHead === claim.snapshot.sourcePushHead || s.sourcePushHead === head)
+        && !s.sourcePushHeads?.some(pushed => pushed !== head))
+    })
+  }
+  /**
    * Finishes a claimed pass. A `wait` without `headSha` binds to the claimed head and requires
    * unchanged evidence. A wait with `headSha`, such as the head of a repair push, keeps later events
    * unhandled, so `waitsToEvaluate()` returns the PR and the host decides whether they need work.
@@ -1398,7 +1401,7 @@ export class PullRequestInbox {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     // `+parent.number` keeps SQLite on the refs index; ordering by the primary key scanned every PR value.
-    const rows = await this.read(`SELECT p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
+    const rows = await this.read(`SELECT p.repository, p.number, p.summary, p.state, p.dirty_at, (SELECT parent.number FROM ${this.tables.pullRequests} parent
       WHERE parent.scope=p.scope AND parent.repository=p.repository AND parent.number<>p.number
         AND parent.state='open' AND parent.head_ref=p.base_ref
         AND json_extract(CASE WHEN json_valid(parent.value) THEN parent.value ELSE '{}' END, '$.pr.head.repo.full_name') = COALESCE(json_extract(CASE WHEN json_valid(p.value) THEN p.value ELSE '{}' END, '$.pr.base.repo.full_name'), p.repository) COLLATE NOCASE ORDER BY +parent.number LIMIT 1) AS stack_parent

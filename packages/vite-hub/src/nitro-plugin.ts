@@ -11,7 +11,7 @@ function flattenPlugins(option: PluginOption): Plugin[] {
 
 function findNitroMain(value: unknown, own: Plugin | undefined): boolean {
   if (Array.isArray(value)) return value.some(entry => findNitroMain(entry, own))
-  return value !== own && Boolean(value) && typeof value === "object" && Reflect.get(value, "name") === "nitro:main"
+  return value !== own && value !== null && typeof value === "object" && Reflect.get(value, "name") === "nitro:main"
 }
 
 function applies(apply: Plugin["apply"], config: UserConfig, env: ConfigEnv): boolean {

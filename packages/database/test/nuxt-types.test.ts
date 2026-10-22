@@ -50,8 +50,11 @@ const tableChecks = [
 describe("Database types in a Nuxt app", () => {
   it("creates the referenced types file without a Database Definition", async () => {
     const baseDir = join(import.meta.dirname, "../../../.vitest-tmp")
+    await mkdir(baseDir, { recursive: true })
     const root = await mkdtemp(join(baseDir, "nuxt-types-empty-"))
     tempDirs.push(root)
+    // The config marks the project root, so ViteHub does not climb to the repository and find its example Definitions.
+    await writeModule(join(root, "nuxt.config.ts"), ["export default {}"])
     const buildDir = join(root, ".nuxt")
     const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
     await hubDb()(undefined, {

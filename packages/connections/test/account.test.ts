@@ -75,7 +75,7 @@ describe("OAuth provider without account or apis", () => {
   it("quarantines a reconnect that does not identify the account", async () => {
     const test = createTestRuntime(defineConnection({ provider: oidcProvider(), scopes: [] }))
     await connect(test, { id_token: idToken({ sub: "account-1" }) })
-    await expect(connect(test, { id_token: "invalid" })).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
+    await expect(connect(test, { id_token: "invalid" })).rejects.toMatchObject({ code: "CONNECTIONS_STATE_CONFLICT" })
     expect(await test.runtime.inspect("mail")).toMatchObject({ account: { id: "account-1" }, status: "reauth_required" })
   })
 
@@ -83,7 +83,7 @@ describe("OAuth provider without account or apis", () => {
     const test = createTestRuntime(defineConnection({ provider: oidcProvider(), scopes: [] }))
     await connect(test, { id_token: idToken({ sub: "account-1" }) })
     const before = test.provider.calls.length
-    await expect(test.runtime.client("mail", {}).fetch("https://auth.example.com/userinfo")).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
+    await expect(test.runtime.client("mail", {}).fetch("https://auth.example.com/userinfo")).rejects.toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
     expect(test.provider.calls).toHaveLength(before)
   })
 })

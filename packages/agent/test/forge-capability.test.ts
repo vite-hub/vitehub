@@ -200,13 +200,14 @@ describe("Forge capability", () => {
   it.each([undefined, "https://api.github.com/", "https://github.example.com/api/v3"])(
     "scopes the Agent forge access to the public API (%s)",
     async baseUrl => {
-      const access = vi.fn(async () => "identity-token")
+      const access = vi.fn(async () => ({ token: "identity-token" }))
       const set = await tools(forge({ ...base, baseUrl }), {
         runtimeContext: { [forgeAccessKey]: access } as never,
       })
       await run(set, "read_thread", { number: 1 })
       const enterprise = baseUrl?.includes("example.com")
-      expect(access).toHaveBeenCalledTimes(enterprise ? 0 : 1)
+      // The access is asked first. A token without a baseUrl is for github.com, so an enterprise API reads Server Env.
+      expect(access).toHaveBeenCalledOnce()
       expect(requests.at(-1)?.options.auth?.token).toBe(enterprise ? "github-token" : "identity-token")
     },
   )
@@ -416,7 +417,7 @@ describe("Forge capability", () => {
   })
 
   it("uses the Agent forge access before Server Env", async () => {
-    const access = vi.fn(async () => "identity-token")
+    const access = vi.fn(async () => ({ token: "identity-token" }))
     const set = await tools(forge(base), { runtimeContext: { [forgeAccessKey]: access } as never })
     await run(set, "read_thread", { number: 1 })
     expect(access).toHaveBeenCalledWith(expect.anything(), { repository: "acme/app", signal: undefined })
@@ -447,7 +448,7 @@ describe("Forge capability", () => {
     const controller = new AbortController()
     const access = vi.fn(async () => {
       controller.abort(new Error("Invocation cancelled"))
-      return "identity-token"
+      return { token: "identity-token" }
     })
     const set = await tools(forge({ ...base, mode: "write" }), {
       runtimeContext: { [forgeAccessKey]: access } as never,
