@@ -166,7 +166,9 @@ export function createEntrySource(definitionPath: string, execution: 'definition
     `    const cloneHeadersSymbol = cloneSymbols?.find(symbol => symbol.description === 'headers')`,
     `    const cloneState = cloneStateSymbol && cloneResult[cloneStateSymbol]`,
     `    const cloneHeaders = cloneHeadersSymbol && cloneResult[cloneHeadersSymbol]`,
-    `    const undiciInternals = enumerableSymbols.length === 2 && undiciState && typeof undiciState === 'object' && Number.isInteger(undiciState.status) && 'body' in undiciState && 'headersList' in undiciState && undiciHeaders && typeof undiciHeaders === 'object' && Object.prototype.hasOwnProperty.call(undiciHeaders, 'get') && typeof undiciHeaders.get === 'function' && cloneSymbols?.length === 2 && cloneState && typeof cloneState === 'object' && 'headersList' in cloneState && cloneHeaders && typeof cloneHeaders === 'object' && Object.prototype.hasOwnProperty.call(cloneHeaders, 'get') && typeof cloneHeaders.get === 'function'`,
+    // Undici's headers symbol holds the Headers instance its branded `headers`
+    // getter returns; `get` lives on Headers.prototype, not on the instance.
+    `    const undiciInternals = enumerableSymbols.length === 2 && undiciState && typeof undiciState === 'object' && Number.isInteger(undiciState.status) && 'body' in undiciState && 'headersList' in undiciState && undiciHeaders && typeof undiciHeaders === 'object' && undiciHeaders === value.headers && typeof undiciHeaders.get === 'function' && cloneSymbols?.length === 2 && cloneState && typeof cloneState === 'object' && 'headersList' in cloneState && cloneHeaders && typeof cloneHeaders === 'object' && cloneHeaders === cloneResult.headers && typeof cloneHeaders.get === 'function'`,
     // Undici's internal symbols are enumerable, but any enumerable string field is
     // user data and must keep the ordinary-object path (the response descriptor
     // intentionally omits arbitrary fields).

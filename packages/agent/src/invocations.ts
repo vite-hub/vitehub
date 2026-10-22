@@ -2318,7 +2318,7 @@ export function defineAgentInvocations(options: AgentInvocationsOptions): AgentI
         const attemptId = claimConfirmed && !claimUncertain && !rotate && pendingClaimIds.size === 0 ? claimId : createInvocationId()
         const expectedClaimIds = [...pendingClaimIds, ...(claimConfirmed ? [claimId] : [])]
         pendingClaimIds.add(attemptId)
-        const claimOptions = force ? { replaceExisting: true }
+        const claimOptions: NonNullable<Parameters<AgentInvocationStore["claim"]>[3]> = force ? { replaceExisting: true }
           : expectedClaimIds.length ? { expectedClaimIds }
             : bindOptions.replaceClaimToken ? { replaceClaimToken: bindOptions.replaceClaimToken } : {}
         if (existingTraceId) claimOptions.expectedTraceId = existingTraceId

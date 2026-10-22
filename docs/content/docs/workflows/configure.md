@@ -4,7 +4,6 @@ description: Set Workflow integration options, define Workflows, and add a durab
 navigation.title: Configure
 navigation.order: 4
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Configure the Vite Integration

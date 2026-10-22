@@ -69,11 +69,11 @@ describe("API key fallback", () => {
     const test = harness(() => ENV_KEY)
     expect(await test.runtime.revoke({ name: "executor" })).toMatchObject({ status: "revoked" })
     expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
-    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
 
     await test.runtime.setKey({ key: STORED_KEY, name: "executor" })
     await test.runtime.revoke({ name: "executor" })
-    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect(test.keys).toEqual([])
   })
 

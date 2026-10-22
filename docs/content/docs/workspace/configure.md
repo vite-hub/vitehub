@@ -4,7 +4,6 @@ description: Configure the Workspace Vite integration, Store providers, Workspac
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 Configure where Workspace stores files, what each Workspace Definition contains, and how Sources are bound into the file tree.

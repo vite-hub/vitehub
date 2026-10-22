@@ -4,7 +4,6 @@ description: Write the Auth Definition, supply runtime options, and record stora
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Auth Definition
