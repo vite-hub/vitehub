@@ -77,7 +77,10 @@ describe("defineChannelTrigger({ durableState: true })", () => {
     expect((await send()).status).toBe(200)
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())
     expect(seen).toHaveBeenCalledTimes(2)
-    expect(seen.mock.calls[1]![0]).toEqual(seen.mock.calls[0]![0])
+    // Each trigger call gets its own transaction() closure (#2618) over the same State and key prefix.
+    const [first, replayed] = [seen.mock.calls[0]![0]!, seen.mock.calls[1]![0]!]
+    expect(replayed.state).toBe(first.state)
+    expect(replayed.keyPrefix).toBe(first.keyPrefix)
   })
 
   it("throws before invoke runs without the Channel's State", async () => {

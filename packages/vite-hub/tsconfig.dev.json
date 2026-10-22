@@ -80,6 +80,7 @@
     "node_modules",
     // Browser code of the Console's invocation views; tsconfig.console.json checks it with the DOM library.
     "src/console/runtime/components/invocation",
+    "src/console/ui.ts",
     "test/console-invocation-views"
   ]
 }

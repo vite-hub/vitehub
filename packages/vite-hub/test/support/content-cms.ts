@@ -5,6 +5,8 @@ import { runViteHubCli } from "@vite-hub/cli"
 import { resolveConfig, type InlineConfig, type PluginOption } from "vite"
 import { afterEach, vi } from "vitest"
 
+import { isIncludedNitroPlugin } from "../../src/nitro-plugin.ts"
+
 const roots: string[] = []
 export const path = process.env.PATH
 const cwd = process.cwd()
@@ -56,6 +58,14 @@ export const server = [
   "",
 ].join("\n")
 
+/** The fixture is a plain Vite SSR app, so it leaves out the Nitro host that `vitehub()` includes (#2583). */
+function withoutIncludedNitro(pluginOptions: PluginOption[]): PluginOption[] {
+  return pluginOptions.flatMap((option): PluginOption[] => {
+    if (Array.isArray(option)) return [withoutIncludedNitro(option)]
+    return option && typeof option === "object" && isIncludedNitroPlugin(option) ? [] : [option]
+  })
+}
+
 export function serverBuild(root: string, pluginOptions: PluginOption[]): InlineConfig {
   return {
     appType: "custom",
@@ -64,7 +74,7 @@ export function serverBuild(root: string, pluginOptions: PluginOption[]): Inline
     build: { outDir: "dist", rolldownOptions: { input: join(root, "src/server.ts") }, ssr: true },
     configFile: false,
     logLevel: "silent",
-    plugins: pluginOptions,
+    plugins: withoutIncludedNitro(pluginOptions),
     root,
   }
 }

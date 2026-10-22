@@ -75,7 +75,11 @@ async function setup(options: { ackTimeoutMs?: number | false, url?: string } = 
   const inbox = async () => {
     await state.connect()
     const rows = []
+    // The replay index can list an ID more than once; replay reads each stored request once.
+    const ids = new Set<string>()
     for (const entry of await state.getList<{ id: string }>(`${scope}inbox`)) {
+      if (ids.has(entry.id)) continue
+      ids.add(entry.id)
       const row = await state.get(`${scope}inbox:${encodeURIComponent(entry.id)}`)
       if (row) rows.push(row as { attempts: number, request: { body: string } })
     }
@@ -141,22 +145,26 @@ describe("webhook acknowledgement after store", () => {
 
   it("replays a request that a stopped process left, through the route, after a restart", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => {})
-    const { create, hold, inbox, invokes, routeOptions, send } = await setup({ ackTimeoutMs: 20 })
+    const { create, hold, inbox, invokes, routeOptions, send, setStatus } = await setup({ ackTimeoutMs: 20 })
     const stuck = hold()
     expect((await send(4)).status).toBe(202)
     await vi.waitFor(() => expect(invokes).toEqual([4]))
+    // A live admission in this process holds the inbox lock and renews its owner lease, and replay
+    // rightly does not take it over (#2625). End it the way a failed process does: a 5xx keeps the row.
+    setStatus(503)
+    stuck.resolve()
+    await vi.waitFor(async () => expect((await inbox())[0]).toMatchObject({ attempts: 1 }))
     const [left] = await inbox()
-    expect(left).toMatchObject({ attempts: 1 })
     expect(JSON.parse(left!.request.body)).toEqual({ n: 4 })
 
     // The next process: admission is fast again, and its recovery boundary is its start time.
+    setStatus(undefined)
     hold().resolve()
     const restarted = create()
     const stop = restarted.resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
     await vi.waitFor(async () => expect(await inbox()).toEqual([]), { timeout: 5_000 })
     expect(invokes).toEqual([4, 4])
     expect(logEvents(info)).toEqual(expect.arrayContaining(["inbox.replaying", "inbox.replayed"]))
-    stuck.resolve()
     await stop()
   })
 
@@ -170,20 +178,28 @@ describe("webhook acknowledgement after store", () => {
       attempts: 2,
       id: "delivery-index-only",
       receivedAt: new Date(Date.now() - 1_000).toISOString(),
-      request: { body: "{\"n\":9}", headers: {}, method: "POST", url: "https://example.com/hook" },
+      // Replay checks the signature again, so the stored request keeps its signed headers.
+      request: {
+        body: "{\"n\":9}",
+        headers: { "content-type": "application/json", "x-github-delivery": "delivery-index-only", "x-hub-signature-256": `sha256=${createHmac("sha256", secret).update("{\"n\":9}").digest("hex")}` },
+        method: "POST",
+        url: "https://example.com/hook",
+      },
       webhookId: "",
     })
     const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
-    await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]), { timeout: 5_000 })
-    expect(invokes).toEqual([9])
+    // The route stores attempt 3 before it runs the trigger, so wait for the trigger as well.
+    await vi.waitFor(() => expect(invokes).toEqual([9]), { timeout: 4_000 })
+    await vi.waitFor(async () => expect(await inbox()).toMatchObject([{ attempts: 3 }]))
     await stop()
   })
 
   it("drops a stored request after 3 admissions", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {})
     vi.spyOn(console, "info").mockImplementation(() => {})
-    const { create, inbox, invokes, routeOptions, send, state } = await setup({ ackTimeoutMs: 1_000 })
-    expect((await send(5)).status).toBe(200)
+    const { create, inbox, invokes, routeOptions, state } = await setup({ ackTimeoutMs: 1_000 })
+    // A settled admission leaves a marker that replay skips (#2625), so this row belongs to an admission that never settled.
+    await state.connect()
     await state.appendToList(`${scope}inbox`, { id: "delivery-5" })
     await state.set(`${scope}inbox:delivery-5`, {
       attempts: 3,
@@ -194,7 +210,7 @@ describe("webhook acknowledgement after store", () => {
     })
     const stop = create().resume({ ...routeOptions, recoverInterruptedBefore: Date.now() })
     await vi.waitFor(async () => expect(await inbox()).toEqual([]), { timeout: 5_000 })
-    expect(invokes).toEqual([5])
+    expect(invokes).toEqual([])
     expect(logEvents(error)).toContain("inbox.dropped")
     await stop()
   })

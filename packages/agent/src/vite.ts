@@ -895,7 +895,7 @@ function generatedWorkspaceSourceRootHelper(name: string, workspaceDefinitionFro
     "  const existingSources = resolvedAgent.sources && typeof resolvedAgent.sources === 'object' ? resolvedAgent.sources : undefined",
     "  // A Provider Driver writes the bundled Skills and instructions into its working directory itself.",
     "  const storesBundledFiles = Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriverKind')) !== 'provider'",
-    "  const providerInstructions = Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriver'))?.instructions",
+    `  const providerInstructions = ${typescript ? "(" : ""}Reflect.get(resolvedAgent, Symbol.for('vitehub.baseAgentDriver'))${typescript ? " as { instructions?: unknown } | undefined)" : ""}?.instructions`,
     "  const retainedExistingSources = storesBundledFiles ? existingSources : Object.fromEntries(Object.entries(existingSources || {}).filter(([key]) => (key === '__vitehubAgentInstructions' ? providerInstructions === undefined : !key.startsWith('__vitehubAgentSkill:'))))",
     "  const sources = {",
     "    ...retainedExistingSources,",
