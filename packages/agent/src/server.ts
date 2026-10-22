@@ -104,4 +104,9 @@ export { agentHostWorkspaceRoute, getAgentHostWorkspaceInspector, registerAgentH
 export type { AgentHostWorkspaceInspector } from "./server/host-workspace.ts"
 
 // Generated host routes import these helpers through the installed Agent package.
-export { defineEventHandler, getQuery, getRouterParam } from "h3"
+// Keep the public declaration independent of h3's transitive type peers (notably crossws);
+// consumers that execute a generated route still receive h3 through the required peer.
+import { defineEventHandler as h3DefineEventHandler, getQuery as h3GetQuery, getRouterParam as h3GetRouterParam } from "h3"
+export const defineEventHandler: (...args: any[]) => any = h3DefineEventHandler
+export const getQuery: (...args: any[]) => any = h3GetQuery
+export const getRouterParam: (...args: any[]) => any = h3GetRouterParam

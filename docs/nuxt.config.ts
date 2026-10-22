@@ -112,7 +112,7 @@ export default defineNuxtConfig({
   css: ["~/assets/main.css"],
   vite: {
     build: {
-      rollupOptions: {
+      rolldownOptions: {
         // Shiki loads this binary at runtime; Rolldown otherwise parses it as an ES module.
         external: [/node_modules[\\/]shiki[\\/]dist[\\/]onig\\.wasm$/],
       },
