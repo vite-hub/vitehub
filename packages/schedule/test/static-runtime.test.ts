@@ -1,6 +1,6 @@
 import { runInNewContext } from "node:vm"
 
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { executeCloudflareStaticSchedules, executeMatchingStaticSchedules, executeStaticSchedule, missingScheduleDefinitionError, normalizeScheduleRuntimeError, unwrapScheduleDefinition } from "../src/runtime/static.ts"
 
@@ -274,6 +274,47 @@ describe("Static Schedule runtime", () => {
 
     await expect(execution).rejects.toThrow("handler failed")
     expect(deferredCompleted).toBe(true)
+  })
+
+  it("logs a failed schedule with its name and cause, and still finishes the others", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const finished: string[] = []
+    const cause = Object.assign(new Error("Gmail returned 502"), { status: 502 })
+    const registry: ScheduleDefinitionRegistry = {
+      broken: async () => ({ cron: "*/5 * * * *", handler: async () => { throw new Error("sync failed", { cause }) } }),
+      healthy: async () => ({ cron: "*/5 * * * *", handler: async () => { finished.push("healthy") } }),
+    }
+    try {
+      await expect(executeMatchingStaticSchedules({ cron: "*/5 * * * *", registry })).rejects.toThrow("sync failed")
+      expect(finished).toEqual(["healthy"])
+      expect(log).toHaveBeenCalledOnce()
+      expect(log.mock.calls[0]?.[0]).toBe(`[vitehub:schedule] Schedule "broken" failed (cron "*/5 * * * *").`)
+      expect(log.mock.calls[0]?.[1]).toMatchObject({
+        message: "sync failed",
+        stack: expect.stringContaining("sync failed"),
+        cause: { message: "Gmail returned 502", status: 502 },
+      })
+    }
+    finally {
+      log.mockRestore()
+    }
+  })
+
+  it("rejects with every failure when several schedules fail on one cron", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const registry: ScheduleDefinitionRegistry = {
+      first: async () => ({ cron: "0 4 * * *", handler: async () => { throw new Error("first failed") } }),
+      second: async () => ({ cron: "0 4 * * *", handler: async () => { throw new Error("second failed") } }),
+    }
+    try {
+      const error = await executeMatchingStaticSchedules({ cron: "0 4 * * *", registry }).catch((error: unknown) => error)
+      expect(error).toBeInstanceOf(AggregateError)
+      expect((error as AggregateError).errors.map(error => (error as Error).message)).toEqual(["first failed", "second failed"])
+      expect(log).toHaveBeenCalledTimes(2)
+    }
+    finally {
+      log.mockRestore()
+    }
   })
 })
 

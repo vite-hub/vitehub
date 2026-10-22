@@ -225,6 +225,14 @@ The `docs` link of a ViteHub diagnostic opens this page. Use these steps to repa
 
 ## Production response
 
+Nitro answers an unhandled request error with a sanitized body. h3 logs only that sanitized error, and Cloudflare Workers serialize it without its message or cause. ViteHub adds a Nitro plugin that logs the thrown error instead:
+
+```txt
+[vitehub] Unhandled error in POST /api/sync { message, stack, status, code, cause: { message, status, ... } }
+```
+
+The log follows the `cause` chain and keeps `status`, `code`, `fix`, and `requestId`. Errors that a route throws on purpose with a status below 500, such as a 401, are not logged. When `vitehub({ observability })` is on, evlog records request errors and this plugin is not added.
+
 Keep secrets out of production diagnostics.
 Use Server Env and Secret Env for runtime secret values, and rely on package diagnostics to redact known secret values where supported.
 

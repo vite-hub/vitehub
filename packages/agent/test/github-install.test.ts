@@ -447,13 +447,14 @@ it("runs as many installs at once as its slots allow", async () => {
   const peak = join(roots[0]!, "peak");
   const release = join(roots[0]!, "release");
   await mkdir(active);
-  await writeFile(join(roots[2]!, "bin", "corepack"), `#!/bin/sh
+  const corepack = `#!/bin/sh
 touch '${active}/'"$$"
 ls '${active}' | wc -l >> '${peak}'
 while [ ! -f '${release}' ]; do sleep 0.02; done
 rm '${active}/'"$$"
 mkdir -p node_modules
-`, { mode: 0o755 });
+`;
+  await Promise.all(roots.map(root => writeFile(join(root, "bin", "corepack"), corepack, { mode: 0o755 })));
   const slots = createGitHubInstallSlots({ concurrency: 2 });
   const installs = roots.map(root => installGitHubPullRequestWorkspace(root, undefined, undefined, { slots }));
   try {

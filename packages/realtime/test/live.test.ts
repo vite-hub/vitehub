@@ -828,6 +828,66 @@ describe("adapter seams for live documents", () => {
     expect(forward.mock.calls[0]![0].headers.has("x-vitehub-realtime-refresh")).toBe(false)
   })
 
+  it("finds the Durable Object binding of the running Worker", async () => {
+    const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
+    const scope = globalThis as { __env__?: Record<string, unknown> }
+    // Nitro's Cloudflare entry stores the request's bindings here.
+    scope.__env__ = { $DurableObject: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } }
+    try {
+      await expect(refreshRealtimeDocument("content", "posts/hello")).resolves.toBe(true)
+      expect(new URL(fetch.mock.calls[0]![0].url).pathname).toBe("/api/_vitehub/realtime/content/posts/hello")
+    }
+    finally {
+      delete scope.__env__
+    }
+  })
+
+  it("leaves a room it can see to the Durable Object that owns it", async () => {
+    // Workerd may run the Durable Object in the Worker's isolate: its rooms are visible here, but their sockets belong
+    // to the Durable Object's requests, so a reset from this request would never reach them.
+    Reflect.get(globalThis, Symbol.for("vitehub.realtime.local-refresh"))?.clear()
+    const memory = createMemoryAdapter({ page: { body: "Original" } })
+    const server = createTestServer(liveDefinition(memory.adapter))
+    const client = await server.connect("page")
+    await settle()
+    memory.write("page", "Agent")
+    const loads = memory.adapter.load.mock.calls.length
+    const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
+    await expect(refreshRealtimeDocument("docs", "page", { durableObjects: { get: () => ({ fetch }), idFromName: (name: string) => ({ name }) } })).resolves.toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+    expect(memory.adapter.load.mock.calls.length).toBe(loads)
+    expect(client.controls.some(control => control.type === "reset")).toBe(false)
+  })
+
+  it("accepts workerd's binding, whose methods are on its class, and rejects methods from an arbitrary prototype", async () => {
+    const fetch = vi.fn(async (_request: Request) => Response.json({ reseeded: true }))
+    // Workerd's binding: no own methods, a branded class prototype, and no global DurableObjectNamespace.
+    class DurableObjectNamespace {
+      get(_id: unknown) { return { fetch } }
+      idFromName(name: string) { return { name } }
+      get [Symbol.toStringTag]() { return "DurableObjectNamespace" }
+    }
+    await expect(refreshRealtimeDocument("docs", "page", { durableObjects: new DurableObjectNamespace() })).resolves.toBe(true)
+    expect(fetch).toHaveBeenCalledOnce()
+
+    // Client requests reach the Durable Object through the same binding.
+    const forward = vi.fn(async (_request: Request) => new Response("forwarded"))
+    class ForwardingNamespace {
+      get(_id: unknown) { return { fetch: forward } }
+      idFromName(name: string) { return { name } }
+      get [Symbol.toStringTag]() { return "DurableObjectNamespace" }
+    }
+    const handler = createRealtimeHandler(registryOf(liveDefinition(createMemoryAdapter().adapter)) as never)
+    const request = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    Object.assign(request, { runtime: { cloudflare: { env: { $DurableObject: new ForwardingNamespace() } } } })
+    expect(await (await handler.fetch(request)).text()).toBe("forwarded")
+
+    const inherited = new Request("https://example.com/api/_vitehub/realtime/docs/page?document=refresh", { method: "POST" })
+    Object.assign(inherited, { runtime: { cloudflare: { env: { $DurableObject: Object.create({ get: () => ({ fetch: forward }), idFromName: (name: string) => ({ name }) }) } } } })
+    await handler.fetch(inherited)
+    expect(forward).toHaveBeenCalledOnce()
+  })
+
   it("refreshes inside the Durable Object without identity, only for a room it has open", async () => {
     const memory = createMemoryAdapter({ page: { body: "Original" } })
     const sql = new FakeSql()

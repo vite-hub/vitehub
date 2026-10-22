@@ -180,6 +180,10 @@ export default defineConnection({
       retry: { attempts: 4, methods: ['GET'], on429: { minDelayMs: 30_000 } },
       timeoutMs: 15_000,
     },
+  }),
+})
+```
+
 ### Fallback key
 
 `fallback` gives a key from Server Env until an admin sets one. A sealed Server Env secret is unsealed:

@@ -3,7 +3,7 @@ import { join } from "pathe"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { collectDatabaseContributions, describeDatabaseContribution, resolveDatabaseContributionTargets } from "./contributions.ts"
-import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readStaticDatabaseSchema } from "./config.ts"
+import { discoverDatabaseDefinitions, isImplicitDefaultDatabase, readDatabaseDefinitionDialect, readDatabaseDefinitionReadReplication, readStaticDatabaseSchema } from "./config.ts"
 import { loadContributedDatabaseSchema } from "./internal/schema-tables.ts"
 
 import type { ViteHubDefinitionField, ViteHubDefinitionSummary } from "@vite-hub/internal/inspect"
@@ -15,6 +15,8 @@ export interface DatabaseInspectionOptions {
   /** Vite plugins that can contribute tables through `vitehub.databases`. */
   plugins?: readonly unknown[]
   projectRoot: string
+  /** The integration's `readReplication`, which a Definition inherits unless it sets its own. */
+  readReplication?: boolean
   /** Root that Database Definitions are discovered from. */
   rootDir: string
   serverDirs?: string[]
@@ -65,6 +67,9 @@ export async function inspectDatabaseDefinitions(options: DatabaseInspectionOpti
         ? [{ label: "Definition", value: "Implicit. The app has no Database Definition, so ViteHub uses an empty default Database. Add `server/databases/config.ts` to declare tables." }]
         : [],
       { label: "Tables", value: describeTables(definition.schemaSources.map(source => source.handler)) },
+      ...(readDatabaseDefinitionReadReplication(definition.handler) ?? options.readReplication)
+        ? [{ label: "Read replication", value: "On. Reads use D1 read replicas, through one D1 session per request. Writes return a bookmark cookie." }]
+        : [],
       ...(definition.contributor ? [{ label: "Contributed by", value: definition.contributor }] : []),
       ...(definition.reason ? [{ label: "Reason", value: definition.reason }] : []),
       ...(definition.migrationsDir ? [{ label: "Migrations", value: relativeDefinitionFile(options.projectRoot, definition.migrationsDir) }] : []),

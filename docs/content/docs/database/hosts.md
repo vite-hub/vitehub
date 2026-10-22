@@ -63,6 +63,38 @@ Cloudflare describes its built-in D1 REST API as best suited to administrative u
 
 If you omit `cloudflare.http`, ViteHub keeps local SQLite and the hosted libSQL selection, even when `cloudflare.databaseId` is set.
 
+### Read from D1 replicas
+
+D1 keeps one primary database in one region. A Worker far from that region waits for a round trip on each query. Set `readReplication: true` to read from [D1 read replicas](https://developers.cloudflare.com/d1/best-practices/read-replication/) near the Worker instead.
+
+```ts [server/databases/config.ts]
+import { defineDatabase } from '@vite-hub/database'
+
+import { notes } from './schema'
+
+export default defineDatabase({
+  cloudflare: { readReplication: true },
+  schema: { notes },
+})
+```
+
+In a Nuxt app, or for every Definition that inherits the integration resource, set it on the integration: `database: { driver: 'd1', readReplication: true }`.
+
+ViteHub then opens one D1 session for each request, with the [Sessions API](https://developers.cloudflare.com/d1/worker-api/d1-database/#withsession):
+
+| Request | Session starts on | After the request |
+| --- | --- | --- |
+| `GET`, `HEAD`, or `OPTIONS` | The replica that the client's bookmark cookie names, or any replica | No cookie |
+| Any other method | The primary database | A `vitehub-d1-bookmark-<binding>` cookie with the session's bookmark |
+
+The bookmark cookie makes the next read of the same client see its own writes. Other clients can read a replica that does not have those writes yet. Code that must read the latest data of every client must run in a request that can write, for example a `POST` handler.
+
+Every query of one request goes through the same session. Work outside a request, such as a Schedule or a Queue consumer, uses the primary database.
+
+`vitehub provision run --provider cloudflare` turns on replication for the D1 databases that set `readReplication`. For a database that ViteHub does not provision, turn it on in the Cloudflare dashboard, or call the D1 API: `PATCH /accounts/<account_id>/d1/database/<database_id>` with `{ "read_replication": { "mode": "auto" } }`. Without replication on the database, every session uses the primary database.
+
+`vitehub inspect definitions --kind database` shows `Read replication` for each Database that uses it. D1 over HTTP, libSQL, and local SQLite ignore the option.
+
 ### Use Postgres
 
 A Postgres Definition uses [postgres.js](https://github.com/porsager/postgres) through Drizzle. ViteHub selects the connection for each query:
