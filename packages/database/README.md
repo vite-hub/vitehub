@@ -80,6 +80,20 @@ When the Nitro Vite plugin builds with a Cloudflare preset, the Vite integration
 
 Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or its native libraries. Local SQLite development and projects with libSQL connections keep their existing drivers.
 
+## Migrations
+
+`vitehub db generate` writes Drizzle migrations beside the Definition. `vitehub db migrate` applies the pending ones with Drizzle Kit.
+
+```sh
+pnpm vitehub db migrate --dry-run         # print pending migrations and their SQL, change nothing
+pnpm vitehub db migrate                   # refuse pending migrations that lose data
+pnpm vitehub db migrate --allow-data-loss # apply them, and skip the check
+```
+
+Before it applies anything, `vitehub db migrate` reads Drizzle's migrations table (`__drizzle_migrations`) of each database to find the pending migrations. It refuses `DROP TABLE`, `DROP SCHEMA`, a column drop with `ALTER TABLE`, `TRUNCATE`, `DELETE` without `WHERE`, and a SQLite table rebuild that does not copy every column of the previous Drizzle snapshot. It reports them with `DATABASE_MIGRATION_DATA_LOSS` and exits with code 1. `--dry-run` also exits with code 1 in that case, so CI can run it as a check.
+
+The check connects to the database that Drizzle Kit migrates: the local SQLite file, remote libSQL, D1 HTTP with `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN`, or Postgres with the `postgres` package. When it cannot read the migrations table, it fails with `DATABASE_MIGRATION_CHECK_FAILED` and does not guess. Wrangler applies the migrations of a native D1 binding, so that path has no check.
+
 ## Contributed tables
 
 Packages can add Drizzle tables to an application's Database from their own Vite plugin with `vitehub.databases`. Each entry has the shared contribution shape `{ name, definition: { module, export }, reason? }`, where `export` holds an object of tables. Database entries can also set `database` and `dialect`. Without `database`, the tables go to the default or only Database:
