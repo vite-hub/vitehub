@@ -14,7 +14,7 @@ import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
-const packedPackages = ["agent", "sandbox", "env", "markdown-template", "rate-limit", "runtime", "source", "workflow", "workspace"] as const
+const packedPackages = ["agent", "sandbox", "env", "forge", "markdown-template", "rate-limit", "runtime", "source", "workflow", "workspace"] as const
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath
@@ -206,7 +206,8 @@ finally {
     ])
     expect(unownedListeners.sigterm).not.toContain("shutdown")
     child.kill("SIGTERM")
-    await expect(unownedExited).resolves.toEqual([null, "SIGTERM"])
+    // The queue does not own shutdown here, but the Agent drain (#2513) still drains and exits cleanly.
+    await expect(unownedExited).resolves.toEqual([0, null])
     child = undefined
 
     const port = await availablePort()

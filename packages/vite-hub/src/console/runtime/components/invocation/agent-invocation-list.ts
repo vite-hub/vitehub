@@ -147,7 +147,7 @@ type AgentInvocationListPropOptions = {
   items: { required: true; type: PropType<readonly AgentInvocationListItem[]> };
   loading: BooleanConstructor;
   now: NumberConstructor;
-  remainingStatuses: { default: undefined; type: PropType<readonly AgentInvocationStatus[]> };
+  remainingStatuses: PropType<readonly AgentInvocationStatus[]>;
   retryKey: (NumberConstructor | StringConstructor)[];
   selectedId: StringConstructor;
 };

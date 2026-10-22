@@ -50,7 +50,7 @@ const codes = {
       if (problem === "invalid-json") return "Provider returned invalid JSON."
       if (problem === "login") return `The login of Connection "${connection}" failed${message ? `: ${message}` : ""}.`
       if (problem === "no-token") return `Provider "${provider}" returned no access token.`
-      if (problem === "token-request") return `Provider "${provider}" rejected the token request${message ? ` (${message})` : ""}.`
+      if (problem === "token-request") return `Provider "${provider}" rejected the token request${status === undefined ? "" : ` with ${status}`}${message ? ` (${message})` : ""}.`
       if (problem === "verify") return `Provider "${provider}" could not verify the key.`
       return `Provider rejected ${action} with ${status}${message ? `: ${message}` : "."}`
     },
