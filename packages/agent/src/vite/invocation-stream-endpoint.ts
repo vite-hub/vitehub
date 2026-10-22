@@ -568,14 +568,17 @@ async function runCapabilityCliWithTimeout(
 ): Promise<Response | AgentCapabilityCliExecutionResult> {
   const controller = new AbortController()
   const unlink = linkAbortSignal(controller, abortSignal)
+  const deadline = performance.now() + timeout
   const run = (runAgentInline(withCapabilityCliRun(agent, cli, execution) as never, context as never, {
     ...input,
     abortSignal: controller.signal,
     timeout,
   }, { output: "raw" }) as Promise<Response | AgentCapabilityCliExecutionResult>)
-    // The run's own execution budget can fire before the timer below; either way the call timed out.
+    // The run's execution budget shares this deadline and can fire before the timer below. Only a TimeoutError at or after
+    // the deadline is this call's timeout; an earlier one comes from a nested operation and keeps its own failure.
     .catch((error: unknown) => {
-      if (timeout > 0 && Reflect.get(Object(error), "name") === "TimeoutError") return new Response(`Agent Invocation Stream timed out after ${timeout}ms.`, { status: 504 })
+      if (timeout > 0 && Reflect.get(Object(error), "name") === "TimeoutError" && performance.now() >= deadline)
+        return new Response(`Agent Invocation Stream timed out after ${timeout}ms.`, { status: 504 })
       throw error
     })
 
