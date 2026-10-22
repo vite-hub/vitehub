@@ -78,7 +78,11 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
     definePlugin: plugin => plugin,
     installProcessScheduleRuntime,
     normalizeScheduleRuntimeError,
-    onShutdown: () => {},
+    onShutdown: (app, _name, drain) => {
+      app.hooks.hook("close", async () => {
+        await drain()
+      })
+    },
   }
 
   const module = await import(`${pathToFileURL(pluginFile).href}?${Date.now()}-${Math.random()}`) as {
