@@ -14,7 +14,7 @@ import type {
   ContentRawDocument,
   ContentRevisionsOptions,
   ContentWriteOptions,
-} from "../collections.ts"
+} from "../collections-types.ts"
 import type { ContentFieldIssue } from "../documents.ts"
 import type { ContentDocumentsRuntime } from "../index.ts"
 import type { ContentScheduleStatus } from "../schedules.ts"

@@ -4,13 +4,11 @@ import { isWorkspaceConflict } from "@vite-hub/workspace"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { WorkspaceRetainedHistory, WorkspaceRevision } from "@vite-hub/workspace"
-import type { ContentPublishedDocument, ContentPublishExpectation, ContentPublishResult } from "./collections.ts"
+import type { ContentPublishedDocument, ContentPublishExpectation, ContentPublishResult } from "./collections-runtime.ts"
 
-/** The history ref that stores pending and failed schedules, one file per schedule. */
-export const contentSchedulesRef = "schedules" as const
+import { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 
-/** A pending schedule this long past its time has not run: no runner fired, or it fires less often. */
-export const contentScheduleOverdueMs: number = 5 * 60_000
+export { contentScheduleOverdueMs, contentSchedulesRef }
 
 /** A crashed publisher must not strand a schedule forever. */
 export const contentScheduleClaimLeaseMs: number = 15 * 60_000

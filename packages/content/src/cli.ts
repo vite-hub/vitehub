@@ -16,7 +16,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
-import type { ContentDocumentStatus, ContentRef } from "./collections.ts"
+import type { ContentDocumentStatus, ContentRef } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
 import type {

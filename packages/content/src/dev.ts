@@ -4,7 +4,7 @@ import type {
   ContentPublishExpectation,
   ContentPublishedDocument,
   ContentRef,
-} from "./collections.ts"
+} from "./collections-types.ts"
 import type { ContentFieldIssue, ContentFormat } from "./documents.ts"
 import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
 import type { ContentSitemapEntry } from "./sitemap.ts"

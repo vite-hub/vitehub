@@ -82,7 +82,8 @@ content.collections() // [posts], each with name, kind, format, path, fields, an
 `singleton({ path, fields })` defines one document at a fixed path, such as site settings. Its methods take no id, and `publish({ expect })` entries for it may omit `id`. The extension sets the format of a document or collection: `.json` stores an indented JSON object, `.yaml`/`.yml` a block-style YAML mapping, and anything else Markdown with YAML frontmatter. JSON and YAML documents have no body.
 
 ```ts
-import { defineContent, documents, singleton } from "@vite-hub/content"
+import { defineContent } from "@vite-hub/content"
+import { documents, singleton } from "@vite-hub/content/collections"
 
 export const content = defineContent({
   workspace: "site",

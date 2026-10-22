@@ -17,16 +17,8 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { image } from "../../blob/src/reference.ts"
 import { contentHead as clientContentHead } from "../src/client.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
-import {
-  contentHead,
-  defineContent,
-  defineContentRobotsHandler,
-  defineContentSitemapHandler,
-  documents,
-  renderContentSitemap,
-  seo,
-  singleton,
-} from "../src/index.ts"
+import { documents, singleton } from "../src/collections.ts"
+import { contentHead, defineContent, defineContentRobotsHandler, defineContentSitemapHandler, renderContentSitemap, seo } from "../src/index.ts"
 
 import type { ContentSeo, DefineContentSeoOptions } from "../src/index.ts"
 

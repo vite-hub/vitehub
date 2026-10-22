@@ -41,7 +41,7 @@ import type {
   ContentRevisionsOptions,
   ContentRevisionsResult,
   ContentSingleton,
-} from "./collections.ts"
+} from "./collections-types.ts"
 import type { ContentSourceInput } from "./content-source.ts"
 import type { ContentCollectionDefinition, ContentFields, DocumentsDefinition, SingletonDefinition } from "./documents.ts"
 import type { ContentPreview } from "./preview.ts"
@@ -54,15 +54,12 @@ import type {
   ContentUnscheduleOptions,
 } from "./schedules.ts"
 import type { ContentSitemapEntry, ContentSitemapOptions, DefineContentSeoOptions } from "./sitemap.ts"
-import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections.ts"
+import type { ContentCollectionsRuntime, ContentHistorySource } from "./collections-types.ts"
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
-// Keep the document collection builders available from the main Content entry
-// point as well as the dedicated `@vite-hub/content/collections` subpath.
-export { documents, optional, singleton } from "./collections.ts"
 export { contentKeyVariable, contentPreviewCookieName, defineContentPreviewPlugin } from "./preview.ts"
 export type { ContentPreview, ContentPreviewCookie, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions } from "./preview.ts"
-export { contentScheduleOverdueMs, contentSchedulesRef } from "./schedules.ts"
+export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
   ContentPublishDueOptions,
@@ -77,7 +74,7 @@ export type {
 } from "./schedules.ts"
 export type { ContentSourceInput, ContentSourceOptions, ContentSourceReader } from "./content-source.ts"
 export type { ContentPreset, ContentPresetDefaults, ContentPresetSelection } from "./presets.ts"
-export { contentSessionTimeouts } from "./sessions.ts"
+export { contentSessionTimeouts } from "./defaults.ts"
 export type {
   ContentDocumentSessions,
   ContentSession,
@@ -88,6 +85,7 @@ export type {
   ContentSessions,
   ContentSessionUser,
 } from "./sessions.ts"
+export { optional } from "./documents.ts"
 export { contentSeoLengths, seo } from "./seo.ts"
 // Blob owns the reference schemas. Content re-exports them so one import covers every field helper.
 export { file, image } from "@vite-hub/blob/reference"
@@ -147,7 +145,7 @@ export type {
   ContentSaveInput,
   ContentSingleton,
   ContentWriteOptions,
-} from "./collections.ts"
+} from "./collections-types.ts"
 
 export interface ContentHandler {
   (event: unknown): Promise<unknown>

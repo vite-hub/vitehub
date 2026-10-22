@@ -33,7 +33,7 @@ import type {
   ViteHubConsoleMediaAccess,
 } from "@vite-hub/internal/console"
 import type { ContentAction, ContentDocumentsRuntime } from "../index.ts"
-import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections.ts"
+import type { AnyContentCollection, ContentDocument, ContentDocumentStatus, ContentDocumentSummary, ContentListOptions } from "../collections-types.ts"
 import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"

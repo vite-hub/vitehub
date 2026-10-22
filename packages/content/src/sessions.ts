@@ -6,11 +6,9 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ReportInput, SessionKey, SessionRow, SessionTimeouts, createSessionStore } from "./sessions-store.ts"
 
-/**
- * How long sessions count, in milliseconds. A report keeps a session present for `presence`. Taking or renewing the
- * edit lease keeps it for `lease`. A lease without reported input for `idle` stops blocking others.
- */
-export const contentSessionTimeouts: Readonly<SessionTimeouts> = Object.freeze({ presence: 45_000, lease: 300_000, idle: 900_000 })
+import { contentSessionTimeouts } from "./defaults.ts"
+
+export { contentSessionTimeouts }
 
 /** Who a session belongs to. The Console passes the signed-in user; an Agent passes its Actor. */
 export interface ContentSessionUser {

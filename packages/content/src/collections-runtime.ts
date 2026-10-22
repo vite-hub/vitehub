@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks"
+
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
@@ -5,8 +7,11 @@ import { isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "@vit
 
 import {
   comarkJsonSchema,
+  compileSingletonPath,
+  contentDocumentUrl,
   compileDocumentsPath,
   contentInvalid,
+  contentInvalidDocuments,
   fieldsJsonSchema,
   normalizeFrontmatter,
   parseDocumentFile,
@@ -15,12 +20,28 @@ import {
   warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
+import { isContentSeoField } from "./seo.ts"
+import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
+import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
 import type { WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceRevisionView, WorkspaceWriteInput } from "@vite-hub/workspace"
 import type { JsonSchema, Source as ComarkContentSource } from "comark-content"
-import type { CompiledDocumentsPath, ContentFieldIssue, ContentFields, ContentFieldsInput, ContentFieldsOutput, DocumentsDefinition } from "./documents.ts"
+import type {
+  CompiledDocumentsPath,
+  ContentInvalidDocument,
+  ContentCollectionDefinition,
+  ContentFieldIssue,
+  ContentFields,
+  ContentFieldsInput,
+  ContentFieldsOutput,
+  ContentFormat,
+  DocumentComponent,
+} from "./documents.ts"
+import type { ContentDocumentSchedule, ContentSchedulesRuntime, ContentScheduledDocument } from "./schedules.ts"
+import type { ContentSessions, SessionCollection } from "./sessions.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -31,27 +52,57 @@ const maxRevisionScan = 1_000
 const maxUpdatedAtScan = 5_000
 const listDefaultLimit = 50
 const listMaxLimit = 1_000
+const titleFieldNames = ["title", "name", "label", "heading"]
+
+/** `blog-posts` → `Blog Posts`. */
+function titleCase(name: string): string {
+  return name.split(/[-_/\s]+/).filter(Boolean).map(part => `${part[0]!.toUpperCase()}${part.slice(1)}`).join(" ")
+}
+
+/** The first of `title`, `name`, `label`, and `heading` that is a string field, then the first required string field. */
+function defaultTitleField(schema: Record<string, unknown>): string | undefined {
+  const properties: unknown = schema.properties
+  const isString = (field: string) => {
+    const property: unknown = properties !== null && Object(properties) === properties ? Reflect.get(Object(properties), field) : undefined
+    return property !== null && Object(property) === property && Reflect.get(Object(property), "type") === "string"
+  }
+  const required = Array.isArray(schema.required) ? schema.required.filter((field: unknown): field is string => String(field) === field) : []
+  return titleFieldNames.find(isString) ?? required.find(isString)
+}
 
 /** One document read from a Content collection. */
 export interface ContentDocument<TData = Record<string, unknown>> {
   collection: string
   /** Path below the collection folder without the extension, such as `hello` or `2026/hello`. */
   id: string
-  /** Workspace path of the Markdown file, such as `posts/hello.md`. */
+  /** Workspace path of the file, such as `posts/hello.md` or `settings.json`. */
   path: string
-  /** Validated frontmatter. */
+  /**
+   * Validated fields: the frontmatter of a Markdown file, or the whole object of a JSON or YAML file. A draft with
+   * `issues` holds the stored values as written, without validation.
+   */
   data: TData
-  /** Markdown body after the frontmatter. */
+  /** Markdown body after the frontmatter. Always empty for JSON and YAML documents. */
   body: string
   /** SHA-256 of the file bytes. Pass it as `ifDigest` to save only over this version. */
   digest: string
   /** History revision the document was read from. */
   revision: string
   /**
+   * The public URL path from the collection's `url`, such as `/blog/hello`. Absent when the collection has no `url`, and
+   * null when it has no page for this document.
+   */
+  url?: string | null
+  /**
    * When the document last changed on the ref it was read from: the `createdAt` of the newest revision on that ref
    * that added or changed its file. Null when the change is older than the 5,000 revisions Content scans.
    */
   updatedAt: string | null
+  /**
+   * Field issues of a draft saved while it was still in progress. Drafts accept invalid fields; `publish()` and
+   * `schedule()` refuse the document with `CONTENT_INVALID` until they are fixed. Absent when the document validates.
+   */
+  issues?: ContentFieldIssue[]
 }
 
 /** A listed document. `list()` leaves out the body; read it with `get()`. */
@@ -61,7 +112,7 @@ export type ContentDocumentSummary<TData = Record<string, unknown>> = Omit<Conte
 export interface ContentRawDocument {
   collection: string
   id: string
-  /** Workspace path of the Markdown file, such as `posts/hello.md`. */
+  /** Workspace path of the file, such as `posts/hello.md` or `settings.json`. */
   path: string
   /** The file text, frontmatter included. */
   text: string
@@ -111,9 +162,12 @@ export interface ContentPage<TData = Record<string, unknown>> {
 }
 
 export interface ContentSaveInput<TInput = Record<string, unknown>> {
-  /** Frontmatter field values. They are validated, stored as YAML, and must survive a JSON round trip. */
+  /**
+   * Field values. They are validated, must survive a JSON round trip, and are stored in the file's format: YAML
+   * frontmatter for Markdown, an indented JSON object, or a YAML mapping.
+   */
   data: TInput
-  /** Markdown body. Defaults to an empty body. */
+  /** Markdown body. Defaults to an empty body. JSON and YAML documents have no body and reject a non-empty one. */
   body?: string
 }
 
@@ -127,6 +181,16 @@ export interface ContentWriteOptions {
   message?: string
   /** JSON-safe revision metadata, such as the author. The `content` key is reserved. */
   metadata?: Record<string, unknown>
+  /**
+   * The `content.sessions` token of the caller, such as the Console tab that saves. Its own edit lease does not block
+   * the write, and the write renews it.
+   */
+  session?: string
+  /**
+   * `override` writes even while another session holds the edit lease. By default the write fails with
+   * `CONTENT_LEASE_HELD`, naming the holder, while another session holds a live lease.
+   */
+  lease?: "override"
 }
 
 /**
@@ -145,13 +209,21 @@ export interface ContentDocumentStatus {
   draft: string | null
   /** Digest on the `published` ref, or null when it is not published. */
   published: string | null
+  /** How many field issues the draft has. Absent when the draft validates. Publish refuses the document until it is 0. */
+  issues?: number
+  /**
+   * The schedule from `content.schedule()` that publishes this document: its pending or overdue one, or else a failed
+   * one. Absent when none names it.
+   */
+  schedule?: ContentDocumentSchedule
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
 export interface ContentPublishExpectation {
   /** Collection name. An unknown name throws `CONTENT_R0008`. */
   collection: string
-  id: string
+  /** Document id. Omit it for a singleton defined with `singleton()`. */
+  id?: string
   /** The draft digest that was reviewed, from `status()` or `get({ ref: 'draft' })`. `null` expects the document deleted on the draft. */
   digest: string | null
 }
@@ -214,23 +286,54 @@ export interface ContentRevisionsResult {
   scanned: number
 }
 
-/** An editable collection of Markdown documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
-export interface ContentCollection<TFields extends ContentFields = ContentFields>
-  extends Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+/** What every Content collection describes about itself, for forms, tools, and the Console. */
+interface ContentCollectionInfo {
   readonly name: string
+  /** Display name: `label` from the definition, or the name in title case, such as `Posts` or `Settings`. */
+  readonly label: string
+  /**
+   * The string field that names a document, such as `title`: `titleField` from the definition, or the first of
+   * `title`, `name`, `label`, and `heading` that is a string field, then the first required string field.
+   */
+  readonly titleField?: string
+  /** How documents are stored: Markdown with frontmatter and a body, or JSON or YAML data without a body. */
+  readonly format: ContentFormat
+  /** Field names, in definition order. */
+  readonly fields: readonly string[]
+  /** JSON Schema of the fields, built from each field's Standard JSON Schema. Forms and tools read it. */
+  readonly schema: Record<string, unknown>
+  /** Whether documents have a public URL from the definition's `url`. Their reads carry `url`. */
+  readonly routable: boolean
+  /** The name of the `seo()` field, when the collection has one. */
+  readonly seo?: string
+  /** How sessions edit documents together. `lease: false` comes from `editing: { lease: false }` in the definition. */
+  readonly editing: { readonly lease: boolean }
+}
+
+/** An editable collection of documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
+export interface ContentCollection<TFields extends ContentFields = ContentFields>
+  extends ContentCollectionInfo, Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+  /** `documents` for a collection defined with `documents()`. */
+  readonly kind: "documents"
+  /** Name of one document, such as `Person`, when the definition sets `label: { singular, plural }`. */
+  readonly singularLabel?: string
   /** The collection glob, such as `posts/**\/*.md`. */
   readonly path: string
-  /** Frontmatter field names, in definition order. */
-  readonly fields: readonly string[]
-  /** JSON Schema of the frontmatter, built from each field's Standard JSON Schema. Forms and tools read it. */
-  readonly schema: Record<string, unknown>
+  /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
+  readonly components: Readonly<Record<string, DocumentComponent>>
   /** List documents with filters, search, sort, facets, and a total. Reads `published`, or `draft` in a preview request, unless `ref` says otherwise. */
   list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
-  /** Read one document, or null when it does not exist. Throws `CONTENT_INVALID` when its frontmatter no longer validates. */
+  /**
+   * Read one document, or null when it does not exist. A draft or revision with invalid fields carries `issues`. On
+   * `published`, or for a file that cannot be parsed, it throws `CONTENT_INVALID`.
+   */
   get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
   /** Read one stored file without parsing or validating it, or null when it does not exist. Use it to show and diff any version. */
   raw(id: string, options?: ContentReadOptions): Promise<ContentRawDocument | null>
-  /** Validate and commit a document to the `draft` ref. */
+  /**
+   * Commit a document to the `draft` ref. Fields that fail validation are stored and returned as `issues`; data that
+   * cannot be stored, such as a non-object or a body on a JSON document, throws `CONTENT_INVALID`.
+   */
   save(id: string, input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
   /** Delete a document from the `draft` ref. It stays published until the next publish. */
   remove(id: string, options?: ContentWriteOptions): Promise<void>
@@ -241,6 +344,43 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   /** Compare every document on `draft` and `published`, sorted by id. */
   status(): Promise<ContentDocumentStatus[]>
 }
+
+/**
+ * One editable document at a fixed path, defined with `singleton()`, such as site settings. Every method works without
+ * an id. Generic code may pass the document `id` like it does for a collection; any other id throws `CONTENT_R0008`.
+ * `list()` and the read-only Collection contract return at most this one document.
+ */
+export interface ContentSingleton<TFields extends ContentFields = ContentFields>
+  extends ContentCollectionInfo, Collection<ContentDocumentSummary<ContentFieldsOutput<TFields>>, ArrayCollectionQuery<string>> {
+  /** `singleton` for a singleton defined with `singleton()`. */
+  readonly kind: "singleton"
+  /** The Workspace path of the file, such as `settings.json`. */
+  readonly path: string
+  /** The document id: the file name without the extension, such as `settings`. */
+  readonly id: string
+  /** List the document when it exists on the ref, with the same options as a collection. */
+  list(options?: ContentListOptions<ContentFieldsOutput<TFields>>): Promise<ContentPage<ContentFieldsOutput<TFields>>>
+  /** Read the document, or null before its first save. Throws `CONTENT_INVALID` when it no longer validates. */
+  get(options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
+  get(id: string, options?: ContentReadOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>> | null>
+  /** Read the stored file without parsing or validating it, or null when it does not exist. */
+  raw(options?: ContentReadOptions): Promise<ContentRawDocument | null>
+  raw(id: string, options?: ContentReadOptions): Promise<ContentRawDocument | null>
+  /** Validate and commit the document to the `draft` ref. The first save creates it. */
+  save(input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  save(id: string, input: ContentSaveInput<ContentFieldsInput<TFields>>, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  /** Delete the document from the `draft` ref. It stays published until the next publish. */
+  remove(options?: ContentWriteOptions): Promise<void>
+  remove(id: string, options?: ContentWriteOptions): Promise<void>
+  /** Save the version from an earlier revision as the new draft. */
+  restore(revision: string, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  restore(id: string, revision: string, options?: ContentWriteOptions): Promise<ContentDocument<ContentFieldsOutput<TFields>>>
+  /** Compare the document on `draft` and `published`. Null when it exists on neither. */
+  status(id?: string): Promise<ContentDocumentStatus | null>
+}
+
+/** A collection or a singleton from `defineContent({ collections })`. Narrow it with `kind`. */
+export type AnyContentCollection<TFields extends ContentFields = ContentFields> = ContentCollection<TFields> | ContentSingleton<TFields>
 
 // Caches
 
@@ -322,9 +462,14 @@ interface RefState {
   opened?: OpenedRevision
 }
 
+/**
+ * A stored file read back: valid; parsed with field issues, which a draft may hold; or malformed, which no ref may hold
+ * because the file has no object of fields to edit.
+ */
 type ParsedText =
-  | { data: Record<string, unknown>, body: string, issues?: undefined }
-  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[] }
+  | { data: Record<string, unknown>, body: string, issues?: undefined, malformed?: undefined }
+  | { data: Record<string, unknown>, body: string, issues: ContentFieldIssue[], malformed?: undefined }
+  | { data?: undefined, body?: undefined, issues: ContentFieldIssue[], malformed: true }
 
 type IndexedDocument = ContentDocument<Record<string, unknown>>
 
@@ -340,22 +485,29 @@ export type ContentHistorySource = ComarkContentSource & { readonly loadedRevisi
 
 export interface ContentCollectionsOptions {
   workspace: string
-  collections: Record<string, DocumentsDefinition>
+  collections: Record<string, ContentCollectionDefinition>
   /** The ref that `get()` and `list()` read without `ref`: `draft` inside a preview request, otherwise `published`. */
   defaultRef?: () => ContentRef
+  /** `false` keeps one editor at a time even where live editing is installed. */
+  live?: "auto" | false
 }
 
-export interface ContentCollectionsRuntime {
-  readonly collections: ReadonlyMap<string, ContentCollection>
-  collection(name: string): ContentCollection
+export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime, "documentSchedules"> {
+  readonly collections: ReadonlyMap<string, AnyContentCollection>
+  collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
-  revisions(collection: string, id: string, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Revisions of one document. `id` may be omitted for a singleton. */
+  revisions(collection: string, id: string | undefined, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
+  /** Content revisions of every collection on one ref, newest first. */
+  history(options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** A Comark Source over the `published` ref of one collection. `withRef("draft")` pins the draft. */
   comarkSource(name: string): ContentHistorySource
   /** Called after `publish()` changes the `published` ref, with the affected collection names. */
   onPublish(listener: (collections: string[]) => Promise<void> | void): void
   /** The revision a Comark Source of `ref` reads: its head, or the `published` head for an empty draft. Null before any. */
   head(ref: ContentRef): Promise<string | null>
+  /** Presence and edit leases of documents, in the Database of the Workspace history. */
+  readonly sessions: ContentSessions
   /** Remove the Workspace validation plugin. */
   dispose(): void
 }
@@ -384,12 +536,14 @@ function assertRef(ref: unknown, fallback: ContentRef): ContentRef {
   return ref as ContentRef
 }
 
-function revisionTouches(revision: WorkspaceRevision, collection: string, id: string): boolean {
+function revisionDocuments(revision: WorkspaceRevision): unknown[] {
   const content: unknown = revision.metadata?.content
   const documents: unknown = content !== null && Object(content) === content ? Reflect.get(Object(content), "documents") : undefined
-  return Array.isArray(documents) && documents.some(document =>
-    document !== null && Object(document) === document
-    && Reflect.get(document, "collection") === collection && Reflect.get(document, "id") === id)
+  return Array.isArray(documents) ? documents.filter(document => document !== null && Object(document) === document) : []
+}
+
+function revisionTouches(revision: WorkspaceRevision, collection: string, id: string): boolean {
+  return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id)
 }
 
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
@@ -399,10 +553,20 @@ function writeMetadata(metadata: Record<string, unknown> | undefined, content: R
   return { ...metadata, content }
 }
 
+/** The text of a write, or undefined when it has no content or its bytes are not UTF-8. */
 function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   if (content === undefined) return
-  return hasRuntimeType(content, "string") ? content : new TextDecoder().decode(content)
+  if (hasRuntimeType(content, "string")) return content
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(content)
+  }
+  catch {
+    return undefined
+  }
 }
+
+/** Set while Content's own `publish()` commits, the one writer that may delete documents from `published`. */
+const contentPublishes = new AsyncLocalStorage<true>()
 
 /** Create the document runtime for every collection and install validation on their Workspace paths. */
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
@@ -558,20 +722,44 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   const collections = new Map<string, CollectionRuntime>()
+  let mutationTail = Promise.resolve()
+  async function acquireMutation(): Promise<() => void> {
+    let release!: () => void
+    const turn = new Promise<void>(resolve => { release = resolve })
+    const previous = mutationTail
+    mutationTail = previous.then(() => turn)
+    await previous
+    return release
+  }
   const plugin = registerWorkspacePlugin(workspaceName, {
     id: "vitehub.content",
     hooks: {
       // Every Workspace writer, including Agents, Sessions, and other history commits, goes through this check.
       "write:validate": async (input) => {
-        if (input.operation !== "writeFile") return
         const path = input.path.replace(/^\/+/, "")
         for (const collection of collections.values()) {
           if (!collection.compiled.match(path)) continue
+          const id = collection.idFor(path)
+          if (input.operation === "rm") {
+            // Like remove(): a document leaves the draft, and leaves `published` only when publish() publishes that.
+            if (input.ref === "published" && !contentPublishes.getStore()) {
+              throw contentErrorDiagnostics.CONTENT_R0013({
+                message: `[vitehub] Content document ${JSON.stringify(`${collection.name}/${id}`)} leaves the published site only through content.publish(). Remove it from the draft with remove(), then publish the deletion.`,
+              })
+            }
+            return
+          }
+          if (input.operation === "mkdir") {
+            throw contentInvalid(collection.name, id, path, [{ message: `${path} is a document path of collection ${JSON.stringify(collection.name)}. A directory cannot take its place.`, path: [] }])
+          }
           const text = textOf(input.content)
-          if (text === undefined) return
+          if (text === undefined) {
+            throw contentInvalid(collection.name, id, path, [{ message: input.content === undefined ? "The write has no file content." : "The file is not UTF-8 text. Content documents are Markdown, JSON, or YAML text.", path: [] }])
+          }
           const parsed = await collection.parseText(text)
-          if (parsed.issues) throw contentInvalid(collection.name, collection.idFor(path), path, parsed.issues)
-          return
+          // The draft holds work in progress: only a file that cannot be parsed is refused there. Every other ref,
+          // `published` above all, and the working tree get full field validation.
+          if (parsed.issues && (parsed.malformed || input.ref !== "draft")) throw contentInvalid(collection.name, collection.idFor(path), path, parsed.issues)
         }
       },
     },
@@ -579,21 +767,42 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   type CollectionRuntime = ReturnType<typeof createCollection>
 
-  function createCollection(name: string, definition: DocumentsDefinition) {
-    const compiled: CompiledDocumentsPath = compileDocumentsPath(definition.path)
+  function createCollection(name: string, definition: ContentCollectionDefinition) {
+    const single = definition.kind === "singleton" ? compileSingletonPath(definition.path) : undefined
+    const compiled: CompiledDocumentsPath = single ?? compileDocumentsPath(definition.path)
+    const format = compiled.format
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
-    warnUntypedFields(name, definition.fields, schema)
+    warnUntypedFields(name, schema)
     const comarkSchema: JsonSchema = comarkJsonSchema(schema)
     const parsedTexts = new BoundedCache<Promise<ParsedText>>(10_000)
+    const sessionCollection: SessionCollection = {
+      name,
+      lease: definition.editing.lease,
+      documentId: (id) => {
+        const documentId = id ?? single?.id
+        pathFor(documentId)
+        // SAFETY: pathFor() accepts only nonempty string ids.
+        return documentId as string
+      },
+    }
     const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4)
-    const searchFields = (definition.search ?? [
+    const searchFields = ((definition.kind === "documents" ? definition.search : undefined) ?? [
       ...Object.keys(definition.fields).filter((field) => {
         const type = Reflect.get(Object(Reflect.get(Object(schema.properties), field)), "type")
         return type === "string" || (Array.isArray(type) && type.includes("string")) || type === undefined
       }),
-      "body",
+      // Only Markdown has a body to search.
+      ...(format === "markdown" ? ["body"] : []),
     ]).map(fieldPath)
+
+    function inFieldOrder(values: Record<string, unknown>): Record<string, unknown> {
+      const ordered: Record<string, unknown> = {}
+      for (const field of fieldNames) {
+        if (Object.hasOwn(values, field)) ordered[field] = values[field]
+      }
+      return Object.assign(ordered, values)
+    }
 
     function fieldPath(field: string): string {
       return fieldNames.has(field) ? `data.${field}` : field
@@ -604,6 +813,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     function pathFor(id: unknown): string {
+      if (single) {
+        if (id !== single.id) {
+          throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content singleton ${JSON.stringify(name)} has the id ${JSON.stringify(single.id)} (${single.path}). Omit the id, or pass ${JSON.stringify(single.id)}; received ${JSON.stringify(id)}.` })
+        }
+        return single.path
+      }
       if (String(id) !== id || !id || id.startsWith("/") || id.endsWith("/") || id.includes("\\")
         || id.split("/").some(segment => !segment || segment === "." || segment === "..")) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] Content document id must be a relative path such as "hello" or "2026/hello", received ${JSON.stringify(id)}.` })
@@ -624,10 +839,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     async function parseText(text: string): Promise<ParsedText> {
-      const file = parseDocumentFile(text)
-      if ("issues" in file) return { issues: file.issues }
+      const file = parseDocumentFile(text, format)
+      if ("issues" in file) return { issues: file.issues, malformed: true }
       const result = await validateFields(definition.fields, file.frontmatter)
-      if (result.issues) return { issues: result.issues }
+      if (result.issues) return { data: file.frontmatter, body: file.body, issues: result.issues }
       return { data: result.data, body: file.body }
     }
 
@@ -638,11 +853,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     function documentOf(
       id: string,
       entry: CollectionEntry,
-      parsed: { data: Record<string, unknown>, body: string },
+      parsed: { data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined },
       revision: WorkspaceRevision,
       updatedAt: string | null,
     ): IndexedDocument {
-      return { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      const document: IndexedDocument = { collection: name, id, path: entry.path, data: { ...parsed.data }, body: parsed.body, digest: entry.digest, revision: revision.id, updatedAt }
+      if (parsed.issues?.length) document.issues = parsed.issues.map(issue => ({ ...issue, path: [...issue.path] }))
+      if (definition.url !== undefined) document.url = contentDocumentUrl(definition.url, document)
+      return document
     }
 
     async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
@@ -650,8 +868,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const updated = await updatedAtMap(opened)
         const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          if (!parsed.issues) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
-          // Listing skips a document that no longer validates; get() reports why.
+          // A draft lists work in progress with its issues. `published` and malformed files list only what validates.
+          if (!parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
+          // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
         })
@@ -712,7 +931,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (!opened || digest === undefined) return null
       const entry = { path, digest }
       const parsed = await parseEntry(opened, entry)
-      if (parsed.issues) throw contentInvalid(name, id, path, parsed.issues)
+      if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) throw contentInvalid(name, id, path, parsed.issues)
       return documentOf(id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
     }
 
@@ -727,15 +946,26 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function commitDocument(
       id: string,
       path: string,
-      change: { text: string, digest: string, data: Record<string, unknown>, body: string } | { delete: true },
+      change: { text: string, digest: string, data: Record<string, unknown>, body: string, issues?: ContentFieldIssue[] | undefined } | { delete: true },
       writeOptions: ContentWriteOptions,
       action: "save" | "remove" | "restore",
     ): Promise<IndexedDocument | undefined> {
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
       }
+      if (writeOptions.session !== undefined && (String(writeOptions.session) !== writeOptions.session || !writeOptions.session)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write session must be the content.sessions token of the caller." })
+      }
+      if (writeOptions.lease !== undefined && writeOptions.lease !== "override") {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write lease must be 'override' or omitted." })
+      }
       const metadata = writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }] })
       const message = writeOptions.message ?? `${action[0]!.toUpperCase()}${action.slice(1)} ${name}/${id}`
+      if (writeOptions.lease !== "override") {
+        // A write is checked once before it commits. `ifDigest` still guards the bytes; the lease guards who writes.
+        const holder = await sessions.holder(sessionCollection, id, writeOptions.session)
+        if (holder) throw contentLeaseHeld(name, id, holder)
+      }
       const retained = await history()
       for (let attempt = 1; ; attempt++) {
         let head = await retained.head({ ref: "draft" })
@@ -754,16 +984,23 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (!("delete" in change) && current === change.digest && opened) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
-          if (!parsed.issues) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
+          if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
         }
         try {
-          const revision = await retained.commit({
-            ref: "draft",
-            ifHead: head?.id ?? null,
-            changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
-            message,
-            metadata,
-          })
+          const release = await acquireMutation()
+          let revision: WorkspaceRevision
+          try {
+            revision = await retained.commit({
+              ref: "draft",
+              ifHead: head?.id ?? null,
+              changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
+              message,
+              metadata,
+            })
+          }
+          finally { release() }
+          if (writeOptions.session !== undefined) await sessions.renew(sessionCollection, id, writeOptions.session)
+          await refreshLiveRoom(id, writeOptions.session)
           if ("delete" in change) return
           texts.set(change.digest, change.text)
           return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
@@ -776,11 +1013,30 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       }
     }
 
+    /**
+     * A write from outside the live room of a document, such as an Agent, the CLI, or another route, re-seeds that room
+     * when it has no unsaved edits. The room's own saves carry its lease session and skip this.
+     */
+    async function refreshLiveRoom(id: string, session: string | undefined): Promise<void> {
+      const live = options.live === false || format !== "markdown" ? undefined : contentLive()
+      if (!live) return
+      if (session !== undefined && session === await contentLiveSession(name, id)) return
+      try {
+        await live.refresh(contentLiveRoom(name, id))
+      }
+      catch {
+        // The room finds the change at its next save.
+      }
+    }
+
     async function save(id: string, input: ContentSaveInput, writeOptions: ContentWriteOptions = {}): Promise<IndexedDocument> {
       const path = pathFor(id)
       if (input === null || Object(input) !== input) throw contentInvalid(name, id, path, [{ message: "save() requires { data, body }.", path: [] }])
       const body = input.body === undefined ? "" : input.body
-      if (typeof body !== "string") throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      if (String(body) !== body) throw contentInvalid(name, id, path, [{ message: "body must be a Markdown string.", path: ["body"] }])
+      if (format !== "markdown" && body) {
+        throw contentInvalid(name, id, path, [{ message: `${format === "json" ? "JSON" : "YAML"} documents have no body. Store the value in a field.`, path: ["body"] }])
+      }
       let frontmatter: Record<string, unknown>
       try {
         frontmatter = normalizeFrontmatter(input.data)
@@ -788,14 +1044,18 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       catch (cause) {
         throw contentInvalid(name, id, path, [{ message: cause instanceof Error ? cause.message : String(cause), path: [] }])
       }
+      // Drafts accept fields in progress. The issues come back with the document, and publish() refuses it until they are fixed.
       const validated = await validateFields(definition.fields, frontmatter)
-      if (validated.issues) throw contentInvalid(name, id, path, validated.issues)
-      const text = renderDocumentFile(frontmatter, body)
-      // Read the stored text back so `body` matches what get() returns.
-      const stored = parseDocumentFile(text)
-      const storedBody = "issues" in stored ? body : stored.body
+      // Fields are stored in definition order, then other keys, so the same values give the same bytes from any writer.
+      const text = renderDocumentFile(inFieldOrder(frontmatter), body, format)
+      // Read the stored text back so `body` and `data` match what get() returns.
+      const stored = parseDocumentFile(text, format)
+      if ("issues" in stored) throw contentInvalid(name, id, path, stored.issues)
+      const change = validated.issues
+        ? { text, digest: await sha256(text), data: stored.frontmatter, body: stored.body, issues: validated.issues }
+        : { text, digest: await sha256(text), data: validated.data, body: stored.body }
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, { text, digest: await sha256(text), data: validated.data, body: storedBody }, writeOptions, "save"))!
+      return (await commitDocument(id, path, change, writeOptions, "save"))!
     }
 
     async function remove(id: string, writeOptions: ContentWriteOptions = {}): Promise<void> {
@@ -808,18 +1068,26 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (!opened.files.has(path)) throw contentNotFound(name, id)
       const text = await readText(opened, path)
       const parsed = await parseText(text)
-      if (parsed.issues) throw contentInvalid(name, id, path, parsed.issues)
+      // An earlier version with invalid fields restores as a draft in progress; a file that cannot be parsed does not.
+      if (parsed.malformed) throw contentInvalid(name, id, path, parsed.issues)
       // SAFETY: A put always returns the stored document.
-      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body }, writeOptions, "restore"))!
+      return (await commitDocument(id, path, { text, digest: opened.files.get(path)!, data: parsed.data, body: parsed.body, issues: parsed.issues }, writeOptions, "restore"))!
     }
 
     function status(id: string): Promise<ContentDocumentStatus | null>
     function status(): Promise<ContentDocumentStatus[]>
     async function status(id?: string): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
       if (id !== undefined) pathFor(id)
-      const [draft, published] = await Promise.all([refState("draft"), refState("published")])
+      const [draft, published, scheduled] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules()])
       const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
+      // Issue counts of the drafts, from the parse cache that list() shares.
+      const issueCounts = new Map<string, number>()
+      const counted = id === undefined ? [...draftEntries] : draftEntries.has(id) ? [[id, draftEntries.get(id)!] as const] : []
+      await mapLimit(counted, 8, async ([documentId, entry]) => {
+        const parsed = await parseEntry(draft.opened!, entry)
+        if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
+      })
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
@@ -827,7 +1095,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const state: ContentDocumentState = draftDigest === null
           ? "deleted"
           : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
-        return { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
+        const issues = issueCounts.get(documentId)
+        if (issues) status.issues = issues
+        const schedule = scheduled.get(contentScheduleKey(name, documentId))
+        if (schedule) status.schedule = schedule
+        return status
       }
       if (id !== undefined) return statusOf(id)
       return [...new Set([...draftEntries.keys(), ...publishedEntries.keys()])].sort().map(statusOf).filter(entry => entry !== null)
@@ -846,26 +1119,54 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       },
     })
 
-    const collection: ContentCollection = {
+    const seoField = Object.entries(definition.fields).find(([, field]) => isContentSeoField(field))?.[0]
+    const titleField = definition.titleField ?? defaultTitleField(schema)
+    const shared = {
       name,
-      path: definition.path,
+      label: definition.label ?? titleCase(name),
+      ...(titleField ? { titleField } : {}),
+      format,
+      routable: definition.url !== undefined,
+      ...(seoField ? { seo: seoField } : {}),
       fields: Object.freeze([...fieldNames]),
       schema,
+      editing: definition.editing,
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
       query: published.query,
       all: published.all,
       list,
-      get,
-      raw,
-      save,
-      remove,
-      restore,
-      status,
+    }
+    let collection: AnyContentCollection
+    if (single) {
+      // A singleton takes every method without its id. A string first argument is the id, as generic code passes it.
+      const id = single.id
+      const isId = (value: unknown): value is string => String(value) === value
+      const singleton: ContentSingleton = {
+        ...shared,
+        kind: "singleton",
+        path: single.path,
+        id,
+        get: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? get(first, second) : get(id, first)) as ContentSingleton["get"],
+        raw: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? raw(first, second) : raw(id, first)) as ContentSingleton["raw"],
+        save: ((first: string | ContentSaveInput, second?: ContentSaveInput | ContentWriteOptions, third?: ContentWriteOptions) =>
+          // SAFETY: The id form passes (id, input, options); the short form passes (input, options).
+          isId(first) ? save(first, second as ContentSaveInput, third) : save(id, first, second as ContentWriteOptions | undefined)) as ContentSingleton["save"],
+        remove: ((first?: string | ContentWriteOptions, second?: ContentWriteOptions) => isId(first) ? remove(first, second) : remove(id, first)) as ContentSingleton["remove"],
+        restore: ((first: string, second?: string | ContentWriteOptions, third?: ContentWriteOptions) =>
+          isId(second) ? restore(first, second, third) : restore(id, first, second)) as ContentSingleton["restore"],
+        status: (documentId?: string) => status(documentId === undefined ? id : documentId),
+      }
+      collection = singleton
+    }
+    else {
+      const components = (definition.kind === "documents" ? definition.components : undefined) ?? {}
+      const singularLabel = definition.kind === "documents" ? definition.singularLabel : undefined
+      collection = { ...shared, kind: "documents", path: definition.path, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
     }
 
-    return { name, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor }
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -893,39 +1194,52 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   function readExpectations(publishOptions: ContentPublishOptions): PublishTarget[] | undefined {
-    const expected: unknown = publishOptions.expect
-    if (expected === undefined) return
+    if (publishOptions.expect === undefined) return
     if (publishOptions.collection !== undefined || publishOptions.ids !== undefined) {
       throw publishInvalid("publish({ expect }) names every document to publish. Do not combine it with collection or ids.")
     }
+    return expectationTargets("publish", publishOptions.expect)
+  }
+
+  /** Validate `expect` entries of `publish()` or `schedule()`: known documents, one entry each, and digests. */
+  function expectationTargets(method: string, expected: unknown): PublishTarget[] {
+    const invalidExpectation = (message: string) => method === "publish"
+      ? contentErrorDiagnostics.CONTENT_R0009({ message: `[vitehub] ${message}` })
+      : contentErrorDiagnostics.CONTENT_R0011({ message: `[vitehub] ${message}` })
     if (!Array.isArray(expected) || !expected.length) {
-      throw publishInvalid("publish({ expect }) requires a non-empty list of { collection, id, digest }.")
+      throw invalidExpectation(`${method}({ expect }) requires a non-empty list of { collection, id, digest }.`)
     }
     const seen = new Set<string>()
     return expected.map((entry: unknown) => {
-      if (entry === null || Object(entry) !== entry) throw publishInvalid("Each publish({ expect }) entry must be { collection, id, digest }.")
+      if (entry === null || Object(entry) !== entry) throw invalidExpectation(`Each ${method}({ expect }) entry must be { collection, id, digest }.`)
       const digest: unknown = Reflect.get(Object(entry), "digest")
-      const id: unknown = Reflect.get(Object(entry), "id")
       const collection = requireCollection(Reflect.get(Object(entry), "collection"))
+      // A singleton needs no id.
+      const id: unknown = Reflect.get(Object(entry), "id") ?? collection.single?.id
       const path = collection.pathFor(id)
       // SAFETY: pathFor() accepts only nonempty string ids.
       const documentId = id as string
       if (digest !== null && (String(digest) !== digest || !digest)) {
-        throw publishInvalid(`publish({ expect }) digest for ${JSON.stringify(`${collection.name}/${documentId}`)} must be a digest string, or null for a deleted document.`)
+        throw invalidExpectation(`${method}({ expect }) digest for ${JSON.stringify(`${collection.name}/${documentId}`)} must be a digest string, or null for a deleted document.`)
       }
-      if (seen.has(path)) throw publishInvalid(`publish({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
+      if (seen.has(path)) throw invalidExpectation(`${method}({ expect }) lists ${JSON.stringify(`${collection.name}/${documentId}`)} more than once.`)
       seen.add(path)
       return { collection, id: documentId, path, digest }
     })
   }
 
-  function mismatchMessage(mismatches: ContentPublishMismatch[]): string {
+  function mismatchError(method: string, mismatches: ContentPublishMismatch[]): ViteHubError {
     const lines = mismatches.map(({ collection, id, actual }) =>
       `- ${collection}/${id}: ${actual === null ? "deleted on the draft" : `draft is now ${actual.slice(0, 12)}`}`)
-    return `[vitehub] Content changed on the draft after it was reviewed, so publish() published nothing:\n${lines.join("\n")}`
+    const outcome = method === "schedule" ? "schedule() scheduled nothing" : "publish() published nothing"
+    return contentConflict(`[vitehub] Content changed on the draft after it was reviewed, so ${outcome}:\n${lines.join("\n")}`, {
+      ref: "draft",
+      documents: mismatches.map(mismatch => ({ ...mismatch })),
+    })
   }
 
-  async function publish(publishOptions: ContentPublishOptions = {}): Promise<ContentPublishResult> {
+  /** `schedule` names the schedule that runs this publish, on the revision metadata. */
+  async function publish(publishOptions: ContentPublishOptions = {}, schedule?: string, beforeCommit?: () => Promise<boolean>): Promise<ContentPublishResult> {
     if (publishOptions === null || Object(publishOptions) !== publishOptions) throw publishInvalid("publish() options must be an object.")
     const expectations = readExpectations(publishOptions)
     if (publishOptions.ids !== undefined && publishOptions.collection === undefined) {
@@ -955,7 +1269,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actual = draft?.files.get(path) ?? null
           if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
         }
-        if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
+        if (mismatches.length) throw mismatchError("publish", mismatches)
       }
       if (!draftHead || !draft) {
         if (publishOptions.ids) throw contentNotFound(selected[0]!.name, publishOptions.ids[0]!)
@@ -978,6 +1292,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const put: Record<string, Uint8Array> = {}
       const remove: string[] = []
       const documents: ContentPublishedDocument[] = []
+      const invalid: ContentInvalidDocument[] = []
       for (const { collection, id, path } of targets) {
         const draftDigest = draft.files.get(path)
         const publishedDigest = published?.files.get(path)
@@ -991,51 +1306,96 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const bytes = await draft.view.readFile(path, { encoding: "binary" })
         // A file written before the validation hook was installed must not reach `published`.
         const parsed = await collection.parseText(new TextDecoder().decode(bytes))
-        if (parsed.issues) throw contentInvalid(collection.name, id, path, parsed.issues)
+        if (parsed.issues) {
+          invalid.push({ collection: collection.name, id, path, issues: parsed.issues })
+          continue
+        }
         put[path] = bytes
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
       }
+      // A draft in progress never reaches `published`. Every invalid document is named, and nothing is published.
+      if (invalid.length) throw contentInvalidDocuments("publish", invalid)
       if (!documents.length) return { revision: null, documents: [] }
+      const release = await acquireMutation()
       try {
-        const revision = await retained.commit({
+        const latestDraftHead = await retained.head({ ref: "draft" })
+        let draftExpectation: { draft: string } | undefined = draftHead ? { draft: draftHead.id } : undefined
+        if ((latestDraftHead?.id ?? null) !== (draftHead?.id ?? null)) {
+          const latestDraft = latestDraftHead ? await openRevision(latestDraftHead) : undefined
+          const moved = expectations?.some(({ path, digest }) => (latestDraft?.files.get(path) ?? null) !== (digest ?? null)) ?? true
+          if (!moved) {
+            // An unrelated draft write does not invalidate the reviewed documents.
+          }
+          else {
+          throw contentConflict("[vitehub] The draft Content changed before publish().", {
+            ref: "draft", expected: draftHead?.id ?? null, actual: latestDraftHead?.id ?? null,
+            ...(expectations ? { documents: expectations.map(({ collection, id, path, digest }) => ({
+              collection: collection.name, id, expected: digest ?? null, actual: latestDraft?.files.get(path) ?? null,
+            })) } : {}),
+          })
+          }
+          // An unrelated draft write is allowed. Do not bind the published
+          // commit to that unrelated head, since another harmless draft write
+          // may occur while the provider constructs the transaction.
+          draftExpectation = undefined
+        }
+        if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+        const revision = await contentPublishes.run(true, () => retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
-          ifHeads: expectations ? { draft: draftHead.id } : undefined,
+          ifHeads: draftExpectation,
           changes: { put, delete: remove },
           message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
           metadata: writeMetadata(publishOptions.metadata, {
             action: "publish",
             draft: draftHead.id,
             documents: documents.map(({ collection, id }) => ({ collection, id })),
+            ...(schedule ? { schedule } : {}),
           }),
-        })
+        }))
         const affected = [...new Set(documents.map(document => document.collection))]
         for (const listener of publishListeners) await listener(affected)
         return { revision, documents }
       }
       catch (error) {
         if (expectations && isWorkspaceConflict(error) && conflictRef(error) === "draft") {
-          const head = await retained.head({ ref: "draft" })
-          const current = head ? await openRevision(head) : published
-          const mismatches: ContentPublishMismatch[] = []
-          for (const { collection, id, path, digest } of expectations) {
-            const actual = current?.files.get(path) ?? null
-            if (actual !== digest) mismatches.push({ collection: collection.name, id, expected: digest ?? null, actual })
+          const actualHead = await retained.head({ ref: "draft" })
+          const actualDraft = actualHead ? await openRevision(actualHead) : undefined
+          const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
+          if (!moved) {
+            if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
+            const revision = await contentPublishes.run(true, () => retained.commit({
+              ref: "published",
+              ifHead: publishedHead?.id ?? null,
+              changes: { put, delete: remove },
+              message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
+              metadata: writeMetadata(publishOptions.metadata, {
+                action: "publish",
+                draft: draftHead.id,
+                documents: documents.map(({ collection, id }) => ({ collection, id })),
+                ...(schedule ? { schedule } : {}),
+              }),
+            }))
+            const affected = [...new Set(documents.map(document => document.collection))]
+            for (const listener of publishListeners) await listener(affected)
+            return { revision, documents }
           }
-          if (mismatches.length) throw contentConflict(mismatchMessage(mismatches), { ref: "draft", documents: mismatches.map(mismatch => ({ ...mismatch })) })
-          // An unrelated document moved draft: retry with the same reviewed digests.
-          if (attempt < maxCommitAttempts) continue
+          throw contentConflict("[vitehub] The draft Content changed before publish().", {
+            ref: "draft", documents: expectations.map(({ collection, id, path, digest }) => ({
+              collection: collection.name, id, expected: digest ?? null, actual: actualDraft?.files.get(path) ?? null,
+            })),
+          })
         }
         // Without ifHead, a concurrent publish only moves the base: recompute against the new head and check `expect` again.
         if (isWorkspaceConflict(error) && conflictRef(error) === "published" && publishOptions.ifHead === undefined && attempt < maxCommitAttempts) continue
         throw error
       }
+      finally { release() }
     }
   }
 
-  async function documentRevisions(collection: string, id: string, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
-    const runtime = requireCollection(collection)
-    runtime.pathFor(id)
+  /** Walks one ref newest first and keeps the revisions that `matches` accepts, scanning at most 1,000 per call. */
+  async function scanRevisions(revisionOptions: ContentRevisionsOptions, matches: (revision: WorkspaceRevision) => boolean): Promise<ContentRevisionsResult> {
     const ref = assertRef(revisionOptions.ref, "draft")
     const limit = revisionOptions.limit ?? 20
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
@@ -1053,7 +1413,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const page = await retained.list({ ref, limit: Math.min(100, scanLimit - scanned), cursor })
       for (const revision of page.revisions) {
         scanned++
-        if (!revisionTouches(revision, runtime.name, id)) continue
+        if (!matches(revision)) continue
         found.push(revision)
         if (found.length === limit) return { revisions: found, cursor: revision.id, scanned }
       }
@@ -1061,6 +1421,61 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     } while (cursor && scanned < scanLimit)
     return cursor ? { revisions: found, cursor, scanned } : { revisions: found, scanned }
   }
+
+  async function documentRevisions(collection: string, documentId: string | undefined, revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
+    const runtime = requireCollection(collection)
+    const id = documentId ?? runtime.single?.id
+    runtime.pathFor(id)
+    // SAFETY: pathFor() accepts only nonempty string ids.
+    const touched = id as string
+    return await scanRevisions(revisionOptions, revision => revisionTouches(revision, runtime.name, touched))
+  }
+
+  /** Revisions that Content wrote for documents of a defined collection, such as saves and publishes. */
+  async function contentHistory(revisionOptions: ContentRevisionsOptions = {}): Promise<ContentRevisionsResult> {
+    return await scanRevisions(revisionOptions, revision => revisionDocuments(revision).some(document => collections.has(String(Reflect.get(Object(document), "collection")))))
+  }
+
+  const sessions = createContentSessions({
+    workspace: workspaceName,
+    collection: name => requireCollection(name).sessionCollection,
+  })
+
+  const schedules = createContentSchedules({
+    history,
+    open: async (revision) => {
+      const opened = await openRevision(revision)
+      return { files: opened.files, read: path => readText(opened, path) }
+    },
+    expectations: (method, expect) => expectationTargets(method, expect).map(({ collection, id, digest }) => ({ collection: collection.name, id, digest: digest ?? null })),
+    digests: async (expect: readonly ContentScheduledDocument[]) => {
+      const [draft, published] = await Promise.all([refState("draft"), refState("published")])
+      return expect.map(({ collection, id }) => {
+        const path = requireCollection(collection).pathFor(id)
+        return { draft: draft.opened?.files.get(path) ?? null, published: published.opened?.files.get(path) ?? null }
+      })
+    },
+    mismatch: mismatchError,
+    validate: async (expect: readonly ContentScheduledDocument[]) => {
+      const draft = await refState("draft")
+      const invalid: ContentInvalidDocument[] = []
+      for (const { collection: name, id } of expect) {
+        const collection = requireCollection(name)
+        const path = collection.pathFor(id)
+        const digest = draft.opened?.files.get(path)
+        if (!draft.opened || digest === undefined) continue
+        const parsed = await collection.parseText(await readText(draft.opened, path))
+        if (parsed.issues) invalid.push({ collection: name, id, path, issues: parsed.issues })
+      }
+      if (invalid.length) throw contentInvalidDocuments("schedule", invalid)
+    },
+    publish: async (scheduled, beforeCommit) => await publish({
+      expect: scheduled.expect,
+      ...(scheduled.message === undefined ? {} : { message: scheduled.message }),
+      ...(scheduled.metadata === undefined ? {} : { metadata: scheduled.metadata }),
+    }, scheduled.id, beforeCommit),
+    metadata: writeMetadata,
+  })
 
   function comarkSource(name: string, ref: ContentRef = "published"): ContentHistorySource {
     const collection = requireCollection(name)
@@ -1097,7 +1512,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
+    schedule: schedules.schedule,
+    schedules: schedules.schedules,
+    unschedule: schedules.unschedule,
+    publishDue: schedules.publishDue,
     revisions: documentRevisions,
+    history: contentHistory,
     comarkSource: name => comarkSource(name),
     onPublish: listener => {
       publishListeners.push(listener)
@@ -1106,6 +1526,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const retained = await history()
       return (await retained.head({ ref }) ?? (ref === "draft" ? await retained.head({ ref: "published" }) : null))?.id ?? null
     },
+    sessions: {
+      report: sessions.report,
+      acquire: sessions.acquire,
+      release: sessions.release,
+      list: sessions.list,
+    },
     dispose: plugin,
   }
 }
+

@@ -15,7 +15,7 @@ import type {
   RealtimeRequestContext,
   RealtimeUser,
 } from "@vite-hub/realtime"
-import type { AnyContentCollection } from "./collections.ts"
+import type { AnyContentCollection } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
 import type { ContentCanContext, ContentUser } from "./index.ts"
 import type { ContentSessions } from "./sessions.ts"

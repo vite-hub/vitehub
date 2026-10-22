@@ -1,6 +1,6 @@
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
-import type { AnyContentCollection } from "./collections.ts"
+import type { AnyContentCollection } from "./collections-types.ts"
 
 /** `defineContent({ seo })`: site-wide SEO routes generated from routable collections. */
 export interface DefineContentSeoOptions {

@@ -14,7 +14,8 @@ import { registerWorkspace } from "@vite-hub/workspace/test"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { contentSessionsSchema } from "../src/database.ts"
-import { contentSessionTimeouts, defineContent, documents, singleton } from "../src/index.ts"
+import { documents, singleton } from "../src/collections.ts"
+import { contentSessionTimeouts, defineContent } from "../src/index.ts"
 
 const history = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const sessionsTable = await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8")

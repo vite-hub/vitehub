@@ -17,7 +17,8 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { defineSchedule } from "../../schedule/src/definition.ts"
 import { runSchedule } from "../../schedule/src/runtime/execute.ts"
 import { executeCloudflareStaticSchedules, executeStaticSchedule } from "../../schedule/src/runtime/static.ts"
-import { contentScheduleOverdueMs, contentSchedulesRef, defineContent, documents, singleton } from "../src/index.ts"
+import { documents, singleton } from "../src/collections.ts"
+import { contentScheduleOverdueMs, contentSchedulesRef, defineContent } from "../src/index.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
