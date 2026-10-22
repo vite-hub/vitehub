@@ -59,7 +59,7 @@ async function runConfigHook(root: string, nitro?: Record<string, unknown>, comm
   const config: { nitro?: unknown, root: string } = { nitro, root }
   const hook = plugin.config
   if (typeof hook !== "function") throw new TypeError("The task plugin has no config hook.")
-  await hook.call({} as never, config, { command, mode: "development" })
+  await hook.call({} as never, config as never, { command, mode: "development" })
   return { config, plugin }
 }
 
