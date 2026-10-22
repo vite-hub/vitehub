@@ -11,6 +11,7 @@ import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
 export { handleBlobMultipartUpload, handleBlobUpload }
 export { createLazyBlobMedia } from "./media/lazy.ts"
 
+
 import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, BlobMultipartUpload, BlobPutBody, BlobPutOptions, BlobResult, BlobServeEvent, BlobServeResponseOptions, BlobStorage } from "./types.ts"
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
@@ -160,6 +161,7 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
     : normalized)
 }
 
+
 /** Options of `createBlobStorage()`. The runtime fills them from the `blob` configuration. */
 export interface BlobStorageOptions {
   /** Image variants. A transformer object plugs in another image service. `false` always serves originals. */
@@ -269,6 +271,7 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
     },
     async serve(event, pathname: string, options = {}) {
       const normalizedPath = normalizePathname(pathname)
+
       if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
       if (options.variant && !options.transform) {
         const [error, plan] = await blobResult("serve", store, () => media.planVariant(normalizedPath, options.variant!))

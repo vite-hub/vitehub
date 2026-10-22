@@ -164,6 +164,49 @@ describe("renderMarkdownTemplate", () => {
     })).resolves.toBe("[Open recap](https://prs.onmax.me/recap/2026-07){title=\"Monthly recap\"}")
   })
 
+  it("rejects a binding used as a Markdown link destination", async () => {
+    const data = { url: "https://prs.onmax.me/recap/2026-09" }
+    for (const template of [
+      "[Open and share your visual recap]({{ data.url }})",
+      "Read [the **monthly** recap]( {{ data.url }} ) today.",
+      "[Open recap]({{ data.url }} \"Monthly recap\")",
+      "[Open recap]({{ data.url }} \"Monthly \\\"recap\\\"\")",
+      "[Open recap]({{ data.url }} 'Monthly \\'recap\\'')",
+      "[Open recap]({{ data.url }} (Monthly \\(recap\\)))",
+      "[Open \\] recap]({{ data.url }})",
+      `[Open recap]({{ data.url }} "Monthly
+recap")`,
+      `[Open recap]({{ data.url }} 'Monthly
+recap')`,
+      `[Open recap]({{ data.url }} (Monthly
+recap))`,
+    ]) {
+      await expect(renderMarkdownTemplate(template, { data })).rejects.toMatchObject({
+        code: "MARKDOWN_TEMPLATE_R0033",
+        message: expect.stringContaining("Use [label](){:href=\"data.url\"}."),
+      })
+    }
+
+    await expect(renderMarkdownTemplate([
+      "::if{:condition=\"data.enabled\"}",
+      "[Open recap]({{ data.url }})",
+      "::else",
+      "No recap.",
+      "::",
+      "::",
+    ].join("\n"), { data: { enabled: false, url: data.url } })).resolves.toBe("No recap.")
+  })
+
+  it("keeps bindings beside parentheses and in code as before", async () => {
+    const data = { url: "https://prs.onmax.me/recap/2026-09" }
+    await expect(renderMarkdownTemplate("See the recap ({{ data.url }}).", { data }))
+      .resolves.toBe("See the recap (https://prs.onmax.me/recap/2026-09).")
+    await expect(renderMarkdownTemplate("Write `[Open]({{ data.url }})` to link.", { data }))
+      .resolves.toBe("Write `[Open]({{ data.url }})` to link.")
+    await expect(renderMarkdownTemplate("```md\n[Open]({{ data.url }})\n```", { data }))
+      .resolves.toBe("```md\n[Open]({{ data.url }})\n```")
+  })
+
   it("rejects unsafe Markdown link destinations", async () => {
     for (const url of [
       "javascript:alert(1)",

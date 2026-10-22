@@ -83,6 +83,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown` | Email clients, configured runtime delivery, and Dynamic Markdown HTML with a composed Markdown text fallback. |
 | `vite-hub/env/presets` and `vite-hub/env/schema` | Reusable Env presets and schema helpers. |
 | `vite-hub/env/secret` and `vite-hub/env/server` | Secret declarations and server-only Env access. |
+| `vite-hub/env/seal` | AES-GCM `seal`, `unseal`, `importSealKey`, and `sealKeyId` in the Env Bridge database store format. |
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
@@ -182,6 +183,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/env/bridge` | Env Package | Runtime credential replacement, scoped grants, and durable activity. |
 | `@vite-hub/env/database` | Env Package | Encrypted SQLite/Drizzle storage for Env Bridge. |
 | `@vite-hub/env/provider` | Env Package | Define read-only runtime providers for application-owned external Env storage. |
+| `@vite-hub/env/seal` | Env Package | AES-GCM helpers in the Env Bridge database store format. |
 | `#vitehub/env/public` | Env Package | Generated Public Env access. |
 | `#vitehub/env/server` | Env Package | Generated Server Env access. |
 | `@vite-hub/kv` | KV Package | KV Runtime Helper. |

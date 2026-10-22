@@ -2780,6 +2780,9 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       typescript: {
+        sharedTsConfig: {
+          include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
+        },
         tsConfig: {
           include: ["../.vitehub/types.d.ts", expect.stringContaining("cloudflare-types.d.ts")],
         },
@@ -2962,11 +2965,13 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ env: { projectRoot: "apps/api" }, preset: "node" }, nuxt)
 
     // SAFETY: The module initializes Nuxt's TypeScript options before setup completes.
+    const tsConfig = {
+      exclude: ["../apps/api/.vitehub/data/**/*.d.ts"],
+      include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/**/*.d.ts"],
+    }
     expect((nuxt.options as typeof nuxt.options & { typescript: Record<string, unknown> }).typescript).toMatchObject({
-      tsConfig: {
-        exclude: ["../apps/api/.vitehub/data/**/*.d.ts"],
-        include: ["../.vitehub/types.d.ts", "../apps/api/.vitehub/**/*.d.ts"],
-      },
+      sharedTsConfig: tsConfig,
+      tsConfig,
     })
   })
 

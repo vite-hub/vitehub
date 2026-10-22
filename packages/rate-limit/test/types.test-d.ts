@@ -1,6 +1,6 @@
 import { expectTypeOf, it } from "vitest"
 
-import { createRateLimiter, requireRateLimit } from "../src/index.ts"
+import { checkRateLimit, createRateLimiter, requireRateLimit } from "../src/index.ts"
 import { cloudflareRateLimitDriver } from "../src/drivers/cloudflare.ts"
 import { memoryRateLimitDriver } from "../src/drivers/memory.ts"
 import { discoverRateLimitDeclarations, hubRateLimit } from "../src/vite.ts"
@@ -18,6 +18,7 @@ it("types the portable Rate Limit contract", async () => {
   // SAFETY: This type-only fixture is never evaluated and exists to exercise the request event contract.
   const event = {} as H3EventWithHostContext
   expectTypeOf(await requireRateLimit(event, "uploads", { enforcement: "strict", failure: "deny", limit: 10, window: "1m" })).toEqualTypeOf<void>()
+  expectTypeOf(await checkRateLimit(event, "uploads", { limit: 10, window: "1m" })).toEqualTypeOf<RateLimitDecision>()
   expectTypeOf(await requireRateLimit(event, "uploads", { key: "user", limit: 10, window: "1m" })).toEqualTypeOf<void>()
   const limiter = createRateLimiter({ driver: memoryRateLimitDriver(), limit: 10, window: "1m" })
   expectTypeOf(limiter).toEqualTypeOf<RateLimiter>()

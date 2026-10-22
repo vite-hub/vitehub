@@ -633,6 +633,12 @@
       "require": "./dist/env/schema.js",
       "default": "./dist/env/schema.js"
     },
+    "./env/seal": {
+      "types": "./dist/env/seal.d.ts",
+      "import": "./dist/env/seal.js",
+      "require": "./dist/env/seal.js",
+      "default": "./dist/env/seal.js"
+    },
     "./env/secret": {
       "types": "./dist/env/secret.d.ts",
       "import": "./dist/env/secret.js",

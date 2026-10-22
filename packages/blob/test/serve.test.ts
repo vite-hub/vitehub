@@ -490,3 +490,124 @@ describe("Blob response transforms", () => {
     expect(warning).toHaveBeenCalledOnce()
   })
 })
+
+describe("Blob byte ranges", () => {
+  let directory: string
+  let storage: BlobStorage
+  const content = "0123456789abcdefghij"
+
+  function event(headers?: Record<string, string>, method = "GET") {
+    return new H3Event(new Request("https://example.test/video", { headers, method }))
+  }
+
+  async function serve(headers?: Record<string, string>, method?: string, options?: Parameters<BlobStorage["serve"]>[2]) {
+    const request = event(headers, method)
+    const [error, body] = await storage.serve(request, "media/video.mp4", options)
+    expect(error).toBeNull()
+    return { request, text: await new Response(body).text() }
+  }
+
+  beforeEach(async () => {
+    directory = await mkdtemp(join(tmpdir(), "vitehub-blob-range-"))
+    storage = createBlobStorage(createDriver({ driver: "fs", base: directory }))
+    await storage.put("media/video.mp4", content, { contentType: "video/mp4" })
+  })
+
+  afterEach(async () => {
+    await rm(directory, { recursive: true, force: true })
+  })
+
+  it("advertises byte ranges and sends the whole body without a Range header", async () => {
+    const { request, text } = await serve()
+    expect(text).toBe(content)
+    expect(request.res.status).not.toBe(206)
+    expect(request.res.headers.get("accept-ranges")).toBe("bytes")
+    expect(request.res.headers.get("content-range")).toBeNull()
+  })
+
+  it("returns 206 with the requested bytes", async () => {
+    const { request, text } = await serve({ range: "bytes=2-5" })
+    expect(request.res.status).toBe(206)
+    expect(text).toBe("2345")
+    expect(request.res.headers.get("content-range")).toBe("bytes 2-5/20")
+    expect(request.res.headers.get("content-length")).toBe("4")
+    expect(request.res.headers.get("content-type")).toBe("video/mp4")
+  })
+
+  it("accepts a case-insensitive range unit", async () => {
+    const { request, text } = await serve({ range: "Bytes=0-1" })
+    expect(request.res.status).toBe(206)
+    expect(text).toBe("01")
+    expect(request.res.headers.get("content-range")).toBe("bytes 0-1/20")
+  })
+
+  it("serves open-ended ranges and clamps the end to the body size", async () => {
+    const open = await serve({ range: "bytes=15-" })
+    expect(open.request.res.status).toBe(206)
+    expect(open.text).toBe("fghij")
+    expect(open.request.res.headers.get("content-range")).toBe("bytes 15-19/20")
+    const clamped = await serve({ range: "bytes=18-100" })
+    expect(clamped.text).toBe("ij")
+    expect(clamped.request.res.headers.get("content-range")).toBe("bytes 18-19/20")
+  })
+
+  it("serves suffix ranges", async () => {
+    const { request, text } = await serve({ range: "bytes=-3" })
+    expect(request.res.status).toBe(206)
+    expect(text).toBe("hij")
+    expect(request.res.headers.get("content-range")).toBe("bytes 17-19/20")
+    const longer = await serve({ range: "bytes=-50" })
+    expect(longer.text).toBe(content)
+    expect(longer.request.res.headers.get("content-range")).toBe("bytes 0-19/20")
+  })
+
+  it("returns 416 when the range starts past the end", async () => {
+    for (const range of ["bytes=20-", "bytes=25-30", "bytes=-0"]) {
+      const { request, text } = await serve({ range })
+      expect(request.res.status).toBe(416)
+      expect(text).toBe("")
+      expect(request.res.headers.get("content-range")).toBe("bytes */20")
+      expect(request.res.headers.get("content-length")).toBe("0")
+    }
+  })
+
+  it("sends the whole body for malformed or multiple ranges", async () => {
+    for (const range of ["bytes=5-2", "bytes=0-1,4-5", "items=0-1", "bytes=-"]) {
+      const { request, text } = await serve({ range })
+      expect(request.res.status).not.toBe(206)
+      expect(text).toBe(content)
+      expect(request.res.headers.get("content-range")).toBeNull()
+    }
+  })
+
+  it("honors If-Range only when it matches the current ETag", async () => {
+    const { request } = await serve()
+    const etag = request.res.headers.get("etag")!
+    expect(etag).toBeTruthy()
+    const matching = await serve({ range: "bytes=0-1", "if-range": etag })
+    expect(matching.request.res.status).toBe(206)
+    expect(matching.text).toBe("01")
+    for (const ifRange of ['"stale"', "Wed, 21 Oct 2026 07:28:00 GMT"]) {
+      const stale = await serve({ range: "bytes=0-1", "if-range": ifRange })
+      expect(stale.request.res.status).not.toBe(206)
+      expect(stale.text).toBe(content)
+      expect(stale.request.res.headers.get("content-range")).toBeNull()
+    }
+  })
+
+  it("answers HEAD with the range headers", async () => {
+    const { request } = await serve({ range: "bytes=0-9" }, "HEAD")
+    expect(request.res.status).toBe(206)
+    expect(request.res.headers.get("content-range")).toBe("bytes 0-9/20")
+    expect(request.res.headers.get("content-length")).toBe("10")
+  })
+
+  it("ignores Range for transformed responses", async () => {
+    const transform = { key: "upper-v1", run: async (original: Blob) => new Blob([(await original.text()).toUpperCase()], { type: "text/plain" }) }
+    const { request, text } = await serve({ range: "bytes=0-1" }, "GET", { transform })
+    expect(request.res.status).not.toBe(206)
+    expect(text).toBe(content.toUpperCase())
+    expect(request.res.headers.get("accept-ranges")).toBeNull()
+    expect(request.res.headers.get("content-range")).toBeNull()
+  })
+})

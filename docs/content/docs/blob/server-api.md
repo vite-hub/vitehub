@@ -82,7 +82,7 @@ Every async method returns `[error, value]`. Expected provider and storage failu
 | `blob.list(options?)` | Lists objects with optional `prefix`, `limit`, `cursor`, and folded folders. |
 | `blob.del(pathnames)` | Deletes one or more objects. |
 | `blob.sign(pathname, options)` | Signs a short-lived `GET` or `PUT` request for one object. |
-| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. |
+| `blob.serve(event, pathname, options?)` | Serves an object stream through an H3 event, or `null` for a conditional `304` response. Answers single byte ranges with `206`. |
 | `blob.handleUpload(event, options?)` | Stores the files of a `multipart/form-data` request. Read [Upload files](#upload-files). |
 | `blob.createMultipartUpload(pathname, options?)` | Starts a multipart upload. Read [Multipart uploads](#multipart-uploads). |
 | `blob.resumeMultipartUpload(pathname, uploadId)` | Continues a multipart upload in a later request. |
@@ -96,6 +96,7 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 ## Serve a transformed object
 
 Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It sets content headers and handles conditional GET and HEAD requests through h3. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
+
 
 To serve a resized or cropped image, pass `variant` instead, or let the generated serve route read it from the query string. Read [Image variants](/docs/blob/media#image-variants).
 
