@@ -1,7 +1,7 @@
 ---
 title: Rate Limit
 navigation.title: Overview
-description: Limit how many requests each client or user can make to a route.
+description: Limit how many requests each client or user can make to a route, and reject the extra requests with a 429 error.
 navigation.order: 1
 icon: i-lucide-gauge
 ---

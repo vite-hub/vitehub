@@ -1,6 +1,6 @@
 ---
 title: Progress summary
-description: Stream a short user-facing summary of current Agent activity.
+description: Stream a short user-facing summary of current Agent activity, render it in your UI, and send it through Channels.
 navigation.title: Progress summary
 navigation.order: 311
 navigation.group: Capabilities

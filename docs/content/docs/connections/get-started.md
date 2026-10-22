@@ -1,7 +1,7 @@
 ---
 
 title: Connect your first provider account
-description: Connect a Google account with OAuth and read its Gmail labels.
+description: Define a Connection, connect a Google account with OAuth, and call the Gmail API to read the account's labels.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

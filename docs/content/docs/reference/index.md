@@ -1,6 +1,6 @@
 ---
 title: Package reference
-description: Find the ViteHub package and public import for each feature.
+description: Find the ViteHub package and public import for each feature, from the vite-hub distribution to independent owner packages.
 navigation.title: Package reference
 navigation.order: 50
 navigation.group: Setup

@@ -1,7 +1,7 @@
 ---
 title: First Agent
 navigation.title: First Agent
-description: Define a server-side Agent, call it from H3, and see the response.
+description: Create a project, define a server-side greeting Agent, call it from an H3 route, and see the Agent response.
 layout: tutorial
 navigation.order: 4
 icon: i-lucide-bot

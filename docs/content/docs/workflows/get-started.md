@@ -1,7 +1,7 @@
 ---
 
 title: Start your first Workflow
-description: Start a two-step onboarding Workflow and inspect its run id.
+description: Define a two-step onboarding Workflow, start it from a route, and inspect the run id to follow its progress.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

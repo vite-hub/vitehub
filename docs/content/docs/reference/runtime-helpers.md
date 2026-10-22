@@ -1,7 +1,7 @@
 ---
 title: Runtime Helpers and stable imports
 navigation.title: Runtime Helpers and stable imports
-description: Understand which imports application code uses to call ViteHub.
+description: Understand which ViteHub imports application code uses at runtime, keep configuration separate, and fix import failures.
 navigation.order: 51.5
 navigation.group: Setup
 icon: i-lucide-code-2

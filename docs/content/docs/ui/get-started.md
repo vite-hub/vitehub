@@ -1,6 +1,6 @@
 ---
 title: Build your first UI view
-description: Render a local question and reply with Chat in a Nuxt application.
+description: "Install ViteHub UI, render a local question and reply with the Chat component in a Nuxt application, and check the result."
 layout: tutorial
 navigation.title: Tutorial
 navigation.order: 2

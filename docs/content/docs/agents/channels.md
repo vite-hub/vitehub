@@ -1,5 +1,6 @@
 ---
-title: Channels
+title: Agent Channels
+navigation.title: Channels
 description: Connect an Agent to web chat and messaging platforms without mixing transport with identity.
 navigation.order: 40
 navigation.group: Connect

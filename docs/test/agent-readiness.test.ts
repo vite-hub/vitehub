@@ -156,7 +156,9 @@ describe("trust and developer discovery content", () => {
     for (const page of trustPages) {
       const source = readFileSync(resolve(docsRoot, `content/trust/${page}.md`), "utf8");
       expect(source.length, page).toBeGreaterThan(500);
-      expect(source, page).toContain(`# ${page === "privacy" ? "ViteHub privacy" : `${page[0]!.toUpperCase()}${page.slice(1)} ViteHub`}`);
+      expect(source, page).toContain(`title: ${page === "privacy" ? "ViteHub privacy" : `${page[0]!.toUpperCase()}${page.slice(1)} ViteHub`}`);
+      // The page header renders the title as the only H1.
+      expect(source, page).not.toMatch(/^# /m);
     }
   });
 

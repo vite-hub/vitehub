@@ -1,7 +1,7 @@
 ---
 
 title: Read your first Source
-description: Read a known Markdown file through a local glob Source.
+description: Define a local glob Source, read one known Markdown file through it, and check the result from a server route.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2

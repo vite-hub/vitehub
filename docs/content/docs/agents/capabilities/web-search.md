@@ -1,6 +1,6 @@
 ---
 title: Web search
-description: Add model web search or normalized web search and read tools.
+description: Give an Agent model web search or normalized web search and read tools, with credentials, approval, and driver support.
 navigation.title: Web search
 navigation.order: 230
 navigation.group: Capabilities

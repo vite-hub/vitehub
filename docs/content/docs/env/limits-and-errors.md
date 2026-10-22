@@ -1,6 +1,6 @@
 ---
 title: Env limits and errors
-description: Handle structured Env errors and check Env before production.
+description: Handle structured Env errors with stable codes and JSON-safe context, and check Env configuration before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert

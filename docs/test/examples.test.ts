@@ -104,8 +104,8 @@ describe("examples catalog", () => {
   it("keeps the old examples hub while giving each catalog its own page", () => {
     const hub = readFileSync(resolve(docsRoot, "app/pages/examples.vue"), "utf8");
 
-    expect(hub).toContain('to="/projects"');
-    expect(hub).toContain('to="/templates"');
+    expect(hub).toContain('to: "/projects"');
+    expect(hub).toContain('to: "/templates"');
     expect(hub).toContain("Projects and templates");
   });
 });

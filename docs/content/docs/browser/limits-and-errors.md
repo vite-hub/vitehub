@@ -1,6 +1,6 @@
 ---
 title: Browser limits and errors
-description: Browser timeouts, handoff limits, and production checks.
+description: Know Browser action timeouts, live handoff limits, and engine differences, and check Browser before production.
 navigation.title: Limits and errors
 navigation.order: 7
 icon: i-lucide-circle-alert
