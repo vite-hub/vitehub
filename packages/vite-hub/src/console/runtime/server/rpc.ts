@@ -101,16 +101,28 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const rawStatus = Reflect.get(value, "statusCode") ?? Reflect.get(value, "status")
   const status = Number.isInteger(rawStatus) && rawStatus >= 400 && rawStatus <= 599 ? rawStatus : 500
   const statusMessage = Reflect.get(value, "statusMessage")
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Handler failures cross the RPC boundary as unknown values.
-  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : "Console request failed."
-  const failure: ConsoleRpcResult = { message, ok: false, status }
-  // Only owner action failures carry a code and details. See consoleActionError().
-  const code: unknown = Reflect.get(value, "consoleCode")
-  const details: unknown = Reflect.get(value, "consoleDetails")
-  if (String(code) === code) Object.assign(failure, { code })
-  if (String(code) === code && details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
-  if (String(code) !== code) Object.assign(failure, consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message))
-  return failure
+  const message = typeof statusMessage === "string" ? statusMessage : error instanceof Error ? error.message : undefined
+  // Owner action failures, such as CONTENT_INVALID, carry their code and JSON details. See consoleActionError().
+  const ownerCode = text(Reflect.get(value, "consoleCode"))
+  if (ownerCode) {
+    const failure: Extract<ConsoleRpcResult, { ok: false }> = { code: ownerCode, message: message ?? "Console request failed.", ok: false, status }
+    const details: unknown = Reflect.get(value, "consoleDetails")
+    if (details instanceof Object && !Array.isArray(details)) Object.assign(failure, { details })
+    return failure
+  }
+  // A failure site with its own diagnostic keeps its code and guidance. Others get the Console code of the status.
+  const code = text(Reflect.get(value, "code"))
+  if (!code) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(status), message), ok: false, status }
+  const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
+  const fix = text(Reflect.get(value, "fix"))
+  const docs = text(Reflect.get(value, "docs"))
+  if (fix) result.fix = fix
+  if (docs) result.docs = docs
+  return result
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === "string" && value ? value : undefined
 }
 
 async function consoleSearchError(response: Response): Promise<Error> {
@@ -161,7 +173,14 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   [consoleRpcMethods.agentInvocations]: { section: "agents", run: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)) },
   [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
   [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
-  [consoleRpcMethods.definitions]: { section: querySection, run: (input, context) => consoleDefinitionsHandler(requestEvent("definitions", input, context)) },
+  [consoleRpcMethods.definitions]: {
+    section: querySection,
+    run: (input, context) => {
+      // The route guard rejects a request without a section. Over RPC it is invalid input.
+      if (querySection(input) === undefined) throw consoleRequestError(400, "A valid definition section is required.")
+      return consoleDefinitionsHandler(requestEvent("definitions", input, context))
+    },
+  },
   [consoleRpcMethods.documents]: {
     section: querySection,
     async run(input, context) {

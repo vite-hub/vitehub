@@ -200,7 +200,8 @@ describe("Console document editor route", () => {
       },
     }))
     const result = await documents("get", {})
-    expect(result).toEqual({ body: { message: "The document action failed. Check the server log.", ok: false, status: 500 }, status: 500 })
+    // The Console diagnostic of the status replaces the owner code and details, which never reach the browser.
+    expect(result).toEqual({ body: { code: "CONSOLE_REQUEST_FAILED", docs: expect.any(String), fix: expect.any(String), message: "The document action failed. Check the server log.", ok: false, status: 500 }, status: 500 })
     expect(log).toHaveBeenCalled()
   })
 

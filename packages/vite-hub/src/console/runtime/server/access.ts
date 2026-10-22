@@ -213,7 +213,11 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
     }
   }
   const access = consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(user ? { user } : {}) })
-  if (policy.mode === "auth" && !user && policy.user) deferredUsers.set(access, () => policy.user!(event))
+  if (policy.mode === "auth" && !user && policy.user) {
+    // Read the user once per access, however many handlers ask for it.
+    let pending: Promise<ConsoleUser | undefined> | undefined
+    deferredUsers.set(access, () => pending ??= policy.user!(event))
+  }
   return access
 }
 

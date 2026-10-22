@@ -1,7 +1,8 @@
 import { afterEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 
-import { defineContent, documents, singleton } from "../../content/src/index.ts"
+import { documents, singleton } from "../../content/src/collections.ts"
+import { defineContent } from "../../content/src/index.ts"
 import { historyWorkspace } from "../../content/test/history-workspace.ts"
 import { content } from "../src/capabilities.ts"
 import { resolveChatTriggerInvoker } from "../src/chat-message-input.ts"

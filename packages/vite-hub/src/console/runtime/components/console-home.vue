@@ -342,6 +342,16 @@ onBeforeUnmount(() => request++);
                       <span class="block text-sm font-medium text-highlighted">{{ section.label }}</span>
                       <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
                     </span>
+                    <a
+                      v-if="section.docs"
+                      class="vitehub-console__overview-docs pointer-events-auto relative ms-auto inline-flex items-center gap-1"
+                      :href="section.docs"
+                      rel="noreferrer"
+                      target="_blank"
+                      :aria-label="`${section.label} documentation`"
+                    >
+                      Docs
+                    </a>
                   </li>
                   <li
                     v-for="filler in group.fillers"

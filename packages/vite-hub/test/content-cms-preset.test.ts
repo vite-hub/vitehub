@@ -68,6 +68,7 @@ describe("Content cms preset on libSQL", () => {
     const migration = (await readdir(migrationsDir)).find(file => file.endsWith(".sql"))!
     const sql = await readFile(join(migrationsDir, migration), "utf8")
     expect(sql.match(/CREATE TABLE `\w+`/g)?.toSorted()).toEqual([
+      "CREATE TABLE `vitehub_content_sessions`",
       "CREATE TABLE `workspace_history_metadata`",
       "CREATE TABLE `workspace_history_objects`",
       "CREATE TABLE `workspace_history_refs`",

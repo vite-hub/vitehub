@@ -832,10 +832,10 @@ describe("framework generated types", () => {
 
     // Only the routes the call turns on are generated, and removed again when they are off.
     await write(`{ sitemap: true, robots: false }`)
-    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).map((handler: { route?: string }) => handler.route)).toEqual(["/api/content/**", "/sitemap.xml"])
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**", "/sitemap.xml"])
     await expect(readFile(join(root, ".vitehub/content/robots.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
     await write(`{ site: "https://example.com" }`)
-    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).map((handler: { route?: string }) => handler.route)).toEqual(["/api/content/**"])
+    expect((await sourcePlugin().api.prepareSources({ projectRoot: root })).flatMap((handler: { route?: string }) => handler.route ?? [])).toEqual(["/api/content/**"])
   })
 
   it("rejects Content definitions that ViteHub cannot serve unambiguously", async () => {

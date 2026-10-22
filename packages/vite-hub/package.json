@@ -129,6 +129,12 @@
       "require": "./dist/_internal/blob/runtime/state.js",
       "default": "./dist/_internal/blob/runtime/state.js"
     },
+    "./_internal/content/runtime/console": {
+      "types": "./dist/_internal/content/runtime/console.d.ts",
+      "import": "./dist/_internal/content/runtime/console.js",
+      "require": "./dist/_internal/content/runtime/console.js",
+      "default": "./dist/_internal/content/runtime/console.js"
+    },
     "./_internal/content/runtime/dev": {
       "types": "./dist/_internal/content/runtime/dev.d.ts",
       "import": "./dist/_internal/content/runtime/dev.js",
@@ -452,6 +458,12 @@
       "import": "./dist/blob/content-type.js",
       "require": "./dist/blob/content-type.js",
       "default": "./dist/blob/content-type.js"
+    },
+    "./blob/media": {
+      "types": "./dist/blob/media.d.ts",
+      "import": "./dist/blob/media.js",
+      "require": "./dist/blob/media.js",
+      "default": "./dist/blob/media.js"
     },
     "./blob/vue": {
       "types": "./dist/blob/vue.d.ts",
