@@ -1024,6 +1024,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             })) } : {}),
           })
           }
+          // An unrelated draft write is allowed. Do not bind the published
+          // commit to that unrelated head, since another harmless draft write
+          // may occur while the provider constructs the transaction.
           draftExpectation = undefined
         }
         const revision = await retained.commit({
@@ -1046,6 +1049,23 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (expectations && isWorkspaceConflict(error) && conflictRef(error) === "draft") {
           const actualHead = await retained.head({ ref: "draft" })
           const actualDraft = actualHead ? await openRevision(actualHead) : undefined
+          const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
+          if (!moved) {
+            const revision = await retained.commit({
+              ref: "published",
+              ifHead: publishedHead?.id ?? null,
+              changes: { put, delete: remove },
+              message: publishOptions.message ?? `Publish ${documents.length} Content document${documents.length === 1 ? "" : "s"}`,
+              metadata: writeMetadata(publishOptions.metadata, {
+                action: "publish",
+                draft: draftHead.id,
+                documents: documents.map(({ collection, id }) => ({ collection, id })),
+              }),
+            })
+            const affected = [...new Set(documents.map(document => document.collection))]
+            for (const listener of publishListeners) await listener(affected)
+            return { revision, documents }
+          }
           throw contentConflict("[vitehub] The draft Content changed before publish().", {
             ref: "draft", documents: expectations.map(({ collection, id, path, digest }) => ({
               collection: collection.name, id, expected: digest ?? null, actual: actualDraft?.files.get(path) ?? null,
