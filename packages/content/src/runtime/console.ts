@@ -448,7 +448,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           do {
             const remaining = maximumActivityScanPerRef - scanned
             if (remaining <= 0) break
-            const page = await content.revisions({ ref, limit: Math.min(maximumActivity, remaining), ...(cursor ? { cursor } : {}) })
+            const page = await content.revisions({ ref, limit: Math.min(maximumActivity, remaining), scanLimit: remaining, ...(cursor ? { cursor } : {}) })
             revisions.push(...page.revisions)
             scanned += page.scanned
             cursor = page.cursor
