@@ -53,6 +53,7 @@ const integrationMocks = vi.hoisted(() => ({
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
   hubWorkflow: vi.fn(() => ({ name: "@vite-hub/workflow/vite" })),
   hubWorkspace: vi.fn(() => ({ name: "@vite-hub/workspace/vite" })),
+  viteHubTask: vi.fn(() => ({ name: "vite-hub/task" })),
   consoleSection: (id: string) => ({
     description: id,
     icon: "i-lucide-box",
@@ -108,6 +109,7 @@ vi.mock("@vite-hub/workflow/vite", () => ({
   workflowConsoleSection: integrationMocks.consoleSection("workflows"),
 }))
 vi.mock("@vite-hub/workspace/vite", () => ({ hubWorkspace: integrationMocks.hubWorkspace, workspaceConsoleSection: integrationMocks.consoleSection("workspaces") }))
+vi.mock("../src/task/vite.ts", () => ({ viteHubTaskPlugin: integrationMocks.viteHubTask }))
 
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveConfig, type Plugin, type PluginOption } from "vite"
@@ -621,6 +623,7 @@ describe("vitehub", () => {
       "@vite-hub/kv/optional-peers",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
@@ -665,6 +668,7 @@ describe("vitehub", () => {
       "@vite-hub/workspace/vite",
       "@vite-hub/source/vite",
       "@vite-hub/content/vite",
+      "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
     ])
