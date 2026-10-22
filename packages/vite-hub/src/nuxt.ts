@@ -252,9 +252,9 @@ function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: 
   }
 }
 
-function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[]): void {
+function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[], key: "sharedTsConfig" | "tsConfig" = "tsConfig"): void {
   const typescript = (options.typescript ??= {}) as Record<string, unknown>
-  const tsConfig = (typescript.tsConfig ??= {}) as Record<string, unknown>
+  const tsConfig = (typescript[key] ??= {}) as Record<string, unknown>
   tsConfig.include = [...new Set([...((tsConfig.include as string[] | undefined) ?? []), ...includes])]
   if (excludes.length > 0) {
     tsConfig.exclude = [...new Set([...((tsConfig.exclude as string[] | undefined) ?? []), ...excludes])]
@@ -968,6 +968,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     .map(root => relative(nuxt.options.buildDir, join(root, ".vitehub/data/**/*.d.ts")))
   if (options.preset === "cloudflare") generatedTypes.push(relative(nuxt.options.buildDir, cloudflareTypes))
   addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData)
+  // Code under shared/ can type-import server files, such as server/auth.ts, which use the generated declarations.
+  addTypeScriptDefaults(nuxt.options, generatedTypes, generatedData, "sharedTsConfig")
   addTypeScriptDefaults((nuxt.options.nitro ??= {}), generatedTypes, generatedData)
   if (options.database) {
     const nuxtDatabaseOptions = nuxt.options.database && typeof nuxt.options.database === "object" ? nuxt.options.database : {}
