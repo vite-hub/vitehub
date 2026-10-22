@@ -39,5 +39,8 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONTENT_R0010: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    CONTENT_R0011: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
   },
 })

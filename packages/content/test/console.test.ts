@@ -254,11 +254,13 @@ describe("Content Console actions", { timeout: 30_000 }, () => {
           { id: "launch", state: "changed", digest: expect.any(String), title: "Launch v2", updatedAt: expect.any(String) },
           { id: "hello", state: "deleted", digest: null, title: "Hello", updatedAt: null },
         ],
+        scheduled: [],
       },
       {
         name: "notes",
         states: { draft: 1, published: 0, changed: 0, deleted: 0 },
         changes: [{ id: "todo", state: "draft", digest: expect.any(String), title: "todo", updatedAt: expect.any(String) }],
+        scheduled: [],
       },
     ])
     expect(overview.activity[0]).toMatchObject({ action: "remove", ref: "draft", author: "Ada", documents: [{ collection: "posts", id: "hello", title: "Hello" }] })

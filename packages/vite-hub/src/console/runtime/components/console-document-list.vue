@@ -3,6 +3,8 @@ import { computed, onBeforeUnmount, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import {
+  consoleDocumentScheduleLabel,
+  consoleDocumentScheduleTone,
   consoleDocumentStateColor,
   consoleDocumentStateLabel,
   consoleErrorMessage,
@@ -79,6 +81,7 @@ const stateTabs = computed(() => [
   { label: "Changed", value: "changed", count: states.value.changed },
   { label: "Published", value: "published", count: states.value.published },
   ...(states.value.deleted || state.value === "deleted" ? [{ label: "Deleted", value: "deleted", count: states.value.deleted }] : []),
+  ...(page.value?.scheduled || state.value === "scheduled" ? [{ label: "Scheduled", value: "scheduled", count: page.value?.scheduled ?? 0 }] : []),
 ].map(({ count, ...tab }) => (count ? { ...tab, badge: { class: "rounded-full tabular-nums", color: "neutral" as const, label: String(count), variant: "soft" as const } } : tab)));
 const selectedPublishable = computed<ConsoleDocumentPublishExpectation[]>(() => items.value
   .filter(item => selected.value.has(item.id) && item.state !== "published")
@@ -95,6 +98,7 @@ const emptyState = computed(() => {
   if (state.value === "changed") return { action: false, description: "Published documents with unpublished edits show here.", title: "No unpublished changes" };
   if (state.value === "deleted") return { action: false, description: "Documents deleted from the draft stay here until you publish the deletion.", title: "Nothing deleted" };
   if (state.value === "published") return { action: false, description: "Published documents are on the site.", title: "Nothing published yet" };
+  if (state.value === "scheduled") return { action: false, description: "Schedule a publish from the arrow next to Publish on a document.", title: "Nothing scheduled" };
   return undefined;
 });
 
@@ -137,7 +141,8 @@ async function load(append = false): Promise<void> {
       limit: 50,
       search: search.value.trim() || undefined,
       sort: { direction: direction === "desc" ? "desc" : "asc", field: field! },
-      state: state.value === "all" ? undefined : state.value,
+      scheduled: state.value === "scheduled" || undefined,
+      state: state.value === "all" || state.value === "scheduled" ? undefined : state.value,
     });
     if (current !== request) return;
     items.value = append ? [...items.value, ...result.items] : result.items;
@@ -446,7 +451,7 @@ onBeforeUnmount(() => {
             <UCheckbox :model-value="allSelected" aria-label="Select every document on this page" @update:model-value="toggleAll" />
           </th>
           <th class="font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
-          <th class="w-28 px-2 font-medium">State</th>
+          <th class="px-2 font-medium" :class="page?.scheduled ? 'w-56' : 'w-28'">State</th>
           <th v-if="tagField" class="hidden w-40 px-2 font-medium lg:table-cell">{{ tagField.label }}</th>
           <th v-if="dateField" class="hidden w-32 px-2 font-medium md:table-cell">{{ dateField.label }}</th>
           <th class="hidden w-28 pe-4 ps-2 text-right font-medium sm:table-cell">Updated</th>
@@ -480,7 +485,12 @@ onBeforeUnmount(() => {
             </a>
           </td>
           <td class="px-2">
-            <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
+            <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
+              <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
+              <UTooltip v-if="item.schedule" :text="item.schedule.failure ?? `Publishes the reviewed draft at ${new Date(item.schedule.at).toLocaleString()}`" :content="{ side: 'top' }">
+                <ConsoleStatus :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" class="text-[13px]" />
+              </UTooltip>
+            </span>
           </td>
           <td v-if="tagField" class="hidden truncate px-2 text-[13px] text-muted lg:table-cell">{{ formatValue(item.data[tagField.name]) }}</td>
           <td v-if="dateField" class="hidden truncate px-2 text-[13px] tabular-nums text-muted md:table-cell">{{ formatValue(item.data[dateField.name], dateField.kind) }}</td>

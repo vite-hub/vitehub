@@ -90,6 +90,10 @@ icon: i-lucide-file-text
   `seo()` fields, `contentHead()` for any framework, and generated `/sitemap.xml` and `/robots.txt`.
   :::
 
+  :::product-feature-item{title="Publish reviewed drafts on a schedule" icon="i-lucide-calendar-clock" to="/docs/content/scheduling"}
+  `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
+  :::
+
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
   `createContentClient()` reads the `/api/content` route that ViteHub adds for you.
   :::
