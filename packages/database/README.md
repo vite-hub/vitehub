@@ -187,7 +187,7 @@ Outside a Cloudflare request, when `connection.url` is not set or its environmen
 
 ## Request stats
 
-With the evlog Nitro module registered, each request's wide event gets `database: { calls, ms, maxConcurrent }`: the calls to any database (a batch is one call), the milliseconds with at least one call in flight, and the most calls in flight at once. A Nitro middleware (`runtime/request-stats`) gives each request its own count, and each driver client (D1 binding, D1 over HTTP, libSQL, postgres.js) reports its calls to it. `db.$client` stays the app's own client. Calls after the response are not counted, and without evlog nothing is measured. See [Server API](https://vitehub.dev/docs/database/server-api#see-database-work-on-each-request).
+With the evlog Nitro module registered, each request's wide event gets `database: { calls, ms, maxConcurrent }`: the calls to any database (a batch is one call), the milliseconds with at least one call in flight, and the most calls in flight at once. A Nitro middleware (`runtime/request-stats`) gives each request its own count, and each driver client (D1 binding, D1 over HTTP, libSQL, postgres.js) reports its calls to it. `db.$client` stays the app's own client (the request's D1 session under read replication), and calls made directly on it are not counted. Calls after the response are not counted, and without evlog nothing is measured. See [Server API](https://vitehub.dev/docs/database/server-api#see-database-work-on-each-request).
 
 ## Nuxt D1 host wiring
 
