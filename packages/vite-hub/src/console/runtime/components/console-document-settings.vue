@@ -5,6 +5,7 @@ import { useRoute } from "vue-router";
 import { consoleDocumentStateColor, consoleDocumentStateLabel, consoleErrorMessage } from "../client/documents";
 import { resolveConsoleRouteName } from "../console-route";
 import { consoleSectionRouteName } from "../sections";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -47,14 +48,10 @@ function editorRoute(name: string) {
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :toggle="{ 'aria-label': 'Open section navigation' }">
-    <template #title>
-      <span class="truncate text-sm font-medium text-highlighted">{{ label }}</span>
-    </template>
-  </UDashboardNavbar>
+  <ConsolePageHeader :title="label" />
 
   <div class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto grid w-full max-w-3xl gap-6 px-6 py-8">
+    <div class="mx-auto grid max-w-5xl gap-2 px-4 py-6 sm:px-6">
       <UAlert
         v-if="error"
         color="error"
@@ -74,31 +71,38 @@ function editorRoute(name: string) {
         title="No settings"
         description="Define a singleton() in server/content.ts, such as settings.json, to edit site settings here."
       />
-      <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default" aria-label="Settings">
-        <li v-for="singleton in singletons" :key="singleton.name">
-          <RouterLink
-            :to="editorRoute(singleton.name)"
-            class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated/50 focus-visible:outline-2 focus-visible:-outline-offset-2"
-          >
-            <UIcon name="i-lucide-settings-2" class="size-4 shrink-0 text-muted" aria-hidden="true" />
-            <span class="grid min-w-0 flex-1">
-              <span class="truncate text-sm font-medium text-highlighted">{{ singleton.label }}</span>
-              <span class="truncate font-mono text-xs text-dimmed">{{ singleton.path }}</span>
-            </span>
-            <span v-if="!singleton.access.write" class="shrink-0 text-xs text-dimmed">Read-only</span>
-            <ConsoleStatus
-              v-if="stateOf(singleton.name)"
-              class="shrink-0"
-              :tone="consoleDocumentStateColor(stateOf(singleton.name)!)"
-              :label="consoleDocumentStateLabel(stateOf(singleton.name)!)"
-            />
-            <span v-else-if="overview" class="shrink-0 text-xs text-muted">Not created</span>
-            <span class="hidden w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted sm:inline">
-              <ConsoleRelativeTime v-if="updatedAt(singleton.name)" :value="updatedAt(singleton.name)!" />
-            </span>
-          </RouterLink>
-        </li>
-      </ul>
+      <template v-else>
+        <h2 class="text-[13px] font-medium text-highlighted">
+          Site documents
+          <span class="ms-1 font-normal text-dimmed tabular-nums">{{ singletons.length }}</span>
+        </h2>
+        <ul class="divide-y divide-default overflow-hidden rounded-lg border border-default" aria-label="Settings">
+          <li v-for="singleton in singletons" :key="singleton.name">
+            <RouterLink
+              :to="editorRoute(singleton.name)"
+              class="flex min-h-14 items-center gap-3 px-3 py-2 hover:bg-elevated/60 focus-visible:outline-2 focus-visible:-outline-offset-2"
+            >
+              <span class="grid min-w-0 flex-1">
+                <span class="truncate text-sm font-medium text-highlighted">{{ singleton.label }}</span>
+                <span class="truncate font-mono text-xs text-dimmed">{{ singleton.path }}</span>
+              </span>
+              <span v-if="!singleton.access.write" class="shrink-0 text-xs text-dimmed">Read-only</span>
+              <ConsoleStatus
+                v-if="stateOf(singleton.name)"
+                class="shrink-0"
+                :tone="consoleDocumentStateColor(stateOf(singleton.name)!)"
+                :label="consoleDocumentStateLabel(stateOf(singleton.name)!)"
+              />
+              <ConsoleStatus v-else-if="overview" class="shrink-0" tone="neutral" label="Not created" />
+              <span v-if="updatedAt(singleton.name)" class="hidden w-16 shrink-0 whitespace-nowrap text-right text-xs text-muted sm:inline">
+                <ConsoleRelativeTime :value="updatedAt(singleton.name)!" />
+              </span>
+              <UIcon name="i-lucide-chevron-right" class="size-4 shrink-0 text-dimmed" aria-hidden="true" />
+            </RouterLink>
+          </li>
+        </ul>
+        <p class="text-xs text-dimmed">One document each, for the whole site. They save as drafts and publish like any other document.</p>
+      </template>
     </div>
   </div>
 </template>

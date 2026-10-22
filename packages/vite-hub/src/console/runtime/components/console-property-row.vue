@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /**
- * One property row of a document, as in Notion: a compact label column with an icon, then the value. Values are ghost
+ * One property row of a document, as in Notion: a compact label column with an icon, then the value. On a phone the
+ * label sits above the value, so neither is cut to a few letters. Values are ghost
  * controls that show a border on hover and focus. A required property without a value gets a dot after its label; an
  * invalid one gets its message under the value.
  */
@@ -17,10 +18,10 @@ defineProps<{
 </script>
 
 <template>
-  <div class="grid min-h-8 grid-cols-[minmax(0,8.5rem)_minmax(0,1fr)] items-start gap-x-1 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+  <div class="grid min-h-8 grid-cols-1 items-start gap-x-1 pb-2 sm:pb-0 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
     <label
       :for="control"
-      class="flex h-8 min-w-0 items-center gap-2 rounded-md px-1.5 text-[13px] text-muted"
+      class="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-[13px] text-muted sm:h-8"
       :class="error ? 'text-error' : ''"
       :title="description"
     >

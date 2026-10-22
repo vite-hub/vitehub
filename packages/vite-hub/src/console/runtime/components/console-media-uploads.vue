@@ -39,7 +39,7 @@ const title = computed(() => {
           />
           <span class="min-w-0 flex-1 truncate text-xs text-highlighted" :title="entry.file.name">{{ entry.file.name }}</span>
           <span v-if="entry.state === 'uploading' || entry.state === 'queued'" class="shrink-0 text-xs text-dimmed tabular-nums">
-            {{ entry.state === "queued" ? "Waiting" : `${Math.round(entry.progress * 100)}%` }}
+            {{ entry.state === "queued" ? "Waiting" : entry.progress >= 1 ? "Processing…" : `${Math.round(entry.progress * 100)}%` }}
           </span>
           <span v-else-if="entry.state === 'done'" class="shrink-0 text-xs text-dimmed tabular-nums">{{ consoleBytes(entry.file.size) }}</span>
           <template v-else>
@@ -60,10 +60,10 @@ const title = computed(() => {
 <style>
 .vitehub-media-uploads {
   background: var(--ui-bg);
-  border: 1px solid var(--ui-border);
-  border-radius: 0.5rem;
+  border-radius: 0.75rem;
   bottom: 1rem;
-  box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.18);
+  box-shadow: 0 0 0 1px var(--ui-border), 0 1px 1px rgb(0 0 0 / 2%), 0 4px 8px -4px rgb(0 0 0 / 4%), 0 16px 24px -8px rgb(0 0 0 / 8%);
+  overflow: hidden;
   position: absolute;
   right: 1rem;
   width: min(20rem, calc(100% - 2rem));

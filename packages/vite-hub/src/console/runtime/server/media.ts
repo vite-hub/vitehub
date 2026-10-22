@@ -267,6 +267,12 @@ async function withUploadLock<T>(storage: BlobStorage, folder: string, task: () 
 
 async function list(context: MediaContext, input: Record<string, unknown>): Promise<ConsoleMediaListing> {
   const rawFolder = folderPath(optionalText(input.folder, "folder") ?? "")
+  // Reserved namespaces are hidden from Media. Preserve the established list
+  // contract by treating a direct query for one as an empty result, while other
+  // operations continue to reject reserved paths through mediaPath().
+  if (rawFolder && isReservedPath(rawFolder)) {
+    return { access: context.access, folder: rawFolder, folders: [], hasMore: false, items: [], served: context.served, store: context.store }
+  }
   const folder = rawFolder ? mediaPath(rawFolder, "folder") : ""
   const search = optionalText(input.search, "search")?.trim().toLowerCase()
   const type = optionalText(input.type, "type")

@@ -70,7 +70,7 @@ const icon = computed(() => (props.field.kind === "blob" && record(props.field.s
 const segment = "px-0.5 tabular-nums data-[segment=day]:w-auto data-[segment=month]:w-auto data-[segment=year]:w-auto data-[segment=hour]:w-auto data-[segment=minute]:w-auto data-[segment=literal]:px-0";
 
 // Ghost controls: no fill, a border on hover and focus (Notion property values, Geist input ring).
-const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-[13px]";
+const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
 
 // Text-like fields validate when focus leaves them, then clear the message as soon as the value is valid again.
 // Choices and dates leave validation to the save, since their menus move focus while someone is still choosing.
@@ -238,7 +238,7 @@ function updateChild(name: string, value: unknown): void {
       <button
         :id="inputId"
         type="button"
-        class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-[13px] hover:ring-1 hover:ring-(--ui-border) hover:ring-inset focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none"
+        class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-base hover:ring-1 md:text-sm hover:ring-(--ui-border) hover:ring-inset focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none"
         :aria-expanded="expanded"
         :aria-controls="`${inputId}-fields`"
         @click="expanded = !expanded"
@@ -374,7 +374,7 @@ function updateChild(name: string, value: unknown): void {
       variant="ghost"
       :ui="{ base: ghost, item: 'text-xs' }"
       :disabled="disabled"
-      placeholder="Empty"
+      :placeholder="list.length ? (disabled ? undefined : 'Add…') : 'Empty'"
       :aria-invalid="error ? 'true' : undefined"
     />
     <ConsoleMediaField

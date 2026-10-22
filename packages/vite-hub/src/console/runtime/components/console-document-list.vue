@@ -19,6 +19,8 @@ import {
   stableConsoleJSON,
 } from "../client/documents";
 import { useConsoleToast } from "../client/toast";
+import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleStatus from "./console-status.vue";
 
@@ -301,13 +303,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <UDashboardNavbar :ui="{ root: 'border-b border-default', right: 'gap-2' }" :toggle="{ 'aria-label': 'Open collections' }">
-    <template #title>
-      <span class="flex min-w-0 items-baseline gap-2">
-        <span class="truncate text-sm font-semibold text-highlighted">{{ collection.label }}</span>
-        <span class="truncate font-mono text-xs text-dimmed">{{ collection.path }}</span>
-      </span>
-    </template>
+  <ConsolePageHeader :title="collection.label" :description="collection.path">
     <template #right>
       <UPopover v-if="collection.access.publish && pendingChanges" v-model:open="publishOpen">
         <UButton variant="outline" size="sm" label="Publish" :aria-label="`Publish ${pendingChanges} ${pendingChanges === 1 ? 'change' : 'changes'}`">
@@ -330,9 +326,9 @@ onBeforeUnmount(() => {
       </UPopover>
       <UButton v-if="collection.access.write" size="sm" icon="i-lucide-plus" label="New" @click="create" />
     </template>
-  </UDashboardNavbar>
+  </ConsolePageHeader>
 
-  <div class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2">
+  <ConsolePageToolbar>
     <UInput
       v-model="search"
       class="w-full sm:w-56"
@@ -394,7 +390,7 @@ onBeforeUnmount(() => {
       </UPopover>
       <USelect v-model="sort" size="sm" class="w-40" :items="sortOptions" aria-label="Sort documents" />
     </div>
-  </div>
+  </ConsolePageToolbar>
 
   <div v-if="collection.access.publish && selected.size" class="flex items-center gap-3 border-b border-default px-4 py-1.5">
     <p class="min-w-0 flex-1 text-[13px] text-muted tabular-nums">{{ selected.size }} selected</p>
@@ -451,7 +447,7 @@ onBeforeUnmount(() => {
             <UCheckbox :model-value="allSelected" aria-label="Select every document on this page" @update:model-value="toggleAll" />
           </th>
           <th class="font-medium" :class="collection.access.publish ? 'px-2' : 'px-4'">Title</th>
-          <th class="px-2 font-medium" :class="page?.scheduled ? 'w-56' : 'w-28'">State</th>
+          <th class="hidden px-2 font-medium sm:table-cell" :class="page?.scheduled ? 'w-56' : 'w-28'">State</th>
           <th v-if="tagField" class="hidden w-40 px-2 font-medium lg:table-cell">{{ tagField.label }}</th>
           <th v-if="dateField" class="hidden w-32 px-2 font-medium md:table-cell">{{ dateField.label }}</th>
           <th class="hidden w-28 pe-4 ps-2 text-right font-medium sm:table-cell">Updated</th>
@@ -474,7 +470,7 @@ onBeforeUnmount(() => {
               @update:model-value="toggle(item.id, $event)"
             />
           </td>
-          <td class="min-w-0" :class="collection.access.publish ? 'px-2' : 'px-4'">
+          <td class="min-w-0 py-2 sm:py-1" :class="collection.access.publish ? 'px-2' : 'px-4'">
             <a
               :href="router.resolve(documentRoute(item)).href"
               class="block min-w-0 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -483,8 +479,13 @@ onBeforeUnmount(() => {
               <span class="block truncate text-sm font-medium text-highlighted" :class="{ 'text-muted line-through decoration-(--ui-text-dimmed)': item.state === 'deleted' }">{{ item.title }}</span>
               <span class="block truncate font-mono text-xs text-dimmed">{{ item.id }}</span>
             </a>
+            <!-- On a phone the state follows the title instead of taking a column. -->
+            <span class="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-3 sm:hidden">
+              <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" />
+              <ConsoleStatus v-if="item.schedule" :tone="consoleDocumentScheduleTone(item.schedule)" :label="consoleDocumentScheduleLabel(item.schedule)" />
+            </span>
           </td>
-          <td class="px-2">
+          <td class="hidden px-2 sm:table-cell">
             <span class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5">
               <ConsoleStatus :tone="consoleDocumentStateColor(item.state)" :label="consoleDocumentStateLabel(item.state)" class="text-[13px]" />
               <UTooltip v-if="item.schedule" :text="item.schedule.failure ?? `Publishes the reviewed draft at ${new Date(item.schedule.at).toLocaleString()}`" :content="{ side: 'top' }">
