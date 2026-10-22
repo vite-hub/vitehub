@@ -2,7 +2,7 @@
 title: App secret
 navigation.title: App secret
 description: Configure one root secret and derive every purpose-specific signing secret from it.
-navigation.order: 6
+navigation.order: 9
 icon: i-lucide-key-square
 ---
 

@@ -100,6 +100,7 @@ import type { AgentChannelChatRouteBody, AgentChannelChatRouteHandlerOptions } f
 import type { TelegramAdapterConfig } from "@chat-adapter/telegram"
 import { consoleInvocationUrl, createExecutionContext, createRuntimeContext, encodeRouteSegment, resolvePublicUrl, resolveRuntimeValue } from "@vite-hub/runtime"
 import type { Adapter, FileUpload } from "chat"
+import { importOptionalKV } from "./internal/optional-kv.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
 import { channelEnv, channelEnvValue } from "./channel-env.ts"
 import type { BuiltInEnvContext } from "./internal/builtin-env.ts"
@@ -2816,15 +2817,14 @@ function teamsHash(value: string): string {
   return createHash("sha256").update(value).digest("hex")
 }
 
-interface TeamsKV {
-  get: (key: string) => Promise<readonly [error: Error | null, value: unknown]>
-  set: (key: string, value: { id: string } | { threadId: string }) => Promise<readonly [error: Error | null, value: unknown]>
-}
+/** The part of the @vite-hub/kv storage that teams.connector() uses for thread roots and receipts. */
+type TeamsKV = Pick<import("@vite-hub/kv").KVStorage, "get" | "set">
 
 let teamsKVModule: Promise<TeamsKV> | undefined
 
 function teamsKV(): Promise<TeamsKV> {
-  teamsKVModule ??= import("@vite-hub/kv").then(module => module.kv, (error: unknown) => {
+  // @vite-hub/kv is optional and loaded only when a Teams connector runs.
+  teamsKVModule ??= importOptionalKV().then(module => module.kv, (error: unknown) => {
     teamsKVModule = undefined
     throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] teams.connector() requires @vite-hub/kv to be installed and configured.", cause: error })
   })

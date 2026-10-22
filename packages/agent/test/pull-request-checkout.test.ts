@@ -120,7 +120,7 @@ describe("pull request checkout", () => {
 
   it("sends base and fork credentials only to their own remote URLs", async () => {
     const fixture = await githubFixture()
-    const access = vi.fn(async (_context: AgentCallbackContext, scope: { repository: string }) => scope.repository === "contributor/vitehub" ? "fork-token" : "base-token")
+    const access = vi.fn(async (_context: AgentCallbackContext, scope: { repository: string }) => ({ token: scope.repository === "contributor/vitehub" ? "fork-token" : "base-token" }))
     const signal = new AbortController().signal
     const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
     const env = cleanEnv(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, { repository: "vite-hub/vitehub", headRepository: "contributor/vitehub" }, signal))
@@ -140,7 +140,7 @@ describe("pull request checkout", () => {
 
   it("has no Git credentials without forge access or a repository", async () => {
     const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
-    const access = vi.fn(async () => "token")
+    const access = vi.fn(async () => ({ token: "token" }))
     expect(await forgeGitEnvironment(context, {}, { repository: "vite-hub/vitehub" })).toEqual({})
     expect(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, undefined)).toEqual({})
     expect(access).not.toHaveBeenCalled()

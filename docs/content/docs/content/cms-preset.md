@@ -2,7 +2,7 @@
 title: CMS preset
 description: Store editable document collections from one file. ViteHub turns on Workspace, Database, and Blob, adds the Workspace and its history tables, and adds a Database when the app has none.
 navigation.title: CMS preset
-navigation.order: 3.5
+navigation.order: 7
 icon: i-lucide-newspaper
 ---
 

@@ -4,7 +4,7 @@ import { runInNewContext } from "node:vm"
 import { clearActiveCloudflareEnv, getActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { Request as ForeignRequest } from "undici"
+import { Headers as ForeignHeaders, Request as ForeignRequest } from "undici"
 
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
@@ -1206,7 +1206,7 @@ it("reads regions from a request created in another realm", () => {
     return new Request("https://example.com", {
       headers: { "ce-vqsregion": "ams1" },
     })
-  })()`, { BaseRequest: Request, BaseHeaders: Headers })
+  })()`, { BaseRequest: ForeignRequest, BaseHeaders: ForeignHeaders })
   expect(request).not.toBeInstanceOf(Request)
   expect(runWithQueueRuntimeEvent({ request }, () => resolveVercelQueueRegion(undefined))).toMatchObject({ region: "ams1" })
 })
