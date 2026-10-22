@@ -1,6 +1,6 @@
 ---
 title: Invocations
-description: Run, stream, and observe one request to an Agent.
+description: Run, stream, and observe one request to an Agent, validate its input, invoke Triggers, and cancel an Invocation.
 navigation.order: 22
 navigation.group: Core
 icon: i-lucide-play-circle

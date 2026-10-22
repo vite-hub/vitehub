@@ -1,6 +1,6 @@
 ---
 title: Fetch
-description: Expose named HTTP request tools for developer-approved endpoints.
+description: Expose named HTTP request tools for endpoints that the developer approves, with security, approval, and driver support.
 navigation.title: Fetch
 navigation.order: 240
 navigation.group: Capabilities

@@ -1,6 +1,6 @@
 ---
 title: Doctor rules
-description: Find ViteHub mistakes in application code with Vite Doctor.
+description: Find ViteHub mistakes in application code with Vite Doctor, add the ViteHub rules, and read what each VHUB rule reports.
 navigation.order: 59
 navigation.group: Runtime and output
 icon: i-lucide-stethoscope

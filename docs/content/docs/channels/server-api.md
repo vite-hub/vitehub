@@ -1,6 +1,6 @@
 ---
 title: Channels server API
-description: Send messages through a named Channel and read the delivery receipt.
+description: Send messages through a named Channel from an H3 or Nitro handler, add connectors, and read the delivery receipt.
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2

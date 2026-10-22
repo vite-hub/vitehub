@@ -1,6 +1,6 @@
 ---
 title: Shell configuration
-description: Select a Shell provider and set runtime, session, and exec options.
+description: Select a Shell provider and set the runtime, session, and exec options that control what commands an Agent can run.
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
