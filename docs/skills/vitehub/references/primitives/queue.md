@@ -13,4 +13,4 @@ Treat enqueue as a handoff. Make the job idempotent, keep payloads bounded, and 
 Use a Queue for independent background work, a Schedule for when work starts,
 and a Workflow when several durable steps must be inspected together.
 
-Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspect provider output for the target host.
+Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspect the Nitro output for the target host.

@@ -9,7 +9,7 @@ import {
   normalizeSuffixDefinitionName,
   sanitizeDefinitionFilename,
 } from "@vite-hub/internal/definition-catalog"
-import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, unwrapExpression, walk } from "@vite-hub/internal/build/scan-module"
+import { argumentExpression, defaultExportExpression, findCalls, objectProperties, scanModule, staticString, staticValue, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { readProvisionStateSync } from "@vite-hub/internal/provision-state"
 import { computePackageDir, resolveRuntimeModule } from "@vite-hub/internal/build/paths"
 
@@ -35,7 +35,7 @@ import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 import { resolveDatabaseContributionTargets } from "./contributions.ts"
 
 import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContribution } from "./contributions.ts"
-import type { Expression, ObjectExpression } from "@vite-hub/internal/build/scan-module"
+import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
 
 export { resolveConfigValue } from "./config-value.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
@@ -116,19 +116,7 @@ function readObjectKeys(body: ObjectExpression | undefined) {
   return [...new Set(readObjectEntries(body).map(entry => entry.key).filter((key): key is string => Boolean(key)))]
 }
 
-function objectLiteral(value: Expression | undefined, file?: string): ObjectExpression | undefined {
-  if (value?.type === "Identifier" && file) {
-    const module = scanModule(readFileSync(file, "utf8"), file)
-    for (const statement of module.program.body) {
-      if (statement.type !== "VariableDeclaration") continue
-      for (const declaration of statement.declarations) {
-        if (declaration.id.type === "Identifier" && declaration.id.name === value.name) {
-          const resolved = declaration.init ? unwrapExpression(declaration.init) : undefined
-          if (resolved?.type === "ObjectExpression") return resolved
-        }
-      }
-    }
-  }
+function objectLiteral(value: Expression | undefined): ObjectExpression | undefined {
   return value?.type === "ObjectExpression" ? value : undefined
 }
 
@@ -153,7 +141,10 @@ export function readStaticDatabaseSchema(file: string): StaticDatabaseSchema {
 }
 
 function readConfigValue(body: ObjectExpression | undefined, property: string): DatabaseConfigValue | undefined {
-  const expression = readObjectPropertyValue(body, property)
+  return readConfigExpression(readObjectPropertyValue(body, property))
+}
+
+function readConfigExpression(expression: Expression | undefined): DatabaseConfigValue | undefined {
   if (!expression) return
   const quoted = readStaticStringLiteral(expression)
   if (typeof quoted !== "undefined") return quoted
@@ -210,16 +201,20 @@ function readProcessEnvName(expression: Expression): string | undefined {
 }
 
 function readStringValue(body: ObjectExpression | undefined, property: string): string | undefined {
-  const value = readConfigValue(body, property)
+  return readStringExpression(readObjectPropertyValue(body, property))
+}
+
+function readStringExpression(expression: Expression | undefined): string | undefined {
+  const value = readConfigExpression(expression)
   const resolved = resolveConfigValue(value)
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
 type DefinitionCloudflareResource = CloudflareD1Projection["resource"]
 
-function readDefinitionCloudflareResource(expression: Expression | undefined, file: string): DefinitionCloudflareResource {
+function readDefinitionCloudflareResource(expression: Expression | undefined): DefinitionCloudflareResource {
   if (isUndefinedIdentifier(expression)) return "inherited"
-  const body = objectLiteral(expression, file)
+  const body = objectLiteral(expression)
   if (body === undefined) return "opaque"
   let resource: DefinitionCloudflareResource = "inherited"
   for (const entry of readObjectEntries(body)) {
@@ -232,27 +227,238 @@ function readDefinitionCloudflareResource(expression: Expression | undefined, fi
   return resource
 }
 
-function readDefinitionCloudflareConfig(file: string): { resource: DefinitionCloudflareResource, value?: CloudflareD1BindingConfig } {
+/**
+ * The initializer of the first module-level `const`, `let`, or `var` declaration of `name`, without assertions.
+ * Declarations without an initializer, such as `declare const name: T`, stay unresolved.
+ */
+function readModuleDeclaration(module: ScannedModule, name: string): Expression | undefined {
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration") continue
+    for (const declarator of declaration.declarations) {
+      if (declarator.id.type === "Identifier" && declarator.id.name === name && declarator.init) return unwrapExpression(declarator.init)
+    }
+  }
+}
+
+/** The static key of a computed property, following module-level constants such as `const key = 1`. */
+function readComputedPropertyKey(module: ScannedModule, expression: Expression, seen = new Set<string>()): string | undefined {
+  const value = unwrapExpression(expression)
+  if (value.type === "Identifier" && value.name !== "undefined") {
+    if (seen.has(value.name)) return
+    const declaration = readModuleDeclaration(module, value.name)
+    return declaration && readComputedPropertyKey(module, declaration, new Set([...seen, value.name]))
+  }
+  const key = staticValue(value)
+  return typeof key === "string" || typeof key === "number" || typeof key === "bigint" ? String(key) : undefined
+}
+
+/** The static key of an object member. Undefined for a spread or a key that the source cannot show. */
+function readMemberKey(module: ScannedModule, property: StaticProperty): string | undefined {
+  if (property.node.type === "SpreadElement") return
+  if (property.key !== undefined) return property.key
+  return property.computed ? readComputedPropertyKey(module, property.node.key as Expression) : undefined
+}
+
+function isStaticUndefined(expression: Expression | undefined): boolean {
+  return expression !== undefined && isUndefinedIdentifier(unwrapExpression(expression))
+}
+
+/** The object literal of an opaque value, following module-level identifiers. */
+function resolveOpaqueObject(module: ScannedModule, expression: Expression | undefined, seen: Set<string>): ObjectExpression | undefined {
+  const value = expression && unwrapExpression(expression)
+  if (value?.type === "ObjectExpression") return value
+  if (value?.type !== "Identifier" || seen.has(value.name)) return
+  seen.add(value.name)
+  return resolveOpaqueObject(module, readModuleDeclaration(module, value.name), seen)
+}
+
+/**
+ * Whether an opaque object has `key` after its spreads. Undefined when a spread or computed key cannot be read, so
+ * the absence of the key cannot be proven.
+ */
+function opaqueObjectContainsKey(module: ScannedModule, expression: Expression | undefined, key: string, seen = new Set<string>()): boolean | undefined {
+  const body = resolveOpaqueObject(module, expression, seen)
+  if (!body) return
+  let unresolved = false
+  let found = false
+  for (const property of objectProperties(body)) {
+    if (property.node.type === "SpreadElement") {
+      const result = opaqueObjectContainsKey(module, property.node.argument, key, new Set(seen))
+      if (result === true) found = true
+      if (result === undefined) unresolved = true
+      continue
+    }
+    const memberKey = readMemberKey(module, property)
+    if (memberKey === undefined) unresolved = true
+    else if (memberKey === key) found = true
+  }
+  return unresolved ? undefined : found
+}
+
+/**
+ * The effective value of `key` in an opaque object, or undefined when the key is absent or a later spread may
+ * replace it with a value that the source cannot show. A shorthand property gives its identifier.
+ */
+function readOpaquePropertyExpression(module: ScannedModule, expression: Expression | undefined, key: string, seen = new Set<string>()): Expression | undefined {
+  const body = resolveOpaqueObject(module, expression, seen)
+  if (!body) return
+  let value: Expression | undefined
+  let found = false
+  let unresolvedOverride = false
+  for (const property of objectProperties(body)) {
+    if (property.node.type === "SpreadElement") {
+      const spread = property.node.argument
+      const hasKey = opaqueObjectContainsKey(module, spread, key, new Set(seen))
+      if (hasKey === undefined) {
+        // A later explicit property overrides an uncertain spread. An uncertain spread after the last known property
+        // makes the effective value unknown.
+        unresolvedOverride = true
+        continue
+      }
+      if (hasKey) {
+        const spreadValue = readOpaquePropertyExpression(module, spread, key, new Set(seen))
+        if (spreadValue === undefined) {
+          unresolvedOverride = true
+          continue
+        }
+        value = spreadValue
+        found = true
+        unresolvedOverride = false
+      }
+      continue
+    }
+    if (readMemberKey(module, property) !== key) continue
+    found = true
+    value = property.value
+    unresolvedOverride = false
+  }
+  return found && !unresolvedOverride ? value : undefined
+}
+
+/** Follows module-level identifiers to the value they hold. `null` stands for a static `undefined`. */
+function resolveOpaqueValue(module: ScannedModule, expression: Expression | undefined, seen = new Set<string>()): Expression | null | undefined {
+  if (expression === undefined) return
+  if (isStaticUndefined(expression)) return null
+  const value = unwrapExpression(expression)
+  if (value.type !== "Identifier") return value
+  if (seen.has(value.name)) return
+  return resolveOpaqueValue(module, readModuleDeclaration(module, value.name), new Set([...seen, value.name]))
+}
+
+/**
+ * Whether an opaque Cloudflare value sets its own D1 resource (`databaseId` or `databaseName`). Undefined when the
+ * source cannot prove it either way.
+ */
+function readOpaqueResourceOwnership(module: ScannedModule, expression: Expression | undefined, seen = new Set<string>()): boolean | undefined {
+  const value = expression && unwrapExpression(expression)
+  if (value?.type === "Identifier") {
+    if (seen.has(value.name)) return
+    seen.add(value.name)
+    return readOpaqueResourceOwnership(module, readModuleDeclaration(module, value.name), seen)
+  }
+  if (value?.type !== "ObjectExpression") return
+  const hasId = opaqueObjectContainsKey(module, value, "databaseId")
+  const hasName = opaqueObjectContainsKey(module, value, "databaseName")
+  // An unresolved spread may provide either resource key at runtime. Keep ownership unknown until every spread path
+  // is proven key-free.
+  if (hasId === undefined || hasName === undefined) return
+  if (!hasId && !hasName) return false
+  const id = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseId", new Set(seen)))
+  const name = resolveOpaqueValue(module, readOpaquePropertyExpression(module, value, "databaseName", new Set(seen)))
+  if ((hasId && id === undefined) || (hasName && name === undefined)) return
+  return Boolean(id) || Boolean(name)
+}
+
+/** Whether an opaque Cloudflare value selects D1 HTTP. Undefined when the source cannot prove it either way. */
+function readOpaqueHttpOnly(module: ScannedModule, expression: Expression | undefined, seen = new Set<string>()): boolean | undefined {
+  const value = expression && unwrapExpression(expression)
+  if (value?.type === "Identifier") {
+    if (seen.has(value.name)) return
+    seen.add(value.name)
+    return readOpaqueHttpOnly(module, readModuleDeclaration(module, value.name), seen)
+  }
+  if (value?.type !== "ObjectExpression") return
+  let httpOnly: boolean | undefined = false
+  for (const property of objectProperties(value)) {
+    if (property.node.type === "SpreadElement") {
+      const spread = property.node.argument
+      // Each sibling spread is an independent traversal. Sharing the visited set would turn a proven HTTP-only value
+      // into an unresolved one when two spreads reference the same object.
+      const spreadHttpOnly = readOpaqueHttpOnly(module, spread, new Set(seen))
+      const hasHttp = opaqueObjectContainsKey(module, spread, "http")
+      if (hasHttp === undefined) httpOnly = undefined
+      else if (hasHttp) httpOnly = spreadHttpOnly
+      continue
+    }
+    if (readMemberKey(module, property) !== "http") continue
+    const http = property.node.shorthand ? readModuleDeclaration(module, "http") : property.value
+    if (http?.type === "Literal" && http.value === true) httpOnly = true
+    else if (http?.type === "ObjectExpression") httpOnly = true
+    else if (http?.type === "Literal" && http.value === false) httpOnly = false
+    else httpOnly = undefined
+  }
+  return httpOnly
+}
+
+/** A string literal, or a module-level identifier that holds one. */
+function readStaticStringReference(module: ScannedModule, expression: Expression | undefined): string | undefined {
+  const value = resolveOpaqueValue(module, expression)
+  return value ? staticString(value) : undefined
+}
+
+interface DefinitionCloudflareConfig {
+  resource: DefinitionCloudflareResource
+  /** The Definition sets `cloudflare` to something other than `undefined`. */
+  configured: boolean
+  /** For an opaque value: whether it sets its own D1 resource. Undefined when the source cannot tell. */
+  ownsOpaqueResource?: boolean
+  /** For an opaque value: whether it selects D1 HTTP. Undefined when the source cannot tell. */
+  opaqueHttpOnly?: boolean
+  /** For an opaque value: the binding that the source shows. */
+  opaqueBinding?: string
+  value?: CloudflareD1BindingConfig
+}
+
+function readDefinitionCloudflareConfig(file: string): DefinitionCloudflareConfig {
+  const module = scanModule(readFileSync(file, "utf8"), file)
   const definitionBody = readDefinitionObjectBody(file)
+  const definitionProperties = definitionBody ? objectProperties(definitionBody) : []
   const definitionEntries = readObjectEntries(definitionBody)
+  const cloudflareIndex = definitionEntries.findLastIndex(entry => entry.key === "cloudflare")
   const cloudflareEntries = definitionEntries.filter(entry => entry.key === "cloudflare")
-  const expression = cloudflareEntries.at(-1)?.value
+  // A later Definition-level spread can replace the whole Cloudflare value. Keep the effective value unresolved
+  // rather than read the earlier property and report a binding that the runtime may not emit.
+  const trailingDefinitionSpread = cloudflareIndex !== -1 && definitionProperties.slice(cloudflareIndex + 1).some(property =>
+    property.node.type === "SpreadElement" && opaqueObjectContainsKey(module, property.node.argument, "cloudflare") !== false)
+  const expression = cloudflareIndex !== -1 && !trailingDefinitionSpread ? definitionEntries[cloudflareIndex]!.value : undefined
+  const configured = cloudflareEntries.length > 0 && !isUndefinedIdentifier(expression)
   let resource: DefinitionCloudflareResource = definitionBody === undefined ? "opaque" : "inherited"
   for (const entry of definitionEntries) {
     if (entry.key === undefined) {
       resource = "opaque"
     }
     else if (entry.key === "cloudflare") {
-      resource = readDefinitionCloudflareResource(entry.value, file)
+      resource = readDefinitionCloudflareResource(entry.value)
     }
   }
   const body = objectLiteral(expression)
   if (resource === "opaque") {
-    if (cloudflareEntries.length && !isUndefinedIdentifier(expression)) return { resource, value: {} }
-    return { resource }
+    const ownsOpaqueResource = readOpaqueResourceOwnership(module, expression)
+    const opaqueHttpOnly = readOpaqueHttpOnly(module, expression)
+    const opaqueBinding = readStaticStringReference(module, readOpaquePropertyExpression(module, expression, "binding"))
+    const opaque = { resource, ownsOpaqueResource, opaqueHttpOnly, ...(opaqueBinding ? { opaqueBinding } : {}) }
+    return cloudflareEntries.length && !isUndefinedIdentifier(expression)
+      ? { ...opaque, configured: true, value: {} }
+      : { ...opaque, configured: false }
   }
-  if (body === undefined) return { resource }
-  const httpExpression = readObjectPropertyValue(body, "http")
+  if (body === undefined) return { resource, configured, ownsOpaqueResource: false }
+  // Follow a property that names a module-level constant, such as `binding: BINDING`.
+  const property = (key: string) => {
+    const value = readObjectPropertyValue(body, key)
+    return value?.type === "Identifier" && value.name !== "undefined" ? readModuleDeclaration(module, value.name) ?? value : value
+  }
+  const httpExpression = property("http")
   const httpBody = objectLiteral(httpExpression)
   const http = httpExpression?.type === "Literal" && httpExpression.value === true
     ? true
@@ -263,15 +469,17 @@ function readDefinitionCloudflareConfig(file: string): { resource: DefinitionClo
         } satisfies CloudflareD1HttpConfig
       : undefined
   const value: CloudflareD1BindingConfig = {
-    binding: readStringValue(body, "binding"),
-    databaseId: readConfigValue(body, "databaseId"),
-    databaseName: readConfigValue(body, "databaseName"),
-    migrationsTable: readStringValue(body, "migrationsTable"),
-    previewDatabaseId: readConfigValue(body, "previewDatabaseId"),
+    binding: readStringExpression(property("binding")),
+    databaseId: readConfigExpression(property("databaseId")),
+    databaseName: readConfigExpression(property("databaseName")),
+    migrationsTable: readStringExpression(property("migrationsTable")),
+    previewDatabaseId: readConfigExpression(property("previewDatabaseId")),
   }
   if (http && (http === true || http.authToken || http.url)) value.http = http
   return {
     resource,
+    configured,
+    ownsOpaqueResource: false,
     ...(Object.values(value).some(item => typeof item !== "undefined") ? { value } : {}),
   }
 }
@@ -645,6 +853,7 @@ export function resolveDBViteConfig(
   const generatedDrizzleConfigFilesByDatabase: Record<string, string> = Object.create(null)
   const generatedSchemaFilesByDatabase: Record<string, string> = Object.create(null)
   const provisionState = readProvisionStateSync(context.provisionRoot ?? rootDir)
+  const definitionCloudflareByName = new Map<string, DefinitionCloudflareConfig>()
   for (const definition of definitions) {
     const migrationsDir = getDefaultMigrationsDir(rootDir, definition, context.serverDirs)
     const generatedSchemaFile = createGeneratedSchemaFile(rootDir, definition.name)
@@ -667,6 +876,7 @@ export function resolveDBViteConfig(
       continue
     }
     const definitionCloudflare = readDefinitionCloudflareConfig(definition.handler)
+    definitionCloudflareByName.set(definition.name, definitionCloudflare)
     const projection: CloudflareD1Projection = { resource: definitionCloudflare.resource }
     cloudflareProjections[definition.name] = projection
     const cloudflare = normalizeCloudflareConfig(mergeCloudflareConfig(cloudflareOptions(options), definitionCloudflare.value), definition.name, migrationsDir)
@@ -706,16 +916,25 @@ export function resolveDBViteConfig(
   if (options && options.driver === "d1") definitionDefaults.cloudflare = cloudflareOptions(options) ?? {}
   if (options && options.connection) definitionDefaults.connection = options.connection
   const bindingOwners = new Map<string, string>()
-  for (const name of definitions.map(definition => definition.name)) {
-    // Only native D1 projections emit competing Wrangler bindings. HTTP, remote,
-    // opaque, and unresolved resources may safely reuse a binding name.
-    const binding = cloudflareProjections[name]?.binding
+  for (const definition of definitions) {
+    // PostgreSQL Definitions never emit native D1 bindings: their `cloudflare` holds Hyperdrive settings.
+    const definitionCloudflare = definitionCloudflareByName.get(definition.name)
+    if (!definitionCloudflare) continue
+    // Opaque Definitions that prove they own their D1 resource, or use D1 HTTP, emit no native D1 binding.
+    if (definitionCloudflare.resource === "opaque" && (definitionCloudflare.ownsOpaqueResource === true || definitionCloudflare.opaqueHttpOnly === true)) continue
+    const effectiveCloudflare = databases[definition.name]?.cloudflare
+    if (effectiveCloudflare?.http) continue
+    const canSynthesizeOpaqueBinding = definitionCloudflare.resource !== "opaque"
+      || (definitionCloudflare.ownsOpaqueResource === false && definitionCloudflare.opaqueHttpOnly === false)
+    const binding = (definitionCloudflare.resource !== "opaque" ? effectiveCloudflare?.binding : undefined)
+      ?? definitionCloudflare.opaqueBinding
+      ?? (canSynthesizeOpaqueBinding && definitionCloudflare.configured ? resolveCloudflareD1BindingName(definition.name, undefined) : undefined)
     if (!binding) continue
     const previous = bindingOwners.get(binding)
-    if (previous) {
-      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${name}"` })
+    if (previous && previous !== definition.name) {
+      throw databaseErrorDiagnostics.DATABASE_BINDING_CONFLICT({ binding, first: `The Database Definitions "${previous}"`, kind: "D1", second: `"${definition.name}"` })
     }
-    bindingOwners.set(binding, name)
+    bindingOwners.set(binding, definition.name)
   }
   return {
     databaseNames: definitions.map(definition => definition.name),

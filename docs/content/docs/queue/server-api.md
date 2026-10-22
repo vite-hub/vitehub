@@ -4,7 +4,6 @@ description: Enqueue Queue Jobs, handle delivery failures, and use the Queue Run
 navigation.title: Server API
 navigation.order: 4
 icon: i-lucide-code-2
-navigation.group: Build
 ---
 
 ## Public imports

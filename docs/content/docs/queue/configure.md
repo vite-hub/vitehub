@@ -4,7 +4,6 @@ description: Configure the Queue Vite Integration, Queue Providers, generated na
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Configure the Vite Integration

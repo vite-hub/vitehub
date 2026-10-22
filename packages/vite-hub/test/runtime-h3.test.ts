@@ -137,7 +137,7 @@ describe("H3 Runtime Context", () => {
       signal: { get: () => new AbortController().signal },
       clone: { value: () => { throw new Error("consumed") } },
       arrayBuffer: { value: () => Promise.reject(new Error("forged")) },
-      blob: { value: () => Promise.resolve(new Blob()) },
+      blob: { value: () => Promise.resolve(new Blob([])) },
       formData: { value: () => Promise.reject(new Error("forged")) },
       json: { value: () => Promise.reject(new Error("forged")) },
       text: { value: () => Promise.reject(new Error("forged")) },
@@ -172,7 +172,7 @@ describe("H3 Runtime Context", () => {
   })
 
   it("rejects a request proxy with a cyclic prototype", async () => {
-    const request = new Proxy({}, {
+    const request: object = new Proxy({}, {
       getPrototypeOf: () => request,
     })
     const context = getRuntimeContext({ context: {}, req: request })
