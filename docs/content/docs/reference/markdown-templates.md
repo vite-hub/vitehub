@@ -190,6 +190,8 @@ This is a breaking syntax change for direct render calls, imported template file
 
 `else-if` uses the same props as `if`; `else` has no props. Add a closing `::` for every branch component, followed by the closing fence for the outer `if`. Old syntax is not translated. The render function and its `{ data }` option are unchanged.
 
+A binding that fills a complete link destination, such as `[Open]({{ data.url }})`, rejects the render with `MARKDOWN_TEMPLATE_R0033`. Comark does not parse that form as a link, so it would send the brackets as text.
+
 ## Render options
 
 `renderMarkdownTemplate(template, options?)` returns `Promise<string>`. Its public options are `data?: Record<string, unknown>` and `plugins?: ComarkPlugin[]`, which adds Comark syntax handlers; `data` defaults to an empty object.

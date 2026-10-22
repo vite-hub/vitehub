@@ -1,8 +1,9 @@
+import type { H3Event } from "h3"
 import { describe, expectTypeOf, it } from "vitest"
 
 import type { Result } from "@vite-hub/runtime"
 
-import type { RealtimeCheckpoint, RealtimeRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeSaved } from "../src/index.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 declare const realtime: ReturnType<typeof useRealtimeTiptap>
@@ -31,5 +32,12 @@ describe("realtime client result types", () => {
       return
     }
     expectTypeOf(checkpoint).toEqualTypeOf<RealtimeCheckpoint>()
+  })
+})
+
+describe("realtime definition types", () => {
+  it("gives identify() and authorize() the H3 event of the request", () => {
+    expectTypeOf<RealtimeRequestContext["event"]>().toEqualTypeOf<H3Event>()
+    expectTypeOf<RealtimeAuthorizeContext["event"]>().toEqualTypeOf<H3Event>()
   })
 })

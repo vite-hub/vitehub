@@ -11,6 +11,14 @@ import type { RateLimitDeclaration, RateLimitPolicy } from "./types.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 const rateLimitImports = new Set(["@vite-hub/rate-limit", "vite-hub/rate-limit"])
+
+/** Functions whose calls declare a managed Rate Limit. Both consume the same counters. */
+const rateLimitGuards = ["checkRateLimit", "requireRateLimit"] as const
+type RateLimitGuard = typeof rateLimitGuards[number]
+
+function isRateLimitGuard(name: unknown): name is RateLimitGuard {
+  return rateLimitGuards.some(guard => guard === name)
+}
 const ignoredSourceDirectories = new Set(["__tests__", "test", "tests"])
 const nestedIgnoredSourceDirectories = new Set(["__tests__", "tests"])
 
@@ -33,7 +41,8 @@ function declarationError(file: string, source: string, node: { start: number },
 }
 
 interface RateLimitBindings {
-  direct: Set<string>
+  /** Local name to the guard it binds. */
+  direct: Map<string, RateLimitGuard>
   namespaces: Set<string>
 }
 
@@ -41,13 +50,13 @@ interface RateLimitScope extends RateLimitBindings {
   shadows: Set<string>
 }
 
-function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
-  const bindings: RateLimitBindings = { direct: new Set(), namespaces: new Set() }
+function rateLimitImportBindings(program: ESTree.Program): RateLimitBindings {
+  const bindings: RateLimitBindings = { direct: new Map(), namespaces: new Set() }
   for (const statement of program.body) {
     if (statement.type !== "ImportDeclaration" || statement.importKind === "type" || !rateLimitImports.has(statement.source.value)) continue
     for (const specifier of statement.specifiers) {
-      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && specifier.imported.type === "Identifier" && specifier.imported.name === "requireRateLimit") {
-        bindings.direct.add(specifier.local.name)
+      if (specifier.type === "ImportSpecifier" && specifier.importKind !== "type" && specifier.imported.type === "Identifier" && isRateLimitGuard(specifier.imported.name)) {
+        bindings.direct.set(specifier.local.name, specifier.imported.name)
       }
       if (specifier.type === "ImportNamespaceSpecifier") bindings.namespaces.add(specifier.local.name)
     }
@@ -55,22 +64,33 @@ function requireRateLimitBindings(program: ESTree.Program): RateLimitBindings {
   return bindings
 }
 
-function resolveRateLimitBinding(name: string, kind: keyof RateLimitBindings, scopes: RateLimitScope[]): boolean {
+function resolveDirectGuard(name: string, scopes: RateLimitScope[]): RateLimitGuard | undefined {
   for (let index = scopes.length - 1; index >= 0; index -= 1) {
     const scope = scopes[index]!
-    if (scope[kind].has(name)) return true
+    const guard = scope.direct.get(name)
+    if (guard) return guard
+    if (scope.shadows.has(name)) return undefined
+  }
+  return undefined
+}
+
+function resolveNamespace(name: string, scopes: RateLimitScope[]): boolean {
+  for (let index = scopes.length - 1; index >= 0; index -= 1) {
+    const scope = scopes[index]!
+    if (scope.namespaces.has(name)) return true
     if (scope.shadows.has(name)) return false
   }
   return false
 }
 
-function rateLimitBindingName(callee: ESTree.CallExpression["callee"], scopes: RateLimitScope[]): string | undefined {
-  if (callee.type === "Identifier" && resolveRateLimitBinding(callee.name, "direct", scopes)) return callee.name
-  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !resolveRateLimitBinding(callee.object.name, "namespaces", scopes)) return
+/** The guard that a call invokes, or `undefined` when the callee is not a Rate Limit guard. */
+function rateLimitGuardOf(callee: ESTree.CallExpression["callee"], scopes: RateLimitScope[]): RateLimitGuard | undefined {
+  if (callee.type === "Identifier") return resolveDirectGuard(callee.name, scopes)
+  if (callee.type !== "MemberExpression" || callee.object.type !== "Identifier" || !resolveNamespace(callee.object.name, scopes)) return
   const property = callee.computed
     ? callee.property.type === "Literal" ? callee.property.value : undefined
     : callee.property.type === "Identifier" ? callee.property.name : undefined
-  return property === "requireRateLimit" ? callee.object.name : undefined
+  return isRateLimitGuard(property) ? property : undefined
 }
 
 function rateLimitDynamicImport(expression: ESTree.Expression | null): boolean {
@@ -96,10 +116,10 @@ function addDynamicRateLimitBindings(declaration: ESTree.VariableDeclaration, sc
       const name = property.computed
         ? property.key.type === "Literal" ? property.key.value : undefined
         : property.key.type === "Identifier" ? property.key.name : undefined
-      if (name !== "requireRateLimit") continue
+      if (!isRateLimitGuard(name)) continue
       const value = property.value.type === "AssignmentPattern" ? property.value.left : property.value
       if (value.type !== "Identifier") continue
-      scope.direct.add(value.name)
+      scope.direct.set(value.name, name)
     }
   }
 }
@@ -275,27 +295,27 @@ function staticString(expression: ESTree.Expression): string | undefined {
   if (value.type === "TemplateLiteral" && value.expressions.length === 0) return value.quasis[0]?.value.cooked ?? value.quasis[0]?.value.raw
 }
 
-function staticPolicy(call: ESTree.CallExpression, file: string, source: string): RateLimitPolicy {
+function staticPolicy(call: ESTree.CallExpression, guard: RateLimitGuard, file: string, source: string): RateLimitPolicy {
   const policyArgument = call.arguments[2]
   const policyNode = policyArgument?.type === "SpreadElement" ? policyArgument : policyArgument && unwrapStaticExpression(policyArgument)
   if (!policyNode || policyNode.type !== "ObjectExpression") {
-    throw declarationError(file, source, call, "`requireRateLimit()` requires a static options object as its third argument.")
+    throw declarationError(file, source, call, `\`${guard}()\` requires a static options object as its third argument.`)
   }
 
   const values = new Map<string, string | number>()
   for (const property of policyNode.properties) {
     if (property.type !== "Property") {
-      throw declarationError(file, source, property, "`requireRateLimit()` options cannot use object spreads.")
+      throw declarationError(file, source, property, `\`${guard}()\` options cannot use object spreads.`)
     }
     const name = staticPropertyName(property)
     if (name === "key") continue
     if (!name || !rateLimitPolicyKeys.has(name)) {
-      throw declarationError(file, source, property, `\`requireRateLimit()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)
+      throw declarationError(file, source, property, `\`${guard}()\` does not support the ${name ? `"${name}"` : "dynamic"} option.`)
     }
     const value = unwrapStaticExpression(property.value)
     const literal = value.type === "Literal" && typeof value.value === "number" ? value.value : staticString(value)
     if (literal === undefined) {
-      throw declarationError(file, source, property.value, `\`requireRateLimit()\` policy option "${name}" must be a static literal.`)
+      throw declarationError(file, source, property.value, `\`${guard}()\` policy option "${name}" must be a static literal.`)
     }
     values.set(name, literal)
   }
@@ -316,21 +336,23 @@ function staticPolicy(call: ESTree.CallExpression, file: string, source: string)
 }
 
 export function extractRateLimitDeclarations(file: string, source: string): RateLimitDeclaration[] {
-  if (!source.includes("requireRateLimit")) return []
+  if (!rateLimitGuards.some(guard => source.includes(guard))) return []
   const parsed = parseSync(file, source)
   if (parsed.errors.length > 0) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0002({ message: `[vitehub] Could not parse ${file} while collecting Rate Limits: ${parsed.errors[0]?.message}` })
   }
 
   const rootShadows = programBindings(parsed.program)
-  const bindings = requireRateLimitBindings(parsed.program)
-  if (!rootShadows.has("requireRateLimit")) bindings.direct.add("requireRateLimit")
+  const bindings = rateLimitImportBindings(parsed.program)
+  for (const guard of rateLimitGuards) {
+    if (!rootShadows.has(guard) && !bindings.direct.has(guard)) bindings.direct.set(guard, guard)
+  }
   const declarations: RateLimitDeclaration[] = []
   const scopes: RateLimitScope[] = [{ ...bindings, shadows: rootShadows }]
   const functionBodies = new WeakSet<ESTree.BlockStatement>()
   addDynamicRateLimitBindingsFromStatements(parsed.program.body, scopes[0]!)
   const enterScope = (shadows: Set<string>): void => {
-    scopes.push({ direct: new Set(), namespaces: new Set(), shadows })
+    scopes.push({ direct: new Map(), namespaces: new Set(), shadows })
   }
   const enterFunction = (node: ESTree.Function | ESTree.ArrowFunctionExpression): void => {
     enterScope(functionBindings(node))
@@ -358,21 +380,21 @@ export function extractRateLimitDeclarations(file: string, source: string): Rate
     },
     "ClassExpression:exit": exitScope,
     CallExpression(call) {
-      const calleeName = rateLimitBindingName(call.callee, scopes)
-      if (!calleeName) return
+      const guard = rateLimitGuardOf(call.callee, scopes)
+      if (!guard) return
       if (call.arguments.length !== 3) {
-        throw declarationError(file, source, call, "`requireRateLimit()` requires an event, a stable ID, and a static options object.")
+        throw declarationError(file, source, call, `\`${guard}()\` requires an event, a stable ID, and a static options object.`)
       }
       const idNode = call.arguments[1]
       const staticId = idNode?.type === "SpreadElement" ? undefined : idNode && staticString(idNode)
       if (!staticId?.trim()) {
-        throw declarationError(file, source, idNode ?? call, "`requireRateLimit()` requires a non-empty static string ID.")
+        throw declarationError(file, source, idNode ?? call, `\`${guard}()\` requires a non-empty static string ID.`)
       }
       const id = staticId.trim()
       const sourceLocation = location(source, call.start)
       declarations.push({
         name: id,
-        policy: staticPolicy(call, file, source),
+        policy: staticPolicy(call, guard, file, source),
         source: { file, ...sourceLocation },
       })
     },
