@@ -1182,14 +1182,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
+  // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
+  plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
-  // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
-  plugins.push(viteHubTaskPlugin())
   // Nitro is the host output. Its plugins step aside when the app adds `nitro()` itself.
   plugins.push(includedNitro())
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
