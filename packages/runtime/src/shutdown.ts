@@ -59,6 +59,7 @@ export interface ShutdownRuntime {
   __vitehubShutdown?: ShutdownState
   env: Record<string, string | undefined>
   exit(code: number): void
+  kill?: (pid: number, signal: ShutdownSignal) => unknown
   listeners(signal: ShutdownSignal): unknown[]
   off(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
   on(signal: ShutdownSignal, listener: (signal: ShutdownSignal) => void): unknown
@@ -157,6 +158,10 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       await setup
       if (!serverListeners.length) {
         state.status = "running"
+        // `stop` consumed the signal while the host handoff was pending. Restore the
+        // platform's normal signal behavior once the temporary listener is removed.
+        if (runtime.kill && typeof process !== "undefined" && typeof process.pid === "number")
+          runtime.kill(process.pid, signal)
         return
       }
       const results = await runShutdownDrains(undefined, runtime)
@@ -215,10 +220,10 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
       // applications or integrations and must retain their normal ordering.
       const candidates = runtime.listeners(signal).filter((listener): listener is (signal: ShutdownSignal) => unknown =>
         typeof listener === "function" && listener !== stop && !existing.get(signal)?.has(listener))
-      // srvx exposes its graceful stop callback as `shutdown`. Match that explicit host
-      // contract only; application callbacks are never classified by broad names or source
-      // text, and unmatched listeners retain their normal signal ordering.
-      const server = candidates.find(listener => listener.name === "shutdown")
+      // srvx exposes its graceful stop callback as `shutdown` (older presets use `stop`).
+      // Match only these exact host contracts; application callbacks are never classified
+      // by broad names or source text, and unmatched listeners retain normal ordering.
+      const server = candidates.find(listener => listener.name === "shutdown" || listener.name === "stop")
       if (server) {
         // SAFETY: the check above proves the listener is callable, and Node calls signal listeners with the signal name.
         const handler = server as (signal: ShutdownSignal) => void
