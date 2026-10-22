@@ -28,6 +28,8 @@ const documentStates: readonly ViteHubConsoleDocumentState[] = ["draft", "publis
 const titleFields = ["title", "name", "label", "heading"]
 const maximumListLimit = 200
 const maximumActivity = 50
+// Keep dashboard activity bounded even when a project has an unbounded history.
+const maximumActivityScanPerRef = 500
 const maximumSearchLimit = 50
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -442,11 +444,15 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
         const loadRevisions = async (ref: "draft" | "published") => {
           const revisions: Awaited<ReturnType<ContentDocumentsRuntime["revisions"]>>["revisions"] = []
           let cursor: string | undefined
+          let scanned = 0
           do {
-            const page = await content.revisions({ ref, limit: maximumActivity, ...(cursor ? { cursor } : {}) })
+            const remaining = maximumActivityScanPerRef - scanned
+            if (remaining <= 0) break
+            const page = await content.revisions({ ref, limit: Math.min(maximumActivity, remaining), ...(cursor ? { cursor } : {}) })
             revisions.push(...page.revisions)
+            scanned += page.scanned
             cursor = page.cursor
-          } while (cursor)
+          } while (cursor && scanned < maximumActivityScanPerRef)
           return revisions
         }
         const [draft, published] = limit
