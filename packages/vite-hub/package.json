@@ -129,6 +129,12 @@
       "require": "./dist/_internal/blob/runtime/state.js",
       "default": "./dist/_internal/blob/runtime/state.js"
     },
+    "./_internal/content/runtime/dev": {
+      "types": "./dist/_internal/content/runtime/dev.d.ts",
+      "import": "./dist/_internal/content/runtime/dev.js",
+      "require": "./dist/_internal/content/runtime/dev.js",
+      "default": "./dist/_internal/content/runtime/dev.js"
+    },
     "./_internal/database/runtime/state": {
       "types": "./dist/_internal/database/runtime/state.d.ts",
       "import": "./dist/_internal/database/runtime/state.js",

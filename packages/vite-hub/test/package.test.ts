@@ -128,6 +128,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/server/registry",
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
+  "@vite-hub/content/runtime/dev",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",

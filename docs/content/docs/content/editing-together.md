@@ -109,7 +109,7 @@ await posts.save('hello', input, { lease: 'override' })
 | `session` | The caller's session token. Its own lease does not block the write, and the write renews it. |
 | `lease: 'override'` | Write even while another session holds the lease. |
 
-The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`. The Console returns it as a `409`. Writes succeed when nobody holds a lease, so Agents, the CLI, and API routes keep working on documents no one has open. They honor leases by default and override only when you pass `lease: 'override'`.
+The error is `CONTENT_LEASE_HELD` with `details: { collection, id, holder: { user, since, expiresAt } }`. The Console returns it as a `409`. Writes succeed when nobody holds a lease, so Agents, the CLI, and API routes keep working on documents no one has open. They honor leases by default and override only when you pass `lease: 'override'`. [`vitehub content edit`](/docs/content/cli#edit-leases) passes it only with `--override-lease`.
 
 `publish()` and `schedule()` do not check leases. They publish the reviewed digests from `expect`, and a draft saved after review already fails with `WORKSPACE_CONFLICT`.
 

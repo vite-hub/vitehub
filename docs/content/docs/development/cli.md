@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -40,6 +40,7 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
+  content     Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
@@ -74,6 +75,19 @@ Available namespaces:
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
+| `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
+| `vitehub content list` | Available | Content Package | List the documents of one collection with their state, title, and field issues. |
+| `vitehub content show` | Available | Content Package | Print the stored file of one document and its field issues. |
+| `vitehub content status` | Available | Content Package | Show whether each document is draft, published, changed, or deleted, with field issues and schedules. |
+| `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
+| `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
+| `vitehub content edit` | Available | Content Package | Edit one draft in `$EDITOR` or save it from a file. Honours edit leases unless `--override-lease`. |
+| `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
+| `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
+| `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
+| `vitehub content unschedule` | Available | Content Package | Cancel a pending schedule, or dismiss a failed one. |
+| `vitehub content sitemap` | Available | Content Package | Print the sitemap URLs of published documents. |
+| `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub connections` | Available | Connections Package | Connect OAuth accounts, set API keys, list Connections, read activity, and approve or deny writes. |
 | `vitehub console dev` | Available | Console integration | Start the app's development command with deterministic Console fixture data. |
 | `vitehub env inspect` | Available | Env Package | List declared Server Env variables and their status without values. |
@@ -182,7 +196,7 @@ VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -216,7 +230,7 @@ Packages contribute inspection through `vitehub.inspect` on their Vite plugin. T
 
 ## Inspect Definitions and Provider Output
 
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
+`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
 
 ```bash [Terminal]
 pnpm vitehub inspect definitions
@@ -418,6 +432,23 @@ Task db:seed finished in 14 ms.
 The commands use a guarded dev endpoint and a private token, like `vitehub schedule`. Only the Vite + Nitro Development Server registers the endpoint. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt. Deployed runtimes do not expose the endpoint, and there is no command that runs a task on a deployment. To run a task on a deployment, call `runTask()` from `vite-hub/task` in an authenticated route, or use a [Schedule](/docs/schedule) with `manual: true`.
 
 Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `nitro.tasks` already declares keeps its handler and description.
+
+## Edit and publish Content
+
+Start the app's Vite Development Server, then run `vitehub content` from another terminal. The commands call the app's `server/content.ts` in the Nitro dev environment, so they see the same drafts and published documents as the app.
+
+```bash [Terminal]
+pnpm vitehub content collections
+pnpm vitehub content list posts
+pnpm vitehub content edit posts hello
+pnpm vitehub content diff posts hello
+pnpm vitehub content publish --collection posts --id hello
+pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
+```
+
+`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+
+The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
 
 ## Run a Schedule on demand
 

@@ -36,6 +36,7 @@ icon: i-lucide-circle-alert
 - `/api/content/**` serves published documents, or drafts to a request with a valid [preview cookie](/docs/content/preview). Content has no write routes, and the runtime methods do not call `authorize`.
 - Without `authorize`, `content.can()` denies every action.
 - The Store retains every revision. There is no pruning.
+- [`vitehub content`](/docs/content/cli) reaches only a local Vite + Nitro Development Server. It cannot inspect or publish a deployed app.
 
 ## Preview
 
@@ -60,7 +61,7 @@ icon: i-lucide-circle-alert
 | `CONTENT_B0002` | Workspace, Database, or Blob is set to `false` in `vitehub()`, a Blob store or Database that the `cms` preset needs does not exist, or the Database choice is ambiguous. | Set the `vitehub()` setting or preset option that the message names. |
 | `CONTENT_INVALID` | `publish()` or `schedule()` found a draft with field issues, `get()` read an invalid document on `published`, a writer put an invalid file outside the draft, or a file cannot be parsed as an object of fields. `save()` throws it only for input that cannot become a file. `details.issues` lists `{ field, path, message }`; from `publish()` and `schedule()`, `details.documents` names every invalid document. | Fix the listed fields, save, and publish again. |
 | `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |
-| `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`. The Console returns it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'`. See [Editing together](/docs/content/editing-together). |
+| `CONTENT_LEASE_HELD` | Another session holds the edit lease of the document, from `save()`, `remove()`, or `restore()`. `details` carry `collection`, `id`, and `holder: { user, since, expiresAt }`. The Console returns it as `409`. | Wait for the holder to finish, take the lease with `content.sessions.acquire({ takeover: true })`, or pass `lease: 'override'` (`--override-lease` for [`vitehub content edit`](/docs/content/cli#edit-leases)). See [Editing together](/docs/content/editing-together). |
 | `CONTENT_NOT_FOUND` | `remove()`, `restore()`, or `publish({ ids })` named a document that does not exist, or `unschedule()` named a schedule that already ran or is gone. | Check the id, ref, or revision. |
 | `CONTENT_R0004` | A Comark Source read a file that is not in its revision. | Refresh the instance. |
 | `CONTENT_R0005` | The Content handler received an unsupported request or body. | Send a Web or Node request. |
@@ -72,3 +73,7 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |
 | `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace does not use the Blob + Database Store. | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
 | `CONTENT_R0013` | A writer other than `publish()` deleted a document from the `published` ref, such as a raw history commit. | Remove the document from the draft with `remove()`, then publish the deletion with `content.publish()`. |
+| `CONTENT_R0014` | Invalid [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` and without an interactive terminal. | Run the command with `--help`. |
+| `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not export a `defineContent()` runtime named `content`. | Export `content` from `server/content.ts`. |
+| `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal and without `--yes`. | Pass `--yes`, or `--dry-run` to only list the changes. |
+| `CONTENT_DEV_RUNTIME_UNAVAILABLE` | The Development Server does not run Nitro in the Vite process, as with Nuxt or plain Vite. | Run the commands against a Vite + Nitro app. |

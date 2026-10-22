@@ -15,6 +15,7 @@ import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
+import { hubContent } from "@vite-hub/content/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
 import { hubEnv } from "@vite-hub/env/vite"
@@ -1184,8 +1185,9 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset.
+  // default Database. Inert without the preset. It also adds the `vitehub content` commands and their dev endpoint.
   plugins.push(hubContent({
+    importBase: `${generatedImportBase}/content`,
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",

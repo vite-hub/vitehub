@@ -17,7 +17,7 @@ import { defineCollectionHandler } from "@vite-hub/source/server"
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { file as blobFile, image as blobImage } from "@vite-hub/blob/reference"
-import { documents, optional } from "../src/collections.ts"
+import { documents, optional, singleton } from "../src/collections.ts"
 import { defineContent, file, image, seo } from "../src/index.ts"
 
 import type { StandardSchemaV1 } from "@standard-schema/spec"
@@ -722,6 +722,21 @@ describe("document collections", { timeout: 30_000 }, () => {
 
     expect(() => defineContent({ collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow(expect.objectContaining({ code: "CONTENT_R0006" }))
     expect(() => defineContent({ workspace, sources: { posts: docs }, collections: { posts: documents({ path: "posts/*.md", fields }) } })).toThrow("same name")
+    const overlapping = (left: ReturnType<typeof documents> | ReturnType<typeof singleton>, right: ReturnType<typeof documents> | ReturnType<typeof singleton>) => () => defineContent({ workspace, collections: { left, right }, logger: false })
+    expect(overlapping(documents({ path: "posts/*.md", fields }), documents({ path: "posts/**/*.md", fields }))).toThrow("overlap")
+    expect(overlapping(documents({ path: "**/*.md", fields }), documents({ path: "posts/a*.md", fields }))).toThrow("overlap")
+    expect(overlapping(documents({ path: "posts/a?/*.md", fields }), documents({ path: "posts/*b/*.md", fields }))).toThrow("overlap")
+    expect(overlapping(documents({ path: "pages/**/*.md", fields }), singleton({ path: "pages/home.md", fields }))).toThrow("overlap")
+    expect(overlapping(singleton({ path: "settings.json", fields }), singleton({ path: "./settings.json", fields }))).toThrow("overlap")
+    for (const [left, right] of [
+      [documents({ path: "posts/*.md", fields }), documents({ path: "posts/*/*.md", fields })],
+      [documents({ path: "posts/**/*.md", fields }), documents({ path: "notes/**/*.md", fields })],
+      [documents({ path: "posts/*.md", fields }), documents({ path: "posts/*.json", fields })],
+      [documents({ path: "data/*.json", fields }), singleton({ path: "settings.json", fields })],
+    ] as const) {
+      const separate = defineContent({ workspace, collections: { left, right }, logger: false })
+      await separate.dispose()
+    }
     expect(() => documents({ path: "posts/**", fields })).toThrow("must end with one extension")
     expect(() => documents({ path: "posts/{a,b}/*.md", fields })).toThrow("only *, **, and ?")
     expect(() => documents({ path: "posts/*.md", fields: { title: "string" as never } })).toThrow("Standard Schema")

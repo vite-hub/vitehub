@@ -17,7 +17,7 @@ import type {
 } from "comark-content"
 import type { H3Event } from "h3"
 import { createContentInstance } from "./content-source.ts"
-import { documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
+import { collectionPathsOverlap, documentsRuntimeOf, isContentCollectionDefinition } from "./documents.ts"
 import { resolveContentPreset } from "./presets.ts"
 import type { ContentPresetSelection } from "./presets.ts"
 import { createContentPreview } from "./preview.ts"
@@ -379,6 +379,15 @@ export function defineContent<
   for (const [name, definition] of collectionEntries) {
     if (!isContentCollectionDefinition(definition) || !documentsRuntimeOf(definition)) {
       throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection ${JSON.stringify(name)} must be defined with documents() or singleton() from @vite-hub/content/collections.` })
+    }
+  }
+  for (let index = 0; index < collectionEntries.length; index++) {
+    const [name, definition] = collectionEntries[index]!
+    if (!isContentCollectionDefinition(definition)) continue
+    for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
+      if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
+        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} and ${JSON.stringify(otherName)} overlap.` })
+      }
     }
   }
   if (collectionEntries.length && (String(workspace) !== workspace || !workspace)) {

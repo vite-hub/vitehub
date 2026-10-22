@@ -47,6 +47,12 @@ icon: i-lucide-file-text
   })
   ```
 
+  ```bash [CLI]
+  pnpm vitehub content status
+  pnpm vitehub content diff posts hello
+  pnpm vitehub content publish --collection posts --id hello
+  ```
+
   ```ts [server/api/search.get.ts]
   import { defineEventHandler, getQuery } from 'h3'
   import { content } from '../content'
@@ -96,6 +102,10 @@ icon: i-lucide-file-text
 
   :::product-feature-item{title="One editor at a time, and everyone sees who" icon="i-lucide-users" to="/docs/content/editing-together"}
   Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
+  :::
+
+  :::product-feature-item{title="Edit, publish, and schedule from the terminal" icon="i-lucide-terminal-square" to="/docs/content/cli"}
+  `vitehub content` lists, edits, and diffs drafts, then publishes or schedules exactly what you reviewed through the running dev server.
   :::
 
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
