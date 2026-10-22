@@ -184,6 +184,9 @@ function installSignalTrap(app: ShutdownApp, runtime: ShutdownRuntime, state: Sh
             finish(error)
           })
         })
+        // Give the event loop one turn after the stream acknowledges the write so consumers
+        // reading a piped stdout receive the final record before the process exits.
+        await new Promise<void>(resolve => setImmediate(resolve))
       } else console.info("[vitehub]", exited)
       runtime.exit(0)
     })().catch((error: unknown) => {
