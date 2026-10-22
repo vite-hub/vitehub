@@ -69,6 +69,11 @@ export interface SourceVitePluginOptions {
   importBase?: string
 }
 
+/** The discovered `server/content.ts` file. It exports the Content runtime as `content`. */
+export interface ContentDefinitionFile {
+  handler: string
+}
+
 export type GeneratedSourceHandlersListener = (handlers: GeneratedSourceHandler[]) => Promise<void> | void
 
 export interface GeneratedSourceHandlersListenerOptions {
@@ -1176,16 +1181,21 @@ async function writeContentArtifact(
   return handlers
 }
 
-export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+async function prepareSourceArtifacts(options: SourceGenerationOptions): Promise<{ content?: ContentDefinitionFile, handlers: GeneratedSourceHandler[] }> {
   const [collections, content] = await Promise.all([
     discoverCollections(options),
     findContentEntry(options),
   ])
-  return [
+  const handlers = [
     ...await writeCollectionArtifacts(options, collections),
     ...await writeContentArtifact(options, content),
   // Plugins have no route and sort first.
   ].sort((left, right) => (left.route ?? "").localeCompare(right.route ?? ""))
+  return { handlers, ...(content ? { content: { handler: content } } : {}) }
+}
+
+export async function prepareSourceGeneration(options: SourceGenerationOptions): Promise<GeneratedSourceHandler[]> {
+  return (await prepareSourceArtifacts(options)).handlers
 }
 
 function applicationBaseURL(base: string | undefined): string {
@@ -1235,6 +1245,8 @@ function sourceDefinitionPath(file: string, projectRoot: string, serverDirs: str
 
 export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   api: {
+    /** The `server/content.ts` file found by the last preparation of `projectRoot` (default: the latest root). */
+    getContentDefinition: (projectRoot?: string) => ContentDefinitionFile | undefined
     onGeneratedHandlersChanged: (
       listener: GeneratedSourceHandlersListener,
       options?: GeneratedSourceHandlersListenerOptions,
@@ -1262,6 +1274,11 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
     resume: () => void
   }>()
   const sourcePreparationByRoot = new Map<string, Promise<unknown>>()
+  const contentDefinitionByRoot = new Map<string, ContentDefinitionFile>()
+  const getContentDefinition = (projectRoot?: string) => {
+    const root = projectRoot ? resolve(projectRoot) : latestProjectRoot
+    return root ? contentDefinitionByRoot.get(root) : undefined
+  }
   const configurationTransitionByRoot = new Map<string, Promise<unknown>>()
   let legacyServerBuild = false
   const generatedHandlersListeners = new Set<{
@@ -1283,11 +1300,15 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
       const auth = typeof options.auth === "function"
         ? options.auth({ configuredAuth: resolvedConfiguredAuth, projectRoot: root, serverDirs: input.serverDirs })
         : options.auth && resolvedConfiguredAuth !== false && Boolean(refreshAuthByRoot.get(root)?.())
-      return prepareSourceGeneration({
+      return prepareSourceArtifacts({
         ...input,
         auth,
         importBase: options.importBase,
         contentImportBase: options.contentImportBase,
+      }).then(({ content, handlers }) => {
+        if (content) contentDefinitionByRoot.set(root, content)
+        else contentDefinitionByRoot.delete(root)
+        return handlers
       })
     }
     const preparation = previousPreparation.then(runPreparation, runPreparation)
@@ -1355,7 +1376,7 @@ export function hubSource(options: SourceVitePluginOptions = {}): Plugin & {
   return {
     name: "@vite-hub/source/vite",
     enforce: "post",
-    api: { onGeneratedHandlersChanged, prepareSources },
+    api: { getContentDefinition, onGeneratedHandlersChanged, prepareSources },
     // glob() in a server build: calls with literal options become their files, bundled (internal/bundle-glob.ts).
     // The filters keep Rolldown from calling these hooks for every other module.
     resolveId: {

@@ -1519,6 +1519,8 @@ export const agentDiagnostics = defineDiagnostics({
       why: ({ provider, status, attempts }: { provider: string, status?: number, attempts: number }) => `[vitehub] The ${provider} Jev provider failed${status === undefined ? " to respond" : ` with HTTP ${status}`} after ${attempts} attempts.`,
       fix: "This is usually temporary. Retry the run later. The cause has the provider response.",
     },
+    AGENT_R1011: dynamicError,
+    AGENT_R1012: dynamicError,
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
@@ -1534,6 +1536,10 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_C0011: {
       why: "[vitehub] forge() requires valid forge, repositories, output limit and operations for its mode.",
       fix: "Use mode write for write operations and policy. Use repository names or owner/* patterns.",
+    },
+    AGENT_C0012: {
+      why: "[vitehub] content() requires { collections?: string[], operations?: Array<\"read\" | \"write\" | \"publish\">, policy?, user?, lease?: \"override\" }.",
+      fix: "Name each collection once, enable at least one operation, pass policy as a decision or function and user as a function, and omit lease or set it to \"override\".",
     },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,

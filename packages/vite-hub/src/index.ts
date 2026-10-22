@@ -1070,7 +1070,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/agent`,
       processDiscordGateway: plan.preset === "node",
       providerImportAliases,
-      runtimeCapabilityImports,
+      runtimeCapabilityImports: {
+        ...runtimeCapabilityImports,
+        // Present only with the Auth plugin. It reads users only for Actors that authenticated() resolved.
+        auth: "vite-hub/auth/agent",
+      },
       workflowImportBase: `${generatedImportBase}/workflow`,
       workspaceDependencyRuntimeImports,
       workspaceImportBase: `${generatedImportBase}/workspace`,

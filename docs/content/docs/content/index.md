@@ -120,6 +120,10 @@ icon: i-lucide-file-text
   `extends: cms` adds the Workspace, its history tables, and a Database when the app has none.
   :::
 
+  :::product-feature-item{title="Let an Agent draft, publish, and schedule documents" icon="i-lucide-bot" to="/docs/content/agent-capability"}
+  `content()` gives an Agent typed tools for each collection and singleton. Your `authorize` policy decides what it may read and change, and publishing asks for approval.
+  :::
+
   :::product-feature-item{title="Check every field" icon="i-lucide-list-checks" to="/docs/content/configure#fields"}
   Give each field at the top of a page a rule, such as a title that is not empty. A save with a bad field fails.
   :::

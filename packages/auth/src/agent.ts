@@ -1,4 +1,4 @@
-import { getAuthForRequest } from "./server.ts"
+import { getAuth, getAuthForRequest } from "./server.ts"
 import {
   invalidAuthenticationErrorOptions,
   throwAuthenticationProviderError,
@@ -8,6 +8,7 @@ import { getAuthenticationSession } from "./session.ts"
 import { ViteHubError } from "@vite-hub/runtime"
 
 import type {
+  AgentActor,
   AgentInvoker,
   AgentInvokerOptions,
   AgentInvokerResolveContext,
@@ -89,6 +90,36 @@ export interface AuthenticatedOptions<
   meta?: AuthenticatedValue<Record<string, unknown> | null | undefined, TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
   required?: boolean
   source?: AuthenticatedSource<TRuntimeConfig, CALL_OPTIONS, TUser, TSession>
+}
+
+/**
+ * The `auth` primitive that Agent Capabilities receive when Auth is configured. Generated Agent routes and Schedules
+ * pass it, so a Capability can act for the Auth user behind an Agent Actor.
+ */
+export interface AgentAuth {
+  /**
+   * The Auth user an Actor stands for. `authenticated()` records the user id as `actor.meta.authUserId`, and this reads
+   * that user from the Auth database again, so it also works when an approved tool call runs later. Null for an Actor
+   * without `authUserId`, or when the user no longer exists.
+   */
+  user(actor: AgentActor | null | undefined): Promise<AuthenticatedUser | null>
+}
+
+export const agentAuth: AgentAuth = {
+  async user(actor) {
+    const meta: unknown = actor?.meta
+    const userId = isRecord(meta) ? readString(meta.authUserId) : undefined
+    if (!userId) return null
+    let user: unknown
+    try {
+      user = await (await getAuth().$context).internalAdapter.findUserById(userId)
+    }
+    catch (cause) {
+      throwAuthenticationProviderError(cause, "get-user")
+    }
+    // SAFETY: Better Auth returns its user record, which has the string id checked here.
+    return isRecord(user) && readString(user.id) ? user as AuthenticatedUser : null
+  },
 }
 
 function authenticationRequired(message = "[vitehub] Authentication required.") {
