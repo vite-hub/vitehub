@@ -9,10 +9,9 @@ import { hubEnv } from "@vite-hub/env/vite"
 import hubAuthNuxt from "../src/nuxt.ts"
 
 function createNuxt() {
-  const hooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
+  const hooks: Array<((config: Record<string, unknown>) => Promise<void>) | (() => void)> = []
   return {
-    hook(name: "nitro:config", handler: (config: Record<string, unknown>) => Promise<void>) {
-      expect(name).toBe("nitro:config")
+    hook(name: "modules:done" | "nitro:config", handler: ((config: Record<string, unknown>) => Promise<void>) | (() => void)) {
       hooks.push(handler)
     },
     hooks,
@@ -25,12 +24,27 @@ function createNuxt() {
         alias: { "#nitro-existing": "/tmp/nitro-existing.mjs" },
         plugins: ["/tmp/existing-plugin.mjs"],
       },
+      plugins: [] as Array<string | { src: string, order?: number }>,
       rootDir: "/tmp/vitehub-auth-nuxt",
     },
   }
 }
 
 describe("Auth Nuxt integration", () => {
+  it("installs the Vue context bridge before existing Nuxt plugins", () => {
+    const nuxt = createNuxt()
+    nuxt.options.plugins = ["/tmp/user-plugin.mjs"]
+
+    hubAuthNuxt({ env: false }, nuxt)
+
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ src: expect.stringMatching(/\/runtime\/vue-nuxt\.js$/) })
+    expect(nuxt.options.plugins?.[1]).toBe("/tmp/user-plugin.mjs")
+
+    nuxt.options.plugins.unshift("/tmp/later-module-plugin.mjs")
+    nuxt.hooks[1]({} as never)
+    expect(nuxt.options.plugins?.[0]).toMatchObject({ order: -1 })
+  })
   it("registers the Env resolver for the generated Auth Definition", async () => {
     const runtime = await readFile(new URL("../src/runtime/nuxt.ts", import.meta.url), "utf8")
 
@@ -73,7 +87,7 @@ describe("Auth Nuxt integration", () => {
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
       expect.objectContaining({ name: "@vite-hub/auth/vite" }),
     ])
-    expect(nuxt.hooks).toHaveLength(1)
+    expect(nuxt.hooks).toHaveLength(2)
   })
 
   it("keeps Auth enabled when Env is disabled", () => {
@@ -109,9 +123,9 @@ describe("Auth Nuxt integration", () => {
     const authPlugin = plugins.find(plugin => plugin.name === "@vite-hub/auth/vite")!
     const authConfig = vi.fn(() => ({ nitro: {} }))
     authPlugin.config = authConfig
-    await nuxt.hooks[0]({})
+    await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ root: "/tmp/vite-root" }), expect.anything())
-    expect(nuxt.hooks).toHaveLength(1)
+    expect(nuxt.hooks).toHaveLength(2)
   })
 
   it("resolves relative Env roots from the Vite root", () => {
@@ -179,7 +193,7 @@ describe("Auth Nuxt integration", () => {
     const authPlugin = plugins.find(plugin => plugin.name === "@vite-hub/auth/vite")!
     const authConfig = vi.fn(() => ({ nitro: {} }))
     authPlugin.config = authConfig
-    await nuxt.hooks[0]({})
+    await (nuxt.hooks[0] as (config: Record<string, unknown>) => Promise<void>)({})
     expect(authConfig).toHaveBeenCalledWith(expect.objectContaining({ auth: false }), expect.anything())
   })
 

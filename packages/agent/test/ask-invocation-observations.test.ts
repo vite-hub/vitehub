@@ -158,18 +158,26 @@ describe("ask Driver Invocation observations", () => {
     expect(named(record, "agent.invocation.finish")[0]?.attributes?.["usage.record"]).toMatchObject({ ...expected, cost: { usd: "0.0002" } })
   })
 
-  it("records a failed request as agent.tool.error for each unanswered question", async () => {
+  it("records a request that keeps failing as agent.tool.error for each unanswered question", async () => {
     const { record, sameArea } = setup()
-    await expect(runAgent(sameArea, runtime(), { data: "failing" })).rejects.toThrow("503 upstream overloaded")
+    systemOne.mockClear()
+    const failure = "failed with HTTP 503 after 3 attempts"
+    await expect(runAgent(sameArea, runtime(), { data: "failing" })).rejects.toMatchObject({
+      code: "AGENT_R1010",
+      cause: expect.objectContaining({ message: "503 upstream overloaded" }),
+      message: expect.stringContaining(failure),
+      providerStatus: 503,
+      requestId: "req_503",
+    })
     const parent = await record("same-area")
 
+    expect(systemOne.mock.calls.filter(([request]) => JSON.stringify(request.questions).includes("fail"))).toHaveLength(3)
     expect(parent?.status).toBe("failed")
     expect(named(parent, "agent.tool.error").map(error => error.attributes)).toEqual([expect.objectContaining({
-      "error.message": "503 upstream overloaded",
-      "error.name": "APIError",
+      "error.message": expect.stringContaining(failure),
       "error.requestId": "req_503",
       "error.status": 503,
-      "tool.error": "503 upstream overloaded",
+      "tool.error": expect.stringContaining(failure),
       "tool.id": "ask:fail",
     })])
     expect(named(parent, "agent.tool.finish")).toEqual([])
