@@ -43,6 +43,12 @@
       "require": "./dist/collections.js",
       "default": "./dist/collections.js"
     },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js",
+      "require": "./dist/database.js",
+      "default": "./dist/database.js"
+    },
     "./presets/cms": {
       "types": "./dist/presets/cms.d.ts",
       "import": "./dist/presets/cms.js",
@@ -98,6 +104,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "comark-content": "catalog:markdown",
+    "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
@@ -105,6 +112,9 @@
       "optional": true
     },
     "@vite-hub/workspace": {
+      "optional": true
+    },
+    "drizzle-orm": {
       "optional": true
     },
     "vite": {

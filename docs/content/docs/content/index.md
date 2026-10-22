@@ -94,6 +94,10 @@ icon: i-lucide-file-text
   `content.schedule()` publishes exactly what was reviewed at a later time, run by a Schedule Definition on every host.
   :::
 
+  :::product-feature-item{title="One editor at a time, and everyone sees who" icon="i-lucide-users" to="/docs/content/editing-together"}
+  Presence and edit leases in the history Database. Writes from anyone else fail with `CONTENT_LEASE_HELD`.
+  :::
+
   :::product-feature-item{title="Read pages from the browser" icon="i-lucide-globe" to="/docs/content/server-api#client"}
   `createContentClient()` reads the `/api/content` route that ViteHub adds for you.
   :::

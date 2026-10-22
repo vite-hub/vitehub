@@ -1181,6 +1181,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
+      contentDatabase: "vite-hub/content/database",
       database: "vite-hub/database/drizzle",
       databaseDefinition: "vite-hub/database",
       workspace: "vite-hub/workspace",

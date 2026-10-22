@@ -46,7 +46,7 @@ Use a collection when people or Agents edit the content at runtime. Sources stay
 
 ### Store the collection
 
-Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
+Collections need a Workspace with retained history. The [CMS preset](/docs/content/cms-preset) sets it up: `defineContent({ extends: cms })` turns on Workspace, Database, and Blob, adds a `content` Workspace on the [Blob + Database Store](/docs/workspace/configure#blob-database-store), and adds its history tables and the `contentSessionsSchema` table of [Editing together](/docs/content/editing-together) to your Database at build time. When the app has no Database Definition, the preset adds the `default` Database.
 
 ```ts [server/content.ts]
 import { defineContent, documents } from 'vite-hub/content'
@@ -61,7 +61,7 @@ export const content = defineContent({
 
 Run `vitehub db generate` and `vitehub db migrate` before the first save. `vitehub()` needs no feature settings for the preset.
 
-To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. A Workspace without retained history fails on first use with `CONTENT_R0007`.
+To use a Workspace you define yourself, pass its name as `workspace` instead of `extends`. It must use a Store with retained history, such as the Blob + Database Store with `workspaceHistorySchema` in a Database Definition. Add `contentSessionsSchema` from `vite-hub/content/database` to the same Database for presence and edit leases. A Workspace without retained history fails on first use with `CONTENT_R0007`.
 
 ### Define collections
 
@@ -94,6 +94,7 @@ export const content = defineContent({
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, and sitemaps and canonical links use it. See [Document URLs](/docs/content/seo#document-urls). |
+| `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
 
@@ -143,6 +144,7 @@ ViteHub does not own a settings schema. The fields above are an example: define 
 | `path` | `string` | Workspace path of one file, such as `settings.json`, `config/site.yaml`, or `pages/home.md`. No wildcards. The extension sets the [format](#data-files). |
 | `fields` | `Record<string, StandardSchema>` | One validator per field, as in `documents()`. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of the document, such as `'/'`. Omit it for data without a page, such as settings. |
+| `editing` | `{ lease?: boolean }` | As in `documents()`. |
 
 The document id is the file name without the extension, so `settings.json` is `settings`. You rarely need it: every method of a singleton works without an id.
 

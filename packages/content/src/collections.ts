@@ -20,6 +20,7 @@ import {
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
+import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
 import type { ArrayCollectionQuery, Collection, CollectionFacets } from "@vite-hub/source"
@@ -40,6 +41,7 @@ import type {
   SingletonOptions,
 } from "./documents.ts"
 import type { ContentDocumentSchedule, ContentSchedulesRuntime, ContentScheduledDocument } from "./schedules.ts"
+import type { ContentSessions, SessionCollection } from "./sessions.ts"
 
 /** The history refs Content owns: every save commits to `draft`; `publish()` copies documents to `published`. */
 export type ContentRef = "draft" | "published"
@@ -154,6 +156,16 @@ export interface ContentWriteOptions {
   message?: string
   /** JSON-safe revision metadata, such as the author. The `content` key is reserved. */
   metadata?: Record<string, unknown>
+  /**
+   * The `content.sessions` token of the caller, such as the Console tab that saves. Its own edit lease does not block
+   * the write, and the write renews it.
+   */
+  session?: string
+  /**
+   * `override` writes even while another session holds the edit lease. By default the write fails with
+   * `CONTENT_LEASE_HELD`, naming the holder, while another session holds a live lease.
+   */
+  lease?: "override"
 }
 
 /**
@@ -260,6 +272,8 @@ interface ContentCollectionInfo {
   readonly routable: boolean
   /** The name of the `seo()` field, when the collection has one. */
   readonly seo?: string
+  /** How sessions edit documents together. `lease: false` comes from `editing: { lease: false }` in the definition. */
+  readonly editing: { readonly lease: boolean }
 }
 
 /** An editable collection of documents. It is also a read-only Collection over the `published` ref, or `draft` in a preview request. */
@@ -443,6 +457,8 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   onPublish(listener: (collections: string[]) => Promise<void> | void): void
   /** The revision a Comark Source of `ref` reads: its head, or the `published` head for an empty draft. Null before any. */
   head(ref: ContentRef): Promise<string | null>
+  /** Presence and edit leases of documents, in the Database of the Workspace history. */
+  readonly sessions: ContentSessions
   /** Remove the Workspace validation plugin. */
   dispose(): void
 }
@@ -685,6 +701,16 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     warnUntypedFields(name, definition.fields, schema)
     const comarkSchema: JsonSchema = comarkJsonSchema(schema)
     const parsedTexts = new BoundedCache<Promise<ParsedText>>(10_000)
+    const sessionCollection: SessionCollection = {
+      name,
+      lease: definition.editing.lease,
+      documentId: (id) => {
+        const documentId = id ?? single?.id
+        pathFor(documentId)
+        // SAFETY: pathFor() accepts only nonempty string ids.
+        return documentId as string
+      },
+    }
     const indexes = new BoundedCache<Promise<IndexedDocument[]>>(4)
     const searchFields = ((definition.kind === "documents" ? definition.search : undefined) ?? [
       ...Object.keys(definition.fields).filter((field) => {
@@ -850,8 +876,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
       }
+      if (writeOptions.session !== undefined && (String(writeOptions.session) !== writeOptions.session || !writeOptions.session)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write session must be the content.sessions token of the caller." })
+      }
+      if (writeOptions.lease !== undefined && writeOptions.lease !== "override") {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write lease must be 'override' or omitted." })
+      }
       const metadata = writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }] })
       const message = writeOptions.message ?? `${action[0]!.toUpperCase()}${action.slice(1)} ${name}/${id}`
+      if (writeOptions.lease !== "override") {
+        // A write is checked once before it commits. `ifDigest` still guards the bytes; the lease guards who writes.
+        const holder = await sessions.holder(sessionCollection, id, writeOptions.session)
+        if (holder) throw contentLeaseHeld(name, id, holder)
+      }
       const retained = await history()
       for (let attempt = 1; ; attempt++) {
         let head = await retained.head({ ref: "draft" })
@@ -885,6 +922,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             })
           }
           finally { release() }
+          if (writeOptions.session !== undefined) await sessions.renew(sessionCollection, id, writeOptions.session)
           if ("delete" in change) return
           texts.set(change.digest, change.text)
           return documentOf(id, { path, digest: change.digest }, change, revision, revision.createdAt)
@@ -982,6 +1020,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       ...(seoField ? { seo: seoField } : {}),
       fields: Object.freeze([...fieldNames]),
       schema,
+      editing: definition.editing,
       page: published.page,
       parseQuery: published.parseQuery,
       querySchema: published.querySchema,
@@ -1016,7 +1055,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       collection = { ...shared, kind: "documents", path: definition.path, components, get, raw, save, remove, restore, status }
     }
 
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor }
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1280,6 +1319,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return await scanRevisions(revisionOptions, revision => revisionDocuments(revision).some(document => collections.has(String(Reflect.get(Object(document), "collection")))))
   }
 
+  const sessions = createContentSessions({
+    workspace: workspaceName,
+    collection: name => requireCollection(name).sessionCollection,
+  })
+
   const schedules = createContentSchedules({
     history,
     open: async (revision) => {
@@ -1351,6 +1395,12 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     head: async (ref) => {
       const retained = await history()
       return (await retained.head({ ref }) ?? (ref === "draft" ? await retained.head({ ref: "published" }) : null))?.id ?? null
+    },
+    sessions: {
+      report: sessions.report,
+      acquire: sessions.acquire,
+      release: sessions.release,
+      list: sessions.list,
     },
     dispose: plugin,
   }

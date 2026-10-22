@@ -70,6 +70,7 @@ interface ContentPluginConfig {
 const defaultImports: CmsWorkspaceImports = {
   blob: "@vite-hub/blob",
   blobDatabase: "@vite-hub/workspace/blob-database",
+  contentDatabase: "@vite-hub/content/database",
   database: "@vite-hub/database/drizzle",
   databaseDefinition: "@vite-hub/database",
   workspace: "@vite-hub/workspace",
@@ -185,7 +186,12 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
-        const entries: DatabaseContributionEntry[] = [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]
+        const entries: DatabaseContributionEntry[] = [
+          { database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." },
+          ...(imports.contentDatabase
+            ? [{ database: plan.database, definition: { export: "contentSessionsSchema", module: imports.contentDatabase }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }]
+            : []),
+        ]
         if (plan.databaseReason !== "preset") return entries
         await writeFileIfChanged(module, renderCmsDatabaseModule(imports))
         return [{ definition: module, name: plan.database, reason: cmsDatabaseReason(plan.file, root) }, ...entries]
