@@ -210,6 +210,21 @@ const frameworkAssetImportAliases = Object.fromEntries(
     }),
 )
 
+// Generated server modules import Nitro and H3 by name. An app that lists only vite-hub cannot resolve them from its
+// root without hoisting, so these imports fall back to the Nitro that vite-hub installs, and to that Nitro's H3.
+const nitroImport = /^nitro(?:\/|$)/
+const h3Import = /^h3(?:\/|$)/
+let nitroFallbackImporters: { h3: string, nitro: string } | undefined
+
+function getNitroFallbackImporter(id: string): string | undefined {
+  if (!nitroImport.test(id) && !h3Import.test(id)) return
+  nitroFallbackImporters ??= {
+    h3: fileURLToPath(import.meta.resolve("nitro/package.json")),
+    nitro: fileURLToPath(import.meta.resolve("vite-hub/package.json")),
+  }
+  return nitroImport.test(id) ? nitroFallbackImporters.nitro : nitroFallbackImporters.h3
+}
+
 function isGeneratedImporter(importer: string | undefined) {
   const normalized = importer?.replace(/\\/g, "/")
   return Boolean(normalized && (/(?:^|\/)\.vitehub(?:\/|$)/.test(normalized) || frameworkVirtualImporters.has(normalized)))
@@ -273,7 +288,7 @@ function frameworkDependencyResolver(
         (config as typeof config & { kv?: KVModuleOptions }).kv ?? presetKVOptions,
       )
     },
-    resolveId(id, importer) {
+    async resolveId(id, importer, resolveOptions) {
       if (!blobEnabled && id === "@vite-hub/blob") {
         throw viteHubErrorDiagnostics.VITE_HUB_R0075({ message: "[vitehub] Blob is unavailable for this deployment preset. Configure an explicit Blob store before using Blob APIs or Agent Capabilities." })
       }
@@ -284,6 +299,11 @@ function frameworkDependencyResolver(
         if (id === frameworkFacade || providerImportAliases[id] === providerFacade) return providerFacade
       }
       if (!isGeneratedImporter(importer)) return
+      const nitroFallbackImporter = getNitroFallbackImporter(id)
+      if (nitroFallbackImporter) {
+        const options = { ...resolveOptions, skipSelf: true }
+        return await this.resolve(id, importer, options) ?? await this.resolve(id, nitroFallbackImporter, options)
+      }
       const isFrameworkPackageImport = id === frameworkPackageName || id.startsWith(`${frameworkPackageName}/`)
       const isOwnerPackageImport = generatedOwnerPackageNames.some(name => id === name || id.startsWith(`${name}/`))
       if (!isFrameworkPackageImport && !isOwnerPackageImport) return
