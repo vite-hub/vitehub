@@ -5,6 +5,7 @@ import { executeStaticSchedule } from "./execute.ts"
 import { getScheduleRunStore, getScheduleRuntimeRegistry, setScheduleRunStore, setScheduleRuntimeRegistry } from "./state.ts"
 
 import type { ProcessWakeContext } from "../internal/process-wake-runtime.ts"
+import type { ScheduleCronRecord } from "./due.ts"
 import type { ScheduleDefinition, ScheduleDefinitionRegistry, ScheduleRunStore } from "../types.ts"
 
 export interface ProcessScheduleRuntimeOptions {
@@ -60,6 +61,14 @@ async function loadStaticDefinitions(registry: ScheduleDefinitionRegistry): Prom
   return new Map(entries.flatMap(entry => entry ? [[entry.name, entry] as const] : []))
 }
 
+function scheduleCronRecord(entry: StaticScheduleEntry): ScheduleCronRecord {
+  return {
+    cron: entry.definition.cron,
+    id: entry.name,
+    ...(entry.definition.timeZone ? { timeZone: entry.definition.timeZone } : {}),
+  }
+}
+
 function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]): (error: unknown) => void {
   return (error) => {
     if (!onError) return
@@ -71,7 +80,7 @@ function createErrorReporter(onError: ProcessScheduleRuntimeOptions["onError"]):
 }
 
 /**
- * Runs Static Schedule Definitions on their UTC cron in this long-running process. It checks every minute, runs each
+ * Runs Static Schedule Definitions on their cron, in their `timeZone` (UTC by default), in this long-running process. It checks every minute, runs each
  * due minute once, and records each run in `scheduleRunStore`. After a restart it runs the minutes that no process
  * checked, within `catchUpMs`, for Schedules that already have a run. Call `close()` during host shutdown.
  */
@@ -106,7 +115,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
       if (closing) return Promise.resolve()
       const wake = (async () => {
         const entry = definitions.get(input.scheduleId)
-        if (!entry || !isScheduleDue({ cron: entry.definition.cron, id: entry.name }, input.scheduledAt)) {
+        if (!entry || !isScheduleDue(scheduleCronRecord(entry), input.scheduledAt)) {
           throw createScheduleError("SCHEDULE_NOT_DUE")
         }
         await executeStaticSchedule({
@@ -128,7 +137,7 @@ export async function installProcessScheduleRuntime(options: ProcessScheduleRunt
   setScheduleRunStore(options.scheduleRunStore)
   try {
     definitions = await loadStaticDefinitions(options.registry)
-    await driver.reconcile([...definitions.values()].map(entry => ({ cron: entry.definition.cron, id: entry.name })))
+    await driver.reconcile([...definitions.values()].map(scheduleCronRecord))
   }
   catch (error) {
     try {

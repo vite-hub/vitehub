@@ -555,6 +555,12 @@
       "require": "./dist/content/client.js",
       "default": "./dist/content/client.js"
     },
+    "./content/presets/cms": {
+      "types": "./dist/content/presets/cms.d.ts",
+      "import": "./dist/content/presets/cms.js",
+      "require": "./dist/content/presets/cms.js",
+      "default": "./dist/content/presets/cms.js"
+    },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
@@ -1161,7 +1167,7 @@
   },
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
-    "@cloudflare/workers-types": "^5.20261003.1",
+    "@cloudflare/workers-types": "^5.20261016.1",
     "@google-cloud/storage": "catalog:storage",
     "@googleapis/drive": "catalog:storage",
     "@json-render/core": "0.21.0",

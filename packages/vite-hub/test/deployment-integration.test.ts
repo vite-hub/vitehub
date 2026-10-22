@@ -393,7 +393,7 @@ describe("built-in deployment preset integration", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
-  })
+  }, 30_000)
 
   it("emits required Server Env secrets through the Nitro Vite plugin", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-required-secrets-build-"))

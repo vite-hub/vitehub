@@ -43,14 +43,16 @@ export function installProcessHostStop(
   const signals: ProcessHostStopSignal[] = ["SIGTERM", "SIGINT"];
   const existing = new Map(signals.map((signal) => [signal, new Set(runtime.listeners(signal))]));
   const serverListeners: [ProcessHostStopSignal, (signal: ProcessHostStopSignal) => unknown][] = [];
+  let ready = false;
   let resolveSetup!: () => void;
-  const setup = new Promise<void>((resolve) => { resolveSetup = resolve });
+  const setup = new Promise<void>((resolve) => { resolveSetup = () => { ready = true; resolve() } });
   const shutdown = (runtime.__vitehubShutdown ??= { drains: new Set(), exited: false });
   let stopping: Promise<void> | undefined;
   const stop = (signal: ProcessHostStopSignal) => {
     if (stopping) return;
     stopping = (async () => {
-      await setup;
+      // Wait only for a signal that arrives before startup ends, so the host drain starts in the signal itself.
+      if (!ready) await setup;
       console.info("[vitehub]", JSON.stringify({ event: "process.stop.draining", signal, timestamp: new Date().toISOString() }));
       try {
         await host.close();

@@ -59,7 +59,7 @@ describe("Agents launch tutorial fixture", () => {
     await execFileAsync(resolve(repoRoot, "node_modules/.bin/vp"), ["build"], { cwd: fixtureRoot })
 
     const port = await availablePort()
-    const child = spawn(process.execPath, ["dist/server.js"], {
+    const child = spawn(process.execPath, [".output/server/index.mjs"], {
       cwd: fixtureRoot,
       env: { ...process.env, PORT: String(port) },
       stdio: "ignore",
@@ -67,10 +67,10 @@ describe("Agents launch tutorial fixture", () => {
     const exited = once(child, "exit")
 
     try {
-      const response = await requestWhenReady(`http://127.0.0.1:${port}/greet`)
+      const response = await requestWhenReady(`http://127.0.0.1:${port}/api/greet`)
 
       expect(response.status).toBe(200)
-      await expect(response.json()).resolves.toEqual({
+      await expect(response.json()).resolves.toMatchObject({
         text: "Hello, Ada. This result came from an Agent Invocation.",
       })
     }

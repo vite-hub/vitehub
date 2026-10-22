@@ -22,7 +22,7 @@ async function resolve(context: unknown, repository = "acme/app"): Promise<strin
   // SAFETY: the Driver run context is the Agent runtime context, an object.
   const access = readForgeAccess(context as object)
   // SAFETY: the test token sources do not read the callback context.
-  return await access?.(runtime() as AgentCallbackContext, { repository })
+  return (await access?.(runtime() as AgentCallbackContext, { repository }))?.token
 }
 
 describe("Agent forge access", () => {
@@ -69,7 +69,7 @@ describe("Agent forge access", () => {
   })
 
   it("keeps forge access that the caller already supplied", async () => {
-    const caller = vi.fn(async () => "caller-token")
+    const caller = vi.fn(async () => ({ token: "caller-token" }))
     const agent = defineAgent({
       channels: { github: github({ app: { token: tokenSource() } }) },
       driver: { run: context => resolve(context) },
