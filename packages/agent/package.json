@@ -374,9 +374,6 @@
     "evalite": {
       "optional": true
     },
-    "h3": {
-      "optional": true
-    },
     "vite": {
       "optional": true
     },
