@@ -7,9 +7,10 @@ import * as awarenessProtocol from "y-protocols/awareness"
 import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
-import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { H3Event, WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
+  RealtimeAuthorizeContext,
   RealtimeCheckpoint,
   RealtimeDefinition,
   RealtimeDocumentAdapter,
@@ -504,7 +505,7 @@ function toRealtimeUser(value: unknown): RealtimeUser | null {
   return user
 }
 
-async function identify(request: Request, event: unknown, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
+async function identify(request: Request, event: H3Event, definitionName: string, definition: RealtimeDefinition): Promise<RealtimeUser | null> {
   if (definition.identify) {
     const origin = request.headers.get("origin")
     // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
@@ -529,7 +530,7 @@ async function identify(request: Request, event: unknown, definitionName: string
 
 async function allows(
   definition: RealtimeDefinition,
-  context: { definition: string, documentId: string | null, event: unknown, mode: "read" | "write", request: Request, user: RealtimeUser | null },
+  context: RealtimeAuthorizeContext,
 ): Promise<boolean> {
   if (!definition.authorize) return true
   return (await definition.authorize(context)) !== false
@@ -1242,7 +1243,7 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
     return { ...saved, digest: saved.digest, snapshot }
   }
 
-  async function requestContext(event: { context: Record<string, unknown>, req: Request }) {
+  async function requestContext(event: H3Event) {
     const { definitionName, documentId, searchParams, workspaceEvents } = parseRoomPath(event.req.url)
     const definition = await getDefinition(definitionName)
     const resolved = resolveRealtimeDefinition(definition)
