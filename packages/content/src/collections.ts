@@ -18,7 +18,7 @@ import {
   warnUntypedFields,
 } from "./documents.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
-import { contentScheduleKey, createContentSchedules } from "./schedules.ts"
+import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -1089,7 +1089,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   /** `schedule` names the schedule that runs this publish, on the revision metadata. */
-  async function publish(publishOptions: ContentPublishOptions = {}, schedule?: string): Promise<ContentPublishResult> {
+  async function publish(publishOptions: ContentPublishOptions = {}, schedule?: string, beforeCommit?: () => Promise<boolean>): Promise<ContentPublishResult> {
     if (publishOptions === null || Object(publishOptions) !== publishOptions) throw publishInvalid("publish() options must be an object.")
     const expectations = readExpectations(publishOptions)
     if (publishOptions.ids !== undefined && publishOptions.collection === undefined) {
@@ -1183,6 +1183,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           // may occur while the provider constructs the transaction.
           draftExpectation = undefined
         }
+        if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
         const revision = await retained.commit({
           ref: "published",
           ifHead: publishedHead?.id ?? null,
@@ -1206,6 +1207,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const actualDraft = actualHead ? await openRevision(actualHead) : undefined
           const moved = expectations.some(({ path, digest }) => (actualDraft?.files.get(path) ?? null) !== (digest ?? null))
           if (!moved) {
+            if (beforeCommit && !await beforeCommit()) throw new ContentScheduleCancelled()
             const revision = await retained.commit({
               ref: "published",
               ifHead: publishedHead?.id ?? null,
@@ -1215,6 +1217,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
                 action: "publish",
                 draft: draftHead.id,
                 documents: documents.map(({ collection, id }) => ({ collection, id })),
+                ...(schedule ? { schedule } : {}),
               }),
             })
             const affected = [...new Set(documents.map(document => document.collection))]
@@ -1292,11 +1295,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       })
     },
     mismatch: mismatchError,
-    publish: async scheduled => await publish({
+    publish: async (scheduled, beforeCommit) => await publish({
       expect: scheduled.expect,
       ...(scheduled.message === undefined ? {} : { message: scheduled.message }),
       ...(scheduled.metadata === undefined ? {} : { metadata: scheduled.metadata }),
-    }, scheduled.id),
+    }, scheduled.id, beforeCommit),
     metadata: writeMetadata,
   })
 

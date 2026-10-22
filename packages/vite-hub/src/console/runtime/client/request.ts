@@ -8,6 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 const consoleApiMarker = "/api/_vitehub/console/"
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
+const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 function decodeConsoleId(value: string): string {
   try {
@@ -82,6 +83,14 @@ export async function consoleResponseError(response: Response, fallback: Console
     fix: fields.fix ?? fallback.fix,
     message: fields.message ?? fallback.message,
   })
+}
+
+/** The media upload route under the application mount of a Console API path. */
+export function consoleRpcUploadURL(path: string): string {
+  const url = new URL(path, "http://vitehub.local")
+  const marker = url.pathname.lastIndexOf(consoleApiMarker)
+  const appBase = marker === -1 ? "" : url.pathname.slice(0, marker)
+  return `${appBase}${consoleRpcUploadPath}`
 }
 
 function consoleRpcCallURL(path: string): string {

@@ -3,8 +3,9 @@ import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleErrorMessage, consoleListQueryFor, createConsoleDocumentsClient } from "../client/documents";
+import { provideConsoleMediaPicker } from "../client/media";
+import { consoleMediaBase, consoleMediaTransformable, consoleMediaUrl, consoleMediaVariantUrl, createConsoleMediaClient, isConsoleMediaPathname } from "../client/media-library";
 import { requestConsole } from "../client/request";
-import { loadConsoleNavigation } from "../client/sections";
 import { resolveConsoleRouteName } from "../console-route";
 import { parseConsoleSectionContent } from "../definitions";
 import { consoleSectionPageRouteName, consoleSectionPageSegment, consoleSectionRouteName, rememberConsoleSection } from "../sections";
@@ -14,9 +15,11 @@ import ConsoleDocumentList from "./console-document-list.vue";
 import ConsoleDocumentSettings from "./console-document-settings.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMediaLibrary from "./console-media-library.vue";
+import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsoleSearch from "./console-search.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
+import type { ConsoleMediaInfo } from "../client/media-library";
 import type { ConsoleContributedSection, ConsoleDocumentCollection, ConsoleSectionPage } from "../definitions";
 
 /**
@@ -55,9 +58,45 @@ const changes = ref(0);
 const overview = shallowRef<ConsoleDocumentOverview>();
 const overviewLoading = ref(false);
 const overviewError = ref<unknown>();
-// Sections that the signed-in user may open, so a page can link to another section only when it is allowed.
-const allowedSections = ref<string[]>([]);
 let overviewRequest = 0;
+
+// The media library of the section, when it has a Media page: the page itself, and the picker of the editor's images and
+// Blob reference fields. The section's pages are fixed for its lifetime, so the picker is provided once.
+const mediaClient = computed(() => createConsoleMediaClient(consoleMediaBase(props.documentsBase), section.value));
+const hasMedia = (props.details.pages ?? []).some(entry => entry.view.kind === "media-library");
+const mediaPicker = ref<InstanceType<typeof ConsoleMediaPicker>>();
+const mediaInfo = shallowRef<ConsoleMediaInfo>();
+// The editor waits for the served URL, so stored pathnames show as images on the first render.
+const mediaPending = ref(hasMedia);
+if (hasMedia) {
+  provideConsoleMediaPicker({
+    pick: request => mediaPicker.value?.pick(request) ?? Promise.resolve([]),
+    resolveSrc: src => (isConsoleMediaPathname(src) ? consoleMediaUrl(mediaInfo.value?.served, src) : undefined),
+    async describe(reference) {
+      const file = await mediaClient.value.get(reference.pathname).catch(() => undefined);
+      if (!file) return undefined;
+      const url = file.url ?? consoleMediaUrl(mediaInfo.value?.served, file.pathname);
+      const thumbnail = url && consoleMediaTransformable(file.contentType) ? consoleMediaVariantUrl(url, { fit: "cover", height: 96, version: file.updatedAt, width: 96 }) : url;
+      return { ...(file.alt ? { alt: file.alt } : {}), ...(file.color ? { color: file.color } : {}), ...(file.width ? { width: file.width } : {}), ...(file.height ? { height: file.height } : {}), ...(thumbnail ? { thumbnail } : {}) };
+    },
+    async updateAlt(reference, alt) {
+      await mediaClient.value.update(reference.pathname, { alt: alt || null });
+    },
+  });
+}
+
+async function loadMediaInfo(): Promise<void> {
+  if (!hasMedia) return;
+  try {
+    mediaInfo.value = await mediaClient.value.info();
+  }
+  catch {
+    // Without media access the picker falls back to showing sources as written.
+  }
+  finally {
+    mediaPending.value = false;
+  }
+}
 
 function param(value: unknown): string | undefined {
   if (Array.isArray(value)) return value.length ? value.join("/") : undefined;
@@ -174,9 +213,7 @@ function reload(): void {
 onMounted(() => {
   rememberConsoleSection(section.value);
   reload();
-  void loadConsoleNavigation(props.sectionsBase).then((navigation) => {
-    allowedSections.value = navigation?.sections ?? [];
-  });
+  void loadMediaInfo();
 });
 
 watch(section, () => {
@@ -342,8 +379,9 @@ watch(changes, () => void loadOverview());
       />
       <ConsoleMediaLibrary
         v-else-if="page?.view.kind === 'media-library'"
-        :blob-allowed="allowedSections.includes('blob')"
+        :client="mediaClient"
         :label="page.label"
+        :section="section"
       />
       <template v-else-if="unknownPage !== undefined">
         <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="details.label" />
@@ -355,6 +393,12 @@ watch(changes, () => void loadOverview());
           :description="`${details.label} has no such page.`"
           :actions="[{ label: `Open ${indexPage?.label ?? details.label}`, color: 'neutral', variant: 'outline', to: indexPage ? pageRoute(indexPage) : { name: mainRouteName() } }]"
         />
+      </template>
+      <template v-else-if="collection && (editorDocumentId || creating) && mediaPending">
+        <UDashboardNavbar :ui="{ root: 'border-b border-default' }" :title="collection.label" />
+        <div class="flex min-h-0 flex-1 items-center justify-center">
+          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+        </div>
       </template>
       <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
@@ -393,6 +437,7 @@ watch(changes, () => void loadOverview());
         </div>
       </template>
     </UDashboardPanel>
+    <ConsoleMediaPicker v-if="hasMedia" ref="mediaPicker" :client="mediaClient" :section="section" />
   </ConsoleFrame>
 </template>
 

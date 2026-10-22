@@ -7,7 +7,7 @@ import type { ConsoleDocumentCollection } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /** The document actions that one Console request may call. It mirrors `ViteHubConsoleDocumentActionName`. */
-export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"] as const
+export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "unschedule"] as const
 
 export type ConsoleDocumentActionName = (typeof consoleDocumentActionNames)[number]
 
@@ -23,7 +23,16 @@ type ConsoleDocumentAction = (input: unknown, context: ConsoleDocumentActionCont
  */
 export type ConsoleDocumentActions = {
   collections(context: ConsoleDocumentActionContext): readonly ConsoleDocumentCollection[] | Promise<readonly ConsoleDocumentCollection[]>
+  /** What the user may do in the media library of the section. */
+  mediaAccess(context: ConsoleDocumentActionContext): ConsoleMediaAccess | Promise<ConsoleMediaAccess>
 } & Record<ConsoleDocumentActionName, ConsoleDocumentAction>
+
+/** Mirrors `ViteHubConsoleMediaAccess`. */
+export interface ConsoleMediaAccess {
+  manage: boolean
+  read: boolean
+  write: boolean
+}
 
 /** Loads the owner actions of each document editor section on first use. */
 export type ConsoleDocumentEditors = Readonly<Record<string, () => Promise<ConsoleDocumentActions>>>
@@ -86,7 +95,8 @@ export function installConsoleDocuments(projectRoot: string, editors: Readonly<R
   return installConsoleDocumentsScope(projectRoot, Object.freeze(loaders))
 }
 
-async function loadActions(section: string): Promise<ConsoleDocumentActions> {
+/** Loads the owner actions of a document editor section that the project enables. */
+export async function loadConsoleDocumentActions(section: string): Promise<ConsoleDocumentActions> {
   const load = getConsoleSections().includes(section) ? resolveConsoleDocuments()?.[section] : undefined
   if (!load) throw consoleRequestError(404, "Document editor section not found.")
   try {
@@ -98,11 +108,13 @@ async function loadActions(section: string): Promise<ConsoleDocumentActions> {
   }
 }
 
-async function context(access: ConsoleAccess): Promise<ConsoleDocumentActionContext> {
+/** The owner action context of a checked Console access. */
+export async function consoleDocumentActionContext(access: ConsoleAccess): Promise<ConsoleDocumentActionContext> {
   return { user: await readConsoleAccessUser(access) ?? null }
 }
 
-async function run<T>(action: () => T | Promise<T>): Promise<T> {
+/** Runs an owner action and returns its failures with their status, code, and details. */
+export async function runConsoleDocumentAction<T>(action: () => T | Promise<T>): Promise<T> {
   try {
     return await action()
   }
@@ -116,9 +128,9 @@ async function run<T>(action: () => T | Promise<T>): Promise<T> {
 
 /** Reads the collections that the signed-in user may read, for the definitions route. */
 export async function readConsoleDocumentCollections(section: string, access: ConsoleAccess): Promise<ConsoleDocumentCollection[]> {
-  const actions = await loadActions(section)
-  const user = await context(access)
-  return [...await run(() => actions.collections(user))]
+  const actions = await loadConsoleDocumentActions(section)
+  const user = await consoleDocumentActionContext(access)
+  return [...await runConsoleDocumentAction(() => actions.collections(user))]
 }
 
 function isActionName(value: unknown): value is ConsoleDocumentActionName {
@@ -131,11 +143,11 @@ async function consoleDocumentsHandler(event: ConsoleRequestEvent, access: Conso
   const section = query.get("section") ?? ""
   const action = query.get("action")
   if (!isActionName(action)) throw consoleRequestError(400, "A valid document action is required.")
-  const actions = await loadActions(section)
+  const actions = await loadConsoleDocumentActions(section)
   const input = await consoleRequestJSON(event, maximumConsoleDocumentRequestBytes)
-  const user = await context(access)
+  const user = await consoleDocumentActionContext(access)
   // `undefined` does not survive JSON, so a `remove` result is wrapped.
-  return { value: await run(() => actions[action](input, user)) ?? null }
+  return { value: await runConsoleDocumentAction(() => actions[action](input, user)) ?? null }
 }
 
 /** Runs one owner document action. The section comes from the request and must be in the access scope. */

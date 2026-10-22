@@ -49,9 +49,11 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     collections: () => [{ access: { publish: true, read: true, write: true }, label: "Posts", name: "posts", path: "posts/**/*.md", schema: { type: "object" } }],
     get: unused,
     list: unused,
+    mediaAccess: () => ({ manage: true, read: true, write: true }),
     overview: unused,
     publish: unused,
     raw: unused,
+    references: unused,
     remove: unused,
     restore: unused,
     revisions: unused,
@@ -193,6 +195,8 @@ describe("Console document editor route", () => {
     installConsoleAccess({ mode: "open" })
     install(fakeActions())
     await expect(documents("collections", {})).resolves.toMatchObject({ status: 400 })
+    // The Console calls `mediaAccess` itself before media changes; the browser cannot.
+    await expect(documents("mediaAccess", {})).resolves.toMatchObject({ status: 400 })
     await expect(call(consoleRpcMethods.documents, { body: {}, method: "POST", query: { action: "get", section: "kv" } })).resolves.toMatchObject({ status: 404 })
   })
 

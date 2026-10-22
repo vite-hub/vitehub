@@ -21,5 +21,8 @@ Open <http://localhost:5173/login> and sign in as one of the playground users:
 | `editor@vitehub.dev` | Content only | Read, write, publish |
 | `writer@vitehub.dev` | Content only | Read and write, no publish |
 
+Media at `/_vitehub/content/-/media` stores files in `.vitehub/data/blob`. Writers upload files and edit alt text,
+focal points, and crops; admins and editors also move and delete them, since they can publish.
+
 The public page at `/` lists published posts. It has no edit button: editors go to `/_vitehub/content`.
 Users and sessions live in memory, so a restart signs everyone out. Documents persist in `.data`.

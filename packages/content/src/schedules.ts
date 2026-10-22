@@ -101,6 +101,14 @@ export interface ContentPublishDueResult {
   failed: ContentSchedule[]
 }
 
+/** Internal control flow used when an expired schedule is cancelled in flight. */
+export class ContentScheduleCancelled extends Error {
+  constructor() {
+    super("Content schedule was cancelled while publishing.")
+    this.name = "ContentScheduleCancelled"
+  }
+}
+
 /** The schedule `status()` reports for a document: its pending or overdue one, or else a failed one. */
 export interface ContentDocumentSchedule {
   id: string
@@ -132,7 +140,7 @@ export interface ContentSchedulesHost {
   /** A `WORKSPACE_CONFLICT` naming each document whose draft no longer matches. */
   mismatch(method: string, mismatches: Array<{ collection: string, id: string, expected: string | null, actual: string | null }>): Error
   /** `publish({ expect })` that records the schedule on the publish revision. */
-  publish(schedule: StoredSchedule): Promise<ContentPublishResult>
+  publish(schedule: StoredSchedule, beforeCommit: () => Promise<boolean>): Promise<ContentPublishResult>
   /** Merge caller metadata with the reserved `content` key. */
   metadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown>
 }
@@ -312,7 +320,7 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     await commit(({ entries }) => {
       // One pending schedule per document, so `status()` and the Console show one time.
       for (const { stored: other } of entries.values()) {
-        if (other.stored.cancelled) continue
+        if (other.cancelled) continue
         const taken = other.expect.find(entry => expect.some(candidate => candidate.collection === entry.collection && candidate.id === entry.id))
         if (taken) {
           throw invalid(`${contentScheduleKey(taken.collection, taken.id)} is already scheduled for ${other.at} by schedule ${JSON.stringify(other.id)}. Call unschedule(${JSON.stringify(other.id)}) first.`)
@@ -337,8 +345,9 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
     }
     const now = Date.now()
     return [...(await read()).entries.values()]
-      .map(({ stored }) => withStatus(stored, now))
-      .filter(entry => !entry.cancelled)
+      .map(({ stored }) => stored)
+      .filter(stored => !stored.cancelled)
+      .map(stored => withStatus(stored, now))
       .filter(entry => (options.status === undefined || entry.status === options.status)
         && entry.expect.some(document => (options.collection === undefined || document.collection === options.collection)
           && (options.id === undefined || document.id === options.id)))
@@ -418,9 +427,13 @@ export function createContentSchedules(host: ContentSchedulesHost): ContentSched
       let failure: ContentScheduleFailure | undefined
       try {
         try {
-          published = await host.publish(stored)
+          published = await host.publish(stored, async () => {
+            const current = (await read()).entries.get(stored.id)?.stored
+            return current?.running === claim && !current.cancelled
+          })
         }
         catch (error) {
+          if (error instanceof ContentScheduleCancelled) continue
           failure = failureOf(error, new Date().toISOString())
           // Anything else, such as an unavailable store, leaves the schedule pending for the next run.
           if (!failure) {

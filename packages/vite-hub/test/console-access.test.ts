@@ -100,7 +100,7 @@ describe("Console data route contract", () => {
 
   it("declares the Console section of every RPC operation", () => {
     for (const method of Object.values(consoleRpcMethods)) {
-      const input = method === consoleRpcMethods.definitions || method === consoleRpcMethods.documents ? { query: { section: "workflows" } } : {}
+      const input = method === consoleRpcMethods.definitions || method === consoleRpcMethods.documents || method === consoleRpcMethods.media ? { query: { section: "workflows" } } : {}
       expect(consoleRpcOperationSection(method, input), method).not.toBeUndefined()
     }
     expect(consoleRpcOperationSection(consoleRpcMethods.sections)).toBe(false)
@@ -108,6 +108,9 @@ describe("Console data route contract", () => {
     // Document actions belong to the section in the request, such as Content.
     expect(consoleRpcOperationSection(consoleRpcMethods.documents, { query: { section: "content" } })).toBe("content")
     expect(consoleRpcOperationSection(consoleRpcMethods.documents)).toBeUndefined()
+    // The media library belongs to its document editor section too, not to Blob.
+    expect(consoleRpcOperationSection(consoleRpcMethods.media, { query: { section: "content" } })).toBe("content")
+    expect(consoleRpcOperationSection(consoleRpcMethods.media)).toBeUndefined()
   })
 
   it("guards the Schedule run RPC operation", async () => {

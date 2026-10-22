@@ -240,7 +240,9 @@ When you configure custom `blob.images.sizes`, pass the same values as `widths`.
 const [, record] = await blob.media.get(entry.cover) // accepts the reference object
 ```
 
-References stay portable in Markdown frontmatter and JSON, and an alt-text fix in the media library shows on every page that uses the image. Copying alt text or dimensions into each document would go stale when an editor changes the record. Write alt text into the document only when it differs per use.
+References stay portable in Markdown frontmatter and JSON, and an alt-text fix in the [Console media library](/docs/content/console#media-library) shows on every page that uses the image. Copying alt text or dimensions into each document would go stale when an editor changes the record. Write alt text into the document only when it differs per use.
+
+The Content section of the Console is a media library over these records: folders, uploads, alt text, the focal point, and crops with replacements, plus a picker for `image()` fields and images in Markdown bodies. See [Media library](/docs/content/console#media-library).
 
 ## Storage layout
 
