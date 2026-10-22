@@ -128,33 +128,40 @@ The plugin starts the exported host with Nitro, closes it with the server, and
 serves `GET /api/agent-drain` with `{ status: 'starting' | 'accepting' | 'draining' | 'drained' | 'failed' }`.
 The host reports `accepting` after startup; `failed` means the reconciler
 encountered a failure while draining or closing.
-`SIGUSR2` starts a drain. `SIGTERM` and `SIGINT` stop admission, wait for the
-host close, then let the HTTP server finish its shutdown. A second signal does
-not start another drain. The process exits after this drain and the
-[Agent drain](#drain-agent-work-on-stop-signals) settle.
+`SIGUSR2` starts a drain. On `SIGTERM` and `SIGINT`, ViteHub closes the host
+with the other [shutdown drains](#drain-agent-work-on-stop-signals) while HTTP
+stays up, then lets the HTTP server finish its shutdown and exits once. A
+second signal does not start another drain.
 
 Do not expose the drain route as an authorization mechanism. Protect it with the
 same host policy as other operational routes.
 
 ## Drain Agent work on stop signals
 
-A persistent Node server with libSQL or SQLite Agent State drains Agent work
-on `SIGTERM` and `SIGINT`, then exits. The generated webhook queue plugin does
-this; no application code is needed. On the first signal it:
+ViteHub drains Agent work on `SIGTERM` and `SIGINT` on a persistent server, then
+exits. No application code is needed. Each package registers its drain once, and
+ViteHub runs all of them in parallel with one shared budget. On the first signal
+ViteHub:
 
-1. Stops the webhook queues. Active deliveries get the drain budget, and the
-   persisted queue replays the deliveries that it aborts after the restart.
-   Webhook admissions that were [answered early](/docs/agents/channels#answer-slow-webhooks-early)
-   get the same budget, and the next process replays the ones that do not finish.
-   An aborted delivery's Invocation stays `running` and the replay finishes it
-   under the same Invocation. If the queue does not run it again, the
-   Invocation ends `failed`.
-2. Waits for inline Chat Invocations with `drainInlineChatInvocations()`.
-   Invocations that outlast the budget post a restart notice with the
-   `HOST_RESTARTED` error, and the next process retries each message once.
-3. Waits up to 10 seconds for Nitro's `close` hooks when the server closes HTTP.
-4. Waits for other registered drains, such as the `processAgentHost()` stop
-   handler, logs a short summary, and exits once.
+1. Runs every registered drain while HTTP stays up, so webhooks still reach
+   durable queues:
+   - `agent.webhook-queues` stops the webhook queues. Active deliveries get the
+     drain budget, and the persisted queue replays the deliveries that it aborts
+     after the restart. Webhook admissions that were
+     [answered early](/docs/agents/channels#answer-slow-webhooks-early) get the
+     same budget, and the next process replays the ones that do not finish. An
+     aborted delivery's Invocation stays `running` and the replay finishes it
+     under the same Invocation. If the queue does not run it again, the
+     Invocation ends `failed`.
+   - `agent.chat` waits for inline Chat Invocations. Invocations that outlast
+     the budget post a restart notice with the `HOST_RESTARTED` error, and the
+     next process retries each message once.
+   - `agent.process-host` and `agent.process-hosts` close
+     [process hosts](#recover-and-drain), `agent.preparation` stops Workspace
+     preparation, `agent.discord-gateway` stops the Discord Gateway, and
+     `schedule` closes the Schedule Process Runtime.
+2. Lets the server close HTTP and waits up to 10 seconds for Nitro's `close` hooks.
+3. Logs a short summary and exits once with code 0.
 
 The budget comes from `VITEHUB_SHUTDOWN_DRAIN_MS`. The `shutdown.drainMs` option
 sets its default, and the variable wins when it is set:
@@ -175,13 +182,18 @@ export default defineConfig({
 
 The default is 0, which interrupts the work at once. Give the host a
 termination grace period longer than the budget plus 25 seconds: 15 seconds
-for interrupted Chat Invocations to post their notice and 10 seconds for the
+for interrupted work, such as a Chat restart notice, and 10 seconds for the
 close hooks. For example, use 90 seconds with a 45-second budget.
 
-The drain does not run in development, during prerender, or outside Node.
-Ephemeral hosts do not install it. Set `agent: { shutdown: false }` when the
-application installs its own stop handler. Every stop handler registers its
-drain in `process.__vitehubShutdown`, so you can inspect the drains that run.
+ViteHub handles stop signals only where the Nitro server does: the `node`,
+`node-cluster`, `bun`, and `deno` server presets. In development, during
+prerender, on serverless and Cloudflare hosts, and when the server turns its
+graceful shutdown off (srvx does this when `CI` or `TEST` is set), the signal
+keeps its default behavior. The drains then run only when Nitro calls its
+`close` hooks. Set `agent: { shutdown: false }` to not drain inline Chat
+Invocations. `process.__vitehubShutdown` shows the registered drains, the
+signal, and the result of each drain. The logs have the events
+`shutdown.draining`, `shutdown.drained`, and `shutdown.exited`.
 
 ## Report readiness after warm-up
 

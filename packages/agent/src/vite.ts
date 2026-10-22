@@ -1,6 +1,5 @@
 import { validateAgentStaticRoute } from "./internal/routes.ts"
 import { resolvesWorkerConditions, usesProviderAgentDriver } from "./internal/provider-driver-usage.ts"
-import { installAgentShutdownDrain } from "./internal/shutdown-drain.ts"
 import { randomUUID } from "node:crypto"
 import { createRequire } from "node:module"
 import { existsSync, statSync } from "node:fs"
@@ -2252,9 +2251,10 @@ async function writeAgentWebhookRouteHandler(
     ].join("\n"), "utf8")
     await writeFile(join(root, generatedAgentPreparationPlugin), [
       `import { preparation } from "./preparation"`,
+      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       `export default function(nitroApp) {`,
       `  void preparation.start()`,
-      `  nitroApp.hooks.hook("close", () => preparation.stop())`,
+      `  onShutdown(nitroApp, "agent.preparation", () => preparation.stop())`,
       `}`,
     ].join("\n"), "utf8")
     await writeFile(join(root, generatedAgentPreparationHandler), options.libsqlState
@@ -2297,18 +2297,15 @@ async function writeAgentWebhookRouteHandler(
   if (options.processDiscordGateway) {
     await writeFile(gatewayPluginPath, [
       `import { startDiscordGateways } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
+      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       "",
       "export default function viteHubDiscordGatewayPlugin(nitroApp) {",
       "  const stop = startDiscordGateways()",
       "  let stopping",
-      "  const nodeProcess = typeof process === 'object' && process?.release?.name === 'node' ? process : undefined",
-      "  const shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))",
       "  function stopDiscordGateways() {",
-      "    for (const signal of shutdownSignals) nodeProcess?.off(signal, stopDiscordGateways)",
       "    return stopping ||= stop()",
       "  }",
-      "  for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, stopDiscordGateways)",
-      "  nitroApp.hooks.hook('close', stopDiscordGateways)",
+      "  onShutdown(nitroApp, 'agent.discord-gateway', () => stopDiscordGateways())",
       "}",
       "",
     ].join("\n"), "utf8")
@@ -2330,12 +2327,13 @@ async function writeAgentWebhookRouteHandler(
     ].join("\n"), "utf8")
     await writeFile(processHostFiles[1]!, [
       `import { host } from "./process-hosts"`,
+      `import { onShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))}`,
       "",
       "export default function viteHubAgentProcessHostsPlugin(nitroApp) {",
       "  if (import.meta.prerender) return",
-      "  // Start after the server installs its shutdown listeners.",
+      "  // Start after the server starts.",
       "  setTimeout(() => host.start(), 0)",
-      "  nitroApp.hooks.hook('close', () => host.close())",
+      "  onShutdown(nitroApp, 'agent.process-hosts', () => host.close())",
       "}",
       "",
     ].join("\n"), "utf8")
@@ -2350,29 +2348,20 @@ async function writeAgentWebhookRouteHandler(
     // A persistent server resumes queued deliveries at startup. Ephemeral hosts resume on
     // the first webhook request, so its waitUntil keeps the function alive during the drain.
     const persistent = !options.libsqlState.ephemeralHosting
-    // A persistent Node server owns its exit: drain Agent work on SIGTERM and SIGINT, then exit.
+    // A persistent server also drains inline Chat invocations when it stops.
     const shutdown = persistent && options.shutdown !== false ? options.shutdown ?? {} : undefined
+    const internalImport = JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server/internal"))
     await writeFile(queuePluginPath, [
       `import { resumeWebhookQueues, warmWebhookRoutes${persistent ? "" : ", waitUntilFromEvent"} } from ${JSON.stringify(`./${generatedAgentWebhookRouteHandler.split("/").at(-1)!.replace(/\.ts$/, "")}`)}`,
-      ...(shutdown
-        ? [
-            `import { drainInlineChatInvocations, webhookQueueShutdown } from ${JSON.stringify(subpath(options.agentImportBase ?? agentPackageName, "server"))}`,
-            "",
-            `const installAgentShutdownDrain = ${installAgentShutdownDrain.toString()}`,
-          ]
-        : []),
+      `import { ${shutdown ? "drainInlineChatInvocations, " : ""}onShutdown, webhookQueueShutdown } from ${internalImport}`,
       "",
       "export default function viteHubWebhookQueuePlugin(nitroApp) {",
       "  let stop",
       "  let stopping",
       "  let closed = false",
       "  let waitUntil",
-      "  let shutdownSignals = []",
-      "  const nodeProcess = typeof process === 'object' && process?.release?.name === 'node' ? process : undefined",
       "  function shutdownWebhookQueues() {",
       "    closed = true",
-      "    for (const signal of shutdownSignals) nodeProcess?.off(signal, shutdownWebhookQueues)",
-      "    shutdownSignals = []",
       "    if (!stopping) stopping = stop?.()",
       "    if (stopping) waitUntil?.(stopping)",
       "    return stopping",
@@ -2380,14 +2369,12 @@ async function writeAgentWebhookRouteHandler(
       "  function startWebhookQueues(recoverInterruptedBefore) {",
       "    if (closed || stop || stopping) return",
       "    stop = resumeWebhookQueues(waitUntil, recoverInterruptedBefore)",
-      "    shutdownSignals = ['SIGINT', 'SIGTERM'].filter(signal => nodeProcess?.listeners(signal).some(listener => listener.name === 'shutdown'))",
-      "    for (const signal of shutdownSignals) nodeProcess?.prependOnceListener(signal, shutdownWebhookQueues)",
       "  }",
       ...(persistent
         ? [
             "  const startedAt = performance.timeOrigin",
-            "  // Start after the server installs its shutdown listeners. Invocations that started",
-            "  // before this process are interrupted unless a queued delivery runs them again.",
+            "  // Start after the server starts. Invocations that started before this process are",
+            "  // interrupted unless a queued delivery runs them again.",
             "  // The warm-up builds registrations, secrets, and State now, so the first delivery does not wait for them.",
             "  // /api/_vitehub/ready answers 503 until it finishes.",
             "  if (!import.meta.prerender) setTimeout(() => {",
@@ -2399,12 +2386,11 @@ async function writeAgentWebhookRouteHandler(
               ? [
                   "  // Inline Chat invocations post a restart notice when the drain interrupts them, and the",
                   "  // next process retries them once. The queue replays the deliveries that it aborts.",
-                  "  if (!import.meta.dev && !import.meta.prerender && nodeProcess) {",
-                  "    const queues = async () => {",
-                  "      await shutdownWebhookQueues()",
-                  "      await webhookQueueShutdown()",
-                  "    }",
-                  `    installAgentShutdownDrain({ chat: drainInlineChatInvocations, queues }, nitroApp, ${shutdown.drainMs ?? "undefined"}, nodeProcess)`,
+                  "  if (!import.meta.dev && !import.meta.prerender) {",
+                  ...(shutdown.drainMs !== undefined
+                    ? [`    if (typeof process === 'object' && process?.env && !process.env.VITEHUB_SHUTDOWN_DRAIN_MS) process.env.VITEHUB_SHUTDOWN_DRAIN_MS = ${JSON.stringify(String(shutdown.drainMs))}`]
+                    : []),
+                  "    onShutdown(nitroApp, 'agent.chat', ({ timeoutMs }) => drainInlineChatInvocations({ timeoutMs }))",
                   "  }",
                 ]
               : []),
@@ -2420,7 +2406,10 @@ async function writeAgentWebhookRouteHandler(
             "    startWebhookQueues()",
             "  })",
           ]),
-      "  nitroApp.hooks.hook('close', shutdownWebhookQueues)",
+      "  onShutdown(nitroApp, 'agent.webhook-queues', async () => {",
+      "    await shutdownWebhookQueues()",
+      "    await webhookQueueShutdown()",
+      "  })",
       "}",
       "",
     ].join("\n"), "utf8")

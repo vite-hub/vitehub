@@ -23,6 +23,7 @@ interface PluginHarness {
   definePlugin: <T>(plugin: T) => T
   installProcessScheduleRuntime: (options: RuntimeInstallOptions) => Promise<RuntimeController>
   normalizeScheduleRuntimeError: typeof normalizeScheduleRuntimeError
+  onShutdown: (app: NitroAppHarness, name: string, drain: () => unknown) => void
 }
 
 interface NitroAppHarness {
@@ -60,7 +61,7 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
 
   const generated = await readFile(join(root, ".vitehub", "nitro", "schedule", "plugin.ts"), "utf8")
   const imports = [
-    "const { createKVScheduleRunStore, definePlugin, installProcessScheduleRuntime, normalizeScheduleRuntimeError } = globalThis.__vitehubSchedulePluginHarness",
+    "const { createKVScheduleRunStore, definePlugin, installProcessScheduleRuntime, normalizeScheduleRuntimeError, onShutdown } = globalThis.__vitehubSchedulePluginHarness",
     "const scheduleKVStorage = {}",
     "const staticScheduleRegistry = {}",
   ].join("\n")
@@ -77,6 +78,11 @@ async function loadProcessPlugin(installProcessScheduleRuntime: PluginHarness["i
     definePlugin: plugin => plugin,
     installProcessScheduleRuntime,
     normalizeScheduleRuntimeError,
+    onShutdown: (app, _name, drain) => {
+      app.hooks.hook("close", async () => {
+        await drain()
+      })
+    },
   }
 
   const module = await import(`${pathToFileURL(pluginFile).href}?${Date.now()}-${Math.random()}`) as {

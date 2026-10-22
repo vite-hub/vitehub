@@ -117,6 +117,7 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
