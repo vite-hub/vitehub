@@ -213,9 +213,13 @@ it("reconfigures driver options after discovering instructions", () => {
   expect(getAgentLayerOptions(child)?.driver).toMatchObject({ model: "second", instructions: "Check the repository." })
 })
 
+// A model Driver stores colocated instructions as a Workspace Source. A Provider Driver gets them as
+// Driver instructions instead (#2658), so these discovery-default tests use a model Driver.
+const model = {} as never
+
 it("keeps discovery defaults below reconfigured workspace values", () => {
   const preset = defineAgent({ options: { mode: "read" as "read" | "write", sourceRootDir: undefined as string | undefined }, configure: options => defineAgent({
-    driver: "codex", workspace: { mode: options.mode, ...(options.sourceRootDir ? { sourceRootDir: options.sourceRootDir } : {}) },
+    driver: { model }, workspace: { mode: options.mode, ...(options.sourceRootDir ? { sourceRootDir: options.sourceRootDir } : {}) },
   }) })
   const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
   const child = defineAgent({ extends: discovered, options: { mode: "write", sourceRootDir: "/configured" } })
@@ -225,8 +229,8 @@ it("keeps discovery defaults below reconfigured workspace values", () => {
 
 it("does not restore discovered Workspace access when configure returns a plain Agent", () => {
   const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
-    ? defineAgent({ driver: "codex", workspace: {} })
-    : defineAgent({ driver: "codex" }) })
+    ? defineAgent({ driver: { model }, workspace: {} })
+    : defineAgent({ driver: { model } }) })
   const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
   const plain = defineAgent({ extends: discovered, options: { workspace: false } })
   expect(plain).not.toHaveProperty("__vitehubWorkspaceAgent")
@@ -242,8 +246,8 @@ it("does not restore discovered Workspace access when configure returns a plain 
 
 it.each(["capability", "channel", "channel factory"])("preserves discovered defaults when a plain callback gains Workspace through a %s", (kind) => {
   const preset = defineAgent({ options: { workspace: true }, configure: options => options.workspace
-    ? defineAgent({ driver: "codex", workspace: {} })
-    : defineAgent({ driver: "codex" }) })
+    ? defineAgent({ driver: { model }, workspace: {} })
+    : defineAgent({ driver: { model } }) })
   const discovered = workspaceAgentWithSourceRoot(preset, "/discovered", "Repository context.")
   const capability = defineCapability({ id: "storage", workspace: {} })
   const channel = { kind: "custom" as const, capabilities: [capability] }

@@ -230,3 +230,5 @@ export function table(input: unknown): CursorCollectionSource<TableShape["$infer
     querySchema: querySchema as StandardSchemaV1<CollectionRequestQuery, CollectionRequestQuery>,
   }
 }
+
+export * from "@vite-hub/source/drizzle"

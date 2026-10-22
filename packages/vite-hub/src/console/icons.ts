@@ -123,6 +123,7 @@ export const consoleIcons: readonly string[] = [
   "ph:chat-text-light",
   "ph:check-circle-light",
   "ph:circle-notch-light",
+  "ph:clock-counter-clockwise-light",
   "ph:cloud-slash-light",
   "ph:dot-outline-fill",
   "ph:funnel-light",

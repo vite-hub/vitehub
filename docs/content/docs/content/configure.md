@@ -4,7 +4,6 @@ description: Define read-only Sources and editable document collections with def
 navigation.title: Configure
 navigation.order: 3
 icon: i-lucide-sliders-horizontal
-navigation.group: Build
 ---
 
 ## Definition options
