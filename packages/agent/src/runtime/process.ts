@@ -199,7 +199,7 @@ async function readProcessResources(signal: AbortSignal): Promise<ProcessResourc
   }
 }
 
-async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessResourceSample, "availableMemory" | "hostAvailableMemory"> & { ownReclaimable: number }) | undefined> {
+async function readCgroupResources(signal: AbortSignal): Promise<(Omit<ProcessResourceSample, "availableMemory" | "cgroupAvailable" | "hostAvailableMemory"> & { ownReclaimable: number }) | undefined> {
   const membership = await readOptionalCgroupFile("/proc/self/cgroup", signal)
   const relative = membership?.split(/\r?\n/).find((line) => line.startsWith("0::"))?.slice(3)
   if (relative === undefined) return

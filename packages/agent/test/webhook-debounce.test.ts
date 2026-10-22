@@ -78,14 +78,15 @@ describe("webhook debounce", () => {
   it("runs only the latest delivery with the same key", async () => {
     vi.useFakeTimers()
     const { run, runIds, send, state } = await setup({ delayMs: 5_000, key: "pr-1" })
-    const complete = vi.spyOn(state, "completeWebhookDelivery")
 
     await send("delivery-1")
     await vi.advanceTimersByTimeAsync(3_000)
     await send("delivery-2")
+    // Since #2659 the admission of delivery-2 finalizes the queued delivery-1 in the same write.
+    const scope = (await state.webhookDeliveryScopes())[0] ?? ""
+    expect((await state.webhookDeliveries(scope)).map(delivery => delivery.deliveryId)).toEqual(["delivery-2"])
     await vi.advanceTimersByTimeAsync(3_000)
     expect(run).not.toHaveBeenCalled()
-    await vi.waitFor(() => expect(complete).toHaveBeenCalledWith(expect.any(String), "delivery-1", expect.any(String)))
 
     await vi.advanceTimersByTimeAsync(3_000)
     await vi.waitFor(() => expect(run).toHaveBeenCalledOnce())

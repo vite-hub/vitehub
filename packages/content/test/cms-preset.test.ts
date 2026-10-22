@@ -65,10 +65,12 @@ describe("reading the cms preset from server/content.ts", () => {
       "export const content = defineContent({ extends: cms, collections: {} })",
     ].join("\n"))).toEqual({ file, options: {} })
     expect(read([
+      "import { defineContent } from '@vite-hub/content'",
       "import { cms as preset } from '@vite-hub/content/presets/cms'",
       "export const content = defineContent({ extends: [preset, { database: 'content', 'blob': `media`, workspace: undefined }] } satisfies object)",
     ].join("\n"))).toEqual({ file, options: { blob: "media", database: "content" } })
     expect(read([
+      "import { defineContent } from 'vite-hub/content'",
       "import * as presets from 'vite-hub/content/presets/cms'",
       "export const content = defineContent({ extends: [presets.default, { workspace: 'site' }] as const })",
     ].join("\n"))).toEqual({ file, options: { workspace: "site" } })
@@ -97,13 +99,13 @@ describe("reading the cms preset from server/content.ts", () => {
     const missing = errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent(Object.assign({}, { preset: cms }))\n"))
     expect(missing.code).toBe("CONTENT_B0001")
     expect(missing.message).toContain("\"server/content.ts\": imports the Content cms preset but does not select it with extends.")
-    expect(errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
       .toContain("cms preset option \"database\" must be a string literal")
-    expect(errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: [cms, { store: 'x' }] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: [cms, { store: 'x' }] })")).message)
       .toContain("unknown cms preset option \"store\". Use database, blob, or workspace.")
-    expect(errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
       .toContain("the cms preset tuple must be [cms, { ... }] with an object literal.")
-    expect(errorOf(() => read("import cms from 'vite-hub/content/presets/cms'\nexport const a = defineContent({ extends: cms })\nexport const content = defineContent({ extends: cms })")).message)
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms, extends: [cms, {}] })")).message)
       .toContain("selects the Content cms preset more than once.")
   })
 })
@@ -214,7 +216,7 @@ describe("hubContent()", () => {
     for (const [path, body] of Object.entries(databases)) await writeProjectFile(root, path, body)
     return root
   }
-  const presetContent = "import cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms })\n"
+  const presetContent = "import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms })\n"
 
   function resolvedConfig(root: string, plugins: Array<{ name: string, api?: unknown }>): ResolvedConfig {
     // SAFETY: configResolved reads only the root and plugin names and APIs.

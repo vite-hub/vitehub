@@ -24,6 +24,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSectionIcon from "./console-section-icon.vue";
+import ConsoleState from "./console-state.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 const props = defineProps<{
@@ -108,9 +109,6 @@ const summary = computed(() => {
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
-function errorMessage(value: unknown): string {
-  return value instanceof Error ? value.message : "The console could not load its configuration.";
-}
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
@@ -193,17 +191,12 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <UAlert
+            <ConsoleState
               v-else-if="error && !availableSections.length"
               class="mt-12"
-              color="error"
-              variant="subtle"
-              icon="i-ph-cloud-slash-light"
+              :error="error"
               title="Could not load sections"
-              :description="errorMessage(error)"
-              :actions="[
-                { label: 'Try again', icon: 'i-ph-arrows-clockwise-light', onClick: loadSections },
-              ]"
+              :retry="loadSections"
             />
 
             <template v-else>
@@ -266,10 +259,8 @@ onBeforeUnmount(() => request++);
                     <li v-if="recentSessions.pending.value && !sessionItems.length" aria-hidden="true">
                       <USkeleton class="my-2 h-5 rounded-md" />
                     </li>
-                    <li v-else-if="recentSessions.error.value" class="vitehub-console__overview-row" data-static>
-                      <span class="vitehub-console__overview-icon"><UIcon name="i-ph-cloud-slash-light" class="size-3.5" /></span>
-                      <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
-                      <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
+                    <li v-else-if="recentSessions.error.value" class="py-2">
+                      <ConsoleState compact :error="recentSessions.error.value" title="Could not load recent sessions" :retry="loadRecentSessions" />
                     </li>
                     <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row" data-static>
                       <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>

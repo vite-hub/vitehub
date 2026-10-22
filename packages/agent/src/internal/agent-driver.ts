@@ -294,7 +294,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
     ? undefined
     : normalizeRetention(value.retention, {
         defaults: { maxAgeMs: false, maxRecords: false, maxSize: false },
-        error: message => agentDiagnostics.AGENT_R1005({ message: `[vitehub] ${message}` }),
+        error: message => agentDiagnostics.AGENT_R1008({ message: `[vitehub] ${message}` }),
         label: "defineAgent({ driver.retention })",
         size: "any",
       })

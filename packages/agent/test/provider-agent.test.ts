@@ -254,7 +254,7 @@ describe("Provider Agent Driver", () => {
   it("adds the Agent forge access environment to the Driver environment", async () => {
     const threadId = "thread-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async () => "installation-token")
+    const access = vi.fn(async () => ({ token: "installation-token" }))
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: { head: { sha: "a".repeat(40) }, number: 42, source: { mount: "portal", ref: "refs/pull/42/head", repo: "acme/portal" } },
@@ -278,7 +278,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-github-environment-no-checkout"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => ({ token: scope.repository === "contributor/portal" ? "fork-token" : "installation-token" }))
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -302,7 +302,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-babysitter-github-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
     // Multi-installation GitHub Apps can only resolve credentials for a repository.
-    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => ({ token: scope.repository === "contributor/portal" ? "fork-token" : "installation-token" }))
     const base = context(threadId)
     // Babysitter passes these flat fields directly as the Agent input context.
     base.context.set("preparedCheckout", "/caller/prepared-checkout")
@@ -326,7 +326,7 @@ describe("Provider Agent Driver", () => {
   it("adds fork credentials while preserving base API access in the Driver environment", async () => {
     const threadId = "thread-github-fork-environment"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => scope.repository === "contributor/portal" ? "fork-token" : "installation-token")
+    const access = vi.fn(async (_context: unknown, scope: { repository: string }) => ({ token: scope.repository === "contributor/portal" ? "fork-token" : "installation-token" }))
     const base = context(threadId)
     base.context.set("pullRequest", {
       pullRequest: {
@@ -1211,6 +1211,8 @@ describe("Provider Agent Driver", () => {
     const durableStore = await lastDurableProviderSessionStore()
     expect(await durableStore.get(persistedThreadId)).toEqual({
       __vitehubProviderSessionCursor: "ready",
+      // #2636 records the digest of the Codex developer instructions that started the session.
+      instructions: expect.stringMatching(/^[0-9a-f]{64}$/),
       value: "durable-cursor",
     })
 
@@ -1229,6 +1231,8 @@ describe("Provider Agent Driver", () => {
 
     expect(await durableStore.get(persistedThreadId)).toEqual({
       __vitehubProviderSessionCursor: "ready",
+      // #2636 records the digest of the Codex developer instructions that started the session.
+      instructions: expect.stringMatching(/^[0-9a-f]{64}$/),
       value: "durable-cursor",
     })
   })
@@ -1274,6 +1278,8 @@ describe("Provider Agent Driver", () => {
     await recovery
     expect(await durableStore.get(persistedThreadId)).toEqual({
       __vitehubProviderSessionCursor: "ready",
+      // #2636 records the digest of the Codex developer instructions that started the session.
+      instructions: expect.stringMatching(/^[0-9a-f]{64}$/),
       value: "recovered-cursor",
     })
   })
@@ -4614,7 +4620,7 @@ cli_auth_credentials_store = "keyring"
       readFile: vi.fn(async () => new Uint8Array()),
     }
     const workspace = { fs: {}, startSession: vi.fn(async () => session), tools: {} }
-    const access = vi.fn(async () => "installation-token")
+    const access = vi.fn(async () => ({ token: "installation-token" }))
     const base = context(threadId, { workspace, workspaceDefinition: { mode: "write", name: "docs" }, workspaceMode: "write" })
     base.context.set("pullRequest", {
       pullRequest: {

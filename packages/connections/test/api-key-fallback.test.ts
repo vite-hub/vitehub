@@ -69,11 +69,11 @@ describe("API key fallback", () => {
     const test = harness(() => ENV_KEY)
     expect(await test.runtime.revoke({ name: "executor" })).toMatchObject({ status: "revoked" })
     expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
-    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
 
     await test.runtime.setKey({ key: STORED_KEY, name: "executor" })
     await test.runtime.revoke({ name: "executor" })
-    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    await expect(test.runtime.client("executor", {}).fetch(URL_ITEMS)).rejects.toMatchObject({ code: "CONNECTIONS_NOT_CONNECTED" })
     expect(test.keys).toEqual([])
   })
 
@@ -97,7 +97,7 @@ describe("API key fallback", () => {
     expect(await test.runtime.inspect("executor")).toMatchObject({ status: "disconnected" })
     expect(await test.runtime.inspect("executor")).not.toHaveProperty("keySource")
     const error = await test.runtime.client("executor", {}).fetch(URL_ITEMS).catch((cause: unknown) => cause)
-    expect(error).toMatchObject({ code: "CONNECTIONS_ORIGIN_NOT_ALLOWED" })
+    expect(error).toMatchObject({ code: "CONNECTIONS_INVALID_PROVIDER", why: "The fallback key of Connection \"executor\" must contain 1 to 8192 visible ASCII characters." })
     expect(String(error)).not.toContain("has space")
     expect(test.keys).toEqual([])
   })
