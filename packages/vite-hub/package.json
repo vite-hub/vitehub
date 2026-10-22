@@ -1226,7 +1226,7 @@
     "esbuild": "catalog:tooling",
     "h3": "catalog:unjs",
     "jose": "catalog:auth",
-    "katex": "^0.19.0",
+    "katex": "^0.17.0",
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
