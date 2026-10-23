@@ -51,6 +51,10 @@ function consoleBuildId(contents: string): string {
     .update(readConsoleOutput(consolePublicRoot))
     .update("\0")
     .update(readConsoleOutput(join(consoleRuntimeRoot, "server")))
+    .update("\0")
+    .update(readConsoleOutput(join(consoleRuntimeRoot, "pages")))
+    .update("\0")
+    .update(readConsoleOutput(join(consoleRuntimeRoot, "components")))
     .digest("hex")
     .slice(0, 16)
 }
