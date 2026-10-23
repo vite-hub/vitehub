@@ -11,7 +11,7 @@ export interface ConsoleFieldIssue {
 export function groupConsoleFieldIssues(issues: readonly ConsoleFieldIssue[]): Record<string, string[]> {
   const grouped: Record<string, string[]> = {}
   for (const issue of issues) {
-    const key = [issue.field, ...issue.path.filter(segment => String(segment) === segment)].filter(segment => segment !== undefined).join(".") || ""
+    const key = [issue.field, ...issue.path].filter(segment => segment !== undefined).join(".") || ""
     ;(grouped[key] ??= []).push(issue.message)
   }
   return grouped
@@ -25,6 +25,7 @@ export type ConsoleSchemaFieldKind =
   | "enum"
   | "integer"
   | "json"
+  | "list"
   | "number"
   | "object"
   | "string"
@@ -37,6 +38,10 @@ export interface ConsoleSchemaField {
   /** Child fields of an `object` field. */
   fields?: ConsoleSchemaField[]
   format?: string
+  /** For an object that holds an image, such as `{ src, alt }`: the names of its source and alternative text fields. */
+  image?: { alt?: string, src: string }
+  /** The field of each item of a `list` field. */
+  item?: ConsoleSchemaField
   kind: ConsoleSchemaFieldKind
   label: string
   maxLength?: number
@@ -98,35 +103,104 @@ function fieldKind(schema: Record<string, unknown>): ConsoleSchemaFieldKind {
     // Tags edit plain text, so formats that are plain text too, such as URLs and emails, stay tags.
     const textFormat = items?.format === undefined || ["email", "uri", "url"].includes(String(items.format))
     if (items && itemTypes.length === 1 && itemTypes[0] === "string" && !items.enum && textFormat) return "string-list"
-    return "json"
+    // Any other item with a shape, such as a link object or a date, edits as a list of those fields.
+    return items && fieldKind(nonNullSchema(items)) !== "json" ? "list" : "json"
   }
   if (type === "object" && record(schema.properties)) return "object"
   return "json"
+}
+
+function describeField(name: string, value: unknown, required: boolean, label?: string): ConsoleSchemaField {
+  const property = nonNullSchema(record(value) ?? {})
+  const kind = fieldKind(property)
+  const field: ConsoleSchemaField = {
+    kind,
+    label: String(property.title) === property.title && property.title ? property.title : label ?? consoleFieldLabel(name),
+    name,
+    required,
+    schema: property,
+  }
+  if (String(property.description) === property.description) field.description = property.description
+  if (String(property.format) === property.format) field.format = property.format
+  if (kind === "enum" && Array.isArray(property.enum)) field.enum = property.enum.filter(option => String(option) === option || Number.isFinite(option))
+  for (const key of ["minimum", "maximum", "maxLength"] as const) {
+    const number = Number(property[key])
+    if (property[key] !== undefined && Number.isFinite(number)) field[key] = number
+  }
+  if (kind === "object") {
+    field.fields = describeConsoleSchemaFields(property)
+    // `{ src, alt }` holds an image by its URL, so the form can show it.
+    const text = (child: string) => field.fields!.find(entry => entry.name === child && (entry.kind === "string" || entry.kind === "text"))
+    const src = text("src")
+    if (src && text("alt")) field.image = { alt: "alt", src: src.name }
+  }
+  if (kind === "list") field.item = describeField(name, property.items, true, "Item")
+  return field
 }
 
 /** Describes the form fields of an object JSON Schema, in property order. Unknown shapes become JSON fields. */
 export function describeConsoleSchemaFields(schema: Record<string, unknown>): ConsoleSchemaField[] {
   const properties = record(schema.properties) ?? {}
   const required = new Set(Array.isArray(schema.required) ? schema.required.filter(name => String(name) === name) : [])
-  return Object.entries(properties).map(([name, value]) => {
-    const property = nonNullSchema(record(value) ?? {})
-    const kind = fieldKind(property)
-    const field: ConsoleSchemaField = {
-      kind,
-      label: String(property.title) === property.title && property.title ? property.title : consoleFieldLabel(name),
-      name,
-      required: required.has(name),
-      schema: property,
+  return Object.entries(properties).map(([name, value]) => describeField(name, value, required.has(name)))
+}
+
+/** The value of a new list item: the defaults of an object, or an empty value of the item's kind. */
+export function consoleSchemaItemValue(item: ConsoleSchemaField): unknown {
+  if (item.schema.default !== undefined) return JSON.parse(JSON.stringify(item.schema.default))
+  if (item.kind === "object") return consoleSchemaDefaults(item.schema)
+  if (item.kind === "list" || item.kind === "string-list") return []
+  if (item.kind === "boolean") return false
+  if (item.kind === "enum") return item.enum?.[0]
+  if (item.kind === "number" || item.kind === "integer") return item.minimum ?? 0
+  if (item.kind === "string" || item.kind === "text" || item.kind === "date" || item.kind === "date-time") return ""
+  return undefined
+}
+
+// Names that usually hold the title of a list item, in order of preference.
+const itemTitleNames = ["label", "title", "name", "heading", "question", "value"]
+
+/**
+ * The title and detail of a list item, such as `Product` and `/product` for a link `{ label, to }`. The title is the
+ * first filled field named like a title, else the first filled text field. The detail is the next filled text field,
+ * else the size of the first filled list, such as `Links 2`. Other values use their one-line summary.
+ */
+export function consoleItemTitle(item: ConsoleSchemaField, value: unknown): { detail?: string, title: string } {
+  const object = record(value)
+  if (item.kind !== "object" || !item.fields || !object) return { title: consoleValueSummary(item.kind === "boolean" ? undefined : item, value) }
+  const texts = item.fields
+    .filter(field => field.kind === "string" || field.kind === "text" || field.kind === "enum" || field.kind === "date" || field.kind === "date-time")
+    .map(field => ({ name: field.name, text: consoleValueSummary(field, object[field.name]) }))
+    .filter(entry => entry.text)
+  const preferred = itemTitleNames.map(name => texts.find(entry => entry.name === name)).find(entry => entry !== undefined)
+  const title = preferred ?? texts[0]
+  const detail = texts.find(entry => entry !== title)
+  const result: { detail?: string, title: string } = { title: title?.text ?? consoleValueSummary(item, value) }
+  const lists = item.fields.flatMap((field) => {
+    const entry = object[field.name]
+    return (field.kind === "list" || field.kind === "string-list") && Array.isArray(entry) && entry.length ? [`${field.label} ${entry.length}`] : []
+  })
+  if (detail) result.detail = detail.text
+  else if (lists[0]) result.detail = lists[0]
+  return result
+}
+
+/**
+ * The filled children of an object value as label and text pairs, so a folded object reads `Label Book a demo To /demo`.
+ * A list counts its items, a switch that is on shows only its label, and a nested object shows its own summary.
+ */
+export function consoleValueParts(field: Pick<ConsoleSchemaField, "fields">, value: unknown): Array<{ label: string, text: string }> {
+  const object = record(value)
+  if (!object || !field.fields) return []
+  return field.fields.flatMap((child) => {
+    const entry = object[child.name]
+    if (child.kind === "list" || child.kind === "json") {
+      if (!Array.isArray(entry) || !entry.length) return []
+      return [{ label: child.label, text: entry.length === 1 ? "1 item" : `${entry.length} items` }]
     }
-    if (String(property.description) === property.description) field.description = property.description
-    if (String(property.format) === property.format) field.format = property.format
-    if (kind === "enum" && Array.isArray(property.enum)) field.enum = property.enum.filter(option => String(option) === option || Number.isFinite(option))
-    for (const key of ["minimum", "maximum", "maxLength"] as const) {
-      const number = Number(property[key])
-      if (property[key] !== undefined && Number.isFinite(number)) field[key] = number
-    }
-    if (kind === "object") field.fields = describeConsoleSchemaFields(property)
-    return field
+    if (child.kind === "boolean") return entry === true ? [{ label: child.label, text: "" }] : []
+    const text = consoleValueSummary(child, entry)
+    return text ? [{ label: child.label, text }] : []
   })
 }
 
@@ -153,6 +227,11 @@ export function compactConsoleFieldValues(fields: readonly ConsoleSchemaField[],
       if (empty && !field.required) delete result[field.name]
       else result[field.name] = nested
       continue
+    }
+    if (field.kind === "list" && field.item?.kind === "object" && field.item.fields && Array.isArray(value)) {
+      // Each item drops its own empty optional values, such as a link without an icon.
+      const item = field.item
+      result[field.name] = value.map(entry => record(entry) ? compactConsoleFieldValues(item.fields!, record(entry)!) : entry)
     }
     if (field.required) continue
     if (value === "" || value === null || value === undefined) delete result[field.name]
@@ -211,7 +290,8 @@ export function consoleFieldIssueMessage(label: string, message: string): string
 /** Rewrites the message of each field issue with the label of the field it belongs to, such as `Author name is required.` */
 export function humanizeConsoleFieldIssues(fields: readonly ConsoleSchemaField[], issues: readonly ConsoleFieldIssue[]): ConsoleFieldIssue[] {
   return issues.map((issue) => {
-    const path = [issue.field, ...issue.path.filter(segment => String(segment) === segment)].filter(segment => segment !== undefined)
+    // Array indexes identify list items, but do not have schema fields of their own.
+    const path = [issue.field, ...issue.path].filter(segment => segment !== undefined && String(segment) === segment)
     let level: readonly ConsoleSchemaField[] | undefined = fields
     const labels: string[] = []
     for (const name of path) {
@@ -236,7 +316,7 @@ function emptyValue(value: unknown): boolean {
  * owner validators still run on save and stay the source of truth.
  */
 export function consoleFieldValueIssue(field: ConsoleSchemaField, value: unknown): string | undefined {
-  if (field.kind === "object" || field.kind === "blob" || field.kind === "json") return undefined
+  if (field.kind === "object" || field.kind === "blob" || field.kind === "json" || field.kind === "list") return undefined
   if (emptyValue(value)) return field.required && field.kind !== "boolean" ? `${field.label} is required.` : undefined
   if ((field.kind === "string" || field.kind === "text") && String(value) === value) {
     if (field.maxLength !== undefined && value.length > field.maxLength) return `${field.label} must be at most ${field.maxLength} characters.`

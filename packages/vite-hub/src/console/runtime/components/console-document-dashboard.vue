@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
-import { useRoute } from "vue-router";
+import { useRoute, useRouter } from "vue-router";
 
 import {
   consoleDocumentScheduleHint,
@@ -17,7 +17,7 @@ import { useConsoleDocumentSessions } from "../client/presence";
 import { publishConsoleDocumentChanges } from "../client/publish";
 import { useConsoleToast } from "../client/toast";
 import { resolveConsoleRouteName } from "../console-route";
-import { consoleSectionRouteName } from "../sections";
+import { consoleSectionPageRouteName, consoleSectionRouteName } from "../sections";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
@@ -46,6 +46,7 @@ const props = defineProps<{
 const emit = defineEmits<{ changed: [], reload: [] }>();
 
 const route = useRoute();
+const router = useRouter();
 const toast = useConsoleToast();
 const publishing = ref(false);
 const publishOpen = ref(false);
@@ -108,6 +109,37 @@ const blocked = computed(() => pending.value.filter(entry => entry.collection.ac
 const canPublishAny = computed(() => props.collections.some(collection => collection.access.publish));
 // Singletons, such as site settings, have their own page and no New button.
 const listed = computed(() => props.collections.filter(collection => collection.kind !== "singleton"));
+const singletons = computed(() => props.collections.filter(collection => collection.kind === "singleton"));
+const settingsRoute = computed(() => {
+  const name = consoleSectionPageRouteName(props.section, "settings");
+  return router.hasRoute(name) ? { name } : undefined;
+});
+
+function statesOf(names: readonly string[]): Record<ConsoleDocumentState, number> {
+  const states: Record<ConsoleDocumentState, number> = { draft: 0, changed: 0, published: 0, deleted: 0 };
+  for (const entry of props.overview?.collections ?? []) {
+    if (!names.includes(entry.name)) continue;
+    for (const state of consoleDocumentStates) states[state] += entry.states[state];
+  }
+  return states;
+}
+
+/** `5 published`, then the drafts and changes that wait for a publish, such as `2 drafts`. */
+function collectionCounts(names: readonly string[]): Array<{ label: string, state: ConsoleDocumentState }> {
+  const states = statesOf(names);
+  return [
+    ...(states.draft ? [{ label: states.draft === 1 ? "1 draft" : `${states.draft} drafts`, state: "draft" as const }] : []),
+    ...(states.changed ? [{ label: `${states.changed} changed`, state: "changed" as const }] : []),
+  ];
+}
+
+// Recent activity shows the latest entries first and the rest on request.
+const activityLimit = 8;
+const showAllActivity = ref(false);
+const activity = computed(() => {
+  const entries = props.overview?.activity ?? [];
+  return showAllActivity.value ? entries : entries.slice(0, activityLimit);
+});
 const writable = computed(() => listed.value.filter(collection => collection.access.write));
 const firstLoad = computed(() => props.loading && !props.overview);
 // Without an access policy no one reads anything, so "Everything is published" would not be true.
@@ -215,7 +247,7 @@ async function publishAll(): Promise<void> {
         >
           <ConsoleStatus :tone="consoleDocumentStateColor(stat.state)" :label="stat.label" />
           <USkeleton v-if="firstLoad" class="h-7 w-10 rounded" />
-          <span v-else class="text-2xl font-semibold tracking-tight text-highlighted tabular-nums">{{ stat.count }}</span>
+          <span v-else class="text-2xl font-semibold tracking-tight tabular-nums" :class="stat.count ? 'text-highlighted' : 'text-dimmed'">{{ stat.count }}</span>
         </div>
       </section>
 
@@ -248,14 +280,14 @@ async function publishAll(): Promise<void> {
             <div v-if="firstLoad" class="grid gap-px">
               <USkeleton v-for="index in 3" :key="index" class="h-11 rounded-md" />
             </div>
-            <div v-else-if="!pending.length && noAccess" class="rounded-lg border border-dashed border-default px-4 py-6 text-center">
+            <div v-else-if="!pending.length && noAccess" class="grid gap-0.5 py-1">
               <p class="text-[13px] text-highlighted">No one can read documents yet</p>
-              <p class="mt-1 text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>
+              <p class="text-xs text-muted"><ConsoleSetupHint :hint="noAccess" /></p>
             </div>
-            <div v-else-if="!pending.length" class="rounded-lg border border-dashed border-default px-4 py-6 text-center">
-              <p class="text-[13px] text-highlighted">Everything is published</p>
-              <p class="mt-1 text-xs text-muted">Drafts and edits show here until someone publishes them.</p>
-            </div>
+            <p v-else-if="!pending.length" class="flex items-center gap-2 py-1 text-[13px] text-muted">
+              <UIcon name="i-lucide-circle-check" class="size-4 shrink-0 text-success" aria-hidden="true" />
+              Everything is published. Drafts and edits show here until someone publishes them.
+            </p>
             <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
               <li v-for="entry in pending.slice(0, 12)" :key="`${entry.collection.name}/${entry.change.id}`">
                 <RouterLink
@@ -314,15 +346,16 @@ async function publishAll(): Promise<void> {
             <div v-if="firstLoad && !listed.length" class="grid gap-px">
               <USkeleton v-for="index in 2" :key="index" class="h-11 rounded-md" />
             </div>
-            <p v-else-if="!listed.length" class="text-xs text-muted">No collections you can read.</p>
+            <p v-else-if="!listed.length && !singletons.length" class="text-xs text-muted">No collections you can read.</p>
             <ul v-else class="divide-y divide-default overflow-hidden rounded-lg border border-default">
               <li v-for="collection in listed" :key="collection.name" class="flex h-11 items-center gap-3 px-3">
                 <RouterLink :to="collectionRoute(collection.name)" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2">
                   <span class="truncate text-sm font-medium text-highlighted">{{ collection.label }}</span>
                   <span class="hidden truncate font-mono text-xs text-dimmed sm:inline">{{ collection.path }}</span>
                 </RouterLink>
-                <span class="shrink-0 text-xs text-muted tabular-nums">
-                  {{ (overview?.collections.find(entry => entry.name === collection.name)?.states.published ?? 0) }} published
+                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                  <ConsoleStatus v-for="count in collectionCounts([collection.name])" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                  <span>{{ statesOf([collection.name]).published }} published</span>
                 </span>
                 <UButton
                   v-if="collection.access.write"
@@ -333,6 +366,16 @@ async function publishAll(): Promise<void> {
                   :label="consoleSingularLabel(collection)"
                   :aria-label="`New ${consoleSingularLabel(collection).toLowerCase()}`"
                 />
+              </li>
+              <li v-if="singletons.length && settingsRoute" class="flex h-11 items-center gap-3 px-3">
+                <RouterLink :to="settingsRoute" class="flex min-w-0 flex-1 items-baseline gap-2 rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2">
+                  <span class="truncate text-sm font-medium text-highlighted">Settings</span>
+                  <span class="hidden truncate text-xs text-dimmed sm:inline">{{ singletons.length === 1 ? "1 singleton" : `${singletons.length} singletons` }}</span>
+                </RouterLink>
+                <span class="flex shrink-0 items-center gap-3 text-xs text-muted tabular-nums">
+                  <ConsoleStatus v-for="count in collectionCounts(singletons.map(entry => entry.name))" :key="count.state" class="hidden sm:inline-flex" :tone="consoleDocumentStateColor(count.state)" :label="count.label" />
+                  <span>{{ statesOf(singletons.map(entry => entry.name)).published }} published</span>
+                </span>
               </li>
             </ul>
             <p v-if="listed.length && !writable.length" class="text-xs text-dimmed">You can read these collections but not edit them.</p>
@@ -345,10 +388,10 @@ async function publishAll(): Promise<void> {
             <USkeleton v-for="index in 5" :key="index" class="h-9 rounded-md" />
           </div>
           <p v-else-if="!overview?.activity.length" class="text-xs text-muted">Saves and publishes show here.</p>
-          <ol v-else class="grid gap-3">
-            <li v-for="entry in overview.activity" :key="entry.id" class="grid gap-0.5">
-              <p class="line-clamp-2 min-w-0 text-[13px] text-muted">
-                <span class="font-medium text-highlighted">{{ entry.author ?? "Someone" }}</span>
+          <ol v-else class="grid">
+            <li v-for="entry in activity" :key="entry.id" class="grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-baseline gap-x-3 py-1">
+              <p class="min-w-0 truncate text-[13px] text-muted" :title="entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(', ')">
+                <span :class="entry.author ? 'font-medium text-highlighted' : ''">{{ entry.author ?? "Someone" }}</span>
                 {{ activityVerb(entry) }}
                 <template v-if="entry.documents.length === 1">
                   <RouterLink
@@ -360,13 +403,18 @@ async function publishAll(): Promise<void> {
                 </template>
                 <span v-else class="text-highlighted">{{ entry.documents.length }} documents</span>
               </p>
-              <p class="flex min-w-0 gap-1.5 text-xs text-dimmed">
-                <span class="shrink-0 whitespace-nowrap"><ConsoleRelativeTime :value="entry.createdAt" /></span>
-                <span aria-hidden="true">·</span>
-                <span class="truncate">{{ entry.documents.length === 1 ? collectionLabel(entry.documents[0]!.collection) : entry.documents.map(document => document.title).join(", ") }}</span>
-              </p>
+              <span class="text-xs whitespace-nowrap text-dimmed tabular-nums"><ConsoleRelativeTime :value="entry.createdAt" /></span>
             </li>
           </ol>
+          <button
+            v-if="(overview?.activity.length ?? 0) > activityLimit"
+            type="button"
+            class="w-fit rounded-sm text-xs text-dimmed hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2"
+            :aria-expanded="showAllActivity"
+            @click="showAllActivity = !showAllActivity"
+          >
+            {{ showAllActivity ? "Show less" : `Show all ${overview?.activity.length}` }}
+          </button>
         </section>
       </div>
     </div>

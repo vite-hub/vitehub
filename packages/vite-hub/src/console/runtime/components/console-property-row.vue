@@ -17,6 +17,8 @@ const props = defineProps<{
   error?: string;
   /** Id of the control the label names. */
   control?: string;
+  /** Nesting level inside object fields and list items. The label column narrows by one indent per level, so every value starts at the same place. */
+  depth?: number;
   icon: string;
   label: string;
   /** Required and still empty. */
@@ -29,7 +31,11 @@ const people = computed(() => (props.control ? fieldPeople?.value[props.control]
 </script>
 
 <template>
-  <div class="grid min-h-8 grid-cols-1 items-start gap-x-1 pb-2 sm:pb-0 sm:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]" :data-vitehub-field="control">
+  <div
+    class="grid min-h-8 grid-cols-1 items-start gap-x-1 pb-2 sm:pb-0 sm:grid-cols-[minmax(0,var(--vh-property-label))_minmax(0,1fr)]"
+    :style="{ '--vh-property-label': `calc(10rem - ${depth ?? 0} * 1.5rem)` }"
+    :data-vitehub-field="control"
+  >
     <label
       :for="control"
       class="flex h-7 min-w-0 items-center gap-2 rounded-md px-1.5 text-[13px] text-muted sm:h-8"
