@@ -28,7 +28,16 @@ export async function getAuthenticationSession(
     throw authErrorDiagnostics.AUTH_R0011({ message: "Better Auth did not expose api.getSession()." })
   }
 
-  const value = await readProvider(() => Reflect.apply(getSession, api, [input]))
+  const value = await readProvider(async () => {
+    try {
+      return await Reflect.apply(getSession, api, [input])
+    }
+    catch (cause) {
+      // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`.
+      if (isUnauthorizedApiError(cause)) return null
+      throw cause
+    }
+  })
   if (value === null) return null
   const session = await readProvider(() => resolveAuthenticationSession(value))
   if (!session) {
@@ -64,6 +73,18 @@ function resolveAuthenticationSession(value: unknown): AuthenticationSessionSnap
     session,
     user: user as AuthenticationSessionSnapshot["user"],
     userId,
+  }
+}
+
+function isUnauthorizedApiError(error: unknown): boolean {
+  if (typeof error !== "object" || error === null) return false
+  try {
+    if (Reflect.get(error, "name") !== "APIError" || Reflect.get(error, "statusCode") !== 401) return false
+    const body = Reflect.get(error, "body")
+    return typeof body === "object" && body !== null && Reflect.get(body, "code") === "FAILED_TO_GET_SESSION"
+  }
+  catch {
+    return false
   }
 }
 

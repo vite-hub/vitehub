@@ -540,6 +540,17 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
     { conditions: ["vitehub-hosted", "workerd", "worker", "browser", "default"], platform: "neutral" as const },
     { conditions: ["vitehub-hosted", "node", "default"], platform: "node" as const },
   ]
+  // Each build variant loads the same modules again. Parse every module once per trace.
+  const computedModuleSources = new Map<string, { paths: string[], requests: RuntimeModuleRequest[], source: string }>()
+  const traceComputedModuleSourcesOnce = (file: string, source: string) => {
+    const cached = computedModuleSources.get(file)
+    if (cached?.source === source) return cached
+    const requests: RuntimeModuleRequest[] = []
+    const paths = traceComputedModuleSources(file, source, request => requests.push(request))
+    const traced = { paths, requests, source }
+    computedModuleSources.set(file, traced)
+    return traced
+  }
   try {
     const importedSources = new Set(entries)
     const scannedModuleRequestSources = new Set<string>()
@@ -646,9 +657,9 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
               const source = await readFile(request.path, "utf8").catch(() => undefined)
               if (!source) return undefined
               const runtimeRequests = new Map<string, RuntimeModuleRequest>()
-              traceComputedModuleSources(request.path, source, (runtimeRequest) => {
+              for (const runtimeRequest of traceComputedModuleSourcesOnce(request.path, source).requests) {
                 runtimeRequests.set(`${runtimeRequest.kind}\0${runtimeRequest.resolveFrom}\0${runtimeRequest.specifier}`, runtimeRequest)
-              })
+              }
               await Promise.all([...runtimeRequests.values()].map(async runtimeRequest => {
                 const resolveFrom = runtimeRequest.resolveFrom ?? request.path
                 const resolution = await traceBuild.resolve(runtimeRequest.specifier, {
@@ -695,7 +706,7 @@ async function traceImportedSources(paths: string[], root: string, configuredRoo
         .map(async path => [path, await readFile(path, "utf8")] as const))
       for (const [file, source] of moduleRequestSourceContents) {
         scannedModuleRequestSources.add(file)
-        for (const imported of traceComputedModuleSources(file, source)) {
+        for (const imported of traceComputedModuleSourcesOnce(file, source).paths) {
           importedSources.add(imported)
           if (traceableSourceExtensions.has(extname(imported))
             && !tracedEntries.has(imported)

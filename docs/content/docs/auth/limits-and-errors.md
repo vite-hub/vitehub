@@ -13,6 +13,7 @@ icon: i-lucide-circle-alert
 - Configure a concrete Better Auth database adapter and its migrations.
 - Protect application and Console pages and APIs explicitly. A session proves identity. Your `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure unless the host mounts the handler itself. Use the same `basePath` on the server and the client.
+- A stateless session, without a Better Auth `database` or `secondaryStorage` adapter, cannot use [`session.onRefresh`](/docs/auth/configure#session-refresh). Better Auth refreshes its cookie cache without a hook, so a banned user keeps the session until it expires.
 
 ## Handle required authentication
 
@@ -30,6 +31,8 @@ console.log(error.toJSON())
 | --- | --- |
 | `AUTHENTICATION_REQUIRED` | `authenticated()` requires a session and none exists. |
 | `AUTH_PROVIDER_OPERATION_FAILED` | A default Better Auth request, session, or user lookup fails. `details.operation` is `get-auth-for-request`, `get-session`, or `get-user` (from `agentAuth.user()`). Raw provider diagnostics stay in `cause`. |
+| `AUTH_C0041` | `session.onRefresh` is not a function. |
+| `AUTH_C0042` | `session.onRefresh` is set, but Better Auth has no `database` or `secondaryStorage` adapter. |
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
