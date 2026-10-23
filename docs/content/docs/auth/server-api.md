@@ -11,6 +11,7 @@ icon: i-lucide-code-2
 | Import | Use |
 | --- | --- |
 | `defineAuth` from `@vite-hub/auth` | Declare the Primary Auth Definition. |
+| `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, with no database. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |
 | `auth`, `getAuth`, `getAuthForRequest` from `@vite-hub/auth/server` | Access the Better Auth instance from server code. |
 | `handleAuth`, `handleAuthRequest`, `createAuthHandler` from `@vite-hub/auth/server` | Mount or call the Auth handler manually. |

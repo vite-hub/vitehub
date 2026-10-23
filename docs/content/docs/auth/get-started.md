@@ -84,6 +84,7 @@ curl -i -b cookies.txt http://localhost:5173/api/auth/get-session
 The JSON response includes the signed-in user and session expiry. The default
 store is for discovery and local checks, not durable production sessions. Read
 [Storage placement](/docs/auth/configure#storage-placement-metadata) before
-adding a database adapter, and [Server API](/docs/auth/server-api) for route
+adding a database adapter, or use [Sessions without a database](/docs/auth/configure#sessions-without-a-database)
+for social sign-in only. Read [Server API](/docs/auth/server-api) for route
 guards.
 ::

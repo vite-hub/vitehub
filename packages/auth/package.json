@@ -50,6 +50,12 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./presets": {
+      "types": "./dist/presets.d.ts",
+      "import": "./dist/presets.js",
+      "require": "./dist/presets.js",
+      "default": "./dist/presets.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
