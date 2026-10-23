@@ -2,7 +2,7 @@
 title: Edit Content in the Console
 description: Edit, publish, and restore Content documents from the ViteHub Console, and give editors access to only that section.
 navigation.title: Console editor
-navigation.order: 5
+navigation.order: 9
 icon: i-lucide-file-pen-line
 ---
 
