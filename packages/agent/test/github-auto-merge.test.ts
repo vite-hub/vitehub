@@ -25,6 +25,8 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
     additionalRulePages: [] as unknown[][],
     /** Classic required status checks, or null when the branch has none. */
     protection: null as { contexts: string[] } | null,
+    /** Whether the credential can read classic protection, which needs admin access. */
+    protectionReadable: true,
     children: 0,
     thread: { pullRequest: { id: "PR_123" }, isResolved: false },
     reviewPage: { nodes: [] as typeof pullRequest.latestOpinionatedReviews.nodes, pageInfo: page() },
@@ -53,8 +55,14 @@ async function fixture(options: Partial<GitHubPullRequestOperationsOptions> = {}
       const next = state.additionalRulePages.length ? { link: '<https://api.github.com/repos/acme/app/rules/branches/main?per_page=100&page=2>; rel="next"' } : undefined
       return Response.json(state.rules, next ? { headers: next } : {})
     }
-    if (path === "/repos/acme/app/branches/main/protection/required_status_checks") return state.protection ? { ...state.protection, checks: [] } : githubError(404, "Required status checks not enabled")
-    if (path === "/repos/acme/app/branches/main") return { protected: false }
+    if (path === "/repos/acme/app/branches/main/protection") {
+      if (!state.protectionReadable) return githubError(403, "Resource not accessible by integration")
+      return state.protection ? {} : githubError(404, "Branch not protected")
+    }
+    if (path === "/repos/acme/app/branches/main") {
+      if (!state.protection) return { name: "main", protected: false }
+      return { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: state.protection.contexts, checks: state.protection.contexts.map(context => ({ context, app_id: null })) } } }
+    }
     if (path === "/repos/acme/app/actions/runs/123") return state.run
     if (path === "/repos/acme/app/actions/runs/123/jobs") return { total_count: 2, jobs: [{ id: 7, name: "test", status: "completed", conclusion: "failure" }, { id: 8, name: "lint", status: "completed", conclusion: "success" }] }
     if (path === "/repos/acme/app/actions/jobs/7/logs") return state.logs
@@ -309,6 +317,14 @@ describe("native auto-merge", () => {
     const f = await fixture({ autoMerge: true })
     f.state.rules = []
     f.state.protection = { contexts: ["CI"] }
+    expect(await f.operations.requestAutoMerge()).toEqual({ status: "enabled" })
+  })
+
+  it("reads classic required checks from the branch summary without admin access", async () => {
+    const f = await fixture({ autoMerge: true })
+    f.state.rules = []
+    f.state.protection = { contexts: ["CI"] }
+    f.state.protectionReadable = false
     expect(await f.operations.requestAutoMerge()).toEqual({ status: "enabled" })
   })
 

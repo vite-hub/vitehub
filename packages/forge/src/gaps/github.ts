@@ -20,19 +20,3 @@ export function repositoryPath(repo: RepoRef): string {
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
-
-/**
- * The next page of a GitHub listing from its `Link` header, as an absolute URL inside the provider's API base.
- * Returns undefined on the last page and throws for a target outside the API base.
- */
-export function nextPage(provider: ForgeProvider, link: string | null): string | undefined {
-  const target = link?.split(",").map(part => /<([^>]+)>\s*;\s*rel="next"/.exec(part)?.[1]).find(Boolean)
-  if (!target) return undefined
-  const base = new URL(provider.baseUrl)
-  const prefix = `${base.pathname.replace(/\/$/, "")}/`
-  const next = new URL(target)
-  if (next.origin !== base.origin || !`${next.pathname}`.startsWith(prefix)) {
-    throw new Error("GitHub returned a pagination link outside the API base.")
-  }
-  return next.href
-}

@@ -3,7 +3,7 @@ import html from "comark/plugins/html"
 import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
-import { branchRules, getReviewThread, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
+import { getReviewThread, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
 import type { GitHubHost } from "./github-host.ts"
 import type { GitHubRepairCommit } from "./github-repair.ts"
 
@@ -305,8 +305,9 @@ export function createGitHubPullRequestOperations(
     if (!current.autoMergeAllowed) return { status: "blocked", reason: "repository-disabled" }
     const { provider, repo } = await forge()
     // Active rulesets, including organization rulesets, and classic branch protection.
-    const rules = await branchRules(provider, repo, pullRequest.baseRefName, { signal })
-    if (!rules.requiredChecks.length && !rules.requiredWorkflows) return { status: "blocked", reason: "required-checks-missing" }
+    const rules = await provider.repos.branchRules(repo, pullRequest.baseRefName, { signal })
+    const details = githubBranchRuleDetails(rules)
+    if (!rules.requiredChecks.length && !details.requiredWorkflows) return { status: "blocked", reason: "required-checks-missing" }
     const reviews = pullRequest.latestOpinionatedReviews.nodes
     if (pullRequest.reviewDecision === "CHANGES_REQUESTED" || reviews.some(review => review.state === "CHANGES_REQUESTED" && review.author?.__typename !== "Bot")) return { status: "blocked", reason: "changes-requested" }
     async function preservesChildren(state: typeof current): Promise<boolean> {
@@ -320,7 +321,7 @@ export function createGitHubPullRequestOperations(
       ["SQUASH", "squash", current.squashMergeAllowed],
       ["MERGE", "merge", current.mergeCommitAllowed],
       ["REBASE", "rebase", current.rebaseMergeAllowed],
-    ] as const).find(([, ruleMethod, enabled]) => enabled && (!rules.mergeMethods || rules.mergeMethods.includes(ruleMethod)))?.[0]
+    ] as const).find(([, ruleMethod, enabled]) => enabled && (!details.mergeMethods || details.mergeMethods.includes(ruleMethod)))?.[0]
     if (!method) return { status: "blocked", reason: "merge-method-unavailable" }
     // Recheck admission after the paginated eligibility reads. GitHub compares the
     // expected head atomically with enabling auto-merge, including concurrent pushes.

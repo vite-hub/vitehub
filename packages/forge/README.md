@@ -30,7 +30,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeEnv` | The Server Env table above. |
 | `readForgeEnv(field, env)` | The first value set for one `forgeEnv` field, from an env record or a lookup function. |
 | `forgeProvider(connection)` | A `forges` provider for one Forge. Return it from a public API only where that API owns the Forge credentials. A GitHub provider has `graphql()`. |
-| `branchRules(provider, repo, branch)` | GitHub only. Required checks, required workflows and allowed merge methods from rulesets and classic protection. |
+| `githubBranchRuleDetails(rules)` | GitHub only. Required workflows, ruleset merge methods and the classic protection source from the result of `provider.repos.branchRules()`. |
 | `listReviewThreads(provider, pull)`, `getReviewThread(provider, id)` | GitHub only. List the review conversations of a pull request, or look up one by id. |
 | `retargetPullRequest(provider, pull, base)` | GitHub only. Change the base branch of a pull request. |
 | `ForgeApiError`, `ForgeTimeoutError`, `MergeBlockedError`, `NotFoundError`, `RateLimitedError`, `repoRef` | The bundled `forges` classes and helper. Import them from here, so that `instanceof` matches errors from `forgeProvider()`. |
@@ -55,7 +55,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `FORGE_R0004` | `forgeBlob()` was called for a Forge other than GitHub. |
 | `FORGE_R0005` | `forgeCommitFiles()` received a file mode for a Forge other than GitHub. |
 | `FORGE_R0006` | A GitHub-only helper got a provider for another Forge. |
-| `FORGE_R0007` | GitHub did not return complete branch rules, rulesets or classic protection. |
+| `FORGE_R0007` | `githubBranchRuleDetails()` got branch rules that are not complete GitHub rulesets or classic protection. |
 | `FORGE_R0008` | GitHub did not return complete review threads. |
 | `FORGE_R0009` | A GitHub-only helper got a reference that is not a numbered pull request, or an empty input. |
 
@@ -69,6 +69,6 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | `forgeBlob()` | `contents.getFile()` reads by path, not by blob sha. |
 | `forgeCommitFiles()` | `contents.commitFiles()` cannot set a file mode. |
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
-| `branchRules()` | No branch protection, rulesets or required checks. |
+| `githubBranchRuleDetails()` | `BranchRules` has no required workflows, ruleset merge methods or classic protection source. |
 | `listReviewThreads()`, `getReviewThread()` | No review thread listing. |
 | `retargetPullRequest()` | No pull request base change. |
