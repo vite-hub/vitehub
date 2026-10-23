@@ -45,6 +45,10 @@ The section sidebar collapses to icons with the button in its header. The Consol
 
 Items also match aliases, such as `images` for Media and `deploy` for **Publish all changes**. <kbd>Enter</kbd> opens the highlighted item and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. **Publish all changes** opens a list of the changes it will publish; choose **Publish N changes** to publish exactly those drafts, or press <kbd>Backspace</kbd> on an empty query to go back.
 
+### Update ready
+
+Each build of the Console has an id. The id changes only when the Console catalog or the Console client changes, so a deploy that changes neither keeps it. An open Console compares its id with the deployed one when the tab becomes visible and once a minute. When they differ, **Update ready** shows at the bottom of the rail. Choose it to reload the Console. The sections response returns the deployed id as `build`.
+
 ## Enable the Console
 
 Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:
@@ -91,11 +95,7 @@ export default defineConfig({
 })
 ```
 
-Nuxt uses the same option. Install Nuxt UI because the Console uses the ViteHub UI module.
-
-```bash [Terminal]
-pnpm add @nuxt/ui
-```
+Nuxt uses the same option. The Console is its own page with its own styles, so it does not need Nuxt UI or Tailwind in your app, and your app's theme, fonts, and layouts do not change how it looks.
 
 ```ts [nuxt.config.ts]
 import viteHubNuxt from 'vite-hub/nuxt'
@@ -499,7 +499,7 @@ In production, the operator must still decide how long to keep records that may 
 
 The fallback applies only when no journal is set. A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option remains authoritative. Its sessions are not copied into `console.sqlite`. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions.
 
-The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store. Use the [Invocation UI](/docs/ui/invocation) with that store when the app needs a custom inspection page.
+The automatic fallback also requires `defineAgent` from `vite-hub/agent`. Definitions imported directly from `@vite-hub/agent` must configure their own `invocations` store.
 
 The Agent Console uses an invocation journal configured on the discovered Agent Definition. Configure the same journal on every discovered Agent when the Console includes more than one. Set [`agent.invocations`](/docs/agents/invocations#use-one-journal-for-every-agent) to give all of them the same journal. Distinct journals fail during runtime setup because the Console exposes one combined query interface.
 

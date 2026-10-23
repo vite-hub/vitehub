@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto"
 import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
-import { fileURLToPath } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -15,7 +14,7 @@ import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/se
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
-import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
+import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
@@ -26,16 +25,6 @@ import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
 
 const frameworkAgentSpecifier = "vite-hub/agent"
-function resolveConsoleRuntimeRoot(): string {
-  const root = [
-    fileURLToPath(new URL("./runtime", import.meta.url)),
-    fileURLToPath(new URL("./console/runtime", import.meta.url)),
-  ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
-  if (!root) throw viteHubErrorDiagnostics.VITE_HUB_B0001({ message: "[vitehub] Could not locate the packaged Console runtime." })
-  return root
-}
-const consoleRuntimeRoot = resolveConsoleRuntimeRoot()
-const consolePublicRoot = join(consoleRuntimeRoot, "public/console")
 const generatedConsolePlugin = ".vitehub/nitro/console/plugin.mjs"
 
 export function resolveGeneratedConsolePlugin(

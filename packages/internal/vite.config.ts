@@ -58,6 +58,7 @@ export default defineConfig({
       "src/runtime/cloudflare-env.ts",
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/random.ts",
+      "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
       "src/runtime/vercel-hosted.ts",
     ],

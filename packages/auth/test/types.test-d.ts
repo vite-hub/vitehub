@@ -24,6 +24,7 @@ import {
   type AuthRuntimeContext,
   type AuthRuntimeEnv,
   type AuthRuntimeOptions,
+  type AuthSessionRefresh,
   type RegisteredAuth,
   type ResolvedAuthDatabaseConfiguration,
   type ViteHubAuth,
@@ -40,6 +41,7 @@ import {
   withAuthorization,
 } from "../src/server.ts"
 import * as authServer from "../src/server.ts"
+import { stateless } from "../src/presets.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -223,7 +225,7 @@ describe("types", () => {
   })
 
   it("marks every ViteHub-owned Auth Definition field as reserved", () => {
-    expectTypeOf<"access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
+    expectTypeOf<"access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
   })
 
   it("types the Better Auth instance with the plugins of its Auth Definition", () => {
@@ -246,6 +248,29 @@ describe("types", () => {
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
   })
 
+  it("types session.onRefresh in static and callback definitions", () => {
+    const definition = defineAuth({
+      plugins: [admin()],
+      session: {
+        updateAge: 60,
+        onRefresh({ session, user, refresh, clear }) {
+          expectTypeOf(session.token).toEqualTypeOf<string>()
+          expectTypeOf(user.email).toEqualTypeOf<string>()
+          expectTypeOf(refresh).toBeCallableWith()
+          expectTypeOf(refresh).toBeCallableWith({ plan: "pro" })
+          expectTypeOf(clear).toBeCallableWith()
+        },
+      },
+    })
+    expectTypeOf<AuthFor<typeof definition>["api"]["listUsers"]>().toBeFunction()
+
+    const onRefresh: AuthSessionRefresh = ({ refresh }) => refresh()
+    defineAuth(() => ({ session: { onRefresh } }))
+
+    // @ts-expect-error onRefresh is a function.
+    defineAuth({ session: { onRefresh: true } })
+  })
+
   it("rejects runtime-only and raw storage options in definitions", () => {
     // @ts-expect-error baseURL is runtime config, not Auth Definition config.
     defineAuth({ baseURL: "https://example.com" })
@@ -264,5 +289,16 @@ describe("types", () => {
 
     // @ts-expect-error route only supports false when provided.
     defineAuth({ route: true })
+  })
+
+  it("accepts presets from @vite-hub/auth/presets", () => {
+    defineAuth({ preset: stateless({ maxAge: "7d" }) })
+    defineAuth(({ requestOrigin }) => ({ baseURL: requestOrigin, preset: stateless({ maxAge: 3600 }) }))
+
+    // @ts-expect-error a preset comes from a preset function.
+    defineAuth({ preset: { name: "custom" } })
+
+    // @ts-expect-error maxAge is seconds or a duration with a unit.
+    stateless({ maxAge: "7 days" })
   })
 })

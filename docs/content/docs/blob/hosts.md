@@ -2,7 +2,7 @@
 title: Blob hosts
 description: Set up host output, development access, Cloudflare R2, S3-compatible storage, and MinIO.
 navigation.title: Hosts
-navigation.order: 7
+navigation.order: 6
 icon: i-lucide-cloud-cog
 ---
 

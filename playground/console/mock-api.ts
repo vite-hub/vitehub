@@ -423,7 +423,8 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
   if (path === "/api/_vitehub/console/sections") {
-    json(response, { contributions: playgroundConsoleContributions, projectName: manifest.name, sections })
+    // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
+    json(response, { build: "playground", contributions: playgroundConsoleContributions, projectName: manifest.name, sections })
     return true
   }
 

@@ -647,33 +647,11 @@ describe("framework package contract", () => {
     expect(consolePage).not.toContain("groupConsoleSessions");
     expect(consolePage).not.toContain("<UApp");
     expect(consolePage).toContain(".vitehub-console");
-    const consoleRoute = readFileSync(
-      `${packageRoot}/dist/console/runtime/pages/agents.vue`,
-      "utf8",
-    );
-    expect(consoleRoute).toContain('import { useHead, useRuntimeConfig } from "#imports"');
-    expect(consoleRoute).toContain("<ClientOnly>");
-    expect(consoleRoute).toContain("<ConsoleProvider>");
-    expect(consoleRoute).toContain('aria-label="Loading ViteHub Console"');
-    expect(consoleRoute).toContain("lg:grid-rows-[auto_auto_1fr]");
-    const consoleIndexRoute = readFileSync(
-      `${packageRoot}/dist/console/runtime/pages/index.vue`,
-      "utf8",
-    );
-    expect(consoleIndexRoute).toContain("<ConsoleHome");
-    expect(consoleIndexRoute).toContain(":sections-base=");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/blob.vue`)).toBe(true);
+    // Nuxt serves the standalone Console page, so the package ships no Nuxt pages.
+    expect(existsSync(`${packageRoot}/dist/console/runtime/pages`)).toBe(false);
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-blob.vue`)).toBe(
       true,
     );
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/databases.vue`)).toBe(true);
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`)).toBe(true);
-    const consoleKVRoute = readFileSync(`${packageRoot}/dist/console/runtime/pages/kv.vue`, "utf8");
-    expect(consoleKVRoute).toContain(`sections.includes("kv")`);
-    expect(consoleKVRoute).toContain(`navigateTo("/_vitehub")`);
-    expect(consoleKVRoute).not.toContain("navigateTo(`${appBaseURL}/_vitehub`)");
-    expect(consoleKVRoute).toContain(`v-if="available"`);
-    expect(consoleKVRoute).toContain('<ConsoleState :error="loadError"');
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-state.vue`)).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-kv.vue`)).toBe(true);
     const consoleKV = readFileSync(
@@ -681,22 +659,12 @@ describe("framework package contract", () => {
       "utf8",
     );
     expect(consoleKV).toContain("loadedStore.value === store");
-    expect(existsSync(`${packageRoot}/dist/console/runtime/pages/section.vue`)).toBe(true);
-    for (const page of ["workflows", "queues", "rate-limits", "schedules", "sandbox-tasks", "workspaces"]) {
-      expect(existsSync(`${packageRoot}/dist/console/runtime/pages/${page}.vue`)).toBe(false);
-    }
     expect(
       existsSync(`${packageRoot}/dist/console/runtime/components/console-definitions.vue`),
     ).toBe(true);
     expect(existsSync(`${packageRoot}/dist/console/runtime/definitions.js`)).toBe(true);
     expect(manifest.exports).not.toHaveProperty("./console/runtime/definitions");
-    const consoleProvider = readFileSync(
-      `${packageRoot}/dist/console/runtime/components/console-provider.vue`,
-      "utf8",
-    );
-    expect(consoleProvider).toContain("injectTooltipProviderContext(null)");
-    expect(consoleProvider).toContain('<slot v-if="hasAppProvider" />');
-    expect(consoleProvider).toContain('<UApp v-else :toaster="null">');
+    expect(existsSync(`${packageRoot}/dist/console/runtime/components/console-provider.vue`)).toBe(false);
     const consoleSearch = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-search.vue`,
       "utf8",

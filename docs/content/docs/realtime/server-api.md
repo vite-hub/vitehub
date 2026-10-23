@@ -195,7 +195,7 @@ export default defineRealtime({
 
 | Option | Behaviour |
 | --- | --- |
-| `identify({ request, event, definition })` | Resolves the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests whose `Origin` differs from the application origin are rejected with 403. |
+| `identify({ request, event, definition })` | Resolves the user for each WebSocket and HTTP request. Return `null` for anonymous. Replaces the ViteHub Auth session. Requests whose `Origin` differs from the application origin are rejected with 403. Behind a TLS-terminating proxy, the application origin uses the first `X-Forwarded-Proto` and `X-Forwarded-Host` values. |
 | `auth: true` | Requires an identified user (401 otherwise). Without `identify`, the user is the ViteHub Auth session, and the Auth trusted-origin policy applies. |
 | `authorize({ request, event, user, documentId, mode })` | Called with `mode: 'read'` on every request and `mode: 'write'` on connections, saves, and checkpoints. Return `false` to deny. A connection denied write is read-only: the server closes it with `4403` if it sends a change. `documentId` is `null` for the Workspace event channel. |
 

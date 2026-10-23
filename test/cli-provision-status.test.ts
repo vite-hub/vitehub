@@ -34,6 +34,7 @@ describe("Vercel Blob provision status", () => {
 
     for (const connection of ["absent", "other-project", "equivalent", "complete-last", "complete-first"]) {
       const connected = ["equivalent", "complete-last", "complete-first"].includes(connection)
+      const reusesStore = connection !== "other-project"
       projectsMetadata = connection === "absent" ? [] : [{
         projectId: connection === "other-project" ? "prj_other" : "prj_1",
         environments: ["production", "preview", "development"],
@@ -54,7 +55,7 @@ describe("Vercel Blob provision status", () => {
       if (json) {
         expect(JSON.parse(output)).toMatchObject({
           plan: {
-            actions: [{ exists: true, kind: "vercel-blob-store", name: "existing-blob", pending: !connected, step: "blob:vercel-blob" }],
+            actions: [{ exists: reusesStore, kind: "vercel-blob-store", name: reusesStore ? "existing-blob" : "vitehub-blob", pending: !connected, step: "blob:vercel-blob" }],
             checked: true,
             pending: connected ? 0 : 1,
           },
@@ -62,7 +63,7 @@ describe("Vercel Blob provision status", () => {
         })
       }
       else {
-        expect(output).toContain(`${connected ? "exists" : "pending"}\tvercel-blob-store\texisting-blob\n`)
+        expect(output).toContain(`${reusesStore ? (connected ? "exists" : "pending") : "create"}\tvercel-blob-store\t${reusesStore ? "existing-blob" : "vitehub-blob"}\n`)
         expect(output).toContain(connected ? "plan: no pending actions\n" : "plan: 1 pending action.")
       }
       expect(output).not.toContain("secret-token")

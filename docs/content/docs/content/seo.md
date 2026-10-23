@@ -2,7 +2,7 @@
 title: Content SEO
 description: Give documents public URLs, per-document SEO fields, head tags for any framework, and a generated sitemap and robots.txt.
 navigation.title: SEO
-navigation.order: 5
+navigation.order: 12
 icon: i-lucide-search-check
 ---
 

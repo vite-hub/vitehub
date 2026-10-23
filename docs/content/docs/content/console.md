@@ -2,7 +2,7 @@
 title: Edit Content in the Console
 description: Edit, publish, and restore Content documents from the ViteHub Console, and give editors access to only that section.
 navigation.title: Console editor
-navigation.order: 5
+navigation.order: 9
 icon: i-lucide-file-pen-line
 ---
 
@@ -17,10 +17,10 @@ The section appears when `server/content.ts` passes `collections` to `defineCont
 - Counts of drafts, changed, published, and deleted documents across the collections you may read.
 - **Needs publishing** lists every unpublished change, newest first. **Publish** in the header publishes all of them, exactly as the dashboard shows them. Writers see the list without the button.
 - **Scheduled** lists every [scheduled publish](/docs/content/scheduling), soonest first, when there is one.
-- **Recent activity** names who saved, deleted, restored, or published which document, and when.
-- **Collections** lists each collection with a **New** button when you may edit it.
+- **Recent activity** names who saved, deleted, restored, or published which document, and when. It shows the latest eight entries; **Show all** shows the rest.
+- **Collections** lists each collection with its drafts, changes, and published count, and a **New** button when you may edit it. A last **Settings** row counts the singletons and opens the Settings page.
 
-The sidebar lists the dashboard, every collection with its draft and changed counts, **Settings** and **Media** under **Manage**. Settings appears when you define a [singleton](/docs/content/configure#singletons-and-data-files); Media appears when the project enables Blob. Settings lists each singleton with its state, and opens it in the editor; singletons do not appear among the collections. Lists and the dashboard name a singleton by its `label`, such as **Settings**, not by its file name. **Media** opens the [media library](#media-library). Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
+The sidebar lists the dashboard, every collection with its draft and changed counts, **Settings** and **Media** under **Manage**. Settings appears when you define a [singleton](/docs/content/configure#singletons-and-data-files); Media appears when the project enables Blob. Settings lists each singleton with its state, and opens it in the editor; singletons do not appear among the collections in the sidebar. Lists and the dashboard name a singleton by its `label`, such as **Settings**, not by its file name. **Media** opens the [media library](#media-library). Each page has a URL, such as `/_vitehub/content/-/media`. See [Section pages and URLs](/docs/development/console#section-pages-and-urls).
 
 When the app lacks something a feature needs, the Console names the fix where the feature would be:
 
@@ -59,11 +59,13 @@ Each field is a row that reads its JSON Schema:
 | `number`, `integer` | Number input with `minimum` and `maximum`. |
 | `boolean` | Switch. |
 | `array` of strings | Tag input. |
-| `object` with `properties` | A one-line summary that expands to the nested fields. |
+| `array` of any other shape, such as objects or dates | A list with one row per item. An object item shows its title, from its `label`, `title`, or `name` field, and opens to its fields. Each row moves up, moves down, or is removed, and **Add item** appends one. |
+| `object` with `properties` | A one-line summary that names each filled field, such as **Label** Book a demo **To** /demo, and expands to the nested fields. |
+| `object` with `src` and `alt` strings | An image: the summary shows a thumbnail and the alt text, and the expanded fields show a preview. The Console loads the `src` from its own origin, so images on another origin show an icon. |
 | A Blob reference (`x-vitehub-blob`), such as `image()` or `file()` | A thumbnail and the file name with **Replace** and **Remove**. Choosing opens the [media picker](#pick-media-for-documents). An image also shows its alt text, which edits the alt text stored with the file. Without Blob in the project, the stored pathname shows read-only. |
 | Anything else | A JSON text area. |
 
-A field without a Standard JSON Schema, such as a Valibot validator, has the schema `{}` and gets the JSON text area. Optional fields left empty are removed before the save, so an empty input never saves `""` over a missing value.
+A field without a Standard JSON Schema, such as a Valibot validator, has the schema `{}` and gets the JSON text area, as does a list of objects without `properties`. Optional fields left empty are removed before the save, also inside list items, so an empty input never saves `""` over a missing value.
 
 ## Saves never overwrite newer work
 

@@ -12,6 +12,7 @@ import type {
   AuthSignInConfiguration,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { applyAuthPreset } from "./preset-options.ts"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
 const accessRouteKeys = new Set(["authorize", "method", "route"])
@@ -185,9 +186,16 @@ function defineAuthOptions(
     normalizeAuthBasePath(viteHubOptions.basePath)
   }
 
+  const session = (options as { session?: unknown }).session
+  if (isPlainObject(session) && typeof session.onRefresh !== "undefined" && typeof session.onRefresh !== "function") {
+    throw authErrorDiagnostics.AUTH_C0041({ message: "`defineAuth()` session.onRefresh must be a function." })
+  }
+
   validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
+  // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.
+  applyAuthPreset(options)
 
   return { options }
 }
