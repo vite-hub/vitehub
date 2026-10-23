@@ -185,12 +185,12 @@ describe("Console schema form model", () => {
   it("reads per-field issues from a CONTENT_INVALID failure", () => {
     const error = new ConsoleRequestError(422, "Some fields are invalid.", {
       code: "CONTENT_INVALID",
-      details: { issues: [{ field: "title", message: "Required", path: [] }, { field: "tags", message: "Expected string", path: [1] }, { field: "author", message: "Required", path: ["name"] }, { bad: true }] },
+      details: { issues: [{ field: "title", message: "Required", path: [] }, { field: "tags", message: "Expected string", path: [1] }, { field: "navigation", message: "Required", path: [0, "label"] }, { field: "author", message: "Required", path: ["name"] }, { bad: true }] },
     })
     const issues = consoleFieldIssues(error)
-    expect(issues).toHaveLength(3)
+    expect(issues).toHaveLength(4)
     // List items belong to their field; nested object keys to the nested field.
-    expect(groupConsoleFieldIssues(issues!)).toEqual({ "author.name": ["Required"], tags: ["Expected string"], title: ["Required"] })
+    expect(groupConsoleFieldIssues(issues!)).toEqual({ "author.name": ["Required"], "navigation.0.label": ["Required"], "tags.1": ["Expected string"], title: ["Required"] })
     expect(consoleFieldIssues(new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT" }))).toBeUndefined()
   })
 

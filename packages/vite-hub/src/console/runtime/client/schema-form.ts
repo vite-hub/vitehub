@@ -11,7 +11,7 @@ export interface ConsoleFieldIssue {
 export function groupConsoleFieldIssues(issues: readonly ConsoleFieldIssue[]): Record<string, string[]> {
   const grouped: Record<string, string[]> = {}
   for (const issue of issues) {
-    const key = [issue.field, ...issue.path.filter(segment => String(segment) === segment)].filter(segment => segment !== undefined).join(".") || ""
+    const key = [issue.field, ...issue.path].filter(segment => segment !== undefined).join(".") || ""
     ;(grouped[key] ??= []).push(issue.message)
   }
   return grouped
@@ -290,7 +290,8 @@ export function consoleFieldIssueMessage(label: string, message: string): string
 /** Rewrites the message of each field issue with the label of the field it belongs to, such as `Author name is required.` */
 export function humanizeConsoleFieldIssues(fields: readonly ConsoleSchemaField[], issues: readonly ConsoleFieldIssue[]): ConsoleFieldIssue[] {
   return issues.map((issue) => {
-    const path = [issue.field, ...issue.path.filter(segment => String(segment) === segment)].filter(segment => segment !== undefined)
+    // Array indexes identify list items, but do not have schema fields of their own.
+    const path = [issue.field, ...issue.path].filter(segment => segment !== undefined && String(segment) === segment)
     let level: readonly ConsoleSchemaField[] | undefined = fields
     const labels: string[] = []
     for (const name of path) {

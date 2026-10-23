@@ -340,7 +340,7 @@ function updateChild(name: string, value: unknown): void {
           v-else
           :depth="itemDepth"
           :disabled="disabled"
-          :errors="{}"
+          :errors="errors"
           :field="{ ...listField.item, name: String(index), label: String(index + 1) }"
           :model-value="value"
           :parent="path"
