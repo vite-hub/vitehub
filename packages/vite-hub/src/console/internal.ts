@@ -46,6 +46,9 @@ export const consoleProjectRootKey: typeof consoleInvocationsRootKey = consoleIn
 export const consoleSectionsKey: unique symbol = Symbol.for("vitehub.console.sections")
 export const consoleAuthKey: unique symbol = Symbol.for("vitehub.console.auth")
 export const consoleProjectNameKey: unique symbol = Symbol.for("vitehub.console.project-name")
+export const consoleBuildKey: unique symbol = Symbol.for("vitehub.console.build")
+export const consoleBuildRegistryKey: unique symbol = Symbol.for("vitehub.console.build.registry")
+export const consoleBuildRootKey: unique symbol = Symbol.for("vitehub.console.build.root")
 export const consoleSectionsRootKey: unique symbol = Symbol.for("vitehub.console.sections.root")
 const consoleSectionsAmbiguousRootKey: unique symbol = Symbol.for("vitehub.console.sections.ambiguous-root")
 export const consoleSectionsRegistryKey: unique symbol = Symbol.for("vitehub.console.sections.registry")
@@ -90,6 +93,8 @@ type ConsoleSchedulesByRoot = ConsoleProjectRegistry<ScheduleDefinitionRegistry>
 type ConsoleDatabaseByRoot = ConsoleProjectRegistry<ConsoleDatabaseInspection>
 
 type ConsoleDocumentsByRoot = ConsoleProjectRegistry<ConsoleDocumentEditors>
+
+type ConsoleBuildByRoot = ConsoleProjectRegistry<string>
 
 type ConsoleInvocationRegistry = Record<
   symbol,
@@ -154,6 +159,9 @@ export type ConsoleInvocationScope = {
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
   [consoleAuthKey]?: ConsoleAuthMode | false
   [consoleProjectNameKey]?: string
+  [consoleBuildKey]?: string
+  [consoleBuildRegistryKey]?: ConsoleBuildByRoot
+  [consoleBuildRootKey]?: string
   [consoleSectionsRootKey]?: string
   [consoleSectionsAmbiguousRootKey]?: boolean
   [consoleSectionsRegistryKey]?: ConsoleSectionsByRoot
@@ -193,6 +201,11 @@ const databaseRegistry = createConsoleProjectRegistry<ConsoleDatabaseInspection>
   root: consoleDatabaseRootKey,
   value: consoleDatabaseKey,
   registry: consoleDatabaseRegistryKey,
+})
+const buildRegistry = createConsoleProjectRegistry<string>({
+  root: consoleBuildRootKey,
+  value: consoleBuildKey,
+  registry: consoleBuildRegistryKey,
 })
 
 function defaultConsoleInvocationScope(): ConsoleInvocationScope {
@@ -574,6 +587,18 @@ export function resolveConsoleProjectName(scope: ConsoleInvocationScope = defaul
   if (root) return registered?.get(root)?.projectName ?? scope[consoleProjectNameKey]
   if (registered && registered.size > 1) return scope[consoleProjectNameKey]
   return registered?.values().next().value?.projectName ?? scope[consoleProjectNameKey]
+}
+
+export function installConsoleBuildScope(
+  projectRoot: string,
+  build: string,
+  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
+): string {
+  return buildRegistry.install(projectRoot, build, scope)
+}
+
+export function resolveConsoleBuild(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {
+  return buildRegistry.resolve(scope)
 }
 
 export function resolveConsoleProjectRoot(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): string | undefined {

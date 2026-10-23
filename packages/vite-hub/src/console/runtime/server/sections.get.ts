@@ -1,7 +1,7 @@
 import { allowedConsoleSections, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest } from "./request.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
-import { getConsoleAuth, getConsoleProjectName, getConsoleSections } from "./sections.ts"
+import { getConsoleAuth, getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
 
 import type { ConsoleContributedSection } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
@@ -9,6 +9,8 @@ import type { ConsoleRequestEvent } from "./request.ts"
 /** The sections that this request may use. The client hides the others. Each route still checks its own section. */
 function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAccess): {
   auth?: true
+  /** The build id of the deployed Console. An open Console that loaded another id is outdated. */
+  build?: string
   contributions?: readonly ConsoleContributedSection[]
   projectName?: string
   /** `console.authorize` limited this request to some sections, so the others may be installed but hidden. */
@@ -19,11 +21,13 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   const projectName = getConsoleProjectName()
   const sections = allowedConsoleSections(access, getConsoleSections())
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
-  const result: { auth?: true, contributions?: readonly ConsoleContributedSection[], projectName?: string, scoped?: true, sections: readonly string[] } = { sections }
+  const build = getConsoleBuild()
+  const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], projectName?: string, scoped?: true, sections: readonly string[] } = { sections }
   if (getConsoleAuth()) result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   if (projectName) result.projectName = projectName
+  if (build) result.build = build
   return result
 }
 
