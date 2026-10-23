@@ -22,6 +22,28 @@ function mountPath(base: string | undefined, path: string): string {
 }
 
 type NitroHandler = { handler: string; method?: string | string[]; middleware?: boolean; route: string }
+type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
+
+/**
+ * Serves the standalone Console: its HTML page at `/_vitehub/**` and its hashed script, style, and font assets at
+ * `/_vitehub/assets`. The page loads its own Vue app, Nuxt UI theme, and styles, so a host app that renders around it,
+ * such as Nuxt, cannot change how the Console looks. Nitro adds the application base to these routes.
+ */
+export function addConsolePageHandlers(
+  nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
+  consoleRuntimeRoot: string,
+): void {
+  const page = join(consoleRuntimeRoot, "server/page.get.js")
+  const assets = join(consoleRuntimeRoot, "public/console")
+  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page)
+  for (const route of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, route })
+  nitro.handlers = handlers
+  nitro.publicAssets = [
+    // Every Console asset name contains a content hash.
+    { baseURL: "/_vitehub/assets", dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
+    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets),
+  ]
+}
 
 export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route: string }> },
