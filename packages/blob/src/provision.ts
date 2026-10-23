@@ -169,13 +169,19 @@ async function findVercelBlobStore(
   projectId: string,
 ): Promise<{ state: "absent" | "equivalent" | "mismatched", store: VercelBlobStore } | undefined> {
   let unused: VercelBlobStore | undefined
+  let mismatched: VercelBlobStore | undefined
   for (const listed of stores) {
     if (!listed.id) continue
     const store = { ...listed, projectsMetadata: (await readVercelBlobStore(request, listed.id)).projectsMetadata }
     const state = vercelConnectionState(store, projectId)
-    if (state !== "absent") return { state, store }
+    if (state === "equivalent") return { state, store }
+    if (state === "mismatched") {
+      mismatched ??= store
+      continue
+    }
     if (!store.projectsMetadata?.length) unused ??= store
   }
+  if (mismatched) return { state: "mismatched", store: mismatched }
   return unused ? { state: "absent", store: unused } : undefined
 }
 
