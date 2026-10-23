@@ -23,9 +23,14 @@ export type SplitSourceItem<TSource extends Source, TPart extends SplitSourcePar
 }
 
 /** A Source with one item for each part of another Source's items. */
-export type SplitSource<TSource extends Source, TPart extends SplitSourcePart> = Source<SplitSourceKey<TSource>> & {
+type SplitSourceMeta<TSource extends Source> = NonNullable<TSource["getMeta"]> extends (...args: any[]) => infer TResult
+  ? TResult
+  : Promise<undefined>
+
+export type SplitSource<TSource extends Source, TPart extends SplitSourcePart> = Omit<Source<SplitSourceKey<TSource>>, "getItem" | "getItems" | "getMeta"> & {
   getItem(key: SplitSourceKey<TSource>, ctx: SourceContext): Promise<SplitSourceItem<TSource, TPart>>
   getItems(ctx: SourceContext): Promise<SplitSourceItem<TSource, TPart>[]>
+  getMeta(key: SplitSourceKey<TSource>, ctx: SourceContext): SplitSourceMeta<TSource>
 }
 
 /** Split each item of a Source into parts, such as the sections of a Markdown file. Each part is an item. */
@@ -53,7 +58,17 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
       // SAFETY: The parent Source returned item.key, so it is a SourceKey<TSource>.
       const key = `${item.key}#${part.key}` as SplitSourceKey<TSource>
       const path = part.path ?? item.path
-      const result: Item = path === undefined ? { ...part, key } : { ...part, key, path }
+      const metadata = item.metadata === undefined
+        ? part.metadata
+        : part.metadata === undefined
+          ? item.metadata
+          : { ...item.metadata, ...part.metadata }
+      const result: Item = {
+        ...part,
+        key,
+        ...(path === undefined ? {} : { path }),
+        ...(metadata === undefined ? {} : { metadata }),
+      }
       return result
     })
   }
@@ -85,6 +100,12 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
       const part = parts.find(candidate => candidate.key === key)
       if (!part) throw sourceError(`[vitehub] splitSource() could not find ${JSON.stringify(key)}.`)
       return part
+    },
+    getMeta(key, ctx) {
+      const id = String(key)
+      const at = id.lastIndexOf("#")
+      if (at < 1) return Promise.resolve(undefined) as SplitSourceMeta<TSource>
+      return (parent.getMeta?.(id.slice(0, at), ctx) ?? Promise.resolve(undefined)) as SplitSourceMeta<TSource>
     },
     getItems,
   }

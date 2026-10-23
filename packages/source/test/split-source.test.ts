@@ -55,6 +55,29 @@ describe("splitSource()", () => {
     expect(getItem.mock.calls[0]?.[0]).toBe("bars.md")
   })
 
+  it("preserves parent metadata and delegates composite metadata lookups", async () => {
+    const getMeta = vi.fn(async () => ({ digest: "parent", shared: "parent" }))
+    const source = defineSource({
+      name: "metadata",
+      async getKeys() { return ["entry"] },
+      async getItem(key: string) {
+        return { key, metadata: { shared: "parent", inherited: true } }
+      },
+      getMeta,
+    })
+    const reader = createSource(splitSource({
+      source,
+      split: () => [{ key: "part", metadata: { shared: "part" } }],
+    }))
+
+    await expect(reader.items()).resolves.toEqual([{
+      key: "entry#part",
+      metadata: { shared: "part", inherited: true },
+    }])
+    await expect(reader.meta("entry#part")).resolves.toEqual({ digest: "parent", shared: "parent" })
+    expect(getMeta).toHaveBeenCalledWith("entry", expect.any(Object))
+  })
+
   it("keeps file methods when every part has content", async () => {
     const reader = createSource(splitSource({
       source: file({ workspacePath: "guide.md", content: "## Start\nHi\n## End\nBye" }),
