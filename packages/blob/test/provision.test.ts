@@ -499,6 +499,49 @@ describe("blob vercel provision step", () => {
     ])
   })
 
+  it("reuses the store connected to the project instead of another project's store", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (init?.method === "POST") throw new Error("must not connect another project's store")
+      if (url.includes("/storage/stores/store_other")) return jsonResponse({ store: { projectsMetadata: [connectedProject("prj_other")] } })
+      if (url.includes("/storage/stores/store_own")) return jsonResponse({ store: { projectsMetadata: [connectedProject()] } })
+      return jsonResponse({ stores: [
+        { access: "private", id: "store_other", name: "other-project-blob", type: "blob" },
+        { access: "private", id: "store_own", name: "own-project-blob", type: "blob" },
+      ] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    expect(actions).toHaveLength(1)
+    expect(actions[0]!.name).toBe("own-project-blob")
+    expect(actions[0]!.exists).toBe(true)
+    expect(actions[0]!.pending).toBe(false)
+    await expect(actions[0]!.apply()).resolves.toEqual({})
+  })
+
+  it("creates a store when every matching store belongs to another project", async () => {
+    const posts: string[] = []
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const url = String(input)
+      if (init?.method === "POST") {
+        posts.push(url)
+        if (url.includes("/v1/storage/stores/blob")) return jsonResponse({ store: { access: "private", id: "store_new", name: "vitehub-blob", type: "blob" } })
+        return jsonResponse({}, 201)
+      }
+      if (url.includes("/storage/stores/store_other")) return jsonResponse({ store: { projectsMetadata: [connectedProject("prj_other")] } })
+      if (url.includes("/storage/stores/store_new")) return jsonResponse({ store: { projectsMetadata: [] } })
+      return jsonResponse({ stores: [{ access: "private", id: "store_other", name: "other-project-blob", type: "blob" }] })
+    })
+
+    const actions = await createBlobVercelProvisionStep(() => ({ access: "private", driver: "vercel-blob" })).plan(context(fetchImpl))
+    expect(actions[0]!.exists).toBe(false)
+    await actions[0]!.apply()
+    expect(posts).toEqual([
+      expect.stringContaining("/v1/storage/stores/blob"),
+      expect.stringContaining("/v1/storage/stores/store_new/connections"),
+    ])
+  })
+
   it("rejects an existing project connection with incomplete environments", async () => {
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       if (init?.method === "POST") throw new Error("must not create a duplicate project connection")
@@ -550,6 +593,7 @@ describe("blob vercel provision step", () => {
 
   it("does not treat an invalid connection type or a different project as success", async () => {
     const leakedSecret = "provider-secret-in-error-body"
+    let connectedElsewhere = false
     const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
       const url = String(input)
       if (init?.method === "POST") {
@@ -558,10 +602,11 @@ describe("blob vercel provision step", () => {
           projectId: "prj_1",
           type: "integration",
         }))
+        connectedElsewhere = true
         return jsonResponse({ error: { code: "invalid_connection_type", detail: leakedSecret } }, 400)
       }
       if (url.includes("/storage/stores/store_1")) {
-        return jsonResponse({ store: { projectsMetadata: [connectedProject("prj_other")] } })
+        return jsonResponse({ store: { projectsMetadata: connectedElsewhere ? [connectedProject("prj_other")] : [] } })
       }
       return jsonResponse({ stores: [{ id: "store_1", type: "blob" }] })
     })
