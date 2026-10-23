@@ -35,6 +35,7 @@ export default defineAuth({
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Use a route string, or an object with `route`, optional `method`, and optional `authorize`. |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Redirect behavior for HTML requests that `withAuth()` rejects. |
 | `runtime` | Options object or `(context) => options` | None | Supplies runtime-only Better Auth values such as `baseURL`, `secret`, `secrets`, and storage adapters. |
+| `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
 `baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback or put them under `runtime`, not as static top-level fields. `access.routes` must be static so the Vite Integration can register middleware.
 
@@ -90,6 +91,38 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `request` | The current request headers and URL, when a request exists. |
 
 Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
+
+## Session refresh
+
+Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
+
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
+export default defineAuth({
+  session: {
+    updateAge: 60 * 60,
+    async onRefresh({ session, user, refresh, clear }) {
+      const account = await findAccount(user.id)
+      if (account.banned) return clear()
+      refresh()
+    },
+  },
+})
+```
+
+| Call | Result |
+| --- | --- |
+| `refresh()` | Better Auth extends the session by `session.expiresIn`. |
+| `refresh(fields)` | Better Auth extends the session and writes `fields` to it, for example session `additionalFields`. The response and the cookie cache contain them. |
+| Neither | The session keeps its current expiry. The next request that reaches the refresh runs the hook again. |
+| `clear()` | Better Auth deletes the session, removes its cookies, and answers `401`. `withAuth()` and route guards treat it as no session. `clear()` wins over `refresh()`. |
+
+The hook receives the `session` and `user` as stored before the refresh. To change user fields, update them in your own store. The current response still contains the user that Better Auth read before the refresh.
+
+The hook runs for every Better Auth path that refreshes a stored session: `/get-session`, `auth.api.getSession()`, and endpoints that read the session. It does not run for other session updates, such as `/update-session`.
+
+`onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`. Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook, so ViteHub cannot run `onRefresh` there. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 
 ## Storage placement metadata
 
