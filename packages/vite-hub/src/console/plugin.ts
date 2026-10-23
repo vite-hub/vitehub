@@ -48,6 +48,8 @@ function consoleBuildId(contents: string): string {
   return createHash("sha256")
     .update(contents)
     .update("\0")
+    .update(readConsoleOutput(consoleRuntimeRoot))
+    .update("\0")
     .update(readConsoleOutput(consolePublicRoot))
     .update("\0")
     .update(readConsoleOutput(join(consoleRuntimeRoot, "server")))
