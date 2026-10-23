@@ -176,6 +176,12 @@
       "require": "./dist/runtime/cache-bypass.js",
       "default": "./dist/runtime/cache-bypass.js"
     },
+    "./runtime/request-origin": {
+      "types": "./dist/runtime/request-origin.d.ts",
+      "import": "./dist/runtime/request-origin.js",
+      "require": "./dist/runtime/request-origin.js",
+      "default": "./dist/runtime/request-origin.js"
+    },
     "./secret": {
       "types": "./dist/secret.d.ts",
       "import": "./dist/secret.js",

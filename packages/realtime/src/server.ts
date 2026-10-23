@@ -60,6 +60,7 @@ import { workspaceDocument } from "./workspace-document.ts"
 import { realtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
+import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -510,7 +511,9 @@ async function identify(request: Request, event: H3Event, definitionName: string
   if (definition.identify) {
     const origin = request.headers.get("origin")
     // Browsers send Origin on WebSocket handshakes and POSTs. Reject cross-site use of ambient credentials.
-    if (origin && origin !== new URL(request.url).origin) throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
+    // A TLS-terminating proxy reports the client scheme and host in X-Forwarded-* headers. A page cannot set these
+    // headers on a WebSocket handshake, so a cross-site page still cannot make its Origin match.
+    if (origin && origin !== forwardedRequestOrigin(request)) throw new HTTPError({ status: 403, message: "Realtime requests must come from the application origin." })
     const user = toRealtimeUser(await definition.identify({ definition: definitionName, event, request }))
     if (definition.auth && !user) throw new HTTPError({ status: 401 })
     return user

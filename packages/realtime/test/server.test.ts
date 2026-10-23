@@ -276,6 +276,28 @@ describe("realtime server handler", () => {
     expect(serverMocks.assertAuthOrigin).toHaveBeenCalledWith(expect.objectContaining({ url: "https://api.example.com/api/_vitehub/realtime/docs/page.md" }), expect.anything())
   })
 
+  it("compares the identify() origin with the origin behind a TLS-terminating proxy", async () => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const identify = vi.fn(() => ({ id: "ana" }))
+    const handler = createRealtimeHandler({
+      docs: async () => ({ default: { document: { workspace: "test" }, identify } }),
+    } as never)
+    const connect = (origin: string) => handler.fetch(new Request("http://internal:3000/api/_vitehub/realtime/docs/page.md", {
+      headers: { origin, upgrade: "websocket", "x-forwarded-host": "site.example, proxy", "x-forwarded-proto": "https, http" },
+    })) as Promise<Response & { crossws?: unknown }>
+
+    expect((await connect("https://site.example")).crossws).toBeDefined()
+    expect(identify).toHaveBeenCalledOnce()
+    for (const origin of ["https://evil.example", "http://site.example", "http://internal:3000"]) {
+      expect((await connect(origin)).status).toBe(403)
+    }
+    expect(identify).toHaveBeenCalledOnce()
+  })
+
   it("rejects saves when the Workspace Store cannot write conditionally", async () => {
     serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
       exists: vi.fn().mockResolvedValue(false),
