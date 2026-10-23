@@ -1,4 +1,4 @@
-import type { Comment, Cursor, ForgeProvider, Page, ReactionContent, Thread, ThreadRef } from "forges"
+import type { Comment, Cursor, ForgeProvider, Page, ReactionContent, ResolvedThreadRef, Thread } from "forges"
 import type { AgentChannelDeliveryEffectContext, AgentChannelDeliveryEffects, AgentRunInput, AgentRuntimeConfig } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { forgeErrorStatus } from "@vite-hub/forge"
@@ -20,7 +20,7 @@ export interface ForgeTarget {
   installationId?: number
 }
 
-export function forgeThreadRef(provider: ForgeProvider, target: ForgeTarget): ThreadRef {
+export function forgeThreadRef(provider: ForgeProvider, target: ForgeTarget): ResolvedThreadRef {
   const parts = target.repository.split("/")
   const name = parts.pop()!
   const origin = { forge: provider.forge, instance: provider.instance }
@@ -113,11 +113,11 @@ export async function forgePullRequestMetadata(
   const [thread, comments, files] = await Promise.all([
     forgeChannelRead(provider, "AGENT_R0351", async () => await forgePullRequest(provider, target)),
     limits.authenticated === false ? [] : forgeChannelRead(provider, "AGENT_R0352", async () => await limitedPages(
-      async cursor => await provider.threads.commentsPage(ref, { perPage: 100, cursor }), limits.maxComments + 1)),
+      async cursor => await provider.threads.comments(ref, { perPage: 100, cursor }).page(), limits.maxComments + 1)),
     limits.authenticated === false ? [] : forgeChannelRead(provider, "AGENT_R0352", async () => provider.forge === "github"
       // Changed files have no raw field in the pinned client. Keep native GitHub fields.
       ? await githubFilePages(provider, target, limits.maxFiles + 1)
-      : await limitedPages(async cursor => await provider.threads.filesPage(ref, { perPage: 100, cursor }), limits.maxFiles + 1)),
+      : await limitedPages(async cursor => await provider.threads.files(ref, { perPage: 100, cursor }).page(), limits.maxFiles + 1)),
   ])
   return { thread, comments: comments.map(comment => comment.raw), files,
     omittedComments: Math.max(0, comments.length - limits.maxComments), omittedFiles: Math.max(0, files.length - limits.maxFiles) }
@@ -188,8 +188,8 @@ export function forgeActivityComments(provider: ForgeProvider, target: ForgeTarg
         throw error
       }
     },
-    async create(body: string) { return await forgeChannelWrite(provider, async () => await provider.threads.comment(ref, body)) },
-    async edit(id: number, body: string) { return await forgeChannelWrite(provider, async () => await provider.threads.editComment(commentRef(provider, target, id), body)) },
+    async create(body: string) { return await forgeChannelWrite(provider, async () => await provider.threads.createComment(ref, body)) },
+    async edit(id: number, body: string) { return await forgeChannelWrite(provider, async () => await provider.threads.updateComment(commentRef(provider, target, id), body)) },
   }
 }
 
@@ -312,7 +312,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!target) return
       const provider = await options.provider(context)
       const body = await bodyFor(context, provider)
-      if (body) await forgeChannelWrite(provider, async () => await provider.threads.comment(forgeThreadRef(provider, target), body))
+      if (body) await forgeChannelWrite(provider, async () => await provider.threads.createComment(forgeThreadRef(provider, target), body))
     },
     async update(context) {
       const target = options.target(context)
@@ -321,7 +321,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
       if (!target.commentId) throw agentDiagnostics.AGENT_R0364({ message: "[vitehub] GitHub pull request lifecycle invocations cannot update a triggering comment." })
       const provider = await options.provider(context)
       const body = await bodyFor(context, provider)
-      if (body) await forgeChannelWrite(provider, async () => await provider.threads.editComment(commentRef(provider, target, target.commentId!), body))
+      if (body) await forgeChannelWrite(provider, async () => await provider.threads.updateComment(commentRef(provider, target, target.commentId!), body))
     },
     async review(context) {
       const target = options.target(context)
@@ -336,7 +336,7 @@ export function forgeDeliveryEffects<TRuntimeConfig extends AgentRuntimeConfig>(
         // GitLab has approvals, not reviews. An approval has no body, so the review text is a note.
         if (review === "request_changes") throw agentDiagnostics.AGENT_R0946({ message: "[vitehub] GitLab has no request changes review. Use an approve or comment review." })
         if (review === "approve") await forgeChannelWrite(provider, async () => await provider.threads.createReview(ref, { event: "approve" }))
-        if (body) await forgeChannelWrite(provider, async () => await provider.threads.comment(ref, body))
+        if (body) await forgeChannelWrite(provider, async () => await provider.threads.createComment(ref, body))
         return
       }
       if (!body) return

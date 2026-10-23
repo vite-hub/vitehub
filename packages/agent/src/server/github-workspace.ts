@@ -36,7 +36,7 @@ export function createGitHubWorkspaceInspector(host: Pick<GitHubHost, "forge">):
         throw new Error("Invalid Workspace path.")
       }
       const forge = await host.forge({ repository: workspace.repository })
-      const file = await forge.contents.file(repoRef(forge, workspace.repository), path, { ref: workspace.revision })
+      const file = await forge.contents.getFile(repoRef(forge, workspace.repository), path, { ref: workspace.revision })
       if (file.encoding !== "binary") throw new Error("GitHub did not return a file.")
       if (file.content.byteLength > previewLimit) throw new Error("This file is too large to preview.")
       let content: string

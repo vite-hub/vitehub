@@ -16,15 +16,15 @@ function effectContext(effect: AgentChannelDeliveryEffectIntent, input = { conte
 }
 
 function fakeProvider() {
-  return fake({ forge: "github", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix", comments: [{ body: "old" }] }] } }).create()
+  return fake({ forge: "github", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix", comments: [{ body: "old" }] }] } })
 }
 
 describe("Forge Channel core", () => {
   it("delivers replies, updates, reviews and statuses through the shared verbs", async () => {
     const provider = fakeProvider()
     // The fake uses compound ids. This Channel target uses native numeric ids.
-    const seeded = await provider.threads.commentsPage(forgeThreadRef(provider, target))
-    seeded.items[0]!.ref.id = "1"
+    const [seeded] = [...provider.store.repos.get("acme/app")!.threads.values()]
+    seeded!.comments[0]!.ref.id = "1"
     const effects = forgeDeliveryEffects({ provider: async () => provider, target: () => target, statusContext: "Agent", reactions: "id" })
     const reply = effectContext({ kind: "reply", payload: "reply" })
     if (typeof effects.reply !== "function" || typeof effects.update !== "function" || typeof effects.review !== "function" || typeof effects.status !== "function") throw new Error("Missing effects.")
@@ -33,8 +33,8 @@ describe("Forge Channel core", () => {
     await effects.review(effectContext({ kind: "review", payload: { body: "reviewed", event: "REQUEST_CHANGES" } }))
     await effects.status(effectContext({ kind: "status", payload: { sha: "abc", state: "failure", description: "Failed", target_url: "https://console.test/run" } }))
     const ref = forgeThreadRef(provider, target)
-    expect((await provider.threads.commentsPage(ref)).items.map(comment => comment.body)).toEqual(["updated", "reply"])
-    expect((await provider.threads.reviewsPage(ref)).items[0]).toMatchObject({ body: "reviewed", state: "changes_requested" })
+    expect((await provider.threads.comments(ref).page()).items.map(comment => comment.body)).toEqual(["updated", "reply"])
+    expect((await provider.threads.reviews(ref).page()).items[0]).toMatchObject({ body: "reviewed", state: "changes_requested" })
     expect((await provider.checks.list(ref.repo, "abc")).items[0]).toMatchObject({ name: "Agent", state: "failure", url: "https://console.test/run" })
     expect(messageChannelDeliveredReplyBody(reply)).toBe("reply")
   })
@@ -43,7 +43,7 @@ describe("Forge Channel core", () => {
     const provider = fake({ forge: "gitlab", instance: "github.com", seed: { threads: [{ repo: "acme/app", kind: "pull_request", number: 42, title: "Fix",
       comments: Array.from({ length: 120 }, (_, id) => ({ body: `comment ${id}` })),
       files: Array.from({ length: 120 }, (_, id) => ({ path: `file-${id}.ts` })),
-    }] } }).create()
+    }] } })
     const metadata = await forgePullRequestMetadata(provider, target, { maxComments: 101, maxFiles: 101 })
     expect(metadata.comments).toHaveLength(102)
     expect(metadata.files).toHaveLength(102)

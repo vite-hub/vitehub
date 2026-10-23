@@ -31,7 +31,7 @@ describe("forgeEnv", () => {
     ["gitlab", { FORGES_GITLAB_TOKEN: "token" }],
     ["forgejo", { FORGES_FORGEJO_TOKEN: "token" }],
   ])("uses FORGES_ names that forges reads for %s", (forge, env) => {
-    expect(providersFromEnv(env)).toContainEqual(expect.objectContaining({ forge, factory: expect.any(Object) }))
+    expect(providersFromEnv(env)).toContainEqual(expect.objectContaining({ forge, provider: expect.any(Object) }))
   })
 })
 

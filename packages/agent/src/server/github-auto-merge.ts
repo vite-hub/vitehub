@@ -354,7 +354,7 @@ export function createGitHubPullRequestOperations(
     if (!Number.isSafeInteger(runId) || runId <= 0) throw new Error("Expected a positive workflow run ID.")
     const { provider, repo } = await forge()
     const ref: CiRunRef = { forge: provider.forge, instance: provider.instance, repo, id: String(runId) }
-    const run = await provider.ci.run(ref, { signal })
+    const run = await provider.ci.getRun(ref, { signal })
     return { provider, run: { ref, raw: run.raw } }
   }
 
@@ -424,7 +424,7 @@ export function createGitHubPullRequestOperations(
       if (options.restrictCommentMentions && await hasGitHubMention(body)) throw new Error("Comments cannot contain GitHub mentions; use the guarded mention capability.")
       await snapshot()
       const { provider, pullRequest } = await forge()
-      await provider.threads.comment(pullRequest, `${options.commentPrefix ?? ""}${body}`, { signal })
+      await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}${body}`, { signal })
     },
     async mention(login, body) {
       const targetLogin = nonempty(login, "GitHub login")
@@ -436,7 +436,7 @@ export function createGitHubPullRequestOperations(
       await snapshot()
       const { provider, pullRequest } = await forge()
       // Keep block Markdown at the start of the validated body on its own line.
-      await provider.threads.comment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
+      await provider.threads.createComment(pullRequest, `${options.commentPrefix ?? ""}@${targetLogin}\n\n${message}`, { signal })
     },
     async resolveThread(id) {
       nonempty(id, "Review thread ID")
