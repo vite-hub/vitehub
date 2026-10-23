@@ -93,7 +93,6 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
     port: port(values, env),
     user: required(values, "user", env, "CRABBOX_STATIC_USER"),
   });
-  context.stdout.write(`${JSON.stringify({ event: "sandbox.listening", port: server.port })}\n`);
   return await new Promise<number>((resolve) => {
     const signals = ["SIGINT", "SIGTERM"] as const;
     let closing = false;
@@ -122,6 +121,9 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
       );
     };
     for (const signal of signals) process.on(signal, close);
+    // Announce readiness only after signal handlers are installed. Consumers may terminate
+    // immediately after reading this line.
+    context.stdout.write(`${JSON.stringify({ event: "sandbox.listening", port: server.port })}\n`);
   });
 }
 
