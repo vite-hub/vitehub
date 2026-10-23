@@ -40,7 +40,7 @@ function durationSeconds(value: unknown): number | undefined {
 export function stateless(options: AuthStatelessPresetOptions = {}): AuthStatelessPreset {
   const maxAge = options.maxAge === undefined ? defaultStatelessMaxAge : durationSeconds(options.maxAge)
   if (maxAge === undefined) {
-    throw authErrorDiagnostics.AUTH_C0047({ message: `\`stateless({ maxAge })\` must be a positive whole number of seconds or a duration such as "7d". Received ${JSON.stringify(options.maxAge)}.` })
+    throw authErrorDiagnostics.AUTH_C0049({ message: `\`stateless({ maxAge })\` must be a positive whole number of seconds or a duration such as "7d". Received ${JSON.stringify(options.maxAge)}.` })
   }
   return { name: "stateless", maxAge }
 }

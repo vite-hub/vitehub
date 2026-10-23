@@ -121,19 +121,25 @@ With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session
 | `account.storeStateStrategy` | `'cookie'` |
 | `account.storeAccountCookie` | `true` |
 
-Every instance must use the same [secret](#secret). The secret encrypts the cookies, so an instance with another secret sees no session. The session ends `maxAge` after sign-in. Use does not extend it. You cannot revoke one session. Sign-out removes the cookies from that browser only. To sign out every user, change `session.cookieCache.version` or rotate the secret. There are no stored users, so `user.id` is new at each sign-in. Use `user.email` or the provider account to identify a returning user. The session cookie holds a copy of the user from sign-in, and also the provider tokens. Providers that issue large tokens can exceed browser or proxy header limits.
+Every instance must use the same [secret](#secret). The secret encrypts the cookies, so an instance with another secret sees no session. The session ends `maxAge` after sign-in. Use does not extend it. You cannot revoke one session. Sign-out removes the cookies from that browser only. To sign out every user, change `session.cookieCache.version` or rotate the secret. The session cookie holds a copy of the user from sign-in, and also the provider tokens. Providers that issue large tokens can exceed browser or proxy header limits.
 
 `preset` is a ViteHub option, so ViteHub can check the other options. These combinations fail when the Auth Definition is defined, or when a callback or `runtime` resolves:
 
 | Code | Combination |
 | --- | --- |
-| `AUTH_C0042` | `database`, metadata or an adapter |
-| `AUTH_C0043` | `secondaryStorage` |
-| `AUTH_C0044` | `emailAndPassword.enabled`, because users and passwords need a database |
-| `AUTH_C0045` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
-| `AUTH_C0046` | An option that the preset sets, from the table above. Pass `maxAge` to `stateless()` instead. |
+| `AUTH_C0044` | `database`, metadata or an adapter |
+| `AUTH_C0045` | `secondaryStorage` |
+| `AUTH_C0046` | `emailAndPassword.enabled`, because users and passwords need a database |
+| `AUTH_C0047` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
+| `AUTH_C0048` | An option that the preset sets, from the table above. Pass `maxAge` to `stateless()` instead. |
 
 For revocable sessions, user records, or email and password, remove the preset and configure a database adapter.
+
+### User ID
+
+There are no stored users, so Better Auth creates the user again at each sign-in. The preset gives that user an ID derived from the provider account: the first 32 hex digits of SHA-256 over the provider ID, such as `github`, and the account ID that the provider returns. The same provider account gets the same `user.id` on every sign-in, instance, and restart, so you can key app data and [Agent Invokers](/docs/agents/invokers) by it. The same account ID on two providers gives two IDs. The ID does not depend on the secret. It is not a secret: anyone who knows the provider account ID can compute it.
+
+The preset sets the ID through Better Auth's `user.validateUserInfo` and `databaseHooks.user.create.before`. Your own hooks still run. The preset sets `id` after your `create.before` hook, so that hook cannot change it. A provider that returns no account ID fails sign-in with `vitehub_account_subject_missing`. A user who signs in with two providers gets two IDs. In a process that keeps one Better Auth instance, Better Auth can link the second provider to the first user by email until the process restarts.
 
 ## Storage placement metadata
 

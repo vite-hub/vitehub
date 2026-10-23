@@ -77,9 +77,9 @@ export default defineAuth(({ env, requestOrigin }) => ({
 }));
 ```
 
-The preset sets `session.expiresIn`, `session.cookieCache` (`strategy: "jwe"`, `refreshCache: true`), `account.storeStateStrategy: "cookie"`, and `account.storeAccountCookie: true`. `maxAge` is seconds or a duration such as `"12h"` or `"7d"`, and defaults to 7 days. The session ends `maxAge` after sign-in. There are no stored users, so `user.id` is new at each sign-in; use `user.email` to identify a returning user. You cannot revoke one session; change `session.cookieCache.version` or rotate the secret to sign out every user.
+The preset sets `session.expiresIn`, `session.cookieCache` (`strategy: "jwe"`, `refreshCache: true`), `account.storeStateStrategy: "cookie"`, and `account.storeAccountCookie: true`. `maxAge` is seconds or a duration such as `"12h"` or `"7d"`, and defaults to 7 days. The session ends `maxAge` after sign-in. `user.id` is the first 32 hex digits of SHA-256 over the provider ID and the provider account ID, so the same provider account keeps its ID across sign-ins, instances, and restarts, and `github` account 1 differs from `discord` account 1. The preset sets it through `user.validateUserInfo` and `databaseHooks.user.create.before`, after your own hooks run. You cannot revoke one session; change `session.cookieCache.version` or rotate the secret to sign out every user.
 
-`preset` is a ViteHub option, so Auth checks the other options against it. `database` (`AUTH_C0042`), `secondaryStorage` (`AUTH_C0043`), `emailAndPassword.enabled` (`AUTH_C0044`), plugins that store data such as `jwt()` or `magicLink()` (`AUTH_C0045`), and options that the preset sets (`AUTH_C0046`) fail when the Definition is defined or resolved.
+`preset` is a ViteHub option, so Auth checks the other options against it. `database` (`AUTH_C0044`), `secondaryStorage` (`AUTH_C0045`), `emailAndPassword.enabled` (`AUTH_C0046`), plugins that store data such as `jwt()` or `magicLink()` (`AUTH_C0047`), and options that the preset sets (`AUTH_C0048`) fail when the Definition is defined or resolved.
 
 For host routes that need runtime secrets, provider credentials, request-derived origins, or route guarding, keep that policy in the Auth Definition.
 

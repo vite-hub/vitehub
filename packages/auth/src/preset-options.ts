@@ -1,5 +1,7 @@
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 
+import { withStatelessUserId } from "./stateless-user-id.ts"
+
 import type { AuthStatelessPreset } from "./presets.ts"
 
 // These plugins keep one-time tokens in Better Auth's verification table, so they need a database.
@@ -33,7 +35,7 @@ function readStatelessPreset(value: unknown): AuthStatelessPreset {
   if (isPlainObject(value) && value.name === "stateless" && typeof value.maxAge === "number" && Number.isSafeInteger(value.maxAge) && value.maxAge > 0) {
     return { name: "stateless", maxAge: value.maxAge }
   }
-  throw authErrorDiagnostics.AUTH_C0041({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `@vite-hub/auth/presets`." })
+  throw authErrorDiagnostics.AUTH_C0043({ message: "`defineAuth()` preset must be a preset such as `stateless()` from `@vite-hub/auth/presets`." })
 }
 
 function storedPluginId(plugin: unknown): string | undefined {
@@ -46,21 +48,21 @@ function storedPluginId(plugin: unknown): string | undefined {
 /** Checks that the options can run with `stateless()` and returns the Better Auth options it sets. */
 function applyStatelessPreset(preset: AuthStatelessPreset, options: Record<string, unknown>): Record<string, unknown> {
   if (options.database !== undefined) {
-    throw authErrorDiagnostics.AUTH_C0042({ message: "`stateless()` keeps sessions in cookies and cannot use `database`. Remove `database`, or remove the preset to store sessions in a database." })
+    throw authErrorDiagnostics.AUTH_C0044({ message: "`stateless()` keeps sessions in cookies and cannot use `database`. Remove `database`, or remove the preset to store sessions in a database." })
   }
   if (options.secondaryStorage !== undefined) {
-    throw authErrorDiagnostics.AUTH_C0043({ message: "`stateless()` keeps sessions in cookies and cannot use `secondaryStorage`. Remove `secondaryStorage`, or remove the preset to store sessions on the server." })
+    throw authErrorDiagnostics.AUTH_C0045({ message: "`stateless()` keeps sessions in cookies and cannot use `secondaryStorage`. Remove `secondaryStorage`, or remove the preset to store sessions on the server." })
   }
   if (readPath(options, ["emailAndPassword", "enabled"]) === true) {
-    throw authErrorDiagnostics.AUTH_C0044({ message: "`stateless()` has no database to store users and passwords, so `emailAndPassword` cannot be enabled. Use `socialProviders`, or remove the preset and configure a database." })
+    throw authErrorDiagnostics.AUTH_C0046({ message: "`stateless()` has no database to store users and passwords, so `emailAndPassword` cannot be enabled. Use `socialProviders`, or remove the preset and configure a database." })
   }
   const plugin = Array.isArray(options.plugins) ? options.plugins.map(storedPluginId).find(Boolean) : undefined
   if (plugin) {
-    throw authErrorDiagnostics.AUTH_C0045({ message: `\`stateless()\` has no database, and the Better Auth plugin "${plugin}" stores data in one. Remove the plugin, or remove the preset and configure a database.` })
+    throw authErrorDiagnostics.AUTH_C0047({ message: `\`stateless()\` has no database, and the Better Auth plugin "${plugin}" stores data in one. Remove the plugin, or remove the preset and configure a database.` })
   }
   const owned = statelessOwnedOptions.find(path => readPath(options, path) !== undefined)
   if (owned) {
-    throw authErrorDiagnostics.AUTH_C0046({ message: `\`stateless()\` sets \`${owned.join(".")}\`. Remove it from the Auth Definition, and pass \`maxAge\` to \`stateless()\` to change the session lifetime.` })
+    throw authErrorDiagnostics.AUTH_C0048({ message: `\`stateless()\` sets \`${owned.join(".")}\`. Remove it from the Auth Definition, and pass \`maxAge\` to \`stateless()\` to change the session lifetime.` })
   }
 
   const session = isPlainObject(options.session) ? options.session : {}
@@ -68,6 +70,7 @@ function applyStatelessPreset(preset: AuthStatelessPreset, options: Record<strin
   const account = isPlainObject(options.account) ? options.account : {}
   return {
     ...options,
+    ...withStatelessUserId(options),
     account: {
       ...account,
       storeAccountCookie: true,
