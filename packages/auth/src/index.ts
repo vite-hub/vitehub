@@ -18,6 +18,7 @@ export type {
   AuthDefinitionResolver,
   AuthFor,
   AuthGuardedHandler,
+  AuthMiddleware,
   AuthModuleOptions,
   AuthNodeRequest,
   AuthNodeRequestEvent,

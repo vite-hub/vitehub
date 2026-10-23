@@ -1,4 +1,5 @@
 import discoveredDefinition from "#vitehub/auth/definition"
+import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { betterAuth } from "better-auth"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -20,6 +21,7 @@ import type {
   AuthDefinition,
   AuthFor,
   AuthGuardedHandler,
+  AuthMiddleware,
   AuthRequest,
   AuthRequestInput,
   AuthRuntimeOptions,
@@ -794,6 +796,55 @@ export function withAuthorization<TInput extends AuthRequestInput, TResult>(
     if (check.response) return check.response
     return handler(input, check.authorization)
   }
+}
+
+// The middleware attaches this grant to the event. Only getAuthorization() reads it, so other code cannot set it.
+const authorizationGrant = defineGrant("vitehub.auth.authorization", (authorization: AuthAuthorization) => authorization)
+
+function authMiddleware(check: (event: AuthRequestInput) => Promise<AuthCheck>): AuthMiddleware {
+  return async (event, next) => {
+    const result = await check(event)
+    if (result.response) return result.response
+    authorizationGrant.attach(event, authorizationGrant.issue(result.authorization))
+    return next()
+  }
+}
+
+/**
+ * Route middleware for H3 2 that lets the request continue only with a signed-in Auth Session.
+ * It rejects like `withAuth()`: `401`, or the `access.signIn` redirect for HTML requests.
+ * The route handler reads the checked authorization with `getAuthorization(event)`.
+ */
+export function requireAuth(definition?: AuthDefinition): AuthMiddleware {
+  return authMiddleware(event => checkAuthRequest(event, definition ?? resolveDefaultDefinition()))
+}
+
+/**
+ * Route middleware for H3 2 that lets the request continue only after `authorize` accepts it.
+ * It rejects like `withAuthorization()`: `401` without a session, `403` when `authorize` returns `false`,
+ * or the callback's `Response`. It never redirects to sign-in.
+ * The route handler reads the checked authorization with `getAuthorization(event)`.
+ */
+export function requireAuthorization(
+  authorize: AccessAuthorizeOption,
+  definition?: AuthDefinition,
+): AuthMiddleware {
+  if (authorize !== true && typeof authorize !== "function") {
+    throw authErrorDiagnostics.AUTH_R0014({ message: "[vitehub] `authorize` must be true or a function." })
+  }
+  return authMiddleware(event => checkAuthorizeRequest(event, authorize, definition ?? resolveDefaultDefinition()))
+}
+
+/**
+ * Return the checked request, Session, and user that `requireAuth()` or `requireAuthorization()` attached to `event`.
+ * Throws when no Auth middleware accepted this event, so a route without the middleware fails closed.
+ */
+export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
+  const grant = authorizationGrant.attached(event)
+  if (!grant) {
+    throw authErrorDiagnostics.AUTH_R0017({ message: "[vitehub] getAuthorization() found no checked Auth Session for this event. Add requireAuth() or requireAuthorization() to the route middleware." })
+  }
+  return authorizationGrant.verify(grant)
 }
 
 /** Bind discovered access routes to a Web Request or host request handler. */

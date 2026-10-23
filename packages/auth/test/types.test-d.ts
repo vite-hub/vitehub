@@ -1,4 +1,5 @@
 import { admin } from "better-auth/plugins"
+import { H3, type Middleware } from "h3"
 import type { UserConfig } from "vite"
 import handleVirtualAuth, { withAuth as withVirtualAuth } from "#vitehub/auth/server"
 
@@ -31,7 +32,10 @@ import {
   auth,
   createAuthForRequest,
   getAuthForDefinition,
+  getAuthorization,
   handleAuthRequest,
+  requireAuth,
+  requireAuthorization,
   withAuth,
   withAuthorization,
 } from "../src/server.ts"
@@ -142,9 +146,7 @@ describe("types", () => {
     expectTypeOf(guarded).toEqualTypeOf<(input: typeof event) => Promise<string | Response>>()
     withAuth((_input: typeof event, { session }) => session)
 
-    // @ts-expect-error The old guards returned `Response | undefined` and let the protected action run after a missed check.
-    void authServer.requireAuth
-    // @ts-expect-error The old guards returned `Response | undefined` and let the protected action run after a missed check.
+    // @ts-expect-error The old guard returned `Response | undefined` and let the protected action run after a missed check.
     void authServer.authorizeRequest
     // @ts-expect-error A guard needs the protected handler.
     withAuthorization(true)
@@ -157,6 +159,31 @@ describe("types", () => {
     void body
     // @ts-expect-error The checked authorization is read-only.
     withAuth((_input: typeof event, authorization) => { authorization.user = { id: "admin" } })
+  })
+
+  it("types Auth route middleware for H3 2", () => {
+    const signedIn = requireAuth()
+    const owner = requireAuthorization(({ request, user }) => new URL(request.url).pathname.startsWith(`/posts/${user.id}`))
+    expectTypeOf(signedIn).toMatchTypeOf<Middleware>()
+    expectTypeOf(owner).toMatchTypeOf<Middleware>()
+    expectTypeOf(requireAuthorization(true)).toMatchTypeOf<Middleware>()
+
+    new H3()
+      .get("/me", (event) => {
+        const authorization = getAuthorization(event)
+        expectTypeOf(authorization).toEqualTypeOf<AuthAuthorization>()
+        // @ts-expect-error The checked authorization is read-only.
+        authorization.user = { id: "admin" }
+        return { id: authorization.user.id }
+      }, { middleware: [signedIn] })
+      .delete("/posts/:id", event => getAuthorization(event).user.id, { middleware: [owner] })
+
+    // @ts-expect-error The middleware is the result of `requireAuth()`, not the function itself.
+    void new H3().get("/me", () => "ok", { middleware: [requireAuth] })
+    // @ts-expect-error `requireAuth()` returns middleware. It does not check an event.
+    void requireAuth({ req: new Request("https://app.example.com/me") })
+    // @ts-expect-error `authorize` is `true` or a callback. `false` does not mean "public".
+    void requireAuthorization(false)
   })
 
   it("exposes the authenticated Agent Invoker helper", () => {
