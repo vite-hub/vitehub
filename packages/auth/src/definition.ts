@@ -12,6 +12,7 @@ import type {
   AuthSignInConfiguration,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
+import { applyAuthPreset } from "./preset-options.ts"
 
 const authRuntimeOptionNames = new Set(["baseURL", "secret", "secrets"])
 const accessRouteKeys = new Set(["authorize", "method", "route"])
@@ -188,6 +189,8 @@ function defineAuthOptions(
   validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)
+  // A callback or `runtime` can add options later, so ViteHub checks the preset again for each resolution.
+  applyAuthPreset(options)
 
   return { options }
 }

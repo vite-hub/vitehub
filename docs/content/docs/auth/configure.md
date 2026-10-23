@@ -30,6 +30,7 @@ export default defineAuth({
 | Better Auth options | `AuthBetterAuthOptions` | Better Auth defaults | Passed to `betterAuth()` after ViteHub-owned fields are removed. |
 | `database` | `true \| { name, dedicated? }` | Default Database metadata | Records the intended Default or Named Database for inspection. It does not create a Better Auth database adapter. |
 | `secondaryStorage` | `true \| { store }` | Disabled | Records the intended Default or named KV Store for inspection. It does not create a Better Auth secondary storage adapter. |
+| `preset` | `stateless()` | None | Sets the Better Auth options of a preset and checks the other options against it. See [Sessions without a database](#sessions-without-a-database). |
 | `basePath` | `string` | `/api/auth` | Sets the Auth Base Path. It must start with `/`. |
 | `route` | `false` | Enabled | Disables automatic Auth route exposure. |
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Use a route string, or an object with `route`, optional `method`, and optional `authorize`. |
@@ -90,6 +91,49 @@ export default defineAuth(({ env, requestOrigin }) => ({
 | `request` | The current request headers and URL, when a request exists. |
 
 Without a `baseURL`, Auth uses `vitehub({ publicUrl })`, then the request origin. When Nitro serves the app below a path, such as Nuxt `app.baseURL: '/app/'`, Auth serves its routes and OAuth callbacks below that path, such as `/app/api/auth`. Set `baseURL` to an origin; Better Auth ignores `basePath` when `baseURL` has a path. Each Auth request or route guard resolves the Definition and `runtime` callbacks once. A later request resolves fresh options.
+
+## Sessions without a database
+
+Use the `stateless()` preset when users sign in only with social providers and the app has no database. Each session is in an encrypted cookie, so it survives restarts and works across replicas and Workers.
+
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+import { stateless } from '@vite-hub/auth/presets'
+
+export default defineAuth(({ env, requestOrigin }) => ({
+  baseURL: requestOrigin,
+  preset: stateless({ maxAge: '7d' }),
+  socialProviders: {
+    github: {
+      clientId: env.auth.github.clientId,
+      clientSecret: env.auth.github.clientSecret.unseal(),
+    },
+  },
+}))
+```
+
+With `vite-hub`, import it from `vite-hub/auth/presets`. `maxAge` is the session lifetime in seconds or a duration: `'30m'`, `'12h'`, `'7d'`, or `'2w'`. The default is 7 days. The preset sets these Better Auth options:
+
+| Better Auth option | Value |
+| --- | --- |
+| `session.expiresIn` | `maxAge` |
+| `session.cookieCache` | `{ enabled: true, strategy: 'jwe', refreshCache: true, maxAge }` |
+| `account.storeStateStrategy` | `'cookie'` |
+| `account.storeAccountCookie` | `true` |
+
+Every instance must use the same [secret](#secret). The secret encrypts the cookies, so an instance with another secret sees no session. The session ends `maxAge` after sign-in. Use does not extend it. You cannot revoke one session. Sign-out removes the cookies from that browser only. To sign out every user, change `session.cookieCache.version` or rotate the secret. There are no stored users, so `user.id` is new at each sign-in. Use `user.email` or the provider account to identify a returning user. The session cookie holds a copy of the user from sign-in, and also the provider tokens. Providers that issue large tokens can exceed browser or proxy header limits.
+
+`preset` is a ViteHub option, so ViteHub can check the other options. These combinations fail when the Auth Definition is defined, or when a callback or `runtime` resolves:
+
+| Code | Combination |
+| --- | --- |
+| `AUTH_C0042` | `database`, metadata or an adapter |
+| `AUTH_C0043` | `secondaryStorage` |
+| `AUTH_C0044` | `emailAndPassword.enabled`, because users and passwords need a database |
+| `AUTH_C0045` | A Better Auth plugin that adds tables or fields, such as `jwt()`, `admin()`, or `organization()`, or one that stores verification tokens, such as `magicLink()`, `emailOTP()`, or `oneTimeToken()` |
+| `AUTH_C0046` | An option that the preset sets, from the table above. Pass `maxAge` to `stateless()` instead. |
+
+For revocable sessions, user records, or email and password, remove the preset and configure a database adapter.
 
 ## Storage placement metadata
 

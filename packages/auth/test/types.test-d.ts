@@ -36,6 +36,7 @@ import {
   withAuthorization,
 } from "../src/server.ts"
 import * as authServer from "../src/server.ts"
+import { stateless } from "../src/presets.ts"
 import { hubAuth } from "../src/vite.ts"
 
 import type { AgentInvokerOptions, AgentRuntimeConfig } from "@vite-hub/agent"
@@ -196,7 +197,7 @@ describe("types", () => {
   })
 
   it("marks every ViteHub-owned Auth Definition field as reserved", () => {
-    expectTypeOf<"access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
+    expectTypeOf<"access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">().toMatchTypeOf<AuthReservedOption>()
   })
 
   it("types the Better Auth instance with the plugins of its Auth Definition", () => {
@@ -237,5 +238,16 @@ describe("types", () => {
 
     // @ts-expect-error route only supports false when provided.
     defineAuth({ route: true })
+  })
+
+  it("accepts presets from @vite-hub/auth/presets", () => {
+    defineAuth({ preset: stateless({ maxAge: "7d" }) })
+    defineAuth(({ requestOrigin }) => ({ baseURL: requestOrigin, preset: stateless({ maxAge: 3600 }) }))
+
+    // @ts-expect-error a preset comes from a preset function.
+    defineAuth({ preset: { name: "custom" } })
+
+    // @ts-expect-error maxAge is seconds or a duration with a unit.
+    stateless({ maxAge: "7 days" })
   })
 })

@@ -1,5 +1,6 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
@@ -46,7 +47,7 @@ function stripViteHubOptions(
     runtime: _runtime,
     secondaryStorage,
     ...rest
-  } = options
+  } = applyAuthPreset(options)
 
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
