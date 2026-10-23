@@ -75,6 +75,12 @@ export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext>
 /** A server handler that runs only after an Auth guard accepts the request. */
 export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>
 
+/**
+ * Route middleware with the `(event, next)` contract of H3 2.
+ * It returns the rejection `Response`, or the result of `next()` after the check passes.
+ */
+export type AuthMiddleware = (event: AuthRequestInput, next: () => unknown) => Promise<unknown>
+
 export interface AuthAccessConfiguration {
   routes?: AuthAccessRoute[]
   signIn?: AuthSignInConfiguration

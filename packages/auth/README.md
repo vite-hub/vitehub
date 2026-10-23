@@ -177,6 +177,22 @@ export default defineAuth({
 The hook receives the `session` and `user` as stored before the refresh. To change user fields, update them in your own store: the current response still contains the user that Better Auth read before the refresh.
 
 `onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`, because Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
+On H3 2, you can guard a route with middleware instead. `requireAuth(definition?)` rejects like `withAuth()`, and `requireAuthorization(authorize, definition?)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`. The route handler reads the checked `request`, `session`, and `user` with `getAuthorization(event)`.
+
+```ts
+import { getAuthorization, requireAuth, requireAuthorization } from "@vite-hub/auth/server";
+import { H3 } from "h3";
+
+const app = new H3()
+  .get("/me", event => ({ id: getAuthorization(event).user.id }), {
+    middleware: [requireAuth()],
+  })
+  .delete("/posts/:id", event => deletePost(event), {
+    middleware: [requireAuthorization(({ user }) => user.role === "admin")],
+  });
+```
+
+`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with an own `req` request.
 
 ## Vite Integration
 
