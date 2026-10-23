@@ -65,6 +65,23 @@ export const buildWarningBudget = Object.freeze([
     comment: zodRegexAnnotationComment,
     warningTokenRequired: false,
   },
+  // Docs bundles a second Zod copy since the Content stack (#2390).
+  {
+    name: "Zod 4.6.7 util pure annotation",
+    maximum: 1,
+    text: rollupAnnotationConclusion,
+    source: "zod@4.6.7/node_modules/zod/v4/core/util.js",
+    comment: zodUtilAnnotationComment,
+    warningTokenRequired: false,
+  },
+  {
+    name: "Zod 4.6.7 regexes pure annotation",
+    maximum: 1,
+    text: rollupAnnotationConclusion,
+    source: "zod@4.6.7/node_modules/zod/v4/core/regexes.js",
+    comment: zodRegexAnnotationComment,
+    warningTokenRequired: false,
+  },
   { name: "Nuxt UI button imports", maximum: 2, text: "[INEFFECTIVE_DYNAMIC_IMPORT]" },
   { name: "Vite chunk size", maximum: 1, text: "[plugin builtin:vite-reporter]" },
   {

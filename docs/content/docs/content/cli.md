@@ -2,7 +2,7 @@
 title: Content CLI
 description: List, read, edit, publish, and schedule Content documents from the terminal, with field issues, edit leases, and pinned digests.
 navigation.title: CLI
-navigation.order: 5
+navigation.order: 13
 icon: i-lucide-terminal-square
 ---
 

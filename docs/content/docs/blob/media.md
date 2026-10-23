@@ -2,7 +2,7 @@
 title: Blob media and images
 description: Keep alt text, focal points, and crops next to Blob objects, organize them in folders, and serve responsive image variants.
 navigation.title: Media and images
-navigation.order: 5
+navigation.order: 7
 icon: i-lucide-image
 ---
 

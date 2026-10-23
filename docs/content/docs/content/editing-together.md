@@ -2,7 +2,7 @@
 title: Edit Content together
 description: Show who has a document open, give one session at a time the edit lease, and refuse writes from everyone else.
 navigation.title: Editing together
-navigation.order: 5
+navigation.order: 10
 icon: i-lucide-users
 ---
 
