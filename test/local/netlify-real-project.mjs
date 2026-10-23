@@ -297,7 +297,9 @@ async function runNetlifyDevProof() {
     "--target-port",
     String(targetPort),
     "--command",
-    "pnpm dev -- --host 127.0.0.1",
+    // Nitro's Vite plugin defaults the dev server to port 3000, so pass the target port explicitly.
+    // Keep Vite's default localhost host: netlify dev waits on localhost, which can resolve to ::1.
+    `pnpm dev -- --port ${targetPort} --strictPort`,
   ])
   try {
     const text = await waitForChat(port)
