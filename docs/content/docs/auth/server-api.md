@@ -17,6 +17,7 @@ icon: i-lucide-code-2
 | `withAuth` from `@vite-hub/auth/server` | Run a server handler only with an Auth Session. |
 | `requireAuthAccessRoutes` from `@vite-hub/auth/server` | Guard selected configured access routes. |
 | `withAuthorization` from `@vite-hub/auth/server` | Run a resource handler only after `true` or an `authorize` callback accepts the request. Never redirects to sign-in. |
+| `requireAuth`, `requireAuthorization`, `getAuthorization` from `@vite-hub/auth/server` | Guard an H3 2 route with middleware, then read the checked session in the handler. |
 | `useUserSession`, `useSession`, `createAuthClient`, `loadAuthClient` from `@vite-hub/auth/vue` | Read session state and call Better Auth from Vue. The client loads Better Auth on first use. |
 | `authenticated` from `@vite-hub/auth/agent` | Map a Better Auth session into an Agent Invoker. |
 | `agentAuth` from `@vite-hub/auth/agent` | The `auth` primitive generated Agent routes pass to Capabilities. `agentAuth.user(actor)` reads the Auth user behind an Actor from `actor.meta.authUserId`, or returns `null`. `authenticated()` sets `authUserId` for a request with a session. A Channel Actor or an anonymous Actor has none, unless your `invoker.resolve` adds it. |
@@ -56,6 +57,23 @@ import { withAuth } from '@vite-hub/auth/server'
 export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id })))
 ```
 
+On H3 2, you can put the check in route middleware. `requireAuth()` rejects like `withAuth()`. `requireAuthorization(authorize)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`, and the handler reads the checked `authorization` with `getAuthorization(event)`.
+
+```ts [server/app.ts]
+import { getAuthorization, requireAuth, requireAuthorization } from '@vite-hub/auth/server'
+import { H3 } from 'h3'
+
+export const app = new H3()
+  .get('/me', event => ({ id: getAuthorization(event).user.id }), {
+    middleware: [requireAuth()],
+  })
+  .delete('/posts/:id', event => deletePost(event), {
+    middleware: [requireAuthorization(({ user }) => user.role === 'admin')],
+  })
+```
+
+`getAuthorization(event)` reads only what the Auth middleware attached to that event, not `event.context`. On a route without the middleware, it throws `AUTH_R0017`, so the handler does not run without a check.
+
 ## Server helpers
 
 | Helper | Description |
@@ -70,10 +88,13 @@ export default defineEventHandler(withAuth((event, { user }) => ({ id: user.id }
 | `createAuthAccessHandler(routes, definition?)` | Creates a handler that matches discovered route metadata, then authenticates and runs every matching authorization rule. |
 | `withAuth(handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when a session exists. Otherwise it returns an unauthorized or sign-in response. |
 | `withAuthorization(authorize, handler, definition?)` | Returns a handler that calls `handler(input, authorization)` when allowed. Otherwise it returns JSON `401` without a session, `403` when `authorize` returns `false`, or the callback's `Response`. |
+| `requireAuth(definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when a session exists. Otherwise it returns the same response as `withAuth()`. |
+| `requireAuthorization(authorize, definition?)` | Returns `(event, next)` route middleware for H3 2. It calls `next()` when allowed. Otherwise it returns the same response as `withAuthorization()`. |
+| `getAuthorization(event)` | Returns the `authorization` that `requireAuth()` or `requireAuthorization()` attached to the event. Throws `AUTH_R0017` when no Auth middleware accepted it. |
 
 `auth`, `getAuth()`, `getAuthForRequest()`, and `assertAuthOrigin()` return the instance typed from your Auth Definition, with the endpoints and fields of its plugins. The Vite plugin registers the type of `server/auth.ts` in `.vitehub/types/auth.d.ts`, so `getAuthForRequest(event.req).api.listUsers` type-checks when the definition uses the `admin()` plugin, without a cast. For another definition, `getAuthForDefinition(definition)` infers the type from its argument, and `AuthFor<typeof definition>` from `@vite-hub/auth` names it.
 
-The `authorization` argument is a frozen `{ request, session, user }` object. Only the guard creates it. A caller cannot pass its own value to the returned handler.
+The `authorization` argument and the `getAuthorization(event)` result are a frozen `{ request, session, user }` object. Only the guard or the middleware creates it. A caller cannot pass its own value to the returned handler.
 
 ### Authorize access routes
 

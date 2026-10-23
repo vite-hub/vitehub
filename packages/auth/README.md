@@ -150,6 +150,23 @@ Annotate the input type when the host does not infer it, for example inside `def
 
 `withAuth()` returns JSON `401` without a session and starts the `access.signIn` redirect for HTML requests. `withAuthorization()` applies one `authorize` rule: `true` for any session or a callback. It returns JSON `401` without a session, `403` when the callback returns `false`, or the callback's `Response`. It never redirects to sign-in. Blob serve routes and Source Collections use it for their `authorize` option.
 
+On H3 2, you can guard a route with middleware instead. `requireAuth(definition?)` rejects like `withAuth()`, and `requireAuthorization(authorize, definition?)` rejects like `withAuthorization()`. When the check passes, the middleware calls `next()`. The route handler reads the checked `request`, `session`, and `user` with `getAuthorization(event)`.
+
+```ts
+import { getAuthorization, requireAuth, requireAuthorization } from "@vite-hub/auth/server";
+import { H3 } from "h3";
+
+const app = new H3()
+  .get("/me", event => ({ id: getAuthorization(event).user.id }), {
+    middleware: [requireAuth()],
+  })
+  .delete("/posts/:id", event => deletePost(event), {
+    middleware: [requireAuthorization(({ user }) => user.role === "admin")],
+  });
+```
+
+`getAuthorization(event)` returns only what the Auth middleware attached to that event. It does not read `event.context`, so other code cannot set it. On a route without the middleware, it throws `AUTH_R0017`, so the handler fails closed. The middleware accepts any host with the same `(event, next)` contract and an event with an own `req` request.
+
 ## Vite Integration
 
 Use `server/auth.ts` for the canonical Auth Definition, or `server.auth.ts` when a flat server file fits the project better. Vite discovers one Auth Definition, exposes it through an internal virtual module, owns `/api/auth/**` in development, and registers the same route with Nitro builds by default.
