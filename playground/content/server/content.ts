@@ -3,6 +3,8 @@ import { z } from "zod"
 
 import { roleOf } from "./roles"
 
+const link = z.object({ label: z.string().min(1), to: z.string().min(1), icon: z.string().optional() })
+
 export const content = defineContent({
   workspace: "site",
   collections: {
@@ -14,6 +16,10 @@ export const content = defineContent({
         description: z.string().max(160, "Keep the description under 160 characters.").optional(),
         socialImage: optional(image()),
         social: z.array(z.url()).default([]),
+        // Structured site data, as a marketing site keeps it: an image by URL, a menu, and grouped footer links.
+        logo: z.object({ src: z.string(), alt: z.string() }).optional(),
+        navigation: z.array(link.extend({ menu: z.enum(["product", "company"]).optional() })).default([]),
+        footer: z.array(z.object({ title: z.string().min(1), links: z.array(link) })).default([]),
       },
     }),
     posts: documents({

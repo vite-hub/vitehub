@@ -97,7 +97,6 @@ const mocks = vi.hoisted(() => ({
     },
   })),
   useEnvPlugin: vi.fn(),
-  uiModule: vi.fn(),
   vitehub: vi.fn(),
   workflowNitroConfig: vi.fn(async ({ nitro }: { nitro: Record<string, unknown> }) => ({
     ...nitro,
@@ -106,11 +105,9 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock("../src/index.ts", () => ({ vitehub: mocks.vitehub }))
-vi.mock("@vite-hub/ui/nuxt", () => ({ default: mocks.uiModule }))
 
 import * as consoleAuthBuild from "../src/console/auth-build.ts"
 import { consoleFixtureEnvironmentVariable } from "../src/console/fixture.ts"
-import { consoleIcons } from "../src/console/icons.ts"
 import { consoleInvocationsRootIdentityRegistryKey } from "../src/console/internal.ts"
 import viteHubNuxtModule from "../src/nuxt.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
@@ -120,19 +117,15 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const viteServerCreatedHooks: Array<(server: { watcher: { add: (paths: string[]) => void; on: (event: string, callback: (path: string) => void) => void } }, context: { isClient: boolean }) => void> = []
   const closeHooks: Array<() => Promise<void>> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
-  const pageHooks: Array<(pages: Array<{ file: string, name: string, path: string }>) => void> = []
-  const iconHooks: Array<(icons: Set<string>) => void> = []
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "doctor:extendExtensions" | "icon:clientBundleIcons" | "nitro:config" | "pages:extend" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((icons: Set<string>) => void) | ((pages: Array<{ file: string, name: string, path: string }>) => void)) {
+    hook(name: "builder:watch" | "close" | "doctor:extendExtensions" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void)) {
       if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
-      else if (name === "icon:clientBundleIcons") iconHooks.push(callback as (icons: Set<string>) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
       else if (name === "close") closeHooks.push(callback as () => Promise<void>)
-      else if (name === "pages:extend") pageHooks.push(callback as (pages: Array<{ file: string, name: string, path: string }>) => void)
     },
     options: {
       alias: {
@@ -162,9 +155,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     closeHooks,
-    iconHooks,
     nitroConfigHooks,
-    pageHooks,
     nuxt,
     viteServerCreatedHooks,
     async runBuilderWatchHook(path = "/tmp/vitehub-nuxt/console.fixture.json", event = "change") {
@@ -177,18 +168,21 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
     },
-    runPagesHook(pages: Array<{ file: string, name: string, path: string }>) {
-      for (const hook of pageHooks) hook(pages)
-    },
-    runIconHook(icons: Set<string>) {
-      for (const hook of iconHooks) hook(icons)
-    },
     runDoctorExtensionsHook() {
       const entries: string[] = []
       for (const hook of doctorExtensionHooks) hook(entries)
       return entries
     },
   }
+}
+
+/** The Console sections that the generated plugin installs. The standalone Console builds its navigation from them. */
+async function generatedConsoleSections(): Promise<string[]> {
+  const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+  const sections = /installConsoleSections\("[^"]*", (\[[^\]]*\])/.exec(generated)?.[1]
+  if (!sections) throw new TypeError("Expected the generated Console plugin to install sections.")
+  // SAFETY: The generated plugin writes the section ids as a JSON string array.
+  return JSON.parse(sections) as string[]
 }
 
 function nitroOptions(nuxt: ReturnType<typeof createNuxt>["nuxt"]): Record<string, unknown> {
@@ -229,7 +223,6 @@ describe("ViteHub Nuxt integration", () => {
     mocks.queueNitroConfig.mockClear()
     mocks.sandboxTaskHook.mockClear()
     mocks.useEnvPlugin.mockClear()
-    mocks.uiModule.mockReset()
     mocks.workflowNitroConfig.mockClear()
     mocks.vitehub.mockReset()
     mocks.vitehub.mockReturnValue([
@@ -586,30 +579,17 @@ describe("ViteHub Nuxt integration", () => {
       swr: false,
     }
     await viteHubNuxtModule({ agent: true, blob: true, console: { auth: false }, kv: true, preset: "node" }, development.nuxt)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
-    const icons = new Set(["app:existing"])
-    development.runIconHook(icons)
 
-    expect(mocks.uiModule).toHaveBeenCalledOnce()
-    for (const icon of ["app:existing", ...consoleIcons]) expect(icons).toContain(icon)
-    expect(icons).toContain("lucide:monitor")
-    expect(pages).toEqual([
-      expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents" }),
-      expect.objectContaining({ name: "vitehub-console-agent", path: "/_vitehub/agents/:agent" }),
-      expect.objectContaining({
-        name: "vitehub-console-invocation",
-        path: "/_vitehub/agents/:agent/invocations/:invocation",
-      }),
-      expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
-      expect.objectContaining({ name: "vitehub-console-blob", path: "/_vitehub/blob" }),
-      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-      expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
-      expect.objectContaining({ name: "vitehub-console-workflows", path: "/_vitehub/workflows" }),
-    ])
+    // The Console renders in its own document: Nitro serves its page and hashed assets, and the host renders no Console page.
+    expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), route: "/_vitehub/**" })
+    expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
+      baseURL: "/_vitehub/assets",
+      dir: expect.stringMatching(/console\/runtime\/public\/console$/),
+      fallthrough: false,
+      maxAge: 31536000,
+    }])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(development.nuxt.options.routeRules).toMatchObject({
@@ -637,7 +617,6 @@ describe("ViteHub Nuxt integration", () => {
       `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default"])`,
     )
 
-    mocks.uiModule.mockClear()
     const production = createNuxt(false)
     await viteHubNuxtModule(
       {
@@ -648,24 +627,8 @@ describe("ViteHub Nuxt integration", () => {
       },
       production.nuxt,
     )
-    expect(mocks.uiModule).toHaveBeenCalledOnce()
-    const productionPages: Array<{ file: string; name: string; path: string }> = []
-    production.runPagesHook(productionPages)
-    expect(productionPages).toEqual([
-      expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-agents", path: "/_vitehub/agents" }),
-      expect.objectContaining({ name: "vitehub-console-agent", path: "/_vitehub/agents/:agent" }),
-      expect.objectContaining({
-        name: "vitehub-console-invocation",
-        path: "/_vitehub/agents/:agent/invocations/:invocation",
-      }),
-      expect.objectContaining({ name: "vitehub-console-usage", path: "/_vitehub/usage" }),
-      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-      expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
-      expect.objectContaining({ name: "vitehub-console-workflows", path: "/_vitehub/workflows" }),
-    ])
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(production.nuxt.options.routeRules).toMatchObject({
@@ -693,9 +656,6 @@ describe("ViteHub Nuxt integration", () => {
         return
       }
       await configure()
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      application.runPagesHook(pages)
-      expect(pages.some(page => page.name === "vitehub-console-connections")).toBe(dev)
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated.includes('"connections"')).toBe(dev)
     }
@@ -913,16 +873,8 @@ describe("ViteHub Nuxt integration", () => {
       },
       preset: "node",
     }, development.nuxt)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
-
-    expect(pages).toEqual([
-      expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-      expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-      expect.objectContaining({ name: "vitehub-console-kv", path: "/_vitehub/kv" }),
-    ])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -954,12 +906,10 @@ describe("ViteHub Nuxt integration", () => {
     const disabled = createNuxt(true)
     disabled.nuxt.options.vite.kv = false
     await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "node" }, disabled.nuxt)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    disabled.runPagesHook(pages)
     const disabledNitroConfig = nitroOptions(disabled.nuxt)
     await disabled.runNitroConfigHook(disabledNitroConfig)
 
-    expect(pages).not.toContainEqual(expect.objectContaining({ name: "vitehub-console-kv" }))
+    await expect(generatedConsoleSections()).resolves.not.toContain("kv")
     expect(disabledNitroConfig.handlers).toContainEqual(expect.objectContaining({ route: "/_vitehub/rpc/**" }))
 
     const applicationKVHandler = { handler: "/tmp/application-kv-handler.ts", route: "/api/_vitehub/console/kv" }
@@ -1011,11 +961,8 @@ describe("ViteHub Nuxt integration", () => {
     development.nuxt.options.vite.workflow = false
 
     await viteHubNuxtModule({ console: { auth: false }, preset: "node", workflow: true }, development.nuxt)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
     const nitroConfig = nitroOptions(development.nuxt)
 
-    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
@@ -1035,10 +982,6 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, preset: "node", workflow: true }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
-
-    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
@@ -1054,10 +997,6 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, database: true, preset: "node" }, development.nuxt)
     const nitroConfig = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(nitroConfig)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
-
-    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/databases" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
@@ -1248,10 +1187,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, preset: "node", queue: true }, configured.nuxt)
     const configuredNitroConfig = nitroOptions(configured.nuxt)
     await configured.runNitroConfigHook(configuredNitroConfig)
-    const configuredPages: Array<{ file: string; name: string; path: string }> = []
-    configured.runPagesHook(configuredPages)
-
-    expect(configuredPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    await expect(generatedConsoleSections()).resolves.not.toContain("queues")
     expect(nitroHandlerRoutes(configuredNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
@@ -1265,10 +1201,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, preset: "node", queue: true }, replayed.nuxt)
     const replayedNitroConfig = nitroOptions(replayed.nuxt)
     await replayed.runNitroConfigHook(replayedNitroConfig)
-    const replayedPages: Array<{ file: string; name: string; path: string }> = []
-    replayed.runPagesHook(replayedPages)
-
-    expect(replayedPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/queues" }))
+    await expect(generatedConsoleSections()).resolves.not.toContain("queues")
     expect(nitroHandlerRoutes(replayedNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.not.toContain(
       "installConsoleDefinitions",
@@ -1319,12 +1252,10 @@ describe("ViteHub Nuxt integration", () => {
     const implicit = createNuxt(true)
 
     await viteHubNuxtModule({ agent: true, console: { auth: false }, preset: "netlify" }, implicit.nuxt)
-    const implicitPages: Array<{ file: string; name: string; path: string }> = []
-    implicit.runPagesHook(implicitPages)
     const implicitNitroConfig = nitroOptions(implicit.nuxt)
     await implicit.runNitroConfigHook(implicitNitroConfig)
 
-    expect(implicitPages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+    await expect(generatedConsoleSections()).resolves.not.toContain("workflows")
     expect(nitroHandlerRoutes(implicitNitroConfig)).not.toContain("/api/_vitehub/console/definitions")
 
     const explicit = createNuxt(true)
@@ -1334,10 +1265,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "netlify",
       workflow: { provider: "vercel" },
     }, explicit.nuxt)
-    const explicitPages: Array<{ file: string; name: string; path: string }> = []
-    explicit.runPagesHook(explicitPages)
-
-    expect(explicitPages).toContainEqual(expect.objectContaining({ path: "/_vitehub/workflows" }))
+    await expect(generatedConsoleSections()).resolves.toContain("workflows")
   })
 
   it("reconciles the Nuxt Console from the retained KV plugin", async () => {
@@ -1626,14 +1554,6 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ console: { auth: false }, preset: "node", workspace: true }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-workspaces", path: "/_vitehub/workspaces" }),
-      ])
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
@@ -1659,17 +1579,8 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: { auth: false }, database: true, preset: "node" }, development.nuxt)
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-databases-schema", path: "/_vitehub/databases/:database/schema/diagram" }),
-        expect.objectContaining({ name: "vitehub-console-databases", path: "/_vitehub/databases/:database?/:table?" }),
-      ])
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/api/_vitehub/console/client.js" }],
+        handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1689,28 +1600,16 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("registers the Content pages, the index redirect, and the collection route like the Vite Console", async () => {
+  it("installs the Content section and serves its routes from the standalone Console page", async () => {
     const entry = "/tmp/vitehub-nuxt/custom-server/content.ts"
     await mkdir(resolve(entry, ".."), { recursive: true })
     await writeFile(entry, `import { defineContent, documents } from "vite-hub/content"\nexport const content = defineContent({ workspace: "site", collections: { posts: documents({ path: "posts/*.md", fields: {} }) } })\n`)
     try {
       const development = createNuxt(true)
       await viteHubNuxtModule({ blob: true, console: { auth: false }, preset: "node", workspace: true }, development.nuxt)
-      const pages: Array<{ file?: string, meta?: Record<string, unknown>, name: string, path: string, redirect?: string }> = []
-      development.runPagesHook(pages as Array<{ file: string, name: string, path: string }>)
-      const content = pages.filter(page => page.path.startsWith("/_vitehub/content"))
-      const file = expect.stringMatching(/console\/runtime\/pages\/documents\.vue$/)
-      expect(content).toEqual([
-        { name: "vitehub-console-content--dashboard", path: "/_vitehub/content/-/dashboard", redirect: "/_vitehub/content" },
-        { file, meta: expect.objectContaining({ consolePage: "settings", consoleSection: "content" }), name: "vitehub-console-content--settings", path: "/_vitehub/content/-/settings" },
-        { file, meta: expect.objectContaining({ consolePage: "media", consoleSection: "content" }), name: "vitehub-console-content--media", path: "/_vitehub/content/-/media" },
-        { file, meta: expect.objectContaining({ consoleSection: "content" }), name: "vitehub-console-content", path: "/_vitehub/content/:collection?/:document(.*)*" },
-      ])
-      expect(content[3]?.meta).not.toHaveProperty("consolePage")
-      expect(content[3]?.meta?.consoleSectionDetails).toMatchObject({ id: "content", pages: [{ id: "dashboard", index: true }, { id: "settings" }, { id: "media" }] })
-      const icons = new Set<string>()
-      development.runIconHook(icons)
-      expect([...icons]).toEqual(expect.arrayContaining(["lucide:layout-dashboard", "lucide:settings-2", "lucide:image"]))
+      // The standalone page answers every Console path, such as /_vitehub/content/-/media, and its router picks the view.
+      expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).toEqual(expect.arrayContaining(["/_vitehub", "/_vitehub/**"]))
+      await expect(generatedConsoleSections()).resolves.toContain("content")
     }
     finally {
       await rm(entry, { force: true })
@@ -1730,14 +1629,6 @@ describe("ViteHub Nuxt integration", () => {
       await viteHubNuxtModule({ console: { auth: false }, preset: "node", queue: true }, development.nuxt)
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-queues", path: "/_vitehub/queues" }),
-      ])
       expect(nitroConfig).toMatchObject({
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
@@ -1745,6 +1636,8 @@ describe("ViteHub Nuxt integration", () => {
           { method: "post", route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { method: "post", route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -1803,14 +1696,6 @@ describe("ViteHub Nuxt integration", () => {
         rateLimit: { projectRoot: "packages/policies", scanDirs: ["rules"] },
       }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-rate-limits", path: "/_vitehub/rate-limits" }),
-      ])
       expect(development.nuxt.options.nitro).toMatchObject({
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
@@ -1818,6 +1703,8 @@ describe("ViteHub Nuxt integration", () => {
           { route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
         ],
       })
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1845,19 +1732,8 @@ describe("ViteHub Nuxt integration", () => {
       const development = createNuxt(true)
 
       await viteHubNuxtModule({ console: { auth: false }, preset: "node", schedule: true }, development.nuxt)
-      const icons = new Set<string>()
-      development.runIconHook(icons)
-      expect(icons).toContain("lucide:calendar-clock")
       const nitroConfig = nitroOptions(development.nuxt)
       await development.runNitroConfigHook(nitroConfig)
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-schedules", path: "/_vitehub/schedules" }),
-      ])
       expect(nitroConfig).toMatchObject({
         handlers: [
           { handler: "server/handler.ts", route: "/api/example" },
@@ -1865,6 +1741,8 @@ describe("ViteHub Nuxt integration", () => {
           { route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub" },
+          { route: "/_vitehub/**" },
         ],
       })
       expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
@@ -1924,14 +1802,6 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ console: { auth: false }, preset: "cloudflare", sandboxTask: true }, development.nuxt)
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      const pages: Array<{ file: string; name: string; path: string }> = []
-      development.runPagesHook(pages)
-
-      expect(pages).toEqual([
-        expect.objectContaining({ name: "vitehub-console", path: "/_vitehub" }),
-        expect.objectContaining({ name: "vitehub-console-env", path: "/_vitehub/env" }),
-        expect.objectContaining({ name: "vitehub-console-sandbox-tasks", path: "/_vitehub/sandbox-tasks" }),
-      ])
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
       expect(generated).toContain(`from "vite-hub/console/sections"`)
       expect(generated).toContain(`from "vite-hub/console/definitions"`)
@@ -2072,13 +1942,7 @@ describe("ViteHub Nuxt integration", () => {
     const config = nitroOptions(development.nuxt)
     await development.runNitroConfigHook(config)
 
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    development.runPagesHook(pages)
-    expect(pages).toContainEqual(expect.objectContaining({
-      file: expect.stringContaining("pages/connections.vue"),
-      name: "vitehub-console-connections",
-      path: "/_vitehub/connections",
-    }))
+    await expect(generatedConsoleSections()).resolves.toContain("connections")
 
     const actor = "/tmp/vitehub-nuxt/app/.vitehub/nitro/console/connections-actor.mjs"
     expect(config.alias).toMatchObject({ "#vitehub/console/connections-actor": actor })
@@ -2112,8 +1976,19 @@ describe("ViteHub Nuxt integration", () => {
     expect(middleware).toContain('const mountBase = "/portal"')
     expect(middleware).toContain("path === '/_vitehub/sign-in'")
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"], true)`)
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/api/_vitehub/console/auth/**")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/_vitehub/sign-in")
+  })
+
+  it("mounts the standalone Console page and assets below the Nuxt app base URL", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const config = nitroOptions(production.nuxt)
+    expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
+    expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
   })
 
   it("registers the Cloudflare Access Console guard in production Nuxt builds only", async () => {
@@ -2351,43 +2226,21 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("does not reinstall a configured ViteHub UI module for the console", async () => {
-    const development = createNuxt(true)
-    development.nuxt.options.modules = ["@vite-hub/ui/nuxt"]
-
-    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, development.nuxt)
-
-    expect(mocks.uiModule).not.toHaveBeenCalled()
-  })
-
-  it("does not reinstall the framework UI module alias for the console", async () => {
-    const development = createNuxt(true)
-    development.nuxt.options.modules = ["vite-hub/ui/nuxt"]
-
-    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, development.nuxt)
-
-    expect(mocks.uiModule).not.toHaveBeenCalled()
-  })
-
   it("does not install the console when the option is omitted", async () => {
-    const { iconHooks, nuxt, pageHooks } = createNuxt(true)
+    const { nuxt } = createNuxt(true)
     await viteHubNuxtModule({ preset: "node" }, nuxt)
 
-    expect(mocks.uiModule).not.toHaveBeenCalled()
-    expect(pageHooks).toHaveLength(0)
-    expect(iconHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(nuxt.options.nitro).not.toHaveProperty("publicAssets")
     expect(nuxt.options.routeRules).toEqual({})
   })
 
   it("does not install the console when explicitly disabled", async () => {
-    const { iconHooks, nuxt, pageHooks } = createNuxt(true)
+    const { nuxt } = createNuxt(true)
     await viteHubNuxtModule({ console: false, preset: "node" }, nuxt)
 
-    expect(mocks.uiModule).not.toHaveBeenCalled()
-    expect(pageHooks).toHaveLength(0)
-    expect(iconHooks).toHaveLength(0)
     expect(nuxt.options.nitro).not.toHaveProperty("handlers")
+    expect(nuxt.options.nitro).not.toHaveProperty("publicAssets")
     expect(nuxt.options.routeRules).toEqual({})
     expect(nuxt.options.vite.plugins).not.toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-invocation-root" }),
@@ -2674,16 +2527,12 @@ describe("ViteHub Nuxt integration", () => {
   })
 
   it("removes Workspace Console metadata when Nuxt Vite config disables Workspace", async () => {
-    const { nuxt, runNitroConfigHook, runPagesHook } = createNuxt(true)
+    const { nuxt, runNitroConfigHook } = createNuxt(true)
     nuxt.options.vite.workspace = false
 
     await viteHubNuxtModule({ console: { auth: false }, preset: "node", workspace: true }, nuxt)
     const nitroConfig = nitroOptions(nuxt)
     await runNitroConfigHook(nitroConfig)
-    const pages: Array<{ file: string; name: string; path: string }> = []
-    runPagesHook(pages)
-
-    expect(pages).not.toContainEqual(expect.objectContaining({ path: "/_vitehub/workspaces" }))
     expect(nitroHandlerRoutes(nitroConfig)).not.toContain("/api/_vitehub/console/definitions")
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"])`)
