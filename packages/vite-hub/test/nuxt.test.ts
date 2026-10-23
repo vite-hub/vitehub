@@ -1976,8 +1976,8 @@ describe("ViteHub Nuxt integration", () => {
     expect(middleware).toContain('const mountBase = "/portal"')
     expect(middleware).toContain("path === '/_vitehub/sign-in'")
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"], true)`)
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/api/_vitehub/console/auth/**")
-    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/api/_vitehub/console/auth/**")
+    expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/_vitehub/sign-in")
   })
 
   it("mounts the standalone Console page and assets below the Nuxt app base URL", async () => {
