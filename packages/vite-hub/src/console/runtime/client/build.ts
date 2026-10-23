@@ -47,11 +47,11 @@ export async function readConsoleBuild(base: string): Promise<string | undefined
  */
 export function watchConsoleBuild(base: string): void {
   if (watched.has(base)) return
-  watched.add(base)
   void loadConsoleNavigation(base).then((navigation) => {
     const loaded = navigation?.build
     // A server without a build id cannot tell a newer Console apart.
     if (!loaded) return
+    watched.add(base)
     let lastCheck = Date.now()
     let checking = false
     const check = async (): Promise<void> => {

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import { join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
@@ -29,12 +29,30 @@ function resolveConsoleRuntimeRoot(): string {
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
-// The packaged Console client has hashed file names, so they change with every new Console client.
-const consoleClientAssets = existsSync(consolePublicRoot) ? readdirSync(consolePublicRoot).sort().join("\n") : ""
+function readConsoleOutput(root: string): string {
+  if (!existsSync(root)) return ""
+  const files: string[] = []
+  const visit = (directory: string): void => {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      const file = join(directory, entry.name)
+      if (entry.isDirectory()) visit(file)
+      else if (entry.isFile()) files.push(file)
+    }
+  }
+  visit(root)
+  return files.sort().map(file => `${file.slice(consoleRuntimeRoot.length)}\0${readFileSync(file)}`).join("\0")
+}
 
 /** A short id of the generated Console output and the Console client. It is the same for the same Console. */
 function consoleBuildId(contents: string): string {
-  return createHash("sha256").update(contents).update("\0").update(consoleClientAssets).digest("hex").slice(0, 16)
+  return createHash("sha256")
+    .update(contents)
+    .update("\0")
+    .update(readConsoleOutput(consolePublicRoot))
+    .update("\0")
+    .update(readConsoleOutput(join(consoleRuntimeRoot, "server")))
+    .digest("hex")
+    .slice(0, 16)
 }
 
 function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPolicy]): string {
