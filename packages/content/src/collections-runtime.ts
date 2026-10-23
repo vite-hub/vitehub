@@ -261,9 +261,25 @@ export interface ContentPublishedDocument {
   change: "add" | "update" | "delete"
 }
 
+/**
+ * A Workspace revision as Content returns it. It has the shape of `WorkspaceRevision` from `@vite-hub/workspace`, and
+ * Content declares it so its public types do not require the optional Workspace peer.
+ */
+export interface ContentRevision {
+  id: string
+  /** The history ref this revision was committed to. */
+  ref: string
+  parentId: string | null
+  createdAt: string
+  message?: string
+  metadata?: Record<string, unknown>
+  files: number
+  bytes: number
+}
+
 export interface ContentPublishResult {
   /** The new `published` revision, or null when nothing differed from the draft. */
-  revision: WorkspaceRevision | null
+  revision: ContentRevision | null
   documents: ContentPublishedDocument[]
 }
 
@@ -279,7 +295,7 @@ export interface ContentRevisionsOptions {
 }
 
 export interface ContentRevisionsResult {
-  revisions: WorkspaceRevision[]
+  revisions: ContentRevision[]
   /** Pass to the next call to continue. Absent when the history is exhausted. */
   cursor?: string
   /** Number of raw history entries inspected to produce this page. */

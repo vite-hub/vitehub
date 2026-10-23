@@ -25,8 +25,20 @@ export interface PublicPackageBinContract {
 
 type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
+const contentEditorTiptapPeers: Readonly<Record<string, OptionalPeerUsage>> = {
+  "comark": "runtime",
+  "comark-tiptap": "both",
+  "@tiptap/core": "both",
+  "@tiptap/extension-code-block": "runtime",
+  "@tiptap/extension-image": "runtime",
+  "@tiptap/extension-table": "runtime",
+  "@tiptap/pm": "runtime",
+  "@tiptap/starter-kit": "runtime",
+}
+
 const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUsage>>>([
   ["@vite-hub/agent", { "@vite-hub/workflow": "declaration" }],
+  ["@vite-hub/agent/cli", { "vite": "both" }],
   ["@vite-hub/agent/observability", { "evlog": "both" }],
   ["@vite-hub/agent/observability/host", { "evlog": "both" }],
   ["@vite-hub/agent/observability/posthog", { "evlog": "both", "posthog-node": "both" }],
@@ -39,7 +51,12 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
+  // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.
+  ["@vite-hub/content/editor", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "declaration" }],
+  // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
+  ["@vite-hub/content/realtime", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],
   ["@vite-hub/connections/server", { "drizzle-orm": "both" }],
+  ["@vite-hub/env/cli", { "vite": "runtime" }],
   ["@vite-hub/env/database", { "drizzle-orm": "both" }],
   ["@vite-hub/kv/runtime/upstash-driver", { "@upstash/redis": "both" }],
   ["@vite-hub/source/client", { "vue": "both" }],
@@ -61,22 +78,34 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/ui", { "vue": "both" }],
   ["vite-hub/ui/headless", { "vue": "both" }],
   ["vite-hub/ui/nuxt", { "vue": "declaration" }],
+  // The Console renders its panels with @json-render/vue, which imports Vue.
+  ["vite-hub/console/ui", { "vue": "both" }],
   ["vite-hub/ui/vite", { "@nuxt/ui": "both" }],
   ["vite-hub/workflow/runtime/openworkflow", { "openworkflow": "both" }],
   ["vite-hub/workflow/runtime/openworkflow-worker", { "openworkflow": "both" }],
-  ["@vite-hub/agent/vite", { "vite": "declaration" }],
-  ["@vite-hub/auth/vite", { "vite": "declaration" }],
+  ["@vite-hub/agent/vite", { "vite": "both" }],
+  ["@vite-hub/auth/vite", { "vite": "both" }],
   ["@vite-hub/blob/vite", { "vite": "declaration" }],
   ["@vite-hub/browser/vite", { "vite": "declaration" }],
-  ["@vite-hub/channels/vite", { "vite": "declaration" }],
+  // The plugin executes Vite at runtime and its public declarations import
+  // Vite types, so both contract paths must be exercised with the peer.
+  ["@vite-hub/channels/vite", { "vite": "both" }],
   ["@vite-hub/connections/vite", { "vite": "declaration" }],
-  ["@vite-hub/database/vite", { "vite": "declaration" }],
+  // These entries parse modules with Vite's oxc parser through the shared
+  // build scanner (`@vite-hub/internal/build/scan-module`), so they import
+  // Vite at runtime as well as in their declarations.
+  ["@vite-hub/database/vite", { "vite": "both" }],
+  ["@vite-hub/database/nuxt", { "vite": "both" }],
+  // The config entry reaches Vite through the shared build helpers at runtime.
+  ["@vite-hub/database/config", { "vite": "runtime" }],
+  ["@vite-hub/database/runtime/postgres", { "postgres": "runtime" }],
   ["@vite-hub/kv/vite", { "vite": "declaration" }],
   ["@vite-hub/queue/vite", { "vite": "declaration" }],
   ["@vite-hub/realtime/vite", { "vite": "declaration" }],
   ["@vite-hub/sandbox-task/vite", { "vite": "declaration" }],
-  ["@vite-hub/schedule/vite", { "vite": "declaration" }],
-  ["@vite-hub/workflow/vite", { "vite": "declaration" }],
+  ["@vite-hub/schedule/vite", { "vite": "both" }],
+  ["@vite-hub/schedule/nuxt", { "vite": "both" }],
+  ["@vite-hub/workflow/vite", { "vite": "both" }],
   ["@vite-hub/workspace/vite", { "vite": "declaration" }],
   ["@vite-hub/schedule/runtime/kv", { "@vite-hub/kv": "runtime" }],
 ])

@@ -245,6 +245,27 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
       const now = Date.now()
+      // Admission preserves actively leased work, so an older debounced row may
+      // become superseded only after its lease expires. Finalize it before the
+      // candidate query excludes superseded rows, otherwise it can remain
+      // permanently non-terminal.
+      await execute(
+        tx,
+        `UPDATE ${this.tables.webhookQueue} AS candidate
+          SET status = CASE WHEN 1 = 1 THEN 'completed' ELSE status END,
+              value = '{}', lease_token = NULL, lease_expires_at = NULL
+          WHERE candidate.scope = ?
+            AND candidate.status IN ('running', 'steering', 'notifying')
+            AND COALESCE(candidate.lease_expires_at, 0) <= ?
+            AND json_extract(candidate.value, '$.debounceKey') IS NOT NULL
+            AND EXISTS (
+              SELECT 1 FROM ${this.tables.webhookQueue} AS newer
+              WHERE newer.scope = candidate.scope AND newer.status != 'completed'
+                AND newer.id > candidate.id
+                AND json_extract(newer.value, '$.debounceKey') = json_extract(candidate.value, '$.debounceKey')
+            )`,
+        [scope, now],
+      )
       const candidates = await execute(
         tx,
         `SELECT candidate.delivery_id, candidate.value, candidate.status, candidate.concurrency_group,

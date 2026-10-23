@@ -248,7 +248,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/agent#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
@@ -259,7 +259,7 @@
     "@modelcontextprotocol/sdk": "catalog:ai",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
-    "@vercel/connect": "2.5.2",
+    "@vercel/connect": "2.4.0",
     "@vercel/nft": "catalog:vercel",
     "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
@@ -267,7 +267,6 @@
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
-    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
@@ -277,7 +276,8 @@
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",
-    "yaml": "catalog:tooling"
+    "yaml": "catalog:tooling",
+    "@vite-hub/sandbox": "workspace:*"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",
@@ -293,6 +293,7 @@
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/connections": "workspace:*",
     "@vite-hub/internal": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "evalite": "catalog:ai",
@@ -308,8 +309,7 @@
     "evlog": "^2.32.0",
     "posthog-node": "^5.56.2",
     "@t3tools/provider-runtime": "catalog:",
-    "forges": "catalog:",
-    "@vite-hub/kv": "workspace:*"
+    "forges": "catalog:"
   },
   "optionalDependencies": {
     "@ai-sdk/mcp": "catalog:ai",
@@ -322,10 +322,10 @@
     "@chat-adapter/teams": "catalog:chat",
     "@vercel/functions": "catalog:vercel",
     "@vite-hub/blob": "workspace:*",
-    "@vite-hub/connections": "workspace:*",
-    "@vite-hub/kv": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
+    "@vite-hub/kv": "workspace:*",
+    "@vite-hub/schedule": "workspace:*",
     "@vite-hub/workflow": "workspace:*",
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
@@ -335,7 +335,8 @@
     "vue": "catalog:ui",
     "eve": "0.80.1",
     "evlog": "^2.29.0",
-    "posthog-node": "^5.55.0"
+    "posthog-node": "^5.55.0",
+    "@vite-hub/connections": "workspace:*"
   },
   "peerDependenciesMeta": {
     "@agntn/web": {
@@ -356,16 +357,16 @@
     "@vite-hub/blob": {
       "optional": true
     },
-    "@vite-hub/connections": {
+    "@vite-hub/database": {
+      "optional": true
+    },
+    "@vite-hub/email": {
       "optional": true
     },
     "@vite-hub/kv": {
       "optional": true
     },
-    "@vite-hub/database": {
-      "optional": true
-    },
-    "@vite-hub/email": {
+    "@vite-hub/schedule": {
       "optional": true
     },
     "@vite-hub/workflow": {
@@ -390,6 +391,9 @@
       "optional": true
     },
     "posthog-node": {
+      "optional": true
+    },
+    "@vite-hub/connections": {
       "optional": true
     }
   },

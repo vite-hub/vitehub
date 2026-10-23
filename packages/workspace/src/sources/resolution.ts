@@ -1,6 +1,4 @@
 import { ownSourceOption } from "./runtime-options.ts"
-
-import { types } from "node:util"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
@@ -113,7 +111,13 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) {
       return Object.is(left, right)
     }
-    if (types.isProxy(left) || types.isProxy(right)) return false
+    // Node exposes a non-observable proxy brand check. Use it before any
+    // reflection so proxy traps cannot run during source authority checks.
+    // An unavailable detector cannot establish that either value is safe to
+    // reflect. Fail closed so proxy traps cannot run in non-Node runtimes.
+    const leftProxy = isWorkspaceSourceProxy(left)
+    const rightProxy = isWorkspaceSourceProxy(right)
+    if (leftProxy !== false || rightProxy !== false) return false
     const prototype = Object.getPrototypeOf(left)
     if (Array.isArray(left) !== Array.isArray(right)
       || prototype !== Object.getPrototypeOf(right)
@@ -123,14 +127,19 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     const leftKeys = Reflect.ownKeys(left)
     const rightKeys = Reflect.ownKeys(right)
     if (leftKeys.length !== rightKeys.length) return false
+    const leftProperties = leftKeys.map(key => Object.getOwnPropertyDescriptor(left, key))
+    const rightProperties = rightKeys.map(key => Object.getOwnPropertyDescriptor(right, key))
+    // Inspect descriptors before structuredClone: cloning an accessor reads it.
+    if (leftProperties.some(property => !property || !("value" in property))
+      || rightProperties.some(property => !property || !("value" in property))) return false
     ancestors.add(left)
     ancestors.add(right)
     try {
       // Preserve property order, array length, and holes. Source Sync uses JSON order.
       return leftKeys.every((key, index) => {
         if (key !== rightKeys[index]) return false
-        const leftProperty = Object.getOwnPropertyDescriptor(left, key)
-        const rightProperty = Object.getOwnPropertyDescriptor(right, key)
+        const leftProperty = leftProperties[index]
+        const rightProperty = rightProperties[index]
         return !!leftProperty && !!rightProperty
           && "value" in leftProperty && "value" in rightProperty
           && leftProperty.enumerable === rightProperty.enumerable
@@ -145,6 +154,27 @@ function sameWorkspaceSourceValue(left: unknown, right: unknown, ancestors = new
     return false
   }
 }
+
+const isWorkspaceSourceProxy: (value: object) => boolean | undefined = (() => {
+  try {
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- Node's optional process bridge is inspected at runtime to avoid importing Node-only modules in provider bundles.
+    const process = (globalThis as typeof globalThis & {
+      process?: { getBuiltinModule?: (name: string) => unknown }
+    }).process
+    const getBuiltinModule = process?.getBuiltinModule
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before invocation.
+    if (typeof getBuiltinModule !== "function") return (_value: object) => undefined
+    // doctor-disable-next-line typescript/strict/require-safety-comment-for-type-assertion -- getBuiltinModule returns an unknown namespace that is narrowed by the guarded predicate below.
+    const util = getBuiltinModule.call(process, "util") as {
+      types?: { isProxy?: (value: object) => boolean }
+    } | undefined
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The optional Node API must be validated before capture.
+    return typeof util?.types?.isProxy === "function" ? util.types.isProxy : (_value: object) => undefined
+  }
+  catch {
+    return (_value: object) => undefined
+  }
+})()
 
 function workspaceSessionStarter<Name extends WorkspaceName>(workspace: ReadonlyWorkspaceFacade<Name>): Pick<Workspace, "startSession"> | undefined {
   return typeof (workspace as ReadonlyWorkspaceFacade<Name> & Partial<Pick<Workspace, "startSession">>).startSession === "function"

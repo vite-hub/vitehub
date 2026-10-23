@@ -14,7 +14,7 @@ import { envErrorDiagnostics } from "./error-diagnostics.ts"
 import { isBlockingServerEnvEntry } from "./server.ts"
 import { secretCliFeatures } from "./secret-cli.ts"
 
-export { secretCliFeatures } from "./secret-cli.ts"
+export { secretCliFeatures }
 
 type EnvCliCommand = "check" | "inspect"
 
@@ -22,8 +22,8 @@ export interface EnvCliInspectInput {
   applicationRoot?: string
   env: NodeJS.ProcessEnv
   rootDir: string
+  stderr: ViteHubCliContext["stderr"]
   stage: string
-  stderr?: ViteHubCliContext["stderr"]
 }
 
 export interface EnvCliOptions {
@@ -123,7 +123,7 @@ async function inspectStage(input: EnvCliInspectInput): Promise<ServerEnvInspect
       }
     },
   }
-  return await withViteStageServer(stageVite, { ...input, env: explicitEnv, stderr: input.stderr }, async (server) => {
+  return await withViteStageServer(stageVite, { ...input, env: explicitEnv }, async (server) => {
     // The Env plugin writes this module while the stage server resolves its config.
     // Nuxt reloads its stage-specific declarations before this server resolves config.
     const selectedPlugin = server.config.plugins.find(plugin => plugin.name === "@vite-hub/env/vite")
@@ -195,7 +195,7 @@ async function runEnvCli(command: EnvCliCommand, args: string[], context: ViteHu
     return 0
   }
 
-  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stage: parsed.stage ?? defaultEnvCliStage, stderr: context.stderr }
+  const input: EnvCliInspectInput = { env: context.env, rootDir: context.rootDir, stderr: context.stderr, stage: parsed.stage ?? defaultEnvCliStage }
   const inspection = options.inspect
     ? await options.inspect(input)
     : await inspectStage({ ...input, applicationRoot: context.cwd })

@@ -19,7 +19,11 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-const optionalPeers = ["@nuxt/ui", "@upstash/redis", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// Tiptap packages that the Content editor's comark-tiptap renderer needs as peers.
+const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
+const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-code-block", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "comark-tiptap", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+// @tiptap/pm publishes only subpaths, so its resolution is probed through one of them.
+const optionalPeerProbes = optionalPeers.map(name => name === "@tiptap/pm" ? "@tiptap/pm/state" : name)
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -96,6 +100,7 @@ async function requiredPeerSpecs() {
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
+    postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     vue: await installedVersion(join(repoRoot, "packages/agent/node_modules/vue/package.json")),
   }
@@ -273,10 +278,19 @@ async function importPackagesWithoutRootFallback(
     const requiredPeers = Object.keys(manifest.peerDependencies || {}).filter(name =>
       !manifest.peerDependenciesMeta?.[name]?.optional,
     )
+    // Keep the package's published runtime closure available while root
+    // dependencies are hidden. Isolated package links resolve dependencies
+    // through the consumer root, so removing these entries makes pnpm fetch
+    // first-party packages from the registry instead of the packed tarballs.
+    const runtimeDependencies = [
+      ...Object.keys(manifest.dependencies || {}),
+      ...Object.keys(manifest.optionalDependencies || {}),
+    ]
     const declaredTypeDependencies = packageTypeDependencies(manifest)
     await withoutRootDependencies(appDir, new Set([
       info.packageName,
       ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
+      ...runtimeDependencies,
       ...declaredTypeDependencies,
       ...requiredPeers,
       ...(includeOptionalPeers ? Object.keys(manifest.peerDependencies || {}) : []),
@@ -405,6 +419,38 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
     const requiredPeers = Object.keys(sourceManifest.peerDependencies || {}).filter(name =>
       !sourceManifest.peerDependenciesMeta?.[name]?.optional,
     )
+    // Walk only the package under test and its reachable first-party edges.
+    // Packed manifests can gain runtime edges during the build (for example,
+    // Agent's Forge adapter), so the closure must follow every source edge
+    // while keeping unrelated tarballs out of the isolated fixture.
+    const workspaceDependencies = new Set<string>()
+    const pending = [info.packageName]
+    while (pending.length) {
+      const packageName = pending.pop()!
+      if (workspaceDependencies.has(packageName)) continue
+      workspaceDependencies.add(packageName)
+      const dependencyInfo = packageInfos.find(candidate => candidate.packageName === packageName)
+      if (!dependencyInfo) continue
+      const dependencyManifest = await readManifest(join(repoRoot, "packages", dependencyInfo.name, "package.json"))
+      const packedManifest = specs[packageName]
+        ? parse(packageManifestSchema, JSON.parse((await run("tar", ["-xOf", specs[packageName]!.slice("file:".length), "package/package.json"], repoRoot)).stdout))
+        : {}
+      const dependencies = [
+        ...Object.keys(dependencyManifest.dependencies || {}),
+        ...Object.keys(dependencyManifest.optionalDependencies || {}),
+        ...Object.keys(dependencyManifest.peerDependencies || {}).filter(name =>
+          !dependencyManifest.peerDependenciesMeta?.[name]?.optional,
+        ),
+        ...Object.keys(packedManifest.dependencies || {}),
+        ...Object.keys(packedManifest.optionalDependencies || {}),
+        ...Object.keys(packedManifest.peerDependencies || {}).filter(name =>
+          !packedManifest.peerDependenciesMeta?.[name]?.optional,
+        ),
+      ]
+      for (const dependency of dependencies) {
+        if (specs[dependency]) pending.push(dependency)
+      }
+    }
     await mkdir(appDir, { recursive: true })
     await Promise.all([
       writeFile(join(appDir, ".npmrc"), [
@@ -421,6 +467,7 @@ async function exercisePackagesWithoutOptionalPeers(root: string, specs: Record<
         devDependencies: Object.fromEntries([
           ...(info.packageName === "@vite-hub/auth" ? [] : ["@types/node"]),
           ...requiredPeers,
+          ...workspaceDependencies,
         ].map(name => {
           // SAFETY: requiredPeerVersions covers every required peer not packed by this contract.
           const spec = specs[name] || requiredPeerVersions[name as keyof typeof requiredPeerVersions]
@@ -483,13 +530,18 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
+    ...Object.fromEntries(await Promise.all(contentEditorPeers.map(async name =>
+      [name, await installedVersion(join(repoRoot, "packages/content/node_modules", name, "package.json"))] as const))),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
+    comark: await installedVersion(join(repoRoot, "packages/content/node_modules/comark/package.json")),
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
+    "comark-tiptap": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-tiptap/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),
     "playwright-core": await installedVersion(join(repoRoot, "packages/browser/node_modules/playwright-core/package.json")),
     "posthog-node": agentManifest.peerDependencies!["posthog-node"]!,
+    postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
     "reka-ui": viteHubManifest.peerDependencies!["reka-ui"]!,
     vite: requiredDependency(await readManifest(join(repoRoot, "fixtures/consumer/vite-hub/package.json")), "vite"),
     "vite-doctor": await installedVersion(join(repoRoot, "packages/vite-hub/node_modules/vite-doctor/package.json")),
@@ -929,13 +981,13 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("public package e
         }
       }
 
-      await assertResolution(appDir, optionalPeers, false)
+      await assertResolution(appDir, optionalPeerProbes, false)
       await exercisePackagesWithoutOptionalPeers(root, specs)
 
       const optionalPeerSpecs = await addOptionalPeers(appDir)
       const peerSpecs = { ...await requiredPeerSpecs(), ...optionalPeerSpecs }
       expect(Object.keys(optionalPeerSpecs)).toEqual(optionalPeers)
-      await assertResolution(appDir, optionalPeers, true)
+      await assertResolution(appDir, optionalPeerProbes, true)
       for (const optionalPeer of optionalPeers) {
         await importPackagesWithoutDeclarationPeer(root, specs, optionalPeer, peerSpecs)
       }

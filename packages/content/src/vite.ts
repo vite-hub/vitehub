@@ -202,13 +202,14 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         }
       },
       async workspaces(context: WorkspaceContributionContext) {
+        // Nuxt may omit ViteHub project-root metadata; use the Vite root then.
+        const projectRoot = context.projectRoot ?? context.root
         const otherPlugins = await pluginsWithoutContent(context.plugins)
-        const databaseRoot = databaseDiscoveryRoot(otherPlugins, context.root)
-        // Only the Workspace and Database plugins call these hooks, so Database is installed whenever they run.
+        const databaseRoot = databaseDiscoveryRoot(otherPlugins, projectRoot)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, { root: databaseRoot, rootDir: databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot, projectRoot: context.projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
-        const module = resolve(context.projectRoot, cmsWorkspaceModulePath)
+        const contributed = await collectDatabaseContributions(otherPlugins, { root: context.root, rootDir: databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, plugins: otherPlugins })
+        const plan = await resolveCmsPreset({ databaseRoot, projectRoot, serverDirs: context.serverDirs ?? serverDirs, contributedDefinitions: contributed.definitions })
+        const module = resolve(projectRoot, cmsWorkspaceModulePath)
         if (!plan) {
           await rm(module, { force: true })
           return []
@@ -217,11 +218,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         return [{ definition: { export: cmsWorkspaceExport, module }, name: plan.workspace, reason: "Stores the documents of the Content cms preset." }]
       },
       async databases(context: DatabaseContributionContext) {
-        const root = projectRoot ?? context.projectRoot
+        const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         const otherPlugins = await pluginsWithoutContent(resolvedPlugins ?? context.plugins)
         const { collectDatabaseContributions } = await import("@vite-hub/database/vite")
-        const contributed = await collectDatabaseContributions(otherPlugins, { ...context, rootDir: context.rootDir, projectRoot: root, plugins: otherPlugins })
-        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
+        const contributed = await collectDatabaseContributions(otherPlugins, { ...context, rootDir: context.rootDir ?? root, projectRoot: context.projectRoot ?? root, plugins: otherPlugins })
+        const plan = await resolveCmsPreset({ databaseRoot: context.rootDir ?? root, projectRoot: root, serverDirs: serverDirs ?? context.serverDirs?.slice(), contributedDefinitions: contributed.definitions })
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []

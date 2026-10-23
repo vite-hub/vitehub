@@ -1567,6 +1567,11 @@ describe("Workspace Source Resolution", () => {
     { name: "bigints", left: 1n, right: 2n },
     { name: "cycles", left: (() => { const value: unknown[] = []; value.push(value); return value })(), right: [] },
     { name: "throwing serializers", left: { toJSON() { throw new Error("serializer") } }, right: {} },
+    {
+      name: "accessor fingerprints",
+      left: Object.defineProperty({}, "value", { enumerable: true, get() { throw new Error("unexpected read") } }),
+      right: Object.defineProperty({}, "value", { enumerable: true, get() { throw new Error("unexpected read") } }),
+    },
   ])("retains the parent guard for $name fingerprints", async ({ left, right }) => {
     const base = createWorkspace({ name: "support", store: { provider: "memory" } })
     let resolution = 0

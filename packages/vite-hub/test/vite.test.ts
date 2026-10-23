@@ -1038,6 +1038,29 @@ describe("vitehub", () => {
     )).toMatch(/\/vite-hub\/dist\/_internal\/blob\/runtime\/state\.js$/)
   })
 
+  it("resolves generated Nitro and H3 imports from the app, then from vite-hub's Nitro", async () => {
+    const resolveId = dependencyResolver()
+    const resolve = vi.fn(async (id: string, importer: string) => {
+      if (/[\\/]nitro[\\/]package\.json$/.test(importer)) return { id: `/nitro/node_modules/${id}/dist/index.mjs` }
+      if (/[\\/]vite-hub[\\/]package\.json$/.test(importer)) return { id: `/vite-hub/node_modules/${id}/dist/index.mjs` }
+      return null
+    })
+    const context = { resolve } as never
+    const importer = "/app/.vitehub/agent/chat-webhook-route.ts"
+
+    expect(await resolveId.call(context, "h3", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+    expect(await resolveId.call(context, "nitro", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
+    expect(resolve).not.toHaveBeenCalled()
+    expect(await resolveId.call(context, "h3", importer, pluginResolveOptions)).toEqual({ id: "/nitro/node_modules/h3/dist/index.mjs" })
+    expect(resolve).toHaveBeenNthCalledWith(1, "h3", importer, { skipSelf: true })
+    expect(await resolveId.call(context, "nitro/cache", importer, pluginResolveOptions))
+      .toEqual({ id: "/vite-hub/node_modules/nitro/cache/dist/index.mjs" })
+    expect(await resolveId.call(context, "nitropack", importer, pluginResolveOptions)).toBeUndefined()
+
+    resolve.mockResolvedValueOnce({ id: "/app/node_modules/h3/dist/index.mjs" })
+    expect(await resolveId.call(context, "h3", importer, pluginResolveOptions)).toEqual({ id: "/app/node_modules/h3/dist/index.mjs" })
+  })
+
   it("resolves provider facades after framework aliasing", async () => {
     const plugin = dependencyPlugin({ preset: "vercel", sandboxTask: true })
     const frameworkSandboxTaskFacade = pluginAliases(plugin)["vite-hub/sandbox-task"]

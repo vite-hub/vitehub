@@ -446,6 +446,34 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("finalizes superseded debounced work after its lease expires", async () => {
+    const { state, url } = await createState()
+    await state.connect()
+    const queue = state as ViteHubSqliteAgentStateAdapter
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-expired-1", undefined, "pr-expired"))
+    const first = await queue.claimWebhookDelivery("webhook:review:github:")
+    expect(first?.deliveryId).toBe("debounced-expired-1")
+    await queue.enqueueWebhookDelivery(webhookDelivery("debounced-expired-2", undefined, "pr-expired"))
+
+    const client = createClient({ url })
+    await client.execute({
+      args: [first!.deliveryId],
+      sql: "UPDATE test_agent_state_webhook_queue SET lease_expires_at = 0 WHERE delivery_id = ?",
+    })
+    client.close()
+
+    await expect(queue.claimWebhookDelivery("webhook:review:github:")).resolves.toMatchObject({ deliveryId: "debounced-expired-2" })
+    const verificationClient = createClient({ url })
+    await expect(
+      verificationClient.execute({
+        args: [first!.deliveryId],
+        sql: "SELECT status, value FROM test_agent_state_webhook_queue WHERE delivery_id = ?",
+      }),
+    ).resolves.toMatchObject({ rows: [{ status: "completed", value: "{}" }] })
+    verificationClient.close()
+    await state.disconnect()
+  })
+
   it("renews delayed steering ownership after its execution lease renews", async () => {
     const { state, url } = await createState()
     await state.connect()

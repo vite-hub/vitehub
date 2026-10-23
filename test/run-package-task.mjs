@@ -21,7 +21,7 @@ const OUTSIDE_TEST_INPUTS = Object.freeze([
   ["playground/vite/", ["@vite-hub/blob", "@vite-hub/internal", "@vite-hub/queue", "@vite-hub/workflow"]],
 ])
 // Package tests do not read these paths. Any other path outside a package,
-// such as the lockfile or a root config, runs the tests of every package.
+// such as a root config or lockfile, runs the tests of every package.
 const NO_PACKAGE_TEST_INPUTS = Object.freeze([
   /^\.github\/(?!actions\/)/,
   /^docs\//,
