@@ -24,6 +24,7 @@ import {
   type AuthRuntimeContext,
   type AuthRuntimeEnv,
   type AuthRuntimeOptions,
+  type AuthSessionRefresh,
   type RegisteredAuth,
   type ResolvedAuthDatabaseConfiguration,
   type ViteHubAuth,
@@ -244,6 +245,29 @@ describe("types", () => {
     expectTypeOf(authServer.getAuthForRequest).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.getAuth).returns.toEqualTypeOf<RegisteredAuth>()
     expectTypeOf(authServer.assertAuthOrigin).returns.toEqualTypeOf<Promise<RegisteredAuth>>()
+  })
+
+  it("types session.onRefresh in static and callback definitions", () => {
+    const definition = defineAuth({
+      plugins: [admin()],
+      session: {
+        updateAge: 60,
+        onRefresh({ session, user, refresh, clear }) {
+          expectTypeOf(session.token).toEqualTypeOf<string>()
+          expectTypeOf(user.email).toEqualTypeOf<string>()
+          expectTypeOf(refresh).toBeCallableWith()
+          expectTypeOf(refresh).toBeCallableWith({ plan: "pro" })
+          expectTypeOf(clear).toBeCallableWith()
+        },
+      },
+    })
+    expectTypeOf<AuthFor<typeof definition>["api"]["listUsers"]>().toBeFunction()
+
+    const onRefresh: AuthSessionRefresh = ({ refresh }) => refresh()
+    defineAuth(() => ({ session: { onRefresh } }))
+
+    // @ts-expect-error onRefresh is a function.
+    defineAuth({ session: { onRefresh: true } })
   })
 
   it("rejects runtime-only and raw storage options in definitions", () => {
