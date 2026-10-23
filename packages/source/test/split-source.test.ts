@@ -76,6 +76,8 @@ describe("splitSource()", () => {
     }])
     await expect(reader.meta("entry#part")).resolves.toEqual({ digest: "parent", shared: "parent" })
     expect(getMeta).toHaveBeenCalledWith("entry", expect.any(Object))
+    await expect(reader.meta("entry#missing")).rejects.toThrow("could not find \"entry#missing\"")
+    expect(getMeta).toHaveBeenCalledOnce()
   })
 
   it("keeps file methods when every part has content", async () => {

@@ -105,7 +105,9 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
       const id = String(key)
       const at = id.lastIndexOf("#")
       if (at < 1) return Promise.resolve(undefined) as SplitSourceMeta<TSource>
-      return (parent.getMeta?.(id.slice(0, at), ctx) ?? Promise.resolve(undefined)) as SplitSourceMeta<TSource>
+      // Validate the part before exposing metadata for its parent. This keeps
+      // metadata lookups consistent with getItem() for missing composite keys.
+      return this.getItem(key, ctx).then(() => parent.getMeta?.(id.slice(0, at), ctx) ?? Promise.resolve(undefined)) as SplitSourceMeta<TSource>
     },
     getItems,
   }
