@@ -2,9 +2,10 @@
 import { CalendarDate, parseDate, Time } from "@internationalized/date";
 import { computed, ref, watch } from "vue";
 
-import { consoleFieldValueIssue, consoleValueSummary } from "../client/schema-form";
+import { consoleFieldValueIssue, consoleValueParts, consoleValueSummary } from "../client/schema-form";
 import ConsoleMediaField from "./console-media-field.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
+import ConsoleSchemaList from "./console-schema-list.vue";
 
 import type { ConsoleSchemaField, ConsoleSchemaFieldKind } from "../client/schema-form";
 
@@ -12,10 +13,13 @@ defineOptions({ name: "ConsoleSchemaField" });
 
 /**
  * One schema form field as a property row. The control follows the JSON Schema of the field: text, long text, number,
- * switch, choice, date and time, tags, a nested object as a one-line summary that expands in place, a Blob reference
- * chosen from the media library, or JSON for any other shape.
+ * switch, choice, date and time, tags, a nested object as a one-line summary of its fields that expands in place, an
+ * image object `{ src, alt }` with a preview, a list of items, a Blob reference chosen from the media library, or JSON
+ * for a value without a shape.
  */
 const props = defineProps<{
+  /** Nesting level inside object fields and list items, so values line up with the top level. */
+  depth?: number;
   disabled?: boolean;
   /** Server issues keyed by dotted field path, such as `author.name`. */
   errors: Readonly<Record<string, string[]>>;
@@ -58,19 +62,24 @@ const icons: Record<ConsoleSchemaFieldKind, string> = {
   enum: "i-lucide-circle-chevron-down",
   integer: "i-lucide-hash",
   json: "i-lucide-braces",
+  list: "i-lucide-list",
   number: "i-lucide-hash",
   object: "i-lucide-list-tree",
   string: "i-lucide-type",
   "string-list": "i-lucide-tags",
   text: "i-lucide-align-left",
 };
-const icon = computed(() => (props.field.kind === "blob" && record(props.field.schema["x-vitehub-blob"]).kind !== "image" ? "i-lucide-paperclip" : icons[props.field.kind]));
+const icon = computed(() => {
+  if (props.field.kind === "blob" && record(props.field.schema["x-vitehub-blob"]).kind !== "image") return "i-lucide-paperclip";
+  return props.field.image ? "i-lucide-image" : icons[props.field.kind];
+});
+const level = computed(() => props.depth ?? 0);
 
 // Date and time segments size to their digits instead of fixed cells, so `9/1/2026 00:00` reads as one value.
 const segment = "px-0.5 tabular-nums data-[segment=day]:w-auto data-[segment=month]:w-auto data-[segment=year]:w-auto data-[segment=hour]:w-auto data-[segment=minute]:w-auto data-[segment=literal]:px-0";
 
-// Ghost controls: no fill, a border on hover and focus (Notion property values, Geist input ring).
-const ghost = "bg-transparent hover:bg-transparent focus:bg-transparent disabled:bg-transparent ring-0 hover:ring-1 hover:ring-inset hover:ring-(--ui-border) focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
+// Ghost controls: no fill at rest, a fill on hover, and a ring on focus (Notion property values, Geist input ring).
+const ghost = "bg-transparent hover:bg-elevated/70 focus:bg-transparent disabled:bg-transparent ring-0 focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-(--ui-border-accented) aria-invalid:ring-1 aria-invalid:ring-error/60 text-base md:text-sm";
 
 // Text-like fields validate when focus leaves them, then clear the message as soon as the value is valid again.
 // Choices and dates leave validation to the save, since their menus move focus while someone is still choosing.
@@ -210,44 +219,89 @@ const blob = computed(() => {
   return { accept, kind: hint.kind === "image" ? "image" as const : "file" as const, store: String(hint.store) === hint.store ? hint.store : undefined };
 });
 
-// A nested object reads as one line, such as `London · GB · 51.5, -0.12`, and expands in place.
+// A nested object reads as one line of its filled fields, such as `Label Book a demo  To /demo`, and expands in place.
 const expanded = ref(false);
 watch(nestedError, (invalid) => {
   if (invalid) expanded.value = true;
 }, { immediate: true });
+const parts = computed(() => consoleValueParts(props.field, model.value));
 const summary = computed(() => consoleValueSummary(props.field, model.value));
+
+// An image object shows its picture. A source that does not load, such as one from another origin, shows the icon.
+const imageSource = computed(() => {
+  const source = props.field.image ? record(model.value)[props.field.image.src] : undefined;
+  return String(source) === source && source.trim() ? source.trim() : undefined;
+});
+const imageAlt = computed(() => {
+  const alt = props.field.image?.alt ? record(model.value)[props.field.image.alt] : undefined;
+  return String(alt) === alt ? alt : "";
+});
+const imageFailed = ref(false);
+watch(imageSource, () => {
+  imageFailed.value = false;
+});
+
+const listField = computed(() => (props.field.kind === "list" && props.field.item ? { ...props.field, item: props.field.item } : undefined));
+const listCount = computed(() => {
+  const count = Array.isArray(model.value) ? model.value.length : 0;
+  return count === 1 ? "1 item" : `${count} items`;
+});
 
 function child(name: string): unknown {
   return record(model.value)[name];
 }
 
-function updateChild(name: string, value: unknown): void {
-  const next = { ...record(model.value) };
+function withChild(object: unknown, name: string, value: unknown): Record<string, unknown> {
+  const next = { ...record(object) };
   if (value === undefined) delete next[name];
   else next[name] = value;
-  model.value = next;
+  return next;
+}
+
+function updateChild(name: string, value: unknown): void {
+  model.value = withChild(model.value, name, value);
 }
 </script>
 
 <template>
-  <div v-if="field.kind === 'object'" class="grid">
-    <ConsolePropertyRow :icon="icon" :label="field.label" :description="field.description" :control="inputId" :error="errors[path]?.join(' ')">
+  <div v-if="field.kind === 'object'" class="grid grid-cols-1">
+    <ConsolePropertyRow :icon="icon" :label="field.label" :description="field.description" :control="inputId" :depth="level" :error="errors[path]?.join(' ')">
       <button
         :id="inputId"
         type="button"
-        class="flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-2.5 text-left text-base hover:ring-1 md:text-sm hover:ring-(--ui-border) hover:ring-inset focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none"
+        class="flex h-8 w-full min-w-0 items-center gap-2 rounded-md px-2.5 text-left text-base hover:bg-elevated/70 focus-visible:ring-1 focus-visible:ring-(--ui-border-accented) focus-visible:ring-inset focus-visible:outline-none md:text-sm"
         :aria-expanded="expanded"
         :aria-controls="`${inputId}-fields`"
         @click="expanded = !expanded"
       >
-        <span class="truncate" :class="summary ? 'text-highlighted' : 'text-dimmed'">{{ summary || "Empty" }}</span>
+        <span v-if="field.image" class="vitehub-image-backdrop grid h-5 w-8 shrink-0 place-items-center overflow-hidden rounded-sm p-0.5 outline outline-black/10 -outline-offset-1 dark:outline-white/10">
+          <img v-if="imageSource && !imageFailed" :src="imageSource" alt="" class="size-full object-contain" @error="imageFailed = true">
+          <UIcon v-else name="i-lucide-image" class="size-3 text-dimmed" aria-hidden="true" />
+        </span>
+        <span v-if="field.image && (imageAlt || imageSource)" class="min-w-0 truncate">
+          <span class="text-highlighted">{{ imageAlt || "No alt text" }}</span>
+          <span v-if="imageSource" class="ms-2 text-dimmed">{{ imageSource }}</span>
+        </span>
+        <span v-else-if="parts.length" class="min-w-0 truncate">
+          <template v-for="(part, index) in parts" :key="part.label">
+            <span class="text-dimmed" :class="index ? 'ms-3' : ''">{{ part.label }}</span>
+            <span v-if="part.text" class="ms-1.5 text-highlighted">{{ part.text }}</span>
+          </template>
+        </span>
+        <span v-else class="truncate" :class="summary ? 'text-highlighted' : 'text-dimmed'">{{ summary || "Empty" }}</span>
         <UIcon name="i-lucide-chevron-right" class="ms-auto size-3.5 shrink-0 text-dimmed" :class="expanded ? 'rotate-90' : ''" aria-hidden="true" />
       </button>
     </ConsolePropertyRow>
-    <div v-if="expanded" :id="`${inputId}-fields`" class="ms-3.5 grid border-s border-default ps-2">
+    <div v-if="expanded" :id="`${inputId}-fields`" class="grid grid-cols-1 ms-3 border-s border-default ps-[calc(0.75rem-1px)]">
+      <ConsolePropertyRow v-if="field.image && imageSource && !imageFailed" icon="i-lucide-eye" label="Preview" :depth="level + 1">
+        <div class="px-2.5 py-1.5">
+          <img :src="imageSource" :alt="imageAlt" class="vitehub-image-backdrop max-h-24 max-w-full rounded-md object-contain p-2 outline outline-black/10 -outline-offset-1 dark:outline-white/10" @error="imageFailed = true">
+        </div>
+      </ConsolePropertyRow>
       <ConsoleSchemaField
         v-for="nested in field.fields"
         :key="nested.name"
+        :depth="level + 1"
         :disabled="disabled"
         :errors="errors"
         :field="nested"
@@ -261,12 +315,50 @@ function updateChild(name: string, value: unknown): void {
     </div>
   </div>
 
+  <div v-else-if="listField" class="grid grid-cols-1">
+    <ConsolePropertyRow :icon="icon" :label="field.label" :description="field.description" :depth="level" :error="error" :missing="missing && !error">
+      <p class="flex h-8 items-center px-2.5 text-base text-dimmed tabular-nums md:text-sm">{{ listCount }}</p>
+    </ConsolePropertyRow>
+    <ConsoleSchemaList v-model="model" :field="listField" :depth="level" :input-id="inputId" :disabled="disabled">
+      <template #item="{ depth: itemDepth, index, update: updateItem, value }">
+        <template v-if="listField.item.kind === 'object'">
+          <ConsoleSchemaField
+            v-for="nested in listField.item.fields"
+            :key="nested.name"
+            :depth="itemDepth"
+            :disabled="disabled"
+            :errors="errors"
+            :field="nested"
+            :model-value="record(value)[nested.name]"
+            :parent="`${path}.${index}`"
+            :parent-label="field.label"
+            @update:model-value="updateItem(withChild(value, nested.name, $event))"
+            @submit="emit('submit')"
+          />
+        </template>
+        <ConsoleSchemaField
+          v-else
+          :depth="itemDepth"
+          :disabled="disabled"
+          :errors="{}"
+          :field="{ ...listField.item, name: String(index), label: String(index + 1) }"
+          :model-value="value"
+          :parent="path"
+          :parent-label="field.label"
+          @update:model-value="updateItem($event)"
+          @submit="emit('submit')"
+        />
+      </template>
+    </ConsoleSchemaList>
+  </div>
+
   <ConsolePropertyRow
     v-else
     :icon="icon"
     :label="field.label"
     :description="field.description"
     :control="inputId"
+    :depth="level"
     :error="error"
     :missing="missing && !error"
     @focusout="validate"
@@ -401,3 +493,12 @@ function updateChild(name: string, value: unknown): void {
     />
   </ConsolePropertyRow>
 </template>
+
+<style>
+/* A light checkerboard behind image previews in both themes, so dark and light artwork and transparency stay visible. */
+.vitehub-image-backdrop {
+  background-color: #fff;
+  background-image: conic-gradient(#ececec 25%, transparent 0 50%, #ececec 0 75%, transparent 0);
+  background-size: 12px 12px;
+}
+</style>

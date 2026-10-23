@@ -51,7 +51,7 @@ function update(name: string, value: unknown): void {
 </script>
 
 <template>
-  <div class="grid gap-px" role="group" aria-label="Properties">
+  <div class="grid grid-cols-1 gap-px" role="group" aria-label="Properties">
     <slot />
     <ConsoleSchemaField
       v-for="field in visible"

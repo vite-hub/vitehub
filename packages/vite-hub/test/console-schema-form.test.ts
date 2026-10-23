@@ -17,9 +17,12 @@ import {
 import {
   compactConsoleFieldValues,
   consoleFieldIssueMessage,
+  consoleItemTitle,
   consoleFieldLabel,
   consoleFieldValueIssue,
   consoleSchemaDefaults,
+  consoleSchemaItemValue,
+  consoleValueParts,
   consoleValueSummary,
   describeConsoleSchemaFields,
   groupConsoleFieldIssues,
@@ -67,7 +70,7 @@ describe("Console schema form model", () => {
       ["cover", "blob", false],
       ["links", "json", false],
       ["social", "string-list", false],
-      ["days", "json", false],
+      ["days", "list", false],
       ["extra", "json", false],
     ])
     expect(fields.find(field => field.name === "category")?.enum).toEqual(["guide", "release"])
@@ -75,6 +78,83 @@ describe("Console schema form model", () => {
     expect(fields.find(field => field.name === "author")?.fields?.map(field => [field.name, field.required])).toEqual([["name", true], ["url", false]])
     expect(fields.find(field => field.name === "readingTime")?.minimum).toBe(1)
     expect(fields.find(field => field.name === "publishedOn")?.label).toBe("Published on")
+    // A list of dates edits each date; objects without properties have no shape, so they stay JSON.
+    expect(fields.find(field => field.name === "days")?.item).toMatchObject({ kind: "date", label: "Item", required: true })
+  })
+
+  // Site settings as a marketing site keeps them, from the Quiver site.
+  const site = {
+    type: "object",
+    properties: {
+      logo: { type: "object", properties: { src: { type: "string" }, alt: { type: "string" } }, required: ["src", "alt"] },
+      booking: { type: "object", properties: { label: { type: "string" }, to: { type: "string" }, icon: { type: "string" } }, required: ["label", "to"] },
+      navigation: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: { label: { type: "string" }, to: { type: "string" }, menu: { type: "string", enum: ["product", "company"] } },
+          required: ["label", "to"],
+        },
+      },
+      productMenu: {
+        type: "object",
+        properties: {
+          items: { type: "array", items: { type: "object", properties: { label: { type: "string" }, to: { type: "string" } } } },
+          featured: { type: "boolean" },
+        },
+      },
+      rows: { type: "array", items: { type: "array", items: { type: "string" } } },
+      menus: { type: "array", items: { type: "string", enum: ["product", "company"] } },
+      video: { type: "object", properties: { src: { type: "string" } } },
+    },
+  }
+
+  it("edits arrays of shaped items as lists and objects with src and alt as images", () => {
+    const fields = Object.fromEntries(describeConsoleSchemaFields(site).map(field => [field.name, field]))
+    expect(fields.logo).toMatchObject({ kind: "object", image: { alt: "alt", src: "src" } })
+    expect(fields.video?.image).toBeUndefined()
+    expect(fields.navigation).toMatchObject({ kind: "list", item: { kind: "object", label: "Item" } })
+    expect(fields.navigation?.item?.fields?.map(field => [field.name, field.kind, field.required])).toEqual([
+      ["label", "string", true],
+      ["to", "string", true],
+      ["menu", "enum", false],
+    ])
+    expect(fields.productMenu?.fields?.[0]).toMatchObject({ kind: "list", item: { kind: "object" } })
+    // A table row is a list of tags, and a list of choices is a list of choice fields.
+    expect(fields.rows).toMatchObject({ kind: "list", item: { kind: "string-list" } })
+    expect(fields.menus).toMatchObject({ kind: "list", item: { kind: "enum", enum: ["product", "company"] } })
+  })
+
+  it("starts new list items from their schema", () => {
+    const fields = Object.fromEntries(describeConsoleSchemaFields(site).map(field => [field.name, field]))
+    expect(consoleSchemaItemValue(fields.navigation!.item!)).toEqual({})
+    expect(consoleSchemaItemValue(fields.rows!.item!)).toEqual([])
+    expect(consoleSchemaItemValue(fields.menus!.item!)).toBe("product")
+  })
+
+  it("titles list items by their label, name, or title field", () => {
+    const item = describeConsoleSchemaFields(site).find(field => field.name === "navigation")!.item!
+    expect(consoleItemTitle(item, { to: "/product", label: "Product", menu: "product" })).toEqual({ detail: "/product", title: "Product" })
+    expect(consoleItemTitle(item, { to: "/about" })).toEqual({ title: "/about" })
+    expect(consoleItemTitle(item, {})).toEqual({ title: "" })
+    // A group of links has no second text field, so its detail counts its links.
+    const group = describeConsoleSchemaFields({ type: "object", properties: { footer: { type: "array", items: { type: "object", properties: { title: { type: "string" }, links: site.properties.navigation } } } } })[0]!.item!
+    expect(consoleItemTitle(group, { title: "Company", links: [{ label: "About", to: "/about" }] })).toEqual({ detail: "Links 1", title: "Company" })
+    const enumItem = describeConsoleSchemaFields(site).find(field => field.name === "menus")!.item!
+    expect(consoleItemTitle(enumItem, "company")).toEqual({ title: "company" })
+  })
+
+  it("names each filled field of a folded object", () => {
+    const fields = Object.fromEntries(describeConsoleSchemaFields(site).map(field => [field.name, field]))
+    expect(consoleValueParts(fields.booking!, { label: "Book a demo", to: "https://cal.com/demo" })).toEqual([
+      { label: "Label", text: "Book a demo" },
+      { label: "To", text: "https://cal.com/demo" },
+    ])
+    expect(consoleValueParts(fields.productMenu!, { items: [{ label: "A" }, { label: "B" }], featured: true })).toEqual([
+      { label: "Items", text: "2 items" },
+      { label: "Featured", text: "" },
+    ])
+    expect(consoleValueParts(fields.productMenu!, { items: [], featured: false })).toEqual([])
   })
 
   it("starts a new document from schema defaults", () => {
@@ -86,6 +166,12 @@ describe("Console schema form model", () => {
     expect(compactConsoleFieldValues(fields, { title: "", summary: "", readingTime: undefined, author: { name: "", url: "" }, tags: [] })).toEqual({ title: "", tags: [] })
     // A required value stays, so its validator reports it.
     expect(compactConsoleFieldValues(fields, { title: "A", author: { name: "", url: "https://a.dev" } })).toEqual({ title: "A", author: { name: "", url: "https://a.dev" } })
+    // Each item of a list drops its empty optional values too, such as a link without a menu.
+    const navigation = describeConsoleSchemaFields({
+      type: "object",
+      properties: { navigation: { type: "array", items: { type: "object", properties: { label: { type: "string" }, menu: { type: "string" } }, required: ["label"] } } },
+    })
+    expect(compactConsoleFieldValues(navigation, { navigation: [{ label: "Product", menu: "" }, { label: "" }] })).toEqual({ navigation: [{ label: "Product" }, { label: "" }] })
   })
 
   it("derives document ids from titles", () => {
