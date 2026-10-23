@@ -1,7 +1,9 @@
 import { memoryAdapter } from "better-auth/adapters/memory"
+import { APIError } from "better-auth"
 import { describe, expect, it, vi } from "vitest"
 import { defineAuth } from "../src/index.ts"
 import { createAuth, handleAuthRequest, withAuth } from "../src/server.ts"
+import { getAuthenticationSession } from "../src/session.ts"
 
 import type { AuthDefinition, AuthSessionRefresh } from "../src/index.ts"
 
@@ -161,6 +163,17 @@ describe("session.onRefresh with a database", () => {
 })
 
 describe("session.onRefresh without a database", () => {
+  it("preserves unrelated Better Auth unauthorized errors", async () => {
+    const cause = APIError.from("UNAUTHORIZED", { code: "CUSTOM_UNAUTHORIZED", message: "Custom unauthorized" })
+    const auth = { api: { getSession: () => Promise.reject(cause) } }
+
+    await expect(getAuthenticationSession(auth, { headers: new Headers() })).rejects.toMatchObject({
+      cause,
+      code: "AUTH_PROVIDER_OPERATION_FAILED",
+      details: { operation: "get-session", provider: "better-auth" },
+    })
+  })
+
   it("fails configuration, because Better Auth has no stateless refresh hook", () => {
     const definition = defineAuth({ session: { onRefresh: ({ refresh }) => refresh() } })
 

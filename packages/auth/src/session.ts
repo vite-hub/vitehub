@@ -79,7 +79,9 @@ function resolveAuthenticationSession(value: unknown): AuthenticationSessionSnap
 function isUnauthorizedApiError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false
   try {
-    return Reflect.get(error, "name") === "APIError" && Reflect.get(error, "statusCode") === 401
+    if (Reflect.get(error, "name") !== "APIError" || Reflect.get(error, "statusCode") !== 401) return false
+    const body = Reflect.get(error, "body")
+    return typeof body === "object" && body !== null && Reflect.get(body, "code") === "FAILED_TO_GET_SESSION"
   }
   catch {
     return false
