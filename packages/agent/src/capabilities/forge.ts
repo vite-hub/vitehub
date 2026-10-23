@@ -88,10 +88,10 @@ const verbs: Record<ForgeOperation, readonly ForgeVerb[]> = {
   list_reviews: ["threads.reviews"],
   list_files: ["threads.files"],
   list_checks: ["threads.checks", "checks.list"],
-  read_file: ["contents.file"],
+  read_file: ["contents.getFile"],
   list_ci_runs: ["ci.runs"],
   read_ci_log: ["ci.log"],
-  comment: ["threads.comment"],
+  comment: ["threads.createComment"],
   label: ["threads.addLabels", "threads.removeLabels"],
   review: ["threads.createReview"],
   report_check: ["checks.report"],
@@ -287,17 +287,17 @@ async function call(
       return provider.threads.get(thread(v.parse(schemas.read_thread, value).number))
     case "list_threads": {
       const input = v.parse(schemas.list_threads, value)
-      return provider.threads.listPage(repo, { kind: input.kind, state: input.state, perPage: input.limit, signal })
+      return provider.threads.list(repo, { kind: input.kind, state: input.state, perPage: input.limit, signal }).page()
     }
     case "list_comments": {
       const input = v.parse(schemas.list_comments, value)
-      return provider.threads.commentsPage(thread(input.number), { perPage: input.limit, signal })
+      return provider.threads.comments(thread(input.number), { perPage: input.limit, signal }).page()
     }
     case "list_reviews":
-      return provider.threads.reviewsPage(thread(v.parse(schemas.list_reviews, value).number), { signal })
+      return provider.threads.reviews(thread(v.parse(schemas.list_reviews, value).number), { signal }).page()
     case "list_files": {
       const input = v.parse(schemas.list_files, value)
-      const page = await provider.threads.filesPage(thread(input.number), { perPage: input.limit, signal })
+      const page = await provider.threads.files(thread(input.number), { perPage: input.limit, signal }).page()
       return {
         ...page,
         items: page.items.map(({ patch, ...file }) => {
@@ -314,14 +314,14 @@ async function call(
     }
     case "read_file": {
       const input = v.parse(schemas.read_file, value)
-      const file = await provider.contents.file(repo, input.path, { ref: input.ref, as: "text", signal })
+      const file = await provider.contents.getFile(repo, input.path, { ref: input.ref, as: "text", signal })
       if (file.encoding !== "utf-8")
         throw agentDiagnostics.AGENT_R0944({ message: "[vitehub] Forge file is not text." })
       return { ...file, content: file.content.slice(0, max), truncated: file.content.length > max }
     }
     case "list_ci_runs": {
       const input = v.parse(schemas.list_ci_runs, value)
-      return provider.ci.runsPage(repo, { branch: input.branch, perPage: input.limit, signal })
+      return provider.ci.runs(repo, { branch: input.branch, perPage: input.limit, signal }).page()
     }
     case "read_ci_log": {
       const input = v.parse(schemas.read_ci_log, value)
@@ -338,7 +338,7 @@ async function call(
     }
     case "comment": {
       const input = v.parse(schemas.comment, value)
-      return provider.threads.comment(thread(input.number), input.body)
+      return provider.threads.createComment(thread(input.number), input.body)
     }
     case "label": {
       const input = v.parse(schemas.label, value)

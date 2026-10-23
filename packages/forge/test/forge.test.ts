@@ -127,8 +127,8 @@ describe("internal Forge client", () => {
 
   it("blocks writes in read-only mode", async () => {
     const provider = await forgeProvider({ forge: "github", readOnly: true })
-    expect(provider.can("threads.comment", "pull_request")).toBe(false)
-    await expect(provider.threads.comment({ forge: "github", instance: "github.com", repo: { forge: "github", instance: "github.com", owner: "acme", name: "app" }, kind: "pull_request", number: "1" }, "body"))
+    expect(provider.can("threads.createComment", "pull_request")).toBe(false)
+    await expect(provider.threads.createComment({ forge: "github", instance: "github.com", repo: { forge: "github", instance: "github.com", owner: "acme", name: "app" }, kind: "pull_request", number: "1" }, "body"))
       .rejects.toThrow()
   })
 

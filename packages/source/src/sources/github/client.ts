@@ -90,18 +90,18 @@ export function createGitHubClient(repo: string): GitHubClient {
     },
     async file(path, ref, token, signal) {
       try {
-        const file = await request(ref, "content", token, signal, async (client, repoRef) => await client.contents.file(repoRef, path, { ref, signal }))
+        const file = await request(ref, "content", token, signal, async (client, repoRef) => await client.contents.getFile(repoRef, path, { ref, signal }))
         if (file.encoding !== "binary") throw malformed(repo, "content")
         return { content: file.content, sha: file.sha }
       }
       catch (error) {
-        // contents.file() reads a directory listing as a blob without a sha, and GitHub answers 422.
+        // contents.getFile() reads a directory listing as a blob without a sha, and GitHub answers 422.
         if (githubErrorStatus(error) !== 422) throw error
         throw sourceError(`[vitehub] github(${JSON.stringify(repo)}) expected ${JSON.stringify(path)} to be a file, but GitHub returned a directory or another entry type.`, { cause: error })
       }
     },
     async metadata(path, ref, token, signal) {
-      // contents.file() cannot tell a directory from a file, so read the contents entry directly.
+      // contents.getFile() cannot tell a directory from a file, so read the contents entry directly.
       const entry = await request(ref, "content", token, signal, async (client, repoRef) => (await client.request<unknown>(
         "GET",
         `/repos/${encodeURIComponent(repoRef.owner)}/${encodeURIComponent(repoRef.name)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`,

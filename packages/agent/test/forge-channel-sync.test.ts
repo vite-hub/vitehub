@@ -49,13 +49,12 @@ function storedInput<T extends WebhookUpdate>(host: typeof hosts[number], input:
 }
 
 async function mockHost(host: typeof hosts[number], options: ForgeOptionsBase) {
-  const actual = await vi.importActual<Record<typeof host, (input: ForgeOptionsBase) => { create: () => ForgeProvider }>>(`forges/${host}`)
+  const actual = await vi.importActual<Record<typeof host, (input: ForgeOptionsBase) => ForgeProvider>>(`forges/${host}`)
   connections.push({ host, options })
-  if (realRequests) return actual[host](options).create()
+  if (realRequests) return actual[host](options)
   const previous = stores.get(host)
-  if (previous) return previous.create()
-  const factory = fake({ forge: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
-  const provider = factory.create()
+  if (previous) return previous
+  const provider = fake({ forge: host, instance: new URL(options.baseUrl || (host === "gitlab" ? "https://gitlab.com" : "https://codeberg.org")).host })
   const create = provider.webhooks.create
   const update = provider.webhooks.update
   provider.webhooks.create = async (target, input) => {
@@ -72,11 +71,11 @@ async function mockHost(host: typeof hosts[number], options: ForgeOptionsBase) {
     return list(target, options)
   }
   if (unsupported) provider.can = () => false
-  stores.set(host, { ...factory, create: () => provider })
+  stores.set(host, provider)
   return provider
 }
-vi.mock("forges/gitlab", () => ({ gitlab: (options: ForgeOptionsBase) => ({ create: () => mockHost("gitlab", options) }) }))
-vi.mock("forges/forgejo", () => ({ forgejo: (options: ForgeOptionsBase) => ({ create: () => mockHost("forgejo", options) }) }))
+vi.mock("forges/gitlab", () => ({ gitlab: (options: ForgeOptionsBase) => mockHost("gitlab", options) }))
+vi.mock("forges/forgejo", () => ({ forgejo: (options: ForgeOptionsBase) => mockHost("forgejo", options) }))
 
 const token = "private-access-token"
 const secret = "private-hook-secret"
@@ -148,7 +147,7 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
     await provider.apply(await provider.plan(planInput()), fetcher)
     const factory = stores.get(host)!
     const first = factory.store.webhooks[0]!
-    const other = await factory.create().webhooks.create(first.ref.target, { url: "https://other.example.com/hook", events: ["push"], secret: "other-secret" })
+    const other = await factory.webhooks.create(first.ref.target, { url: "https://other.example.com/hook", events: ["push"], secret: "other-secret" })
     const previous = JSON.stringify(other)
     first.events = ["push"]; first.nativeEvents = ["push"]; first.active = host === "gitlab"
     const plan = await provider.plan(planInput())
@@ -182,7 +181,7 @@ for (const host of hosts) describe(`${host} webhook sync`, () => {
     await provider.apply(await provider.plan(planInput()), fetcher)
     const factory = stores.get(host)!
     const hook = factory.store.webhooks[0]!
-    await factory.create().webhooks.create(hook.ref.target, { url, events })
+    await factory.webhooks.create(hook.ref.target, { url, events })
     const previous = JSON.stringify(factory.store.webhooks)
     await expect(provider.plan(planInput())).rejects.toThrow("duplicate hooks")
     expect(JSON.stringify(factory.store.webhooks)).toBe(previous)
@@ -369,11 +368,12 @@ it("repairs Forgejo form hooks and verifies the content type after applying", as
   await provider.apply(plan, fetcher)
   expect((await provider.plan(planInput())).action).toBe("none")
   factory.store.webhooks[0]!.contentType = "form"
-  const update = factory.create().webhooks.update
-  factory.create().webhooks.update = async (ref, input) => {
+  const update = factory.webhooks.update
+  factory.webhooks.update = async (ref, input) => {
     const hook = await update(ref, input)
-    hook.contentType = "form"
-    return hook
+    // The fake returns copies, so change the stored hook that the next read returns.
+    factory.store.webhooks[0]!.contentType = "form"
+    return { ...hook, contentType: "form" }
   }
   await expect(provider.apply(await provider.plan(planInput()), fetcher)).rejects.toThrow("content type")
 })

@@ -40,15 +40,15 @@ export async function forgeProvider(connection: ForgeConnection): Promise<ForgeP
   switch (connection.forge) {
     case "github": {
       const { github } = await import("forges/github")
-      return github(options).create()
+      return github(options)
     }
     case "gitlab": {
       const { gitlab } = await import("forges/gitlab")
-      return gitlab(options).create()
+      return gitlab(options)
     }
     case "forgejo": {
       const { forgejo } = await import("forges/forgejo")
-      return forgejo(options).create()
+      return forgejo(options)
     }
   }
   throw new Error("Unsupported Forge.")

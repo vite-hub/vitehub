@@ -1,3 +1,4 @@
+import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
 import { workspaceError } from "../../core/errors.ts"
@@ -24,7 +25,6 @@ import {
   readGitHubFile,
   type GitFileMode,
   type GitHubFileUpdate,
-  type GitHubProvider,
   type GitHubRepository,
 } from "./shared.ts"
 
@@ -49,8 +49,8 @@ interface GitHubHistoryOptions {
   root: string
 }
 
-type GitHubCommit = Awaited<ReturnType<GitHubProvider["contents"]["commit"]>>
-type GitHubTreeItem = Awaited<ReturnType<GitHubProvider["contents"]["treePage"]>>["items"][number]
+type GitHubCommit = Commit
+type GitHubTreeItem = TreeEntry
 
 interface GitHubHistoryEntry {
   mode: GitFileMode
@@ -187,7 +187,7 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
     if (cached) return cached
-    const commit = await githubRequest(client, async (provider, repo) => await provider.contents.commit(repo, encodeURIComponent(id)), "commit")
+    const commit = await githubRequest(client, async (provider, repo) => await provider.commits.get({ forge: provider.forge, instance: provider.instance, repo, sha: encodeURIComponent(id) }), "commit")
     if (!nonEmptyString(commit.sha)) malformed("commit")
     commitCache.set(commit.sha, commit)
     return commit
@@ -277,14 +277,14 @@ export function createGitHubWorkspaceHistory(options: GitHubHistoryOptions): Wor
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     }
     const page = pageFromCursor(ref, listOptions.cursor)
-    let result: Awaited<ReturnType<GitHubProvider["contents"]["commitsPage"]>>
+    let result: Page<Commit>
     try {
       result = await githubRequest(client, async (provider, repo) => {
         // A history cursor names a page number. Build the GitHub page URL that the Forge cursor needs for it.
         const cursor = page === 1
           ? undefined
           : { nextUrl: `${provider.baseUrl.replace(/\/+$/, "")}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/commits?sha=${encodeURIComponent(ref)}&per_page=${limit}&page=${page}` }
-        return await provider.contents.commitsPage(repo, { cursor, perPage: limit, ref })
+        return await provider.commits.list(repo, { cursor, perPage: limit, ref }).page()
       }, "commit list")
     }
     catch (error) {

@@ -90,8 +90,8 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     forges:
-      specifier: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
-      version: 0.1.0
+      specifier: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
+      version: 0.2.0
     proper-lockfile:
       specifier: 4.1.2
       version: 4.1.2
@@ -890,7 +890,7 @@ importers:
         version: 2.33.1(69ec0d521d405d6a5e40d8dd97674956)
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
+        version: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
       miniflare:
         specifier: 4.20260730.0
         version: 4.20260730.0
@@ -1605,7 +1605,7 @@ importers:
         version: link:../internal
       forges:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b
+        version: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
       publint:
         specifier: catalog:tooling
         version: 0.3.25
@@ -12483,9 +12483,9 @@ packages:
     resolution: {integrity: sha512-dKx12eRCVIzqCxFGplyFKJMPvLEWgmNtUrpTiJIR5u97zEhRG8ySrtboPHZXx7daLxQVrl643cTzbab2tkQjxg==}
     engines: {node: '>= 0.4'}
 
-  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b:
-    resolution: {integrity: sha512-J1Jz3lu/Oc1b/WXA9RCuyQ6MCp/LQvA+ztVqvAMIVwgmqsaFAFFbjOmULVow1krKt0Kw2U4rpxf7AHEIaMjRrg==, tarball: https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b}
-    version: 0.1.0
+  forges@https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202:
+    resolution: {integrity: sha512-KI2u4PaVoiHb40+AHE3X2ygVIaJZP/2Qvji7g/xOi7A3iyzrYmoVgAtX0tWbt6Vnn5PutYmq0TVu0c8EtzI22A==, tarball: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202}
+    version: 0.2.0
     engines: {node: '>=22.18'}
 
   form-data-encoder@4.1.0:
@@ -29436,7 +29436,7 @@ snapshots:
     dependencies:
       is-callable: 1.2.7
 
-  forges@https://pkg.pr.new/danielroe/forges@09920e26c263ad29ad3cc24839fa96a637b6d47b: {}
+  forges@https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202: {}
 
   form-data-encoder@4.1.0: {}
 

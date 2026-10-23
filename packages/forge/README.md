@@ -66,7 +66,7 @@ Each field reads its `VITEHUB_` name first, then the `FORGES_` name that the `fo
 | Helper | Gap |
 | --- | --- |
 | `forgeArchive()` | No `contents.archive()`. |
-| `forgeBlob()` | `contents.file()` reads by path, not by blob sha. |
+| `forgeBlob()` | `contents.getFile()` reads by path, not by blob sha. |
 | `forgeCommitFiles()` | `contents.commitFiles()` cannot set a file mode. |
 | `forgeGitCredentials()`, `forgeGitAuthHeader()` | `Repo.cloneUrls` has no transport credential. |
 | `branchRules()` | No branch protection, rulesets or required checks. |

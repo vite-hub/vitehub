@@ -63,7 +63,7 @@ export async function rerunFailedActions(
     try {
       // Check-run payloads do not contain run_attempt. Read the actual workflow
       // before requesting a rerun or deciding that a prior rerun has finished.
-      const workflowRun = await forge.ci.run({ forge: forge.forge, instance: forge.instance, repo, id: String(run.runId) }, { signal });
+      const workflowRun = await forge.ci.getRun({ forge: forge.forge, instance: forge.instance, repo, id: String(run.runId) }, { signal });
       const current = v.parse(workflowRunSchema, workflowRun.raw);
       if (current.head_sha !== headSha || current.status !== "completed" || !failed(current)) {
         waiting.push({ ...run, reason: "Waiting for current failed check evidence from the workflow run." });

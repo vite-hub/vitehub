@@ -60,7 +60,7 @@ function appProvider(input: GitHubAppInput, installationId = "", refresh = false
     ...(input.fetch ? { fetch: input.fetch } : {}),
     userAgent: input.userAgent ?? "vitehub",
     auth: { type: "app" as const, appId: input.appId, privateKey: input.privateKey },
-  }).create())
+  }))
   pending.catch(() => appProviders.delete(key))
   appProviders.set(key, pending)
   if (appProviders.size > appProviderLimit) appProviders.delete(appProviders.keys().next().value!)

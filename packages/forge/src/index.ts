@@ -20,5 +20,5 @@ export type { ForgeConnection, ForgeKind } from "./provider.ts"
 // Import `forges` classes from here. `forgeProvider()` throws these bundled classes, and a second copy of
 // `forges` has its own, so `instanceof` would not match.
 export { ForgeApiError, ForgeTimeoutError, MergeBlockedError, NotFoundError, RateLimitedError, repoRef } from "forges"
-export type { BaseOptions, Check, CiRun, CiRunRef, ForgeProvider, MergeMethod, Page, RepoRef, Thread, ThreadRef } from "forges"
+export type { BaseOptions, Check, CiRun, CiRunRef, Commit, ForgeProvider, MergeMethod, Page, RepoRef, Thread, ThreadRef, TreeEntry } from "forges"
 export type { GitHubProvider } from "forges/github"
