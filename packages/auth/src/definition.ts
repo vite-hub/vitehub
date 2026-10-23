@@ -186,6 +186,11 @@ function defineAuthOptions(
     normalizeAuthBasePath(viteHubOptions.basePath)
   }
 
+  const session = (options as { session?: unknown }).session
+  if (isPlainObject(session) && typeof session.onRefresh !== "undefined" && typeof session.onRefresh !== "function") {
+    throw authErrorDiagnostics.AUTH_C0041({ message: "`defineAuth()` session.onRefresh must be a function." })
+  }
+
   validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)

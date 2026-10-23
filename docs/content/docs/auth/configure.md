@@ -36,6 +36,7 @@ export default defineAuth({
 | `access.routes` | `AuthAccessRoute[]` | `[]` | Routes guarded by generated Auth access middleware. Use a route string, or an object with `route`, optional `method`, and optional `authorize`. |
 | `access.signIn` | `{ provider, callbackURL?, errorCallbackURL?, requestSignUp?, scopes? }` | None | Redirect behavior for HTML requests that `withAuth()` or `requireAuth()` rejects. |
 | `runtime` | Options object or `(context) => options` | None | Supplies runtime-only Better Auth values such as `baseURL`, `secret`, `secrets`, and storage adapters. |
+| `session.onRefresh` | `({ session, user, refresh, clear }) => void` | None | Runs when Better Auth refreshes a stored session. See [Session refresh](#session-refresh). |
 
 `baseURL`, `secret`, and `secrets` are runtime-only. Return them from a Definition callback or put them under `runtime`, not as static top-level fields. `access.routes` must be static so the Vite Integration can register middleware.
 
@@ -140,6 +141,37 @@ For revocable sessions, user records, or email and password, remove the preset a
 There are no stored users, so Better Auth creates the user again at each sign-in. The preset gives that user an ID derived from the provider account: the first 32 hex digits of SHA-256 over the provider ID, such as `github`, and the account ID that the provider returns. The same provider account gets the same `user.id` on every sign-in, instance, and restart, so you can key app data and [Agent Invokers](/docs/agents/invokers) by it. The same account ID on two providers gives two IDs. The ID does not depend on the secret. It is not a secret: anyone who knows the provider account ID can compute it.
 
 The preset sets the ID through Better Auth's `user.validateUserInfo` and `databaseHooks.user.create.before`. Your own hooks still run. The preset sets `id` after your `create.before` hook, so that hook cannot change it. A provider that returns no account ID fails sign-in with `vitehub_account_subject_missing`. A user who signs in with two providers gets two IDs. In a process that keeps one Better Auth instance, Better Auth can link the second provider to the first user by email until the process restarts.
+## Session refresh
+
+Better Auth extends a stored session when the session passes `session.updateAge`. `session.onRefresh` runs at that time, so you can check the user again, for example against a ban list, before the session continues.
+
+```ts [server/auth.ts]
+import { defineAuth } from '@vite-hub/auth'
+
+export default defineAuth({
+  session: {
+    updateAge: 60 * 60,
+    async onRefresh({ session, user, refresh, clear }) {
+      const account = await findAccount(user.id)
+      if (account.banned) return clear()
+      refresh()
+    },
+  },
+})
+```
+
+| Call | Result |
+| --- | --- |
+| `refresh()` | Better Auth extends the session by `session.expiresIn`. |
+| `refresh(fields)` | Better Auth extends the session and writes `fields` to it, for example session `additionalFields`. The response and the cookie cache contain them. |
+| Neither | The session keeps its current expiry. The next request that reaches the refresh runs the hook again. |
+| `clear()` | Better Auth deletes the session, removes its cookies, and answers `401`. `withAuth()` and route guards treat it as no session. `clear()` wins over `refresh()`. |
+
+The hook receives the `session` and `user` as stored before the refresh. To change user fields, update them in your own store. The current response still contains the user that Better Auth read before the refresh.
+
+The hook runs for every Better Auth path that refreshes a stored session: `/get-session`, `auth.api.getSession()`, and endpoints that read the session. It does not run for other session updates, such as `/update-session`.
+
+`onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`. Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook, so ViteHub cannot run `onRefresh` there. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 
 ## Storage placement metadata
 

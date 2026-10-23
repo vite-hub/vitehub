@@ -1,7 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
-import type { Auth, BetterAuthOptions } from "better-auth"
+import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
 import type { AuthPreset } from "./presets.ts"
-
 declare global {
   namespace ViteHub {
     interface AuthRuntimeEnv extends Record<string, unknown> {}
@@ -12,7 +11,31 @@ declare global {
 
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
 export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage"
-export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption>
+export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
+  session?: AuthSessionOptions
+}
+
+/** Session fields to write when a refresh extends the session. */
+export type AuthSessionRefreshFields = Partial<Session> & Record<string, unknown>
+
+export interface AuthSessionRefreshContext {
+  /** The stored session before the refresh. */
+  session: Session & Record<string, unknown>
+  /** The user of the session, as stored before the refresh. */
+  user: User & Record<string, unknown>
+  /** Extend the session. Pass fields to also write them to the session. */
+  refresh: (fields?: AuthSessionRefreshFields) => void
+  /** End the session. It wins over `refresh()`. */
+  clear: () => void
+}
+
+/** Runs when Better Auth refreshes a stored session. Call neither `refresh()` nor `clear()` to keep the current expiry. */
+export type AuthSessionRefresh = (context: AuthSessionRefreshContext) => void | Promise<void>
+
+export type AuthSessionOptions = NonNullable<BetterAuthOptions["session"]> & {
+  /** Runs when a stored session passes `updateAge`. Needs a Better Auth `database` or `secondaryStorage` adapter. */
+  onRefresh?: AuthSessionRefresh
+}
 
 export interface AuthRuntimeEnv extends ViteHub.AuthRuntimeEnv {}
 

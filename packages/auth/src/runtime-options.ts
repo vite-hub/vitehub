@@ -2,6 +2,8 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
+import { createSessionRefreshPlugin } from "./session-refresh.ts"
+import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -11,6 +13,7 @@ import type {
   AuthRuntimeContext,
   AuthRuntimeOptions,
   AuthRuntimeOptionsResolver,
+  AuthSessionOptions,
 } from "./types.ts"
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -49,14 +52,35 @@ function stripViteHubOptions(
     ...rest
   } = applyAuthPreset(options)
 
+  const storage = {
+    ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
+    ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+  }
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
-    ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
-    ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
+    ...storage,
+    ...withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage)),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions
+}
+
+/** Moves `session.onRefresh` into a Better Auth plugin, because Better Auth does not read it. */
+function withSessionRefresh(options: Pick<AuthRuntimeOptions, "plugins" | "session">, hasSessionStore: boolean) {
+  const session: AuthSessionOptions | undefined = options.session
+  if (!session?.onRefresh) return {}
+  if (typeof session.onRefresh !== "function") {
+    throw authErrorDiagnostics.AUTH_C0041({ message: "`defineAuth()` session.onRefresh must be a function." })
+  }
+  if (!hasSessionStore) {
+    throw authErrorDiagnostics.AUTH_C0042({ message: "`defineAuth()` session.onRefresh needs a Better Auth `database` or `secondaryStorage` adapter. Better Auth refreshes a stateless cookie cache without a hook." })
+  }
+  const { onRefresh, ...betterAuthSession } = session
+  return {
+    plugins: [...options.plugins ?? [], createSessionRefreshPlugin(onRefresh)],
+    session: betterAuthSession,
+  }
 }
 
 /** Without a configured secret, Better Auth signs with the secret derived from `VITEHUB_SECRET`. */
