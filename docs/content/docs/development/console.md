@@ -91,11 +91,7 @@ export default defineConfig({
 })
 ```
 
-Nuxt uses the same option. Install Nuxt UI because the Console uses the ViteHub UI module.
-
-```bash [Terminal]
-pnpm add @nuxt/ui
-```
+Nuxt uses the same option. The Console is its own page with its own styles, so it does not need Nuxt UI or Tailwind in your app, and your app's theme, fonts, and layouts do not change how it looks.
 
 ```ts [nuxt.config.ts]
 import viteHubNuxt from 'vite-hub/nuxt'

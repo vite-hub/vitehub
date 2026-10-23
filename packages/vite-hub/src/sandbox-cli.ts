@@ -93,8 +93,8 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
     port: port(values, env),
     user: required(values, "user", env, "CRABBOX_STATIC_USER"),
   });
+  const signals = ["SIGINT", "SIGTERM"] as const;
   const running = new Promise<number>((resolve) => {
-    const signals = ["SIGINT", "SIGTERM"] as const;
     let closing = false;
     const close = () => {
       // A second signal ends the drain. The server returns the close that is already running.
@@ -122,8 +122,8 @@ async function serve(args: string[], context: ViteHubCliContext): Promise<number
     };
     for (const signal of signals) process.on(signal, close);
   });
-  // Install signal handlers before announcing readiness so a supervisor can stop the
-  // process as soon as it sees the listening event.
+  // Install shutdown handlers before announcing readiness so callers can safely
+  // terminate as soon as they observe the listening event.
   context.stdout.write(`${JSON.stringify({ event: "sandbox.listening", port: server.port })}\n`);
   return await running;
 }
