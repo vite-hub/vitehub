@@ -17,7 +17,7 @@ function mountBase(base: string | undefined): string {
   return pathname.replace(/\/+$/, "")
 }
 
-function mountPath(base: string | undefined, path: string): string {
+export function mountPath(base: string | undefined, path: string): string {
   return `${mountBase(base)}${path}`
 }
 
