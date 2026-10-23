@@ -45,6 +45,10 @@ The section sidebar collapses to icons with the button in its header. The Consol
 
 Items also match aliases, such as `images` for Media and `deploy` for **Publish all changes**. <kbd>Enter</kbd> opens the highlighted item and <kbd>⌘</kbd> <kbd>Enter</kbd> opens it in a new tab. **Publish all changes** opens a list of the changes it will publish; choose **Publish N changes** to publish exactly those drafts, or press <kbd>Backspace</kbd> on an empty query to go back.
 
+### Update ready
+
+Each build of the Console has an id. The id changes only when the Console catalog or the Console client changes, so a deploy that changes neither keeps it. An open Console compares its id with the deployed one when the tab becomes visible and once a minute. When they differ, **Update ready** shows at the bottom of the rail. Choose it to reload the Console. The sections response returns the deployed id as `build`.
+
 ## Enable the Console
 
 Set `console` in the root ViteHub integration. Every environment must choose who can open the Console with `console.auth`:

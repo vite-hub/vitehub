@@ -1,6 +1,8 @@
+import { createHash } from "node:crypto"
+import { existsSync, readdirSync } from "node:fs"
 import { mkdir, readFile, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { join, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { normalizeRetention, readColocatedAgentSkills } from "@vite-hub/agent/vite"
 
@@ -16,6 +18,24 @@ import { describeConsoleContributedSections, describeConsoleDocumentEditors, des
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { consoleD1MaxSizeError } from "./retention.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
+
+function resolveConsoleRuntimeRoot(): string {
+  const root = [
+    fileURLToPath(new URL("./runtime", import.meta.url)),
+    fileURLToPath(new URL("./console/runtime", import.meta.url)),
+  ].find(root => ["page.get.ts", "page.get.js"].some(file => existsSync(join(root, "server", file))))
+  if (!root) throw viteHubErrorDiagnostics.VITE_HUB_B0001({ message: "[vitehub] Could not locate the packaged Console runtime." })
+  return root
+}
+export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
+export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
+// The packaged Console client has hashed file names, so they change with every new Console client.
+const consoleClientAssets = existsSync(consolePublicRoot) ? readdirSync(consolePublicRoot).sort().join("\n") : ""
+
+/** A short id of the generated Console output and the Console client. It is the same for the same Console. */
+function consoleBuildId(contents: string): string {
+  return createHash("sha256").update(contents).update("\0").update(consoleClientAssets).digest("hex").slice(0, 16)
+}
 
 function renderRetentionLimit(value: AgentRetentionPolicy[keyof AgentRetentionPolicy]): string {
   return value === undefined ? "undefined" : JSON.stringify(value)
@@ -163,7 +183,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
@@ -254,7 +274,9 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const contents = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
+  // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
+  const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {
     await mkdir(resolve(file, ".."), { recursive: true })
     await writeFile(file, contents, "utf8")

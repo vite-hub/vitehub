@@ -7,6 +7,8 @@ import { requestConsole } from "./request"
 
 export interface ConsoleNavigation {
   auth: false | true | "cloudflare-access"
+  /** The build id of the deployed Console when this tab loaded it. `watchConsoleBuild()` compares it. */
+  build?: string
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   projectName?: string
@@ -21,7 +23,7 @@ const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, contributions?: unknown, projectName?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, projectName?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -33,6 +35,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     : []
   return {
     auth: response?.auth === true || response?.auth === "cloudflare-access" ? response.auth : false,
+    ...(typeof response?.build === "string" && response.build ? { build: response.build } : {}),
     contributions,
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
