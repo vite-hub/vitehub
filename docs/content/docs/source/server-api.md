@@ -12,7 +12,7 @@ Use these imports and methods to read Sources from server code and expose them t
 
 | Import | Use |
 | --- | --- |
-| `defineSource`, `defineSources`, `createSource`, `combineSources` from `vite-hub/source` | Define loaders, open managed readers, and combine keyed readers. |
+| `defineSource`, `defineSources`, `createSource`, `combineSources`, `splitSource` from `vite-hub/source` | Define loaders, open managed readers, combine keyed readers, and split items into parts. |
 | `registerSource`, `registerSources`, `clearSources`, `getRegisteredSource`, `useSource` from `vite-hub/source` | Manage and read the process-local Source registry. |
 | `sourceIgnores` from `vite-hub/source` | Reuse ignore patterns for dependencies, generated output, media, secrets, and system files. |
 | `file` from `vite-hub/source/file`, `glob` from `vite-hub/source/glob`, `markdown` from `vite-hub/source/markdown`, `github` from `vite-hub/source/github`, `mcpResources` from `vite-hub/source/mcp` | Select one built-in loader. Each subpath also exports its option types. |
@@ -98,6 +98,30 @@ export default defineEventHandler(async () => {
 ```
 
 For typed name lookup, declare `ViteHubSourceMap` entries as `typeof` the matching definitions. The Vite integration does not discover a `server/sources` directory and does not generate this map. `RegisteredSource<'docs'>` resolves a registered name to its definition type.
+
+## Split items into parts
+
+Use `splitSource()` when one file holds many items, such as the sections of a Markdown file or the rows of a CSV file. `split()` receives one item of the parent Source and returns its parts. Each part is an item of the new Source, with the key `<parent key>#<part key>`.
+
+```ts [server/sections.ts]
+import { createSource, splitSource } from 'vite-hub/source'
+import { glob } from 'vite-hub/source/glob'
+
+export const sections = splitSource({
+  source: glob({ cwd: 'docs', include: '**/*.md' }),
+  split: file => String(file.content)
+    .split(/^## /m)
+    .slice(1)
+    .map(section => ({ key: section.slice(0, section.indexOf('\n')), content: section })),
+})
+
+const reader = createSource(sections)
+await reader.keys()
+// ['guide.md#Install', 'guide.md#Usage']
+await reader.read('guide.md#Usage')
+```
+
+A split Source is a Source definition, so Content, Workspaces, and `createSource()` accept it. A part without a `path` keeps the parent's path. `get()` reads only the parent item of that part. `keys()` and `items()` read every parent item. Part keys must be unique in their parent item and must not contain `#`.
 
 ## Combine keyed Source readers
 
