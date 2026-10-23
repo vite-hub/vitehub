@@ -1,5 +1,6 @@
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
+import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
@@ -49,7 +50,7 @@ function stripViteHubOptions(
     runtime: _runtime,
     secondaryStorage,
     ...rest
-  } = options
+  } = applyAuthPreset(options)
 
   const storage = {
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),

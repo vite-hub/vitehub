@@ -1,6 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
-
+import type { AuthPreset } from "./presets.ts"
 declare global {
   namespace ViteHub {
     interface AuthRuntimeEnv extends Record<string, unknown> {}
@@ -10,7 +10,7 @@ declare global {
 }
 
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
-export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "route" | "runtime" | "secondaryStorage"
+export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage"
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
 }
@@ -103,6 +103,8 @@ export interface AuthViteHubOptions {
   access?: AuthAccessConfiguration
   basePath?: string
   database?: AuthDatabaseConfiguration
+  /** A ViteHub Auth preset, such as `stateless()` from `@vite-hub/auth/presets`. ViteHub checks it against the other options. */
+  preset?: AuthPreset
   route?: false
   runtime?: AuthRuntimeConfiguration
   secondaryStorage?: AuthSecondaryStorageConfiguration
@@ -167,8 +169,8 @@ export interface ResolvedAuthViteConfig {
 
 export type AuthBetterAuthRuntimeOptions<TOptions extends AuthDefinitionInput = AuthDefinitionInput> =
   (TOptions extends AuthDefinitionResolver<infer TResolved>
-    ? Omit<TResolved, AuthRuntimeOption | "access" | "database" | "route" | "runtime" | "secondaryStorage">
-    : Omit<TOptions, AuthRuntimeOption | "access" | "database" | "route" | "runtime" | "secondaryStorage">)
+    ? Omit<TResolved, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">
+    : Omit<TOptions, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">)
   & AuthRuntimeOptions
   & BetterAuthOptions
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">

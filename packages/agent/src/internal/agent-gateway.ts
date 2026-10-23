@@ -9,6 +9,10 @@ const headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 const codexProviderId = "vitehub"
 const codexApiKeyEnvironment = "VITEHUB_GATEWAY_API_KEY"
+// A gateway can answer 200 and then relay an upstream error, such as `server_is_overloaded`.
+// Codex then sees a stream that closes before `response.completed`, and only Codex can retry it.
+// Its default of 5 retries backs off for about 6 seconds in total; 10 backs off for about 3.5 minutes.
+const codexGatewayStreamRetries = 10
 
 export interface ResolvedAgentDriverGateway {
   /** Values for the provider process. Every value is a secret. */
@@ -147,6 +151,7 @@ function codexGateway(gateway: AgentDriverGateway, baseURL: string, apiKey: stri
     codexConfigArg(`${provider}.name`, JSON.stringify(gateway.name)),
     codexConfigArg(`${provider}.base_url`, JSON.stringify(baseURL)),
     codexConfigArg(`${provider}.wire_api`, JSON.stringify("responses")),
+    codexConfigArg(`${provider}.stream_max_retries`, String(codexGatewayStreamRetries)),
     ...(gateway.auth === "x-api-key" ? [] : [codexConfigArg(`${provider}.env_key`, JSON.stringify(codexApiKeyEnvironment))]),
     ...(Object.keys(headerEnvironment).length
       ? [codexConfigArg(`${provider}.env_http_headers`, `{${Object.entries(headerEnvironment).map(([name, variable]) => `${JSON.stringify(name)}=${JSON.stringify(variable)}`).join(",")}}`)]
