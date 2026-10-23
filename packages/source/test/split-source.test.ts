@@ -80,6 +80,24 @@ describe("splitSource()", () => {
     expect(getMeta).toHaveBeenCalledOnce()
   })
 
+  it("does not split parent content for an uncached metadata lookup", async () => {
+    const split = vi.fn(() => [{ key: "part" }])
+    const getMeta = vi.fn(async () => ({ digest: "parent" }))
+    const reader = createSource(splitSource({
+      source: defineSource({
+        name: "metadata-only",
+        async getKeys() { return ["entry"] },
+        async getItem(key: string) { return { key, content: "content" } },
+        getMeta,
+      }),
+      split,
+    }))
+
+    await expect(reader.meta("entry#part")).resolves.toEqual({ digest: "parent" })
+    expect(split).not.toHaveBeenCalled()
+    expect(getMeta).toHaveBeenCalledWith("entry", expect.any(Object))
+  })
+
   it("keeps file methods when every part has content", async () => {
     const reader = createSource(splitSource({
       source: file({ workspacePath: "guide.md", content: "## Start\nHi\n## End\nBye" }),
