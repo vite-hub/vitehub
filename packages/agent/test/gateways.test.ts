@@ -62,6 +62,7 @@ describe("gateway resolution", () => {
       '-c "model_providers.vitehub.name=\\"cliproxy\\""',
       '-c "model_providers.vitehub.base_url=\\"https://proxy.example/v1\\""',
       '-c "model_providers.vitehub.wire_api=\\"responses\\""',
+      '-c "model_providers.vitehub.stream_max_retries=10"',
       '-c "model_providers.vitehub.env_key=\\"VITEHUB_GATEWAY_API_KEY\\""',
       '-c "model_providers.vitehub.env_http_headers={\\"CF-Access-Client-Id\\"=\\"VITEHUB_GATEWAY_HEADER_0\\",\\"CF-Access-Client-Secret\\"=\\"VITEHUB_GATEWAY_HEADER_1\\"}"',
     ].join(" "))

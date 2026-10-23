@@ -429,6 +429,12 @@
       "require": "./dist/auth/agent.js",
       "default": "./dist/auth/agent.js"
     },
+    "./auth/presets": {
+      "types": "./dist/auth/presets.d.ts",
+      "import": "./dist/auth/presets.js",
+      "require": "./dist/auth/presets.js",
+      "default": "./dist/auth/presets.js"
+    },
     "./auth/server": {
       "types": "./dist/auth/server.d.ts",
       "import": "./dist/auth/server.js",

@@ -39,6 +39,7 @@ export default defineConfig({
       "src/runtime/vue-nuxt.ts",
       "src/server.ts",
       "src/nuxt.ts",
+      "src/presets.ts",
       "src/vue.ts",
       "src/vite.ts",
     ],

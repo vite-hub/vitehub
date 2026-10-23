@@ -161,6 +161,30 @@ async function readVercelBlobStore(
   return response.store
 }
 
+// A team can hold the Blob stores of other projects. Reuse the store that is connected to this
+// project, then a store that no project uses. Never connect a store that another project uses.
+async function findVercelBlobStore(
+  request: ReturnType<typeof createVercelProvisionClient>,
+  stores: VercelBlobStore[],
+  projectId: string,
+): Promise<{ state: "absent" | "equivalent" | "mismatched", store: VercelBlobStore } | undefined> {
+  let unused: VercelBlobStore | undefined
+  let mismatched: VercelBlobStore | undefined
+  for (const listed of stores) {
+    if (!listed.id) continue
+    const store = { ...listed, projectsMetadata: (await readVercelBlobStore(request, listed.id)).projectsMetadata }
+    const state = vercelConnectionState(store, projectId)
+    if (state === "equivalent") return { state, store }
+    if (state === "mismatched") {
+      mismatched ??= store
+      continue
+    }
+    if (!store.projectsMetadata?.length) unused ??= store
+  }
+  if (mismatched) return { state: "mismatched", store: mismatched }
+  return unused ? { state: "absent", store: unused } : undefined
+}
+
 async function ensureVercelBlobConnection(
   request: ReturnType<typeof createVercelProvisionClient>,
   storeId: string,
@@ -259,13 +283,13 @@ export function createBlobVercelProvisionStep(resolveOptions: () => BlobModuleOp
 
       const request = createVercelProvisionClient(config, context.fetch)
       const listed = await request("/v1/storage/stores", { parse: parseVercelBlobStoresResponse })
-      const existing = (listed.stores ?? []).find(store =>
+      const candidates = (listed.stores ?? []).filter(store =>
         (!store.type || store.type === "blob")
         && (store.access ?? "public") === requested.access,
       )
-      const connectionState = existing?.id
-        ? vercelConnectionState(await readVercelBlobStore(request, existing.id), projectId)
-        : "absent"
+      const found = await findVercelBlobStore(request, candidates, projectId)
+      const existing = found?.store
+      const connectionState = found?.state ?? "absent"
       if (connectionState === "mismatched") {
         throw blobErrorDiagnostics.BLOB_R0020({ message: "Vercel Blob is connected to the project without all required environments." })
       }

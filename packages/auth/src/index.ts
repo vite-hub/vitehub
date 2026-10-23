@@ -1,4 +1,5 @@
 export { defineAuth } from "./definition.ts"
+export type { AuthDuration, AuthPreset, AuthStatelessPreset, AuthStatelessPresetOptions } from "./presets.ts"
 export type {
   AuthBetterAuthOptions,
   AuthBetterAuthRuntimeOptions,

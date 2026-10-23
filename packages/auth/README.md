@@ -54,7 +54,32 @@ curl -i http://localhost:5173/api/auth/sign-up/email \
 
 Successful output has status `200`, a `better-auth.session_token` cookie, and the new user's email. `hubAuth()` discovers `server/auth.ts`, exposes `/api/auth/**`, and generates the Nitro route handler for production builds.
 
-This default proves discovery and the session route locally. It is not durable storage. Configure a concrete Better Auth database adapter before relying on sessions across restarts or replicas.
+This default proves discovery and the session route locally. It is not durable storage. Configure a concrete Better Auth database adapter before relying on sessions across restarts or replicas, or use the `stateless()` preset for social sign-in without a database.
+
+## Sessions without a database
+
+`stateless()` keeps each session in an encrypted cookie. Sessions survive restarts and work across replicas and Workers when every instance uses the same secret.
+
+```ts
+// server/auth.ts
+import { defineAuth } from "@vite-hub/auth";
+import { stateless } from "@vite-hub/auth/presets";
+
+export default defineAuth(({ env, requestOrigin }) => ({
+  baseURL: requestOrigin,
+  preset: stateless({ maxAge: "7d" }),
+  socialProviders: {
+    github: {
+      clientId: env.auth.github.clientId,
+      clientSecret: env.auth.github.clientSecret.unseal(),
+    },
+  },
+}));
+```
+
+The preset sets `session.expiresIn`, `session.cookieCache` (`strategy: "jwe"`, `refreshCache: true`), `account.storeStateStrategy: "cookie"`, and `account.storeAccountCookie: true`. `maxAge` is seconds or a duration such as `"12h"` or `"7d"`, and defaults to 7 days. The session ends `maxAge` after sign-in. `user.id` is the first 32 hex digits of SHA-256 over the provider ID and the provider account ID, so the same provider account keeps its ID across sign-ins, instances, and restarts, and `github` account 1 differs from `discord` account 1. The preset sets it through `user.validateUserInfo` and `databaseHooks.user.create.before`, after your own hooks run. You cannot revoke one session; change `session.cookieCache.version` or rotate the secret to sign out every user.
+
+`preset` is a ViteHub option, so Auth checks the other options against it. `database` (`AUTH_C0044`), `secondaryStorage` (`AUTH_C0045`), `emailAndPassword.enabled` (`AUTH_C0046`), plugins that store data such as `jwt()` or `magicLink()` (`AUTH_C0047`), and options that the preset sets (`AUTH_C0048`) fail when the Definition is defined or resolved.
 
 For host routes that need runtime secrets, provider credentials, request-derived origins, or route guarding, keep that policy in the Auth Definition.
 
@@ -208,7 +233,9 @@ export default defineAuth({
 
 Manual hosts can mount the stable `#vitehub/auth/server` handler directly.
 
-Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `route`, `runtime`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
+Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, `runtime`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
+Better Auth options stay top-level. ViteHub-owned wiring reserves `access`, `database`, `secondaryStorage`, `basePath`, `preset`, `route`, `runtime`, and `session.onRefresh`. The Better Auth fields `baseURL`, `secret`, and `secrets` are runtime-only: return them from the Definition callback or place them under `runtime`. `access.routes` must be static route strings or `{ authorize, method, route }` objects so the Vite Integration can register Nitro middleware.
+
 
 `access.routes` must use a dense array. Empty slots, including commented-out entries that leave commas, fail configuration.
 
@@ -302,7 +329,7 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 
 - Supply a strong Better Auth secret from Server Env at request time; never put it in Public Env, client code, Agent input, logs, or traces. Without `secret`, `secrets`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_SECRETS`, or `AUTH_SECRET`, Auth uses `deriveSecret("vitehub:auth")` from `VITEHUB_SECRET` (or `NUXT_APP_SECRET`).
 - Set request-aware `baseURL` or use `requestOrigin` so callback and cookie origins match the deployed host.
-- Configure a concrete Better Auth database adapter and migrations. ViteHub `database` and `secondaryStorage` fields are placement metadata, not adapters.
+- Configure a concrete Better Auth database adapter and migrations, or use `stateless()` for social sign-in without a database. ViteHub `database` and `secondaryStorage` fields are placement metadata, not adapters.
 - Protect application and Console page/API routes explicitly. Authentication proves a session; application-owned `authorize` callbacks define roles and permissions.
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
