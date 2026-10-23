@@ -32,15 +32,16 @@ type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, 
 export function addConsolePageHandlers(
   nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
+  base?: string,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const assets = join(consoleRuntimeRoot, "public/console")
   const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page)
-  for (const route of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, route })
+  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, route: mountPath(base, suffix) })
   nitro.handlers = handlers
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
-    { baseURL: "/_vitehub/assets", dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
+    { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets),
   ]
 }

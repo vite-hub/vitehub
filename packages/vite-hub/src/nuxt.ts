@@ -346,7 +346,7 @@ async function installConsole(
   addConsoleRpcHandler(nitro, consoleRuntimeRoot)
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
-  addConsolePageHandlers(nitro, consoleRuntimeRoot)
+  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL)
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
   if (!nitro.handlers?.some(handler => handler.route === "/api/_vitehub/console/client.js")) {
     (nitro.handlers ??= []).push({ handler: clientHandler, route: "/api/_vitehub/console/client.js" })
@@ -1220,7 +1220,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(options.console)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       addConsoleRpcHandler(config, consoleRuntimeRoot)
-      addConsolePageHandlers(config, consoleRuntimeRoot)
+      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL)
       if (consoleSections.includes("connections")) {
         // The Connections management handler records the signed-in Console user as the actor.
         // SAFETY: Nitro aliases map virtual module names to generated module paths.

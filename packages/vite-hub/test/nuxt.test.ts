@@ -1980,6 +1980,17 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/_vitehub/sign-in")
   })
 
+  it("mounts the standalone Console page and assets below the Nuxt app base URL", async () => {
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
+    await production.runNitroConfigHook(nitroOptions(production.nuxt))
+
+    const config = nitroOptions(production.nuxt)
+    expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
+    expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
+  })
+
   it("registers the Cloudflare Access Console guard in production Nuxt builds only", async () => {
     const production = createNuxt(false)
     Object.assign(production.nuxt.options, { app: { baseURL: "/portal/" } })
