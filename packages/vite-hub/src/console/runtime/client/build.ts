@@ -47,10 +47,26 @@ export async function readConsoleBuild(base: string): Promise<string | undefined
  */
 export function watchConsoleBuild(base: string): void {
   if (watched.has(base)) return
-  void loadConsoleNavigation(base).then((navigation) => {
+  const initialize = async (): Promise<void> => {
+    if (watched.has(base) || updateReady.value) return
+    const navigation = await loadConsoleNavigation(base)
     const loaded = navigation?.build
     // A server without a build id cannot tell a newer Console apart.
-    if (!loaded) return
+    if (!loaded) {
+      setTimeout(async () => {
+        const build = await readConsoleBuild(base)
+        if (build) {
+          install(build)
+        }
+        else {
+          void initialize()
+        }
+      }, minimumCheckGap)
+      return
+    }
+    install(loaded)
+  }
+  const install = (loaded: string): void => {
     watched.add(base)
     let lastCheck = Date.now()
     let checking = false
@@ -69,5 +85,6 @@ export function watchConsoleBuild(base: string): void {
     const onVisibilityChange = (): void => void check()
     const timer = setInterval(onVisibilityChange, consoleBuildCheckInterval)
     page.document.addEventListener("visibilitychange", onVisibilityChange)
-  })
+  }
+  void initialize()
 }
