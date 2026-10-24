@@ -14,19 +14,35 @@ interface VercelMultipartState {
   uploadId: string
 }
 
+const multipartStateEncoding = "v1."
+
 function encodeMultipartState(state: VercelMultipartState): string {
-  return btoa(JSON.stringify(state)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  const bytes = new TextEncoder().encode(JSON.stringify(state))
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return multipartStateEncoding + btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 function decodeMultipartState(uploadId: string): VercelMultipartState {
   try {
-    const value: unknown = JSON.parse(atob(uploadId.replaceAll("-", "+").replaceAll("_", "/")))
-    if (isPlainObject(value)) {
+    const isUtf8 = uploadId.startsWith(multipartStateEncoding)
+    const encoded = (isUtf8 ? uploadId.slice(multipartStateEncoding.length) : uploadId).replaceAll("-", "+").replaceAll("_", "/")
+    const binary = atob(encoded + "=".repeat((4 - encoded.length % 4) % 4))
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+    const parseState = (value: unknown): VercelMultipartState | undefined => {
+      if (!isPlainObject(value)) return undefined
       const { contentType, key, uploadId: id } = value
       if (typeof key === "string" && typeof id === "string" && (contentType === undefined || typeof contentType === "string")) {
         return { contentType, key, uploadId: id }
       }
+      return undefined
     }
+    // IDs generated before UTF-8 encoding used the binary character values directly.
+    // The marker makes new UTF-8 state unambiguous, including literal U+FFFD values.
+    const state = parseState(JSON.parse(isUtf8 ? new TextDecoder().decode(bytes) : binary))
+    if (state) return state
   }
   catch {}
   throw blobErrorDiagnostics.BLOB_R0032({ message: "Unknown Vercel Blob multipart upload." })
