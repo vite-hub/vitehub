@@ -463,7 +463,10 @@ export function finishUsage(
   truncated: boolean,
   configuredModel?: string,
 ): ConsoleInvocationUsage | undefined {
-  return usageNode(value, !truncated, configuredModel);
+  const projected = usageNode(value, !truncated, configuredModel);
+  if (!truncated || !projected) return projected;
+  const { calls: _calls, ...scalar } = projected;
+  return scalar;
 }
 
 function invocationUsageProjection(record: AgentInvocationRecord): InvocationUsageProjection {
