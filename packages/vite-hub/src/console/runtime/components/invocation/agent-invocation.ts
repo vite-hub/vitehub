@@ -1630,8 +1630,6 @@ const agentInvocation = defineComponent({
               workOpen.value,
               open => workOpen.value = open,
               toggleExpanded,
-              openActivities.value,
-              setActivityOpen,
               (target, path) => path === undefined
                 ? emit("inspect", target)
                 : emit("inspect", target, path),
@@ -1644,6 +1642,8 @@ const agentInvocation = defineComponent({
                 copiedId: messageCopy.value?.id,
                 copyStatus: messageCopy.value?.status,
               },
+              openActivities.value,
+              setActivityOpen,
             ))]),
             activities.value.length
               ? null
