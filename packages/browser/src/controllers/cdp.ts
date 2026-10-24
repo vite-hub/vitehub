@@ -151,6 +151,12 @@ async function localSocket(
       if (settled) return
       settled = true
       cleanup()
+      try {
+        socket.close()
+      }
+      catch {
+        // Preserve the timeout error when a socket cannot be closed.
+      }
       reject(browserProviderError("cdp", "connect to the browser"))
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)

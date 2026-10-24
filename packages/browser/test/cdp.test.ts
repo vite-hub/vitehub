@@ -52,6 +52,7 @@ describe("cdp controller", () => {
     })
     await vi.advanceTimersByTimeAsync(30_000)
     await result
+    expect(socket.close).toHaveBeenCalledTimes(1)
     expect(removeEventListener.mock.calls.map(([type]) => type)).toEqual(["open", "error", "close"])
     expect(vi.getTimerCount()).toBe(0)
 
