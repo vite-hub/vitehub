@@ -1,6 +1,7 @@
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === "string" ? prompt : "friend"

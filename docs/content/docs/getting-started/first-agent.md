@@ -35,9 +35,9 @@ pnpm add vite-hub h3 vite
 ::tutorial-step{title="Configure the server build"}
 ## Configure the server build
 
-Add `vitehub()` with the `node` preset and `agent: true`. Vite builds
-`src/server.ts` into `dist/server.js`, and ViteHub discovers Agent Definitions
-under `server/agents`.
+Add the standalone `hubAgent()` plugin with `runtime: false` to disable runtime
+generation for this function Driver. Vite builds `src/server.ts` into
+`dist/server.js`, and the plugin discovers Agent Definitions under `server/agents`.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
