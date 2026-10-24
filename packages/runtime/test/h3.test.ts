@@ -79,4 +79,14 @@ describe("@vite-hub/runtime/h3", () => {
     await expect(request.text()).resolves.toBe("body")
     expect(pulls).toBe(1)
   })
+
+  it("closes an empty H3 1 request body", async () => {
+    const nodeRequest = {
+      headers: { host: "example.test" },
+      method: "POST",
+      url: "/",
+      async *[Symbol.asyncIterator]() {},
+    }
+    await expect(toH3V1Request({ node: { req: nodeRequest } }).text()).resolves.toBe("")
+  })
 })

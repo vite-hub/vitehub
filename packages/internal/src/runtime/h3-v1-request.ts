@@ -105,27 +105,55 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
   }
   const iterator = request[Symbol.asyncIterator]?.()
   if (!iterator) return undefined
-  const body = (async () => {
-    const chunks: Uint8Array[] = []
-    for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
-      if (typeof chunk === "string") chunks.push(new TextEncoder().encode(chunk))
-      else if (chunk instanceof Uint8Array) chunks.push(chunk)
-      else throw new TypeError("[vitehub] Request body chunks must be strings or bytes.")
+  const chunks: Uint8Array[] = []
+  const collected: Uint8Array[] = []
+  let total = 0
+  let ended = false
+  let failure: unknown
+  let waiting: ((result: { done?: boolean, value?: unknown }) => void) | undefined
+  const produce = async () => {
+    try {
+      for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
+        let bytes: Uint8Array
+        if (typeof chunk === "string") bytes = new TextEncoder().encode(chunk)
+        else if (chunk instanceof Uint8Array) bytes = chunk
+        else throw new TypeError("[vitehub] Request body chunks must be strings or bytes.")
+        collected.push(bytes)
+        total += bytes.byteLength
+        if (waiting) {
+          waiting({ value: bytes })
+          waiting = undefined
+        }
+        else {
+          chunks.push(bytes)
+        }
+      }
+      ended = true
+      waiting?.({ done: true })
+      waiting = undefined
     }
-    const bytes = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.byteLength, 0))
+    catch (error) {
+      failure = error
+      ended = true
+      waiting?.({ done: true })
+      waiting = undefined
+      throw error
+    }
+    const bytes = new Uint8Array(total)
     let offset = 0
-    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+    for (const chunk of collected) { bytes.set(chunk, offset); offset += chunk.byteLength }
     return bytes
-  })()
+  }
+  let body: Promise<Uint8Array> | undefined
+  const start = () => body ??= produce()
   // H3's body helpers consult this cache when available, allowing both readers.
-  event._requestBody = body
-  const bytes = await body
-  if (!bytes) return undefined
-  let offset = 0
+  event._requestBody = { then: (resolve: (value: Uint8Array) => unknown, reject: (reason: unknown) => unknown) => start().then(resolve, reject) }
   return async () => {
-    if (offset) return { done: true }
-    offset = bytes.byteLength
-    return { value: bytes }
+    start()
+    if (failure) throw failure
+    if (chunks.length) return { value: chunks.shift() }
+    if (ended) return { done: true }
+    return new Promise(resolve => { waiting = resolve })
   }
 }
 
