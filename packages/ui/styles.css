@@ -1,8 +1,6 @@
 /* Pin the Tailwind layer order, so utility classes on a part override its defaults below and Tailwind's base styles do not. */
 @layer theme, base, components, utilities;
 
-@import "katex/dist/katex.min.css";
-
 :root {
   --vh-ui-radius: var(--ui-radius, 0.5rem);
   --vh-ui-border: var(--ui-border, color-mix(in oklab, currentColor 14%, transparent));

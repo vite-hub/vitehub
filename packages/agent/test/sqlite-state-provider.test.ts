@@ -418,6 +418,24 @@ describe("SQLite Agent State Provider", () => {
     await state.disconnect()
   })
 
+  it("removes expired rows before applying the queue limit", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
+    const { state } = await createState()
+    await state.connect()
+
+    const expired = { ...queueEntry("expired"), expiresAt: Date.now() - 1 }
+    await state.enqueue("thread", queueEntry("first"), 2)
+    await state.enqueue("thread", expired, 2)
+    await state.enqueue("thread", queueEntry("last"), 2)
+
+    expect(await state.queueDepth("thread")).toBe(2)
+    await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "first" } })
+    await expect(state.dequeue("thread")).resolves.toMatchObject({ message: { text: "last" } })
+    await expect(state.dequeue("thread")).resolves.toBeNull()
+    await state.disconnect()
+  })
+
   it("does not claim superseded debounced deliveries with concurrent capacity", async () => {
     const { state } = await createState()
     await state.connect()

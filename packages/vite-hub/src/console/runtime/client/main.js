@@ -1,4 +1,3 @@
-import ConsoleEnv from "../components/console-env.vue";
 import "./styles.css";
 import "@vite-hub/ui/styles.css";
 
@@ -7,13 +6,14 @@ import { createViteHubUI } from "@vite-hub/ui";
 import { createApp, defineAsyncComponent } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
-import ConsoleApp from "../components/console-app.vue";
-import ConsoleBlob from "../components/console-blob.vue";
-import ConsoleConnections from "../components/console-connections.vue";
-import ConsoleDatabase from "../components/console-database.vue";
-import ConsoleDefinitions from "../components/console-definitions.vue";
-import ConsoleHome from "../components/console-home.vue";
-import ConsoleKv from "../components/console-kv.vue";
+const ConsoleApp = () => import("../components/console-app.vue");
+const ConsoleBlob = () => import("../components/console-blob.vue");
+const ConsoleConnections = () => import("../components/console-connections.vue");
+const ConsoleDatabase = () => import("../components/console-database.vue");
+const ConsoleDefinitions = () => import("../components/console-definitions.vue");
+const ConsoleEnv = () => import("../components/console-env.vue");
+const ConsoleHome = () => import("../components/console-home.vue");
+const ConsoleKv = () => import("../components/console-kv.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
