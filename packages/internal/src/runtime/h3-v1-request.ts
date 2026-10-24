@@ -101,6 +101,10 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
 /** Read the body lazily, from a value a host already read or from the Node request stream. */
 function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
   let reader: Promise<ChunkReader | undefined> | undefined
+  // A zero high-water mark keeps the Fetch Request constructor from pulling
+  // the Node stream before a caller actually reads the request body. This lets
+  // H3's readBody(event) consume the original stream first when both APIs are
+  // used by the same route.
   return new ReadableStream<Uint8Array>({
     async pull(controller) {
       const read = await (reader ??= openNodeRequestBody(event))
@@ -114,7 +118,7 @@ function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
       else if (value instanceof Uint8Array) controller.enqueue(value)
       else controller.error(new TypeError("[vitehub] Request body chunks must be strings or bytes."))
     },
-  })
+  }, { highWaterMark: 0 })
 }
 
 /** Return one Web Request per H3 1 event. The body is read only when a caller reads the Request body. */

@@ -188,9 +188,16 @@ export function getRuntimeContext(
   event: ViteHubContext,
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
-  // Synthetic events may provide their request directly. Preserve that override
-  // instead of requiring an H3 request shape before the context can be created.
-  if (options.request === undefined) installStandardContext(event)
+  // Keep host resources when replacing the request, while still allowing a
+  // synthetic event to provide only the explicit request override.
+  if (!(event as Partial<ViteHubContext>)["~standard"]) {
+    try {
+      installStandardContext(event)
+    }
+    catch (error) {
+      if (options.request === undefined || (error as { name?: unknown })?.name !== "RUNTIME_R0015") throw error
+    }
+  }
   const standard = (event as Partial<ViteHubContext>)["~standard"]
   const request = options.request ?? standard?.req
   if (!request) {
