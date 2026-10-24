@@ -76,19 +76,20 @@ describe("@vite-hub/ui package contract", () => {
       "./agent-trace",
     ]));
     expect(packageJson.peerDependencies).toMatchObject({
+      "@iconify-json/ph": expect.any(String),
       "@nuxt/ui": expect.any(String),
       ai: expect.any(String),
       vite: expect.any(String),
       vue: expect.any(String),
     });
     expect(packageJson.peerDependenciesMeta).toEqual({
+      "@iconify-json/ph": { optional: true },
       "@nuxt/ui": { optional: true },
       vite: { optional: true },
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
       katex: "^0.17.0",
-      "@iconify-json/ph": "catalog:ui",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",
       "@types/node": "catalog:tooling",
