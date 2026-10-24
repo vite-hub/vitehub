@@ -173,6 +173,9 @@ describe("shared Console navigation layout", () => {
     const invocation = readFileSync(new URL("../src/console/runtime/components/invocation/agent-invocation.ts", import.meta.url), "utf8")
     expect(invocation).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
     expect(invocation).not.toContain("import { Markdown, PatchDiff } from \"@vite-hub/ui\"")
+    const capabilityInspector = readFileSync(new URL("../src/console/runtime/components/invocation/agent-capability-inspector.ts", import.meta.url), "utf8")
+    expect(capabilityInspector).toContain('import { ToolList } from "@vite-hub/ui/tool-list"')
+    expect(capabilityInspector).not.toContain('import { ToolList } from "@vite-hub/ui"')
   })
 
   it("loads only the requested syntax grammar for workspace previews", () => {
