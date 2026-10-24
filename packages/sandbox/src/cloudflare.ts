@@ -236,7 +236,6 @@ function createCloudflareSession(
       const result = await abortable(
         request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout),
         abortSignal,
-        destroy,
       );
       if (result.success === false) {
         const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
@@ -319,7 +318,7 @@ function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSan
 async function abortable<T>(
   operation: Promise<T>,
   signal: AbortSignal | undefined,
-  abort: () => Promise<void>,
+  abort?: () => Promise<void>,
 ) {
   if (!signal) return await operation;
   signal.throwIfAborted();
@@ -327,7 +326,7 @@ async function abortable<T>(
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
       reject(signal.reason);
-      void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(

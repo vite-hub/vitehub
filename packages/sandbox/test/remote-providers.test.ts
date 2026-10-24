@@ -220,7 +220,14 @@ describe("remote Sandbox providers", () => {
 
   it("rejects Cloudflare file reads when cancellation aborts an in-flight request", async () => {
     const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
-    stub.readFile = async () => await new Promise<never>(() => {});
+    const destroy = vi.fn(async () => {});
+    stub.destroy = destroy;
+    let reads = 0;
+    stub.readFile = async () => {
+      reads++;
+      if (reads === 1) return await new Promise<never>(() => {});
+      return { content: btoa("still open"), success: true };
+    };
     const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
     const session = await sandbox.open();
     const controller = new AbortController();
@@ -230,6 +237,8 @@ describe("remote Sandbox providers", () => {
     controller.abort(reason);
 
     await expect(result).rejects.toBe(reason);
+    await expect(session.files.read("/workspace/output")).resolves.toEqual(new TextEncoder().encode("still open"));
+    expect(destroy).not.toHaveBeenCalled();
     await session.close();
   });
 
