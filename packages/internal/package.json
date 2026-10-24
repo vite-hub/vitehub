@@ -134,6 +134,12 @@
       "require": "./dist/runtime/cloudflare-hosted.js",
       "default": "./dist/runtime/cloudflare-hosted.js"
     },
+    "./runtime/h3-v1-request": {
+      "types": "./dist/runtime/h3-v1-request.d.ts",
+      "import": "./dist/runtime/h3-v1-request.js",
+      "require": "./dist/runtime/h3-v1-request.js",
+      "default": "./dist/runtime/h3-v1-request.js"
+    },
     "./runtime/vercel-hosted": {
       "types": "./dist/runtime/vercel-hosted.d.ts",
       "import": "./dist/runtime/vercel-hosted.js",
