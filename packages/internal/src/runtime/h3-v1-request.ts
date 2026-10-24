@@ -109,6 +109,7 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
   const collected: Uint8Array[] = []
   let total = 0
   let ended = false
+  let failed = false
   let failure: unknown
   let waiting: {
     resolve: (result: { done?: boolean, value?: unknown }) => void
@@ -136,6 +137,7 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
       waiting = undefined
     }
     catch (error) {
+      failed = true
       failure = error
       ended = true
       waiting?.reject(error)
@@ -157,7 +159,7 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
     // reads the request. Keep its rejection from becoming an unhandled rejection;
     // the pending reader still receives the original failure below.
     body?.catch(() => {})
-    if (failure) throw failure
+    if (failed) throw failure
     if (chunks.length) return { value: chunks.shift() }
     if (ended) return { done: true }
     return new Promise((resolve, reject) => { waiting = { resolve, reject } })
