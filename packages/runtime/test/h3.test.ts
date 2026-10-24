@@ -33,6 +33,16 @@ describe("@vite-hub/runtime/h3", () => {
     expect(waitUntil).toHaveBeenCalledWith(work)
   })
 
+  it("accepts an explicit request for a synthetic event", () => {
+    const request = new Request("https://example.test/synthetic")
+    const event = { context: {} }
+
+    const context = getRuntimeContext(event as never, { request })
+
+    expect(context.request).toBe(request)
+    expect(event).not.toHaveProperty("~standard")
+  })
+
   it("does not set Standard Context on an event without a request", () => {
     expect(() => installStandardContext({ context: {} })).toThrow(expect.objectContaining({ name: "RUNTIME_R0015" }))
   })

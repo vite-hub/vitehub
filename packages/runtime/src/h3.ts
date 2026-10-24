@@ -188,15 +188,21 @@ export function getRuntimeContext(
   event: ViteHubContext,
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
-  installStandardContext(event)
-  const standard = event["~standard"]
+  // Synthetic events may provide their request directly. Preserve that override
+  // instead of requiring an H3 request shape before the context can be created.
+  if (options.request === undefined) installStandardContext(event)
+  const standard = (event as Partial<ViteHubContext>)["~standard"]
+  const request = options.request ?? standard?.req
+  if (!request) {
+    throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot create a runtime context." })
+  }
   const waitUntil = options.waitUntil?.bind(options)
     ?? options.vercel?.waitUntil?.bind(options.vercel)
-    ?? standard.waitUntil
-  const cloudflare = options.cloudflare ?? standard.runtime?.cloudflare
+    ?? standard?.waitUntil
+  const cloudflare = options.cloudflare ?? standard?.runtime?.cloudflare
   const runtime = options.runtime ?? detectRuntime(!!cloudflare)
   return createRuntimeContext({
-    request: standard.req,
+    request,
     ...options,
     ...(cloudflare ? { cloudflare } : {}),
     event,
