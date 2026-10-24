@@ -28,13 +28,22 @@ function decodeMultipartState(uploadId: string): VercelMultipartState {
     const encoded = uploadId.replaceAll("-", "+").replaceAll("_", "/")
     const binary = atob(encoded + "=".repeat((4 - encoded.length % 4) % 4))
     const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
-    const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
-    if (isPlainObject(value)) {
+    const parseState = (value: unknown): VercelMultipartState | undefined => {
+      if (!isPlainObject(value)) return undefined
       const { contentType, key, uploadId: id } = value
       if (typeof key === "string" && typeof id === "string" && (contentType === undefined || typeof contentType === "string")) {
         return { contentType, key, uploadId: id }
       }
+      return undefined
     }
+    const utf8 = new TextDecoder().decode(bytes)
+    const state = parseState(JSON.parse(utf8))
+    // IDs generated before UTF-8 encoding used the binary character values directly.
+    if (utf8.includes("\uFFFD")) {
+      const legacy = parseState(JSON.parse(binary))
+      if (legacy) return legacy
+    }
+    if (state) return state
   }
   catch {}
   throw blobErrorDiagnostics.BLOB_R0032({ message: "Unknown Vercel Blob multipart upload." })

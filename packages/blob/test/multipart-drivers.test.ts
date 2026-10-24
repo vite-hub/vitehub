@@ -106,13 +106,24 @@ describe("Vercel Blob multipart uploads", () => {
 
   it("round-trips Unicode pathnames through the upload ID", async () => {
     const storage = createBlobStorage(createVercelDriver(options), "default")
+    vercel.createMultipartUpload.mockResolvedValueOnce({ key: "ключ", uploadId: "идентификатор" })
 
     const created = ok(await storage.createMultipartUpload("文件/é.txt"))
     const resumed = ok(await storage.resumeMultipartUpload("文件/é.txt", created.uploadId))
     const part = ok(await resumed.uploadPart(1, "chunk"))
 
     expect(part).toEqual({ etag: '"part-1"', partNumber: 1 })
-    expect(vercel.uploadPart).toHaveBeenCalledWith("文件/é.txt", "chunk", expect.objectContaining({ key: "object-key", uploadId: "vercel-upload", partNumber: 1 }))
+    expect(vercel.uploadPart).toHaveBeenCalledWith("文件/é.txt", "chunk", expect.objectContaining({ key: "ключ", uploadId: "идентификатор", partNumber: 1 }))
+  })
+
+  it("resumes multipart uploads created with legacy Latin-1 IDs", async () => {
+    const storage = createBlobStorage(createVercelDriver(options), "default")
+    const legacyId = btoa(JSON.stringify({ key: "café", uploadId: "uploadé" }))
+
+    const resumed = ok(await storage.resumeMultipartUpload("media/clip.mp4", legacyId))
+    ok(await resumed.uploadPart(1, "chunk"))
+
+    expect(vercel.uploadPart).toHaveBeenCalledWith("media/clip.mp4", "chunk", expect.objectContaining({ key: "café", uploadId: "uploadé" }))
   })
 
   it("takes access from the store config, not from the upload ID", async () => {
