@@ -72,6 +72,15 @@ describe("Browser Run actions", () => {
     await expect(runBrowserContent("https://example.com")).rejects.toThrow()
   })
 
+  it("cancels non-ok quick action response bodies", async () => {
+    const cancel = vi.fn()
+    const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
+    runtime.__env__ = { BROWSER: { quickAction: vi.fn(async () => response) } }
+
+    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it.each([false, true])("clears the action timer after a provider result, rejected: %s", async (reject) => {
     vi.useFakeTimers()
     try {
