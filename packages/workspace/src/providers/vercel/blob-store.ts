@@ -255,21 +255,42 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
     const normalized = normalizeSafeWorkspacePath(path)
-    await (await this.#client()).upload(this.#fileKey(normalized), new Blob([contentToBytes(file.content) as any]), {
-      contentType: contentType(normalized, file.mediaType),
-    })
     const attributes = {
       ...(file.mediaType ? { mediaType: file.mediaType } : {}),
       ...(file.metadata ? { metadata: file.metadata } : {}),
     }
+    const serializedAttributes = Object.keys(attributes).length > 0 ? JSON.stringify(attributes) : undefined
     const client = await this.#client()
-    if (Object.keys(attributes).length > 0) {
-      await client.upload(this.#fileAttributesKey(normalized), JSON.stringify(attributes), { contentType: "application/json; charset=utf-8" })
+    const fileKey = this.#fileKey(normalized)
+    const attributesKey = this.#fileAttributesKey(normalized)
+    const download = (key: string) => client.download(key).catch((error: unknown) => {
+      if (isNotFoundError(error)) return undefined
+      throw error
+    })
+    // Preserve the current root exactly; removing a failed new write exposes any legacy file again.
+    const [previousFile, previousAttributes] = await Promise.all([download(fileKey), download(attributesKey)])
+    await client.upload(fileKey, new Blob([contentToBytes(file.content) as any]), {
+      contentType: contentType(normalized, file.mediaType),
+    })
+    try {
+      if (serializedAttributes !== undefined) {
+        await client.upload(attributesKey, serializedAttributes, { contentType: "application/json; charset=utf-8" })
+      }
+      else {
+        await client.delete(attributesKey).catch((error: unknown) => {
+          if (!isMissingBlobError(error)) throw error
+        })
+      }
     }
-    else {
-      await client.delete(this.#fileAttributesKey(normalized)).catch((error: unknown) => {
-        if (!isMissingBlobError(error)) throw error
-      })
+    catch (error) {
+      const restore = async (key: string, previous: Blob | undefined) => {
+        if (previous) await client.upload(key, previous, { contentType: previous.type })
+        else await client.delete(key)
+      }
+      const restored = await Promise.allSettled([restore(fileKey, previousFile), restore(attributesKey, previousAttributes)])
+      const failures = restored.filter(result => result.status === "rejected").map(result => result.reason)
+      if (failures.length) throw new AggregateError([error, ...failures], "Vercel Blob write failed and rollback could not complete.")
+      throw error
     }
   }
 
@@ -282,9 +303,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const legacyFiles = this.#legacyRoot === this.#root ? [] : await this.#listBlobs(normalizedPrefix ? `${this.#legacyFileKey(normalizedPrefix, { allowEmpty: true })}/` : legacyBase)
     const attributeKeys = new Set<string>()
     if (files.length || legacyFiles.length) {
-      for (const blob of await this.#listBlobs(joinBlobPath(this.#root, ".vitehub/file-attributes"))) attributeKeys.add(blob.key)
+      for (const blob of await this.#listBlobs(`${joinBlobPath(this.#root, ".vitehub/file-attributes", normalizedPrefix)}/`)) attributeKeys.add(blob.key)
       if (this.#legacyRoot !== this.#root) {
-        for (const blob of await this.#listBlobs(joinBlobPath(this.#legacyRoot, ".vitehub/file-attributes"))) attributeKeys.add(blob.key)
+        for (const blob of await this.#listBlobs(`${joinBlobPath(this.#legacyRoot, ".vitehub/file-attributes", normalizedPrefix)}/`)) attributeKeys.add(blob.key)
       }
     }
     const entries = new Map<string, WorkspaceEntry>()
@@ -378,13 +399,12 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       throw workspaceConflict(`[vitehub] Vercel Blob does not support atomic conditional removal for: ${path}.`)
     }
     const client = await this.#client()
-    const targets: string[] = []
+    const targets = new Map<string, string>()
     const fileKeys = [this.#fileKey(normalized)]
     if (this.#legacyRoot !== this.#root) fileKeys.push(this.#legacyFileKey(normalized))
     for (const key of fileKeys) {
       if (await client.head(key)) {
-        targets.push(key)
-        targets.push(key === this.#fileKey(normalized) ? this.#fileAttributesKey(normalized) : this.#legacyFileAttributesKey(normalized))
+        targets.set(key, key === this.#fileKey(normalized) ? this.#fileAttributesKey(normalized) : this.#legacyFileAttributesKey(normalized))
       }
     }
     if (options.recursive) {
@@ -392,24 +412,26 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       if (this.#legacyRoot !== this.#root) prefixes.push(`${this.#legacyFileKey(normalized)}/`)
       for (const prefix of prefixes) {
         for (const blob of await this.#listBlobs(prefix)) {
-          if (!targets.includes(blob.key)) {
-            targets.push(blob.key)
+          if (!targets.has(blob.key)) {
             const path = normalizeWorkspacePath(blob.key.slice(prefix.length))
             const attributesKey = prefix.startsWith(this.#fileKey("", { allowEmpty: true }))
               ? this.#fileAttributesKey(joinBlobPath(normalized, path))
               : this.#legacyFileAttributesKey(joinBlobPath(normalized, path))
-            targets.push(attributesKey)
+            targets.set(blob.key, attributesKey)
           }
         }
       }
     }
 
-    if (!targets.length) {
+    if (!targets.size) {
       if (options.force) return
       throw workspaceError(`[vitehub] Workspace path does not exist: ${path}.`)
     }
 
-    await Promise.all(targets.map(target => client.delete(target)))
+    await Promise.all([...targets].map(async ([fileKey, attributesKey]) => {
+      await client.delete(fileKey)
+      await client.delete(attributesKey)
+    }))
   }
 
   async snapshot(options: SnapshotOptions = {}): Promise<WorkspaceSnapshot> {
