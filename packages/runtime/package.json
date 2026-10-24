@@ -82,7 +82,9 @@
     "test": "vp run -t @vite-hub/runtime#build && vp test"
   },
   "dependencies": {
-    "nostics": "catalog:runtime"
+    "h3": "catalog:unjs",
+    "nostics": "catalog:runtime",
+    "standard-context": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
