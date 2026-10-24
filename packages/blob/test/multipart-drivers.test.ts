@@ -116,6 +116,17 @@ describe("Vercel Blob multipart uploads", () => {
     expect(vercel.uploadPart).toHaveBeenCalledWith("文件/é.txt", "chunk", expect.objectContaining({ key: "ключ", uploadId: "идентификатор", partNumber: 1 }))
   })
 
+  it("round-trips replacement characters through the upload ID", async () => {
+    const storage = createBlobStorage(createVercelDriver(options), "default")
+    vercel.createMultipartUpload.mockResolvedValueOnce({ key: "literal �", uploadId: "upload �" })
+
+    const created = ok(await storage.createMultipartUpload("media/clip.mp4"))
+    const resumed = ok(await storage.resumeMultipartUpload("media/clip.mp4", created.uploadId))
+    ok(await resumed.uploadPart(1, "chunk"))
+
+    expect(vercel.uploadPart).toHaveBeenCalledWith("media/clip.mp4", "chunk", expect.objectContaining({ key: "literal �", uploadId: "upload �" }))
+  })
+
   it("resumes multipart uploads created with legacy Latin-1 IDs", async () => {
     const storage = createBlobStorage(createVercelDriver(options), "default")
     const legacyId = btoa(JSON.stringify({ key: "café", uploadId: "uploadé" }))
@@ -124,6 +135,16 @@ describe("Vercel Blob multipart uploads", () => {
     ok(await resumed.uploadPart(1, "chunk"))
 
     expect(vercel.uploadPart).toHaveBeenCalledWith("media/clip.mp4", "chunk", expect.objectContaining({ key: "café", uploadId: "uploadé" }))
+  })
+
+  it("preserves legacy IDs whose bytes form valid UTF-8", async () => {
+    const storage = createBlobStorage(createVercelDriver(options), "default")
+    const legacyId = btoa(JSON.stringify({ key: "Ã©", uploadId: "uploadÃ©" }))
+
+    const resumed = ok(await storage.resumeMultipartUpload("media/clip.mp4", legacyId))
+    ok(await resumed.uploadPart(1, "chunk"))
+
+    expect(vercel.uploadPart).toHaveBeenCalledWith("media/clip.mp4", "chunk", expect.objectContaining({ key: "Ã©", uploadId: "uploadÃ©" }))
   })
 
   it("takes access from the store config, not from the upload ID", async () => {

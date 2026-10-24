@@ -14,18 +14,21 @@ interface VercelMultipartState {
   uploadId: string
 }
 
+const multipartStateEncoding = "v1."
+
 function encodeMultipartState(state: VercelMultipartState): string {
   const bytes = new TextEncoder().encode(JSON.stringify(state))
   let binary = ""
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
   }
-  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  return multipartStateEncoding + btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 function decodeMultipartState(uploadId: string): VercelMultipartState {
   try {
-    const encoded = uploadId.replaceAll("-", "+").replaceAll("_", "/")
+    const isUtf8 = uploadId.startsWith(multipartStateEncoding)
+    const encoded = (isUtf8 ? uploadId.slice(multipartStateEncoding.length) : uploadId).replaceAll("-", "+").replaceAll("_", "/")
     const binary = atob(encoded + "=".repeat((4 - encoded.length % 4) % 4))
     const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
     const parseState = (value: unknown): VercelMultipartState | undefined => {
@@ -36,13 +39,9 @@ function decodeMultipartState(uploadId: string): VercelMultipartState {
       }
       return undefined
     }
-    const utf8 = new TextDecoder().decode(bytes)
-    const state = parseState(JSON.parse(utf8))
     // IDs generated before UTF-8 encoding used the binary character values directly.
-    if (utf8.includes("\uFFFD")) {
-      const legacy = parseState(JSON.parse(binary))
-      if (legacy) return legacy
-    }
+    // The marker makes new UTF-8 state unambiguous, including literal U+FFFD values.
+    const state = parseState(JSON.parse(isUtf8 ? new TextDecoder().decode(bytes) : binary))
     if (state) return state
   }
   catch {}
