@@ -524,6 +524,7 @@ describe("ViteHub CLI", () => {
 
     expect(exitCode).toBe(1)
     expect(stderr.output()).toContain("Unknown ViteHub CLI namespace: kv")
+    expect(stderr.output()).toContain("No ViteHub integration contributed the \"kv\" commands")
   })
 
   it("requires a provider for provision", async () => {
