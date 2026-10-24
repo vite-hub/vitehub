@@ -14,7 +14,16 @@ function requestHook(): RequestHook {
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
   const plugin = new Function("installStandardContext", source)(installStandardContext) as (app: unknown) => void
   let hook: RequestHook | undefined
-  plugin({ hooks: { hook: (name: string, handler: RequestHook) => { if (name === "request") hook = handler } } })
+  let beforeEach: ((event: { name: string, args: unknown[] }) => void) | undefined
+  plugin({ hooks: {
+    beforeEach: (handler: (event: { name: string, args: unknown[] }) => void) => { beforeEach = handler },
+    hook: (name: string, handler: RequestHook) => {
+      if (name === "request") hook = (event) => {
+        beforeEach?.({ name, args: [event] })
+        return handler(event)
+      }
+    },
+  } })
   if (!hook) throw new Error("The plugin did not register a request hook.")
   return hook
 }
