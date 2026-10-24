@@ -292,6 +292,47 @@ describe("executeSandboxTaskDefinition", () => {
     expect(settled).toBe(true)
   })
 
+  it("waits for provider cleanup before returning a timeout", async () => {
+    const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+    let finishCleanup!: () => void
+    const cleanup = new Promise<void>(resolve => { finishCleanup = resolve })
+    let cleanupStarted = false
+    let cleanupOptions: { signal?: AbortSignal, timeout?: number } | undefined
+    const exec = sandbox.exec.bind(sandbox)
+    sandbox.exec = vi.fn(async (command, args, options) => {
+      if (command === "rm") {
+        cleanupStarted = true
+        cleanupOptions = options
+        await cleanup
+      }
+      return await exec(command, args, options)
+    })
+
+    const run = executeSandboxTaskDefinition(sandbox, "release-notes", { timeout: 25 }, {
+      entry: "definition.mjs",
+      modules: { "definition.mjs": "export default async () => true" },
+    })
+    await vi.waitFor(() => expect(execCalls.some(call => call.cmd === "node")).toBe(true))
+    await vi.waitFor(() => expect(cleanupStarted).toBe(true))
+    expect(cleanupOptions?.signal).toBeUndefined()
+    expect(cleanupOptions?.timeout).toBeGreaterThan(0)
+
+    let settled = false
+    const result = run.catch(error => {
+      settled = true
+      return error
+    })
+    await Promise.resolve()
+    expect(settled).toBe(false)
+
+    finishCleanup()
+    await expect(result).resolves.toMatchObject({
+      code: "SANDBOX_TASK_TIMEOUT",
+      details: { provider: "cloudflare", timeout: 25 },
+    } satisfies Partial<ViteHubError>)
+    expect(settled).toBe(true)
+  })
+
   it("preserves an external abort reason while execution is running", async () => {
     const { sandbox } = createFakeSandbox({ holdExecution: true })
     const controller = new AbortController()
@@ -411,9 +452,12 @@ describe("executeSandboxTaskDefinition", () => {
   it("bounds setup with the definition timeout", async () => {
     const { sandbox, execCalls } = createFakeSandbox({ provider: "cloudflare" })
     const onHandlerStart = vi.fn()
-    let finishSetup: (() => void) | undefined
-    sandbox.mkdir = async () => await new Promise<void>((resolve) => {
-      finishSetup = resolve
+    let setupAborted = false
+    sandbox.mkdir = async (_path, options) => await new Promise<void>((_resolve, reject) => {
+      options?.signal?.addEventListener("abort", () => {
+        setupAborted = true
+        reject(options.signal?.reason)
+      }, { once: true })
     })
 
     await expect(executeSandboxTaskDefinition(
@@ -434,9 +478,9 @@ describe("executeSandboxTaskDefinition", () => {
       details: { provider: "cloudflare", timeout: 10 },
     } satisfies Partial<ViteHubError>)
 
-    finishSetup?.()
-    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(setupAborted).toBe(true)
     expect(execCalls.some(call => call.cmd === "node")).toBe(false)
+    expect(execCalls.some(call => call.cmd === "rm")).toBe(true)
     expect(onHandlerStart).not.toHaveBeenCalled()
   })
 

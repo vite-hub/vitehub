@@ -65,14 +65,28 @@ async function readJson(event: BlobUploadEvent): Promise<Record<string, unknown>
   return value
 }
 
-function readParts(value: unknown): BlobMultipartPart[] {
-  if (!Array.isArray(value) || !value.length) throw badRequest("`parts` must be a non-empty array.")
-  return value.map((part: unknown) => {
-    if (!isPlainObject(part) || typeof part.etag !== "string" || !Number.isInteger(part.partNumber)) {
+export function validateMultipartParts(parts: BlobMultipartPart[]): void {
+  if (!parts.length) throw badRequest("`parts` must be a non-empty array.")
+  const partNumbers = new Set<number>()
+  for (const part of parts) {
+    if (typeof part.etag !== "string" || !Number.isInteger(part.partNumber) || part.partNumber < 1 || part.partNumber > 10_000) {
       throw badRequest("Each part needs a string `etag` and an integer `partNumber`.")
     }
-    return { etag: part.etag, partNumber: Number(part.partNumber) }
+    if (partNumbers.has(part.partNumber)) throw badRequest(`Multipart part number ${part.partNumber} was provided more than once.`)
+    partNumbers.add(part.partNumber)
+  }
+}
+
+function readParts(value: unknown): BlobMultipartPart[] {
+  if (!Array.isArray(value) || !value.length) throw badRequest("`parts` must be a non-empty array.")
+  const parts = value.map((part: unknown) => {
+    if (!isPlainObject(part) || typeof part.etag !== "string" || typeof part.partNumber !== "number" || !Number.isInteger(part.partNumber) || part.partNumber < 1 || part.partNumber > 10_000) {
+      throw badRequest("Each part needs a string `etag` and an integer `partNumber`.")
+    }
+    return { etag: part.etag, partNumber: part.partNumber as number }
   })
+  validateMultipartParts(parts)
+  return parts
 }
 
 function requireQuery(url: URL, name: string): string {
@@ -136,6 +150,12 @@ export async function handleBlobMultipartUpload(
 
   const url = new URL(event.req.url)
   const uploadId = requireQuery(url, "uploadId")
+  let completionParts: BlobMultipartPart[] | undefined
+  let completionBody: Record<string, unknown> | undefined
+  if (action === "complete") {
+    completionBody = await readJson(event)
+    if (Object.hasOwn(completionBody, "parts")) completionParts = readParts(completionBody.parts)
+  }
   const [resumeError, upload] = await storage.resumeMultipartUpload(pathname, uploadId)
   if (resumeError) return [resumeError, undefined]
 
@@ -147,7 +167,7 @@ export async function handleBlobMultipartUpload(
     return error ? [error, undefined] : [null, { action, part }]
   }
   if (action === "complete") {
-    const [error, object] = await upload.complete(readParts((await readJson(event)).parts))
+    const [error, object] = await upload.complete(completionParts ?? readParts(completionBody?.parts))
     return error ? [error, undefined] : [null, { action, object }]
   }
   const [error] = await upload.abort()
