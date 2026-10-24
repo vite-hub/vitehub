@@ -79,15 +79,15 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if (policy.mode === "open" && !policy.authorize && productionRuntime() && !scope[openWarningKey]) {
+  if (policy.mode === "open" && !policy.authorize && !developmentRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
   }
   scope[policyKey] = Object.freeze({ ...policy })
 }
 
-function productionRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV !== "development"
+function developmentRuntime(): boolean {
+  return globalThis.process?.env?.NODE_ENV === "development"
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -185,7 +185,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
   if (policy.mode === "local") {
-    if (productionRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
+    if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication

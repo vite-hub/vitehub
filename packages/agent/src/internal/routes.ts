@@ -25,7 +25,7 @@ export function agentRouteUsesParam(route: false | string | undefined, param: st
 /**
  * Generated static endpoints must not shadow application handlers.
  * With `namespace`, the route lives in a path that ViteHub reserves, such as `/_vitehub/agent`.
- * A catch-all above that path, such as the Console page at `/_vitehub/**` or an application fallback at `/**`,
+ * A terminal catch-all above that path, such as the Console page at `/_vitehub/**` or an application fallback at `/**`,
  * is a fallback: the router matches the static route first, and the catch-all never owns the reserved path.
  */
 export function validateAgentStaticRoute(route: string, handlers: readonly { route: string, middleware?: boolean }[], label = "readiness", namespace?: string): string {
@@ -40,7 +40,13 @@ export function validateAgentStaticRoute(route: string, handlers: readonly { rou
     const parts = (normalizeAgentRoute(handler).replace(/\/$/, "") || "/").split("/")
     for (let index = 0; index < parts.length; index++) {
       const part = parts[index]!
-      if (part.startsWith("**") || part.startsWith(":...")) return part !== "**" || index >= namespaceDepth || parts.slice(0, index).some(prefix => prefix.startsWith(":") || prefix.includes("*"))
+      if (part.startsWith("**") || part.startsWith(":...")) {
+        const literalFallback = part === "**"
+          && index === parts.length - 1
+          && index < namespaceDepth
+          && !parts.slice(0, index).some(prefix => prefix.startsWith(":") || prefix.includes("*"))
+        return !literalFallback
+      }
       if (target[index] === undefined) return false
       if (part !== target[index] && !part.startsWith(":") && part !== "*") return false
     }

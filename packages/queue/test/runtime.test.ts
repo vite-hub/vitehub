@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { Headers as ForeignHeaders, Request as ForeignRequest } from "undici"
 
 import { createCloudflareQueueBatchHandler, createCloudflareQueueClient } from "../src/providers/cloudflare.ts"
+import { queueErrorDiagnostics } from "../src/error-diagnostics.ts"
 import { getCloudflareQueueBindingName } from "../src/integrations/cloudflare.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 import { handleHostedVercelQueueCallback, hostedVercelWaitUntil } from "../src/runtime/hosted.ts"
@@ -267,24 +268,28 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(2)
   })
 
-  it("retries non-retryable Cloudflare errors when the onError hook throws", async () => {
+  it("acknowledges non-retryable Cloudflare errors when the onError hook throws", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
+    const ack = vi.fn()
     const retry = vi.fn()
     const onError = vi.fn(() => { throw new Error("error hook failed") })
     const batchHandler = createCloudflareQueueBatchHandler({
       onError,
-      onMessage: async () => { throw new ViteHubError("INVALID_PAYLOAD", "Invalid payload.") },
+      onMessage: async () => {
+        throw queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`region`", provider: "cloudflare" })
+      },
     })
 
     await expect(batchHandler({
       ackAll: vi.fn(),
-      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      messages: [{ ack, attempts: 1, body: "fail", id: "1", retry }],
       queue: "queue--666f6f",
       retryAll: vi.fn(),
     })).resolves.toBeUndefined()
 
     expect(onError).toHaveBeenCalledOnce()
-    expect(retry).toHaveBeenCalledOnce()
+    expect(ack).toHaveBeenCalledOnce()
+    expect(retry).not.toHaveBeenCalled()
     expect(report).toHaveBeenCalledTimes(2)
   })
 

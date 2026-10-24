@@ -171,4 +171,11 @@ describe("shared Console navigation layout", () => {
     expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
     expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
   })
+
+  it("loads only the requested syntax grammar for workspace previews", () => {
+    const preview = component("console-session-code-preview")
+    expect(preview).toContain('import("shiki/core")')
+    expect(preview).toContain('import("shiki/langs/typescript.mjs")')
+    expect(preview).not.toContain('import("shiki/bundle/web")')
+  })
 })

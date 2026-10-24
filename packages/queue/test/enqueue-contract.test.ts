@@ -58,7 +58,7 @@ it.each(["cloudflare", "vercel"] as const)("preserves business option names thro
   }
 })
 
-it.each(["cloudflare", "vercel"] as const)("ignores inherited enqueue ids through %s", async (provider) => {
+it.each(["cloudflare", "vercel"] as const)("uses only own enqueue ids through %s", async (provider) => {
   const sent: { options: unknown }[] = []
   const client = provider === "cloudflare"
     ? createCloudflareQueueClient({
@@ -80,15 +80,32 @@ it.each(["cloudflare", "vercel"] as const)("ignores inherited enqueue ids throug
         },
       })
 
-  const options = Object.create({ id: "inherited-id" }) as { id?: string }
-  const [error, result] = await client.send("event", options)
+  const inherited = Object.create({ id: "inherited-id" }) as { id?: string }
+  const cases = [
+    { label: "absent", options: undefined, expectedId: undefined },
+    { label: "own", options: { id: "own-id" }, expectedId: "own-id" },
+    { label: "inherited", options: inherited, expectedId: undefined },
+  ] as const
 
-  expect(error).toBeUndefined()
-  expect(result?.messageId).not.toBe("inherited-id")
-  expect(sent[0]?.options).not.toHaveProperty("id", "inherited-id")
-  if (provider === "vercel") {
-    expect(sent[0]?.options).toMatchObject({ idempotencyKey: expect.any(String) })
-    expect(sent[0]?.options).not.toMatchObject({ idempotencyKey: "inherited-id" })
+  for (const { label, options, expectedId } of cases) {
+    const [error, result] = await client.send("event", options)
+
+    expect(error, label).toBeUndefined()
+    if (provider === "cloudflare") {
+      if (expectedId) expect(result?.messageId, label).toBe(expectedId)
+      else expect(result?.messageId, label).toEqual(expect.any(String))
+    }
+    else {
+      expect(result?.messageId, label).toBe("provider-id")
+    }
+    if (!expectedId) expect(result?.messageId, label).not.toBe("inherited-id")
+
+    const providerOptions = sent.at(-1)?.options
+    expect(providerOptions, label).not.toHaveProperty("id", "inherited-id")
+    if (provider === "vercel") {
+      expect(providerOptions, label).toMatchObject({ idempotencyKey: expectedId || expect.any(String) })
+      expect(providerOptions, label).not.toMatchObject({ idempotencyKey: "inherited-id" })
+    }
   }
 })
 

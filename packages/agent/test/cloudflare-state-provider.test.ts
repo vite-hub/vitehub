@@ -147,6 +147,20 @@ function createFakeDurableObjectState() {
             .map((row) => ({ ...row })),
         )
       }
+      if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ? AND id NOT IN")) {
+        const [threadId, , maxLength] = bindings
+        const keepIds = new Set(
+          queues
+            .filter((row) => row.thread_id === threadId)
+            .sort((a, b) => b.id - a.id)
+            .slice(0, Number(maxLength))
+            .map((row) => row.id),
+        )
+        for (let index = queues.length - 1; index >= 0; index--) {
+          if (queues[index]!.thread_id === threadId && !keepIds.has(queues[index]!.id)) queues.splice(index, 1)
+        }
+        return sqlCursor()
+      }
       if (normalized.startsWith("DELETE FROM queue WHERE thread_id = ?")) {
         const [threadId] = bindings
         for (let index = queues.length - 1; index >= 0; index--) {
@@ -159,6 +173,12 @@ function createFakeDurableObjectState() {
         const index = queues.findIndex((row) => row.id === id)
         if (index >= 0) queues.splice(index, 1)
         return sqlCursor()
+      }
+      if (normalized.startsWith("SELECT COUNT(*) as cnt FROM queue WHERE thread_id = ?")) {
+        const [threadId, now] = bindings
+        return sqlCursor([{
+          cnt: queues.filter((row) => row.thread_id === threadId && row.expires_at > Number(now)).length,
+        }])
       }
       if (normalized.startsWith("INSERT INTO queue")) {
         const [threadId, value, , expiresAt] = bindings
@@ -386,5 +406,23 @@ describe("Cloudflare Agent State Provider", () => {
     expect(state.queueReplaceHead("thread", original, [restored], 10)).toBe(true)
     expect(state.dequeue("thread")).toBe(restored)
     expect(state.dequeue("thread")).toBe(tail)
+  })
+
+  it("removes expired rows before applying the queue limit", async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date("2026-08-04T09:00:00.000Z"))
+    const { ViteHubAgentStateDO } = await import("../src/cloudflare/state.ts")
+    const { ctx } = createFakeDurableObjectState()
+    // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
+    const state = new ViteHubAgentStateDO(ctx as never, {})
+    const expired = { ...queueEntry("expired"), expiresAt: Date.now() - 1 }
+
+    state.enqueue("thread", JSON.stringify(queueEntry("first")), 2)
+    state.enqueue("thread", JSON.stringify(expired), 2)
+    state.enqueue("thread", JSON.stringify(queueEntry("last")), 2)
+
+    expect(JSON.parse(state.dequeue("thread")!).message.text).toBe("first")
+    expect(JSON.parse(state.dequeue("thread")!).message.text).toBe("last")
+    expect(state.dequeue("thread")).toBeNull()
   })
 })

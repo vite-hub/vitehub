@@ -33,6 +33,9 @@ function fakeClient() {
       for (const listener of listeners.get(method) ?? []) listener(params, sessionId)
     },
     send,
+    listenerCount(method: string) {
+      return listeners.get(method)?.size ?? 0
+    },
   }
 }
 
@@ -440,6 +443,64 @@ describe("CDP page", () => {
       const clickResult = expect(click).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
       await vi.advanceTimersByTimeAsync(30_000)
       await clickResult
+      expect(fake.listenerCount("Page.frameRequestedNavigation")).toBe(0)
+      expect(fake.listenerCount("Page.frameStoppedLoading")).toBe(0)
+      expect(fake.listenerCount("Page.navigatedWithinDocument")).toBe(0)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("removes click navigation listeners when the wait times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Runtime.evaluate") {
+          fake.emit("Page.frameRequestedNavigation", { frameId: "main-frame" })
+          return { result: { value: { x: 10, y: 20 } } }
+        }
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+      const click = page.locator("a").click()
+      await vi.waitFor(() => expect(fake.listenerCount("Page.frameRequestedNavigation")).toBe(1))
+
+      const result = expect(click).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+      expect(fake.listenerCount("Page.frameRequestedNavigation")).toBe(0)
+      expect(fake.listenerCount("Page.frameStoppedLoading")).toBe(0)
+      expect(fake.listenerCount("Page.navigatedWithinDocument")).toBe(0)
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("removes lifecycle listeners when navigation times out", async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeClient()
+      fake.send.mockImplementation(async (method: string) => {
+        if (method === "Target.getTargets") return { targetInfos: [{ targetId: "page", type: "page" }] }
+        if (method === "Target.attachToTarget") return { sessionId: "page-session" }
+        if (method === "Page.getFrameTree") return { frameTree: { frame: { id: "main-frame" } } }
+        if (method === "Page.navigate") return { loaderId: "document-loader" }
+        return {}
+      })
+      const { page } = await attachCDPPage(fake.client)
+      const navigation = page.goto("https://example.com")
+      await vi.waitFor(() => expect(fake.listenerCount("Page.lifecycleEvent")).toBe(1))
+
+      const result = expect(navigation).rejects.toMatchObject({ code: "BROWSER_PROVIDER_ERROR" })
+      await vi.advanceTimersByTimeAsync(30_000)
+      await result
+      expect(fake.listenerCount("Page.lifecycleEvent")).toBe(0)
     }
     finally {
       vi.useRealTimers()

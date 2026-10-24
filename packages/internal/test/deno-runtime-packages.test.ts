@@ -1136,6 +1136,21 @@ load("@img/sharp-linux-x64/sharp.node")
     await expect(finalizeDenoDeploymentOutput({ rootDir: optionalRoot })).resolves.toBeUndefined()
   }, 15_000)
 
+  it("keeps guarded require probes optional when their block has a template literal", async () => {
+    const root = await temporaryDirectory("vitehub-deno-template-require-")
+    await writeJson(join(root, "package.json"), {})
+    await mkdir(join(root, ".output/server"), { recursive: true })
+    // NAPI-RS loaders, such as mdream's, check each binding's version inside its probe.
+    await writeFile(join(root, ".output/server/index.mjs"), `
+try {
+  const binding = require("missing-native")
+  if (binding.version !== "1") throw new Error(\`expected 1 but got \${binding.version}\`)
+} catch {}
+`)
+
+    await expect(finalizeDenoDeploymentOutput({ rootDir: root })).resolves.toBeUndefined()
+  })
+
   it("classifies multiline concise-arrow dynamic imports by execution", async () => {
     const root = await temporaryDirectory("vitehub-deno-concise-dynamic-")
     await writeJson(join(root, "package.json"), {})

@@ -209,6 +209,34 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
   if (!attached.sessionId) throw browserProviderError("cdp", "attach to the browser page target")
   const sessionId = attached.sessionId
   const send = <TResult>(method: string, params: object = {}) => client.send<TResult>(method, params, sessionId)
+  const sendWithSignal = <TResult>(signal: AbortSignal, method: string, params: object = {}) => {
+    if (signal.aborted) return Promise.reject(signal.reason ?? browserProviderError("cdp", `cancel ${method} after timeout`))
+    return new Promise<TResult>((resolve, reject) => {
+      let settled = false
+      const onAbort = () => {
+        if (settled) return
+        settled = true
+        cleanup()
+        reject(signal.reason ?? browserProviderError("cdp", `cancel ${method} after timeout`))
+      }
+      const cleanup = () => signal.removeEventListener("abort", onAbort)
+      signal.addEventListener("abort", onAbort, { once: true })
+      send<TResult>(method, params).then(
+        value => {
+          if (settled) return
+          settled = true
+          cleanup()
+          resolve(value)
+        },
+        error => {
+          if (settled) return
+          settled = true
+          cleanup()
+          reject(error)
+        },
+      )
+    })
+  }
   await setup(send("Page.enable"), "enable the browser page")
   await setup(send("Page.setLifecycleEventsEnabled", { enabled: true }), "enable browser page lifecycle events")
   const frameTree = await setup(
@@ -236,14 +264,20 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     return { promise: result, release }
   }
   let clickFailure: unknown
-  const runClick = async (locator: LocatorSpec) => {
+  const runClick = async (locator: LocatorSpec, signal: AbortSignal) => {
     let pointerDown = false
     let navigationRequested = false
     let navigationStopped = false
     let resolveStopped = () => {}
-    const stopped = new Promise<void>((resolve) => {
+    let rejectStopped: ((error: unknown) => void) | undefined
+    let waitingForStopped = false
+    const stopped = new Promise<void>((resolve, reject) => {
       resolveStopped = resolve
+      rejectStopped = reject
     })
+    const abortNavigation = () => {
+      if (waitingForStopped) rejectStopped?.(signal.reason ?? browserProviderError("cdp", "cancel navigation after click timeout"))
+    }
     const stopNavigation = client.on("Page.frameRequestedNavigation", (params, eventSessionId) => {
       const event = params as { frameId?: unknown }
       if (eventSessionId === sessionId && event.frameId === mainFrameId) navigationRequested = true
@@ -260,26 +294,37 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       navigationStopped = true
       resolveStopped()
     })
+    signal.addEventListener("abort", abortNavigation, { once: true })
     try {
-      const result = await send<{ exceptionDetails?: unknown, result?: { value?: { x: number, y: number } } }>("Runtime.evaluate", {
+      const result = await sendWithSignal<{ exceptionDetails?: unknown, result?: { value?: { x: number, y: number } } }>(signal, "Runtime.evaluate", {
         awaitPromise: true,
         expression: locatorExpression("click", locator),
         returnByValue: true,
       })
       const point = evaluateResult<{ x: number, y: number }>(result, `click Browser locator ${JSON.stringify(locator.selector)}`)
-      await send("Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
-      await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mousePressed", ...point })
+      await sendWithSignal(signal, "Input.dispatchMouseEvent", { type: "mouseMoved", ...point })
+      await sendWithSignal(signal, "Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mousePressed", ...point })
       pointerDown = true
-      await send("Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mouseReleased", ...point })
+      await sendWithSignal(signal, "Input.dispatchMouseEvent", { button: "left", clickCount: 1, type: "mouseReleased", ...point })
       pointerDown = false
       await new Promise(resolve => setTimeout(resolve, 0))
-      if (navigationRequested && !navigationStopped) await stopped
+      if (navigationRequested && !navigationStopped) {
+        if (signal.aborted) throw signal.reason ?? browserProviderError("cdp", "cancel navigation after click timeout")
+        waitingForStopped = true
+        try {
+          await stopped
+        }
+        finally {
+          waitingForStopped = false
+        }
+      }
     }
     catch (error) {
       if (pointerDown) invalidatePage(error instanceof Error ? error : browserProviderError("cdp", "release the Browser pointer"))
       throw error
     }
     finally {
+      signal.removeEventListener("abort", abortNavigation)
       stopNavigation()
       stopLoading()
       stopSameDocumentNavigation()
@@ -290,12 +335,13 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
     if (clickFailure) return Promise.reject(clickFailure)
     let expired = false
     let started = false
+    const controller = new AbortController()
     const barrier = pageQueue.then(async () => {
       if (expired) return
       assertPageUsable()
       if (clickFailure) throw clickFailure
       started = true
-      await runClick(locator)
+      await runClick(locator, controller.signal)
     })
     pageQueue = barrier.catch(() => {})
     return withBrowserTimeout(
@@ -305,6 +351,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         timeoutMs: DEFAULT_TIMEOUT_MS,
         onTimeout: (error) => {
           expired = true
+          controller.abort(error)
           if (started) {
             clickFailure ??= error
             invalidatePage(error)
@@ -320,6 +367,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
       const operation = `navigate to ${JSON.stringify(url)}`
       let expired = false
       let started = false
+      const controller = new AbortController()
       const barrier = pageQueue.then(async () => {
         if (expired) return
         assertPageUsable()
@@ -327,24 +375,41 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         let navigationLoaderId: string | undefined
         const loadedLoaderIds = new Set<string>()
         let resolveLoad = () => {}
-        const loaded = new Promise<void>((resolve) => {
+        let rejectLoad: ((error: unknown) => void) | undefined
+        let waitingForLoad = false
+        const loaded = new Promise<void>((resolve, reject) => {
           resolveLoad = resolve
+          rejectLoad = reject
         })
+        const abortLoad = () => {
+          if (waitingForLoad) rejectLoad?.(controller.signal.reason ?? browserProviderError("cdp", "cancel navigation after timeout"))
+        }
         const stopLoad = client.on("Page.lifecycleEvent", (params, eventSessionId) => {
           const event = params as { loaderId?: unknown, name?: unknown }
           if (eventSessionId !== sessionId || event.name !== "load" || typeof event.loaderId !== "string") return
           loadedLoaderIds.add(event.loaderId)
           if (event.loaderId === navigationLoaderId) resolveLoad()
         })
+        controller.signal.addEventListener("abort", abortLoad, { once: true })
         try {
-          const navigation = await send<{ errorText?: string, loaderId?: string }>("Page.navigate", { url })
+          const navigation = await sendWithSignal<{ errorText?: string, loaderId?: string }>(controller.signal, "Page.navigate", { url })
           if (navigation.errorText) {
             throw browserProviderError("cdp", `${operation} (${navigation.errorText})`)
           }
           navigationLoaderId = navigation.loaderId
-          if (navigationLoaderId && !loadedLoaderIds.has(navigationLoaderId)) await loaded
+          if (navigationLoaderId && !loadedLoaderIds.has(navigationLoaderId)) {
+            if (controller.signal.aborted) throw controller.signal.reason ?? browserProviderError("cdp", "cancel navigation after timeout")
+            waitingForLoad = true
+            try {
+              await loaded
+            }
+            finally {
+              waitingForLoad = false
+            }
+          }
         }
         finally {
+          controller.signal.removeEventListener("abort", abortLoad)
           stopLoad()
         }
       })
@@ -353,6 +418,7 @@ export async function attachCDPPage(client: CDPClient): Promise<AttachedPage> {
         timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         onTimeout: (error) => {
           expired = true
+          controller.abort(error)
           if (started) invalidatePage(error)
         },
       })
