@@ -446,6 +446,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       );
       const local = new Map(this.#files);
       const previousRemoteFiles = this.#remoteFiles;
+      const previousRemoteMetadataFiles = this.#remoteMetadataFiles;
       const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
       if (remote.refSha === this.#baselineRefSha) {
         for (const path of changed) {
@@ -454,23 +455,27 @@ class GitHubWorkspaceStore implements WorkspaceStore {
           if (file) this.#files.set(path, githubRemoteFile(path, file, remoteAttributes.get(path)));
           else this.#files.delete(path);
         }
-        this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
-          path => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
-        );
+        this.#dirty = await this.#hasRemoteChanges();
         return;
       }
 
       for (const path of changed) {
-        if (matchesGitHubRemote(local.get(path), previousRemoteFiles.get(path))) {
+        if (await this.#matchesRemote(
+          local.get(path),
+          previousRemoteFiles.get(path),
+          previousRemoteMetadataFiles.get(fileMetadataPath(path)),
+        )) {
           changed.delete(path);
           continue;
         }
         const previous = previousRemoteFiles.get(path);
         const current = remoteFiles.get(path);
+        const previousMetadata = previousRemoteMetadataFiles.get(fileMetadataPath(path));
+        const currentMetadata = remoteMetadataFiles.get(fileMetadataPath(path));
         if (
-          !sameGitHubTreeEntry(previous, current) &&
+          (!sameGitHubTreeEntry(previous, current) || !sameGitHubTreeEntry(previousMetadata, currentMetadata)) &&
           !shouldTakeRemote(path) &&
-          !matchesGitHubRemote(local.get(path), current)
+          !await this.#matchesRemote(local.get(path), current, currentMetadata)
         ) {
           throw workspaceConflict(
             `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${path} changed locally and remotely.`,
@@ -495,9 +500,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         if (file) this.#files.set(path, file);
         else this.#files.delete(path);
       }
-      this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
-        (path) => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
-      );
+      this.#dirty = await this.#hasRemoteChanges();
     });
   }
 
@@ -630,6 +633,29 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#ready ||= this.#load();
     await this.#ready;
     if (wasReady && options.refresh && !this.#dirty) await this.#load();
+  }
+
+  async #matchesRemote(
+    file: GitHubWorkspaceStoreFile | undefined,
+    remote: GitHubTreeEntry | undefined,
+    remoteMetadata: GitHubTreeEntry | undefined,
+  ): Promise<boolean> {
+    if (!matchesGitHubRemote(file, remote)) return false;
+    const attributes = file && fileAttributesBytes(file);
+    if (!attributes) return !remoteMetadata;
+    return remoteMetadata?.sha === await gitBlobSha(attributes);
+  }
+
+  async #hasRemoteChanges(): Promise<boolean> {
+    const paths = new Set([...this.#remoteFiles.keys(), ...this.#files.keys()]);
+    for (const path of paths) {
+      if (!await this.#matchesRemote(
+        this.#files.get(path),
+        this.#remoteFiles.get(path),
+        this.#remoteMetadataFiles.get(fileMetadataPath(path)),
+      )) return true;
+    }
+    return false;
   }
 
   async #load(): Promise<void> {
