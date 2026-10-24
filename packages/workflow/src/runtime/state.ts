@@ -31,6 +31,9 @@ export interface WorkflowRunState<TResult = unknown> {
 // exist, inspection does not keep an abandoned promise and its payload alive.
 type ActiveRunReference = WeakRef<WorkflowRunState> | WorkflowRunState
 const runs = new Map<string, ActiveRunReference>()
+// Keep pending runs strongly reachable so explicit-id deduplication remains
+// reliable even when callers do not retain an inspection or waitUntil handle.
+const inFlightRuns = new Map<string, WorkflowRunState>()
 // Without GC APIs, bound strong inspection ownership independently of history.
 const fallbackRunKeys = new Set<string>()
 let collectedRuns: FinalizationRegistry<{ key: string, reference: WeakRef<WorkflowRunState> }> | undefined
@@ -287,6 +290,7 @@ export function setWorkflowRun<TResult = unknown>(
       const activeState = active && isWeakReference(active) ? active.deref() : active
       if (activeState === state) {
         runs.delete(key)
+        if (inFlightRuns.get(key) === state) inFlightRuns.delete(key)
         fallbackRunKeys.delete(key)
         if (isWeakReference(reference)) collectedRuns?.unregister(reference)
         completedRuns.set(key, state)
@@ -298,6 +302,7 @@ export function setWorkflowRun<TResult = unknown>(
   }
   const reference: ActiveRunReference = canUseWeakReferences ? new WeakRef(state) : state
   runs.set(key, reference)
+  inFlightRuns.set(key, state)
   if (isWeakReference(reference)) collectedRuns?.register(state, { key, reference }, reference)
   else {
     fallbackRunKeys.add(key)
@@ -313,6 +318,8 @@ export function setWorkflowRun<TResult = unknown>(
 export function getWorkflowRunState(name: string, id: string): WorkflowRunState | undefined {
   pruneWorkflowRuns()
   const key = getRunKey(name, id)
+  const inFlight = inFlightRuns.get(key)
+  if (inFlight) return inFlight
   const reference = runs.get(key)
   const state = reference && isWeakReference(reference) ? reference.deref() : reference
   if (reference && !state) {
@@ -334,6 +341,7 @@ export function resetWorkflowRuntime(): void {
     if (isWeakReference(reference)) collectedRuns?.unregister(reference)
   }
   runs.clear()
+  inFlightRuns.clear()
   fallbackRunKeys.clear()
   completedRuns.clear()
 }
