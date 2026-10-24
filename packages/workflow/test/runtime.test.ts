@@ -312,6 +312,27 @@ describe("workflow runtime", () => {
     expect(calls).toBe(1)
   })
 
+  it("preserves failure metadata for repeated inline runs", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    const failure = new Error("inline failure")
+    const workflow = createWorkflow("inline-failure-idempotent", async () => {
+      throw failure
+    })
+
+    const first = await workflow.run({ input: true }, { id: "failed-id" })
+    await vi.waitFor(async () => expect(await workflow.getRun("failed-id")).toMatchObject({ status: "failed", metadata: failure }))
+    const repeated = await workflow.run({ input: true }, { id: "failed-id" })
+
+    expect(first).toMatchObject({ payload: { input: true }, status: "queued" })
+    expect(repeated).toMatchObject({
+      id: "failed-id",
+      metadata: failure,
+      payload: { input: true },
+      provider: "vercel",
+      status: "failed",
+    })
+  })
+
   it("registers object-form handlers for named workflows", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 

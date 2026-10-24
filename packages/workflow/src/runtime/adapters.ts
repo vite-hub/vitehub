@@ -238,11 +238,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         status: "unknown",
       }
     },
-    async run({ definition, event, id, name, payload }) {
+    async run<TPayload = unknown, TResult = unknown>({ definition, event, id, name, payload }: RunWorkflowAdapterContext<TPayload, TResult>) {
       const existing = getWorkflowRunState(name, id)
       if (existing) {
         return {
           id,
+          metadata: existing.error ?? (config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined),
+          payload: existing.payload as TPayload | undefined,
           provider: config.provider,
           result: existing.result as TResult | undefined,
           status: existing.status === "running" ? "queued" : existing.status,
@@ -261,7 +263,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
         .then(result => ({ result, status: "completed" as const }))
         // SAFETY: Workflow provider normalization establishes the asserted run contract.
         .catch(error => ({ error, status: "failed" as const }))
-      const runState = setWorkflowRun(name, id, run)
+      const runState = setWorkflowRun(name, id, run, payload)
       const waitUntil = resolveWaitUntil(event)
       if (waitUntil) {
         waitUntil(runState.promise)

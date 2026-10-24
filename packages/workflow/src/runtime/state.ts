@@ -21,6 +21,7 @@ const loadingGenerationStorage = new AsyncLocalStorage<number>()
 export interface WorkflowRunState<TResult = unknown> {
   error?: unknown
   expiresAt?: number
+  payload?: unknown
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>
   result?: TResult
   status: "running" | "completed" | "failed"
@@ -261,6 +262,7 @@ export function setWorkflowRun<TResult = unknown>(
   name: string,
   id: string,
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>,
+  payload?: unknown,
 ): WorkflowRunState<TResult> {
   pruneWorkflowRuns()
   const key = getRunKey(name, id)
@@ -275,6 +277,7 @@ export function setWorkflowRun<TResult = unknown>(
   fallbackRunKeys.delete(key)
   completedRuns.delete(key)
   const state: WorkflowRunState<TResult> = {
+    payload,
     promise: promise.then((resolved) => {
       state.status = resolved.status
       state.result = resolved.result
