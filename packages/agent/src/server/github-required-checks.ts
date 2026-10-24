@@ -96,6 +96,7 @@ export function createGitHubRequiredCheckPolicyReader(
 }
 
 function requiredCheck(check: RequiredCheck): GitHubRequiredCheck {
+  if (typeof check.name !== "string" || !check.name.trim()) throw new Error("Invalid required-check name");
   // GitHub reports app ID -1 for a classic check that any app may report.
   if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) throw new Error("Invalid required-check app ID");
   const appId = check.appId === undefined || check.appId === "-1" ? null : Number(check.appId);
