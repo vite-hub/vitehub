@@ -159,10 +159,15 @@ function isWorkersRuntime(): boolean {
   return typeof navigator === "object" && navigator !== null && Reflect.get(navigator, "userAgent") === "Cloudflare-Workers"
 }
 
+function processEnvironment(): NodeJS.ProcessEnv | undefined {
+  return globalThis.process?.env
+}
+
 export function resolveConsoleDatabaseOptions(projectRoot: string, databaseUrl?: string): ConsoleDatabaseOptions {
-  const configuredUrl = process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
+  const environment = processEnvironment()
+  const configuredUrl = environment?.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const url = configuredUrl || databaseUrl || `file:${resolve(projectRoot, ".vitehub/data/console.sqlite")}`
-  const authToken = process.env.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
+  const authToken = environment?.VITEHUB_CONSOLE_DATABASE_AUTH_TOKEN
   if (!/^file:/i.test(url)) {
     const options: ConsoleDatabaseOptions = { url }
     if (authToken) options.authToken = authToken
@@ -358,7 +363,7 @@ export function installConsoleInvocations(
     ? observations === undefined && retention === undefined
     : installedConfiguration === observationConfiguration(observations, retention)
   // VITEHUB_CONSOLE_DATABASE_URL still selects libSQL at runtime.
-  const useD1 = d1 !== undefined && !process.env.VITEHUB_CONSOLE_DATABASE_URL?.trim()
+  const useD1 = d1 !== undefined && !processEnvironment()?.VITEHUB_CONSOLE_DATABASE_URL?.trim()
   const databaseConfiguration = () => useD1 ? `d1:${d1.binding}` : resolveConsoleDatabaseOptions(resolvedRoot, databaseUrl).url
   if (installed && resolveConsoleInvocationsIdentity() === identity && (configuredInvocations ? installed === configuredInvocations : sameConfiguration && consoleDatabaseConfigurations.get(installed) === databaseConfiguration())) return installed
   const invocations = configuredInvocations ?? (useD1 ? createConsoleD1Invocations(d1, observations, retention) : createConsoleInvocations(resolvedRoot, observations, databaseUrl, retention))
