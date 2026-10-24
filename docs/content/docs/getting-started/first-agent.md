@@ -43,7 +43,7 @@ under `server/agents`.
 import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
-import { vitehub } from "vite-hub"
+import { hubAgent } from "vite-hub/agent/vite"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -56,11 +56,7 @@ export default defineConfig({
     },
     ssr: true,
   },
-  plugins: [vitehub({
-    preset: "node",
-    agent: true,
-    env: false,
-  })],
+  plugins: [hubAgent({ runtime: false })],
   ssr: {
     external: ["vite-hub/agent"],
   },
@@ -80,6 +76,7 @@ JSON object. Here, the prompt contains the name to greet.
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === "string" ? prompt : "friend"
