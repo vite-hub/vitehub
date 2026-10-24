@@ -85,7 +85,9 @@ jobs:
           checkout: "false"
           packages: |
             packages/*
-      - name: Run CI for the generated release PR
+      # GitHub starts no workflows for branches and PRs that GITHUB_TOKEN
+      # writes, so dispatch each required check once per release PR commit.
+      - name: Run required checks for the release PR
         if: steps.current.outputs.current == 'true' && steps.pending-release.outputs.pending != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -98,9 +100,20 @@ jobs:
             echo "Expected one open release PR, found ${#release_branches[@]}" >&2
             exit 1
           fi
-          if (( ${#release_branches[@]} == 1 )); then
-            gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${release_branches[0]}"
+          if (( ${#release_branches[@]} == 0 )); then
+            exit 0
           fi
+          release_branch="${release_branches[0]}"
+          head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
+          # ci.yml reports "ci" and pkg-pr-new.yml reports "publish preview packages".
+          for workflow in ci.yml pkg-pr-new.yml; do
+            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=1" --jq .total_count)"
+            if [[ "$runs" == "0" ]]; then
+              gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"
+            else
+              echo "$workflow already ran for $release_branch at $head_sha"
+            fi
+          done
 
   recover-release:
     if: github.event_name == 'workflow_dispatch' && inputs.recover_failed_release && github.ref == 'refs/heads/main' && github.repository == 'vite-hub/vitehub'
