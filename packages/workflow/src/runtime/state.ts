@@ -266,6 +266,7 @@ export function setWorkflowRun<TResult = unknown>(
   id: string,
   promise: Promise<{ result?: TResult, status: "completed" | "failed", error?: unknown }>,
   payload?: unknown,
+  retainInFlight = false,
 ): WorkflowRunState<TResult> {
   pruneWorkflowRuns()
   const key = getRunKey(name, id)
@@ -286,11 +287,14 @@ export function setWorkflowRun<TResult = unknown>(
       state.result = resolved.result
       state.error = resolved.error
       state.expiresAt = Date.now() + RUNS_TTL_MS
+      // An active run may have been evicted from the inspection map while it
+      // was pending. Drop its strong deduplication reference independently so
+      // settlement cannot retain abandoned state indefinitely.
+      if (inFlightRuns.get(key) === state) inFlightRuns.delete(key)
       const active = runs.get(key)
       const activeState = active && isWeakReference(active) ? active.deref() : active
       if (activeState === state) {
         runs.delete(key)
-        if (inFlightRuns.get(key) === state) inFlightRuns.delete(key)
         fallbackRunKeys.delete(key)
         if (isWeakReference(reference)) collectedRuns?.unregister(reference)
         completedRuns.set(key, state)
@@ -302,7 +306,7 @@ export function setWorkflowRun<TResult = unknown>(
   }
   const reference: ActiveRunReference = canUseWeakReferences ? new WeakRef(state) : state
   runs.set(key, reference)
-  inFlightRuns.set(key, state)
+  if (retainInFlight) inFlightRuns.set(key, state)
   if (isWeakReference(reference)) collectedRuns?.register(state, { key, reference }, reference)
   else {
     fallbackRunKeys.add(key)
@@ -310,6 +314,7 @@ export function setWorkflowRun<TResult = unknown>(
       const oldest = fallbackRunKeys.values().next().value!
       fallbackRunKeys.delete(oldest)
       runs.delete(oldest)
+      inFlightRuns.delete(oldest)
     }
   }
   return state
