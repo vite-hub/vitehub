@@ -259,6 +259,9 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const namespace = namespaces.find(item => item.name === namespaceName)
   if (!namespace) {
     stderr.write(`Unknown ViteHub CLI namespace: ${namespaceName}\n`)
+    if (namespaces.length === 2 && namespaces.every(item => BUILTIN_NAMESPACE_NAMES.has(item.name))) {
+      stderr.write(`No ViteHub integration contributed the "${namespaceName}" commands. Run this from a configured project and enable the matching integration in vite.config.ts or nuxt.config.ts.\n`)
+    }
     writeRootHelp(namespaces, stderr)
     return 1
   }
