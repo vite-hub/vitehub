@@ -15,13 +15,13 @@ interface ConsoleAgentsResult {
 
 const agentsHandler: (event: ConsoleRequestEvent) => Promise<ConsoleAgentsResult> = async (event) => {
   assertConsoleRequest(event)
-  const names = [...new Set(getConsoleAgents())].sort()
+  const registeredNames = [...new Set(getConsoleAgents())].sort()
   const invocationAgents = [...new Set(await getConsoleInvocations().listAgentNames())].sort()
-  const invocation = Object.fromEntries(names.flatMap((name) => {
+  const invocation = Object.fromEntries(registeredNames.flatMap((name) => {
     const agent = getConsoleAgentDefinition(name)
     return agent ? [[name, { profiles: consoleAgentInvokerProfiles(agent) }]] : []
   }))
-  const result: ConsoleAgentsResult = { agents: names, invocationAgents }
+  const result: ConsoleAgentsResult = { agents: registeredNames, invocationAgents }
   if (Object.keys(invocation).length) result.invocation = invocation
   return result
 }

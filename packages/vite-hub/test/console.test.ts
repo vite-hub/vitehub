@@ -1939,6 +1939,29 @@ describe("Agent invocation console", () => {
     expect(store.list).not.toHaveBeenCalled()
   })
 
+  it("keeps persisted names in invocation history when they match a registered Agent", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["archived", "current"]) {
+      await store.create({
+        agentName,
+        createdAt: "2026-08-31T00:00:00.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `${agentName}-trace`,
+        updatedAt: "2026-08-31T00:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents(["current"], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["current"],
+      invocationAgents: ["archived", "current"],
+    })
+  })
+
   it("serves enabled Console sections in stable order for the active project", async () => {
     installConsoleSections("/first", ["agents"])
     installConsoleProjectName("/first", "first-app")
