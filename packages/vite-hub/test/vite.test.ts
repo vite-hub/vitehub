@@ -1445,6 +1445,7 @@ describe("vitehub", () => {
       modules: ["local-module"],
       preset: "node-server",
       rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } },
+      serverDir: "server",
     })
   })
 
