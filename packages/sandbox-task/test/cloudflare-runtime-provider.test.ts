@@ -71,7 +71,7 @@ describe("Cloudflare Sandbox runtime provider", () => {
   })
 
   it.each(["__proto__", "constructor", "toString"])("rejects inherited Cloudflare binding %s", async (binding) => {
-    const env = Object.create(Object.prototype) as Record<string, unknown>
+    const env = Object.create({ [binding]: namespace }) as Record<string, unknown>
     resolveCloudflareSandbox.mockClear()
 
     await expect(resolveCloudflareTaskSandbox({

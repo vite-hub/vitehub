@@ -28,6 +28,38 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it("times out when a local CDP socket never opens and removes setup listeners", async () => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    function PendingSocket() {
+      return socket
+    }
+    vi.stubGlobal("WebSocket", PendingSocket)
+
+    const connecting = cdp().attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+
+    const removeEventListener = vi.spyOn(socket, "removeEventListener")
+    const result = expect(connecting).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { operation: "connect to the browser" },
+    })
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+    expect(socket.close).toHaveBeenCalledTimes(1)
+    expect(removeEventListener.mock.calls.map(([type]) => type)).toEqual(["open", "error", "close"])
+    expect(vi.getTimerCount()).toBe(0)
+
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
+
   it("rejects when a local CDP socket closes before opening", async () => {
     class ClosingSocket extends EventTarget {
       readyState = 0

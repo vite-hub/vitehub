@@ -116,6 +116,7 @@ export class ViteHubAgentStateDO<TEnv = unknown> extends DurableObject<TEnv> {
   enqueue(threadId: string, value: string, maxSize: number): number {
     const entry = parseAgentStateQueueEntry(value)
     const result = this.ctx.storage.transactionSync(() => {
+      this.sql.exec("DELETE FROM queue WHERE thread_id = ? AND expires_at <= ?", threadId, Date.now())
       this.sql.exec("INSERT INTO queue (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)", threadId, value, entry.enqueuedAt, entry.expiresAt)
       this.sql.exec(
         `DELETE FROM queue WHERE thread_id = ? AND id NOT IN (

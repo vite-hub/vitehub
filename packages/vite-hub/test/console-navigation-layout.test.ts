@@ -50,6 +50,15 @@ describe("shared Console navigation layout", () => {
     expect(readFileSync(new URL("../console.vite.config.ts", import.meta.url), "utf8")).toContain("colorMode: false")
   })
 
+  it("loads built-in route views on navigation", () => {
+    const client = readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")
+    for (const name of ["ConsoleApp", "ConsoleBlob", "ConsoleConnections", "ConsoleDatabase", "ConsoleDefinitions", "ConsoleEnv", "ConsoleHome", "ConsoleKv"]) {
+      const fileName = `console${name.slice("Console".length).replace(/[A-Z]/g, letter => `-${letter.toLowerCase()}`)}`
+      expect(client).toContain(`const ${name} = () => import("../components/${fileName}.vue")`)
+    }
+    expect(client).not.toMatch(/^import Console(?:App|Blob|Connections|Database|Definitions|Env|Home|Kv) from/m)
+  })
+
   it("registers Go to chords in the rail and shows them in tooltips and search", () => {
     const rail = component("console-rail")
     expect(rail).toContain('import { defineShortcuts } from "@nuxt/ui/composables"')
@@ -154,5 +163,12 @@ describe("shared Console navigation layout", () => {
   it("loads the Workspace when its active tab is reopened from a file", () => {
     const inspector = component("console-session-inspector")
     expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
+  })
+
+  it("loads only the requested syntax grammar for workspace previews", () => {
+    const preview = component("console-session-code-preview")
+    expect(preview).toContain('import("shiki/core")')
+    expect(preview).toContain('import("shiki/langs/typescript.mjs")')
+    expect(preview).not.toContain('import("shiki/bundle/web")')
   })
 })
