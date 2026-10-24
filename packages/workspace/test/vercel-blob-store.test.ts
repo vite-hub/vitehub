@@ -158,6 +158,21 @@ describe("Vercel Blob workspace store", () => {
     })
   })
 
+  it("round trips file attributes through reads, listings, and stats", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const file = { content: "before", mediaType: "text/markdown", metadata: { source: "docs", order: 2 }, path: "readme.md" }
+
+    await store.writeFile(file.path, file)
+
+    await expect(store.readFile(file.path)).resolves.toEqual({ ...file, content: new TextEncoder().encode(file.content) })
+    await expect(store.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" }),
+    ]))
+    await expect(store.stat(file.path)).resolves.toMatchObject({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" })
+  })
+
   it("requests uncached reads for public blobs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
