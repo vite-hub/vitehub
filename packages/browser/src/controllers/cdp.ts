@@ -19,6 +19,8 @@ export interface CDPControllerOptions {
   connect?: (connection: PlaywrightBrowserConnection) => Promise<CDPSocket>
 }
 
+const CDP_SOCKET_SETUP_TIMEOUT_MS = 30_000
+
 type CDPMessage =
   | { kind: "event", method: string, params?: unknown, sessionId?: string }
   | { kind: "response", error?: { message: string }, id: number, result?: unknown, sessionId?: string }
@@ -119,23 +121,39 @@ async function localSocket(
   }
   const socket = new WebSocket(connection.endpoint)
   await new Promise<void>((resolve, reject) => {
+    let setupTimer: ReturnType<typeof setTimeout> | undefined
+    let settled = false
     const cleanup = () => {
       socket.removeEventListener("open", onOpen)
       socket.removeEventListener("error", onError)
       socket.removeEventListener("close", onClose)
+      if (setupTimer !== undefined) clearTimeout(setupTimer)
     }
     const onOpen = () => {
+      if (settled) return
+      settled = true
       cleanup()
       resolve()
     }
     const onError = () => {
+      if (settled) return
+      settled = true
       cleanup()
       reject(browserProviderError("cdp", "connect to the browser"))
     }
     const onClose = () => {
+      if (settled) return
+      settled = true
       cleanup()
       reject(browserProviderError("cdp", "connect to the browser"))
     }
+    const onTimeout = () => {
+      if (settled) return
+      settled = true
+      cleanup()
+      reject(browserProviderError("cdp", "connect to the browser"))
+    }
+    setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })
     socket.addEventListener("error", onError, { once: true })
     socket.addEventListener("close", onClose, { once: true })
