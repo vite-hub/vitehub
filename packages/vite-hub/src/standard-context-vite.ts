@@ -16,8 +16,11 @@ export function renderStandardContextNitroPlugin(): string {
     `      if (name === "request") installStandardContext(args[0])`,
     `    })`,
     `  }`,
-    `  // Nitro 3 has no beforeEach seam; retain a request hook as its fallback.`,
-    `  nitroApp.hooks.hook("request", installStandardContext)`,
+    `  // Nitro 3 has no beforeEach seam. HookableCore stores request callbacks in`,
+    `  // an array, so prepend the installer to cover callbacks registered earlier.`,
+    `  const requestHooks = nitroApp.hooks._hooks?.request`,
+    `  if (Array.isArray(requestHooks)) requestHooks.unshift(installStandardContext)`,
+    `  else nitroApp.hooks.hook("request", installStandardContext)`,
     "}",
     "",
   ].join("\n")

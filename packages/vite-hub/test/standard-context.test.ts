@@ -14,19 +14,21 @@ function requestHook(withBeforeEach = true): RequestHook {
   // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
   const plugin = new Function("installStandardContext", source)(installStandardContext) as (app: unknown) => void
   let hook: RequestHook | undefined
+  const requestHooks: RequestHook[] = []
   let beforeEach: ((event: { name: string, args: unknown[] }) => void) | undefined
   plugin({ hooks: {
     ...(withBeforeEach ? {
       beforeEach: (handler: (event: { name: string, args: unknown[] }) => void) => { beforeEach = handler },
     } : {}),
+    _hooks: { request: requestHooks },
     hook: (name: string, handler: RequestHook) => {
-      if (name === "request") hook = (event) => {
-        beforeEach?.({ name, args: [event] })
-        return handler(event)
-      }
+      if (name === "request") requestHooks.push(handler)
     },
   } })
-  if (!hook) throw new Error("The plugin did not register a request hook.")
+  hook = (event) => {
+    beforeEach?.({ name: "request", args: [event] })
+    for (const handler of requestHooks) handler(event)
+  }
   return hook
 }
 
@@ -43,5 +45,19 @@ describe("generated Standard Context Nitro plugin", () => {
     const event = new H3Event(new Request("https://app.test/api"))
     requestHook(false)(event)
     expect(event["~standard"].req).toBe(event.req)
+  })
+
+  it("prepends the installer before existing Nitro 3 request hooks", () => {
+    const event = new H3Event(new Request("https://app.test/api"))
+    const hooks: RequestHook[] = [(request) => {
+      expect(request["~standard"].req).toBe(request.req)
+    }]
+    const source = renderStandardContextNitroPlugin()
+      .replace(`import { installStandardContext } from "vite-hub/runtime/h3"`, "")
+      .replace("export default function", "return function")
+    // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
+    const plugin = new Function("installStandardContext", source)(installStandardContext) as (app: unknown) => void
+    plugin({ hooks: { _hooks: { request: hooks }, hook: () => undefined } })
+    for (const handler of hooks) handler(event)
   })
 })
