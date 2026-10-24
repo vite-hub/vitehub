@@ -49,6 +49,7 @@ describe("Cloudflare D1 HTTP resolver", () => {
       ["https://d1.example.com/first", { Authorization: "Bearer second-token", "Content-Type": "application/json" }],
       ["https://d1.example.com/second", { Authorization: "Bearer second-token", "Content-Type": "application/json" }],
     ])
+    expect(request.mock.calls.every(([, options]) => options?.signal instanceof AbortSignal)).toBe(true)
     vi.stubEnv("DESIGN_D1_TOKEN", "")
     expect(getDatabase).toThrow(expect.objectContaining({ code: "DATABASE_MISSING_D1_HTTP_CONFIG", why: expect.stringContaining("`cloudflare.http.url` and `cloudflare.http.authToken`") }))
   })
