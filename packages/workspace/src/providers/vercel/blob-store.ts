@@ -211,6 +211,14 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     return joinBlobPath(this.#root, ".vitehub/meta", normalizeSafeWorkspacePath(key.endsWith(".json") ? key : `${key}.json`))
   }
 
+  #fileAttributesKey(path: string) {
+    return joinBlobPath(this.#root, ".vitehub/file-attributes", `${normalizeSafeWorkspacePath(path)}.json`)
+  }
+
+  #legacyFileAttributesKey(path: string) {
+    return joinBlobPath(this.#legacyRoot, ".vitehub/file-attributes", `${normalizeSafeWorkspacePath(path)}.json`)
+  }
+
   #snapshotKey(id: string) {
     return joinBlobPath(this.#root, ".vitehub/snapshots", `${id}.json`)
   }
@@ -232,7 +240,16 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     })
     if (!file) return undefined
     const bytes = await file.arrayBuffer()
-    return { path: normalized, content: new Uint8Array(bytes) }
+    const attributes = await this.#readJson(
+      this.#fileAttributesKey(normalized),
+      this.#legacyRoot !== this.#root ? this.#legacyFileAttributesKey(normalized) : undefined,
+    ) as { mediaType?: unknown, metadata?: unknown } | undefined
+    return {
+      content: new Uint8Array(bytes),
+      ...(typeof attributes?.mediaType === "string" ? { mediaType: attributes.mediaType } : {}),
+      ...(attributes?.metadata && typeof attributes.metadata === "object" && !Array.isArray(attributes.metadata) ? { metadata: attributes.metadata as Record<string, unknown> } : {}),
+      path: normalized,
+    }
   }
 
   async writeFile(path: string, file: WorkspaceFile): Promise<void> {
@@ -240,6 +257,19 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     await (await this.#client()).upload(this.#fileKey(normalized), new Blob([contentToBytes(file.content) as any]), {
       contentType: contentType(normalized, file.mediaType),
     })
+    const attributes = {
+      ...(file.mediaType ? { mediaType: file.mediaType } : {}),
+      ...(file.metadata ? { metadata: file.metadata } : {}),
+    }
+    const client = await this.#client()
+    if (Object.keys(attributes).length > 0) {
+      await client.upload(this.#fileAttributesKey(normalized), JSON.stringify(attributes), { contentType: "application/json; charset=utf-8" })
+    }
+    else {
+      await client.delete(this.#fileAttributesKey(normalized)).catch((error: unknown) => {
+        if (!isMissingBlobError(error)) throw error
+      })
+    }
   }
 
   async list(prefix = "", options: ListOptions = {}): Promise<WorkspaceEntry[]> {
@@ -249,6 +279,13 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const legacyBase = `${this.#legacyFileKey("", { allowEmpty: true })}/`
     const files = await this.#listBlobs(normalizedPrefix ? `${filePrefix}/` : currentBase)
     const legacyFiles = this.#legacyRoot === this.#root ? [] : await this.#listBlobs(normalizedPrefix ? `${this.#legacyFileKey(normalizedPrefix, { allowEmpty: true })}/` : legacyBase)
+    const attributeKeys = new Set<string>()
+    if (files.length || legacyFiles.length) {
+      for (const blob of await this.#listBlobs(joinBlobPath(this.#root, ".vitehub/file-attributes"))) attributeKeys.add(blob.key)
+      if (this.#legacyRoot !== this.#root) {
+        for (const blob of await this.#listBlobs(joinBlobPath(this.#legacyRoot, ".vitehub/file-attributes"))) attributeKeys.add(blob.key)
+      }
+    }
     const entries = new Map<string, WorkspaceEntry>()
 
     // Process legacy entries first so entries under the current root always win
@@ -269,8 +306,14 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
         continue
       }
 
+      const attributesPath = base === currentBase ? this.#fileAttributesKey(path) : this.#legacyFileAttributesKey(path)
+      const attributes = attributeKeys.has(attributesPath)
+        ? await this.#readJson(attributesPath) as { mediaType?: unknown, metadata?: unknown } | undefined
+        : undefined
       entries.set(path, {
         mtime: blob.lastModified,
+        ...(typeof attributes?.mediaType === "string" ? { mediaType: attributes.mediaType } : {}),
+        ...(attributes?.metadata && typeof attributes.metadata === "object" && !Array.isArray(attributes.metadata) ? { metadata: attributes.metadata as Record<string, unknown> } : {}),
         path,
         size: blob.size,
         type: "file",
@@ -303,6 +346,8 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       const bytes = contentToBytes(file.content)
       return {
         digest: await sha256(bytes),
+        ...(file.mediaType ? { mediaType: file.mediaType } : {}),
+        ...(file.metadata ? { metadata: file.metadata } : {}),
         path: normalized,
         size: bytes.byteLength,
         type: "file",
@@ -326,14 +371,24 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
     const fileKeys = [this.#fileKey(normalized)]
     if (this.#legacyRoot !== this.#root) fileKeys.push(this.#legacyFileKey(normalized))
     for (const key of fileKeys) {
-      if (await client.head(key)) targets.push(key)
+      if (await client.head(key)) {
+        targets.push(key)
+        targets.push(key === this.#fileKey(normalized) ? this.#fileAttributesKey(normalized) : this.#legacyFileAttributesKey(normalized))
+      }
     }
     if (options.recursive) {
       const prefixes = [`${this.#fileKey(normalized)}/`]
       if (this.#legacyRoot !== this.#root) prefixes.push(`${this.#legacyFileKey(normalized)}/`)
       for (const prefix of prefixes) {
         for (const blob of await this.#listBlobs(prefix)) {
-          if (!targets.includes(blob.key)) targets.push(blob.key)
+          if (!targets.includes(blob.key)) {
+            targets.push(blob.key)
+            const path = normalizeWorkspacePath(blob.key.slice(prefix.length))
+            const attributesKey = prefix.startsWith(this.#fileKey("", { allowEmpty: true }))
+              ? this.#fileAttributesKey(joinBlobPath(normalized, path))
+              : this.#legacyFileAttributesKey(joinBlobPath(normalized, path))
+            targets.push(attributesKey)
+          }
         }
       }
     }
