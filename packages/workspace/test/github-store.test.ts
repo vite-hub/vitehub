@@ -542,6 +542,7 @@ describe("GitHub workspace store", () => {
       path: "tasks/todo.md",
       content: "ship it\n",
       mediaType: "text/markdown",
+      metadata: { source: "agent" },
     });
     await expect(store.glob("**/*.{md,json}")).resolves.toEqual(expect.arrayContaining([
       expect.objectContaining({ path: "data/existing.json", type: "file" }),
@@ -557,6 +558,10 @@ describe("GitHub workspace store", () => {
       fileChanges: {
         additions: expect.arrayContaining([
           { path: ".vitehub/workspaces/docs/tasks/todo.md", contents: Buffer.from("ship it\n").toString("base64") },
+          {
+            path: ".vitehub/workspaces/docs/.vitehub/file-metadata/tasks/todo.md.json",
+            contents: Buffer.from('{"mediaType":"text/markdown","metadata":{"source":"agent"}}').toString("base64"),
+          },
           { path: ".vitehub/workspaces/docs/.vitehub/meta/loader.json", contents: Buffer.from('{"digest":"abc"}').toString("base64") },
         ]),
       },
@@ -573,6 +578,50 @@ describe("GitHub workspace store", () => {
       "docs",
     );
     await expect(freshStore.getMeta!("loader")).resolves.toEqual({ digest: "abc" });
+    await expect(freshStore.readFile("tasks/todo.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: { source: "agent" },
+    });
+    await expect(freshStore.list("tasks", { recursive: true })).resolves.toEqual([
+      expect.objectContaining({ mediaType: "text/markdown", metadata: { source: "agent" }, path: "tasks/todo.md" }),
+    ]);
+    await expect(freshStore.stat("tasks/todo.md")).resolves.toMatchObject({
+      mediaType: "text/markdown",
+      metadata: { source: "agent" },
+    });
+  });
+
+  it("commits metadata-only updates and removes their sidecars", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const store = createGitHubWorkspaceStore({
+      provider: "github",
+      repository: "onmax/repo",
+      root: ".vitehub/workspaces/<workspace>",
+      token: "token",
+    }, "docs");
+
+    await store.writeFile("notes.md", {
+      path: "notes.md",
+      content: "notes\n",
+      metadata: { source: "one" },
+    });
+    await store.snapshot({ name: "add notes metadata" });
+    await store.writeFile("notes.md", {
+      path: "notes.md",
+      content: "notes\n",
+      metadata: { source: "two" },
+    });
+    await store.snapshot({ name: "update notes metadata" });
+    expect(fake.commitInputs().at(-1)?.fileChanges.additions).toContainEqual({
+      path: ".vitehub/workspaces/docs/.vitehub/file-metadata/notes.md.json",
+      contents: Buffer.from('{"metadata":{"source":"two"}}').toString("base64"),
+    });
+
+    await store.writeFile("notes.md", { path: "notes.md", content: "notes\n" });
+    await store.snapshot({ name: "remove notes metadata" });
+    expect(fake.commitInputs().at(-1)?.fileChanges.deletions).toContainEqual({
+      path: ".vitehub/workspaces/docs/.vitehub/file-metadata/notes.md.json",
+    });
   });
 
   it("creates a missing branch from the default branch before using non-forced updates", async () => {
