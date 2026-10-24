@@ -164,4 +164,11 @@ describe("shared Console navigation layout", () => {
     const inspector = component("console-session-inspector")
     expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
   })
+
+  it("loads only the requested syntax grammar for workspace previews", () => {
+    const preview = component("console-session-code-preview")
+    expect(preview).toContain('import("shiki/core")')
+    expect(preview).toContain('import("shiki/langs/typescript.mjs")')
+    expect(preview).not.toContain('import("shiki/bundle/web")')
+  })
 })
