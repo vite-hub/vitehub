@@ -156,6 +156,7 @@ describe("discoverChannelDefinitions", () => {
   it("skips statically invalid connector maps while keeping dynamic definitions", async () => {
     const root = await createTempProject()
     await touch(root, "server/channels/function-connectors.ts", "export default { connectors() {} }\n")
+    await touch(root, "server/channels/function-value.ts", "export default { connectors: { slack: () => ({}) } }\n")
     await touch(root, "server/channels/empty-connectors.ts", "export default { connectors: {} }\n")
     await touch(root, "server/channels/missing-send.ts", "export default { connectors: { log: {} } }\n")
     await touch(root, "server/channels/dynamic-connectors.ts", "const connectors = getConnectors()\nexport default { connectors }\n")

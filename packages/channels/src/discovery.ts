@@ -59,7 +59,7 @@ function canBeChannelDefinitionObject(value: Node): boolean {
 const functionTypes = new Set(["ArrowFunctionExpression", "FunctionExpression"])
 
 function canBeConnector(value: Node): boolean {
-  if (value.type !== "ObjectExpression") return functionTypes.has(value.type) || !nonDefinitionTypes.has(value.type)
+  if (value.type !== "ObjectExpression") return !nonDefinitionTypes.has(value.type)
   const properties = objectProperties(value)
   let knownSend = false
   for (const property of properties.toReversed()) {
