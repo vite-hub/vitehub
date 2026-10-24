@@ -1,6 +1,6 @@
 {
   "name": "@vite-hub/workspace",
-  "version": "0.0.4",
+  "version": "0.1.0",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
     "cloudflare",
