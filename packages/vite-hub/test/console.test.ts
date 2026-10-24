@@ -4643,12 +4643,20 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("keeps the default journal in memory on Workers", async () => {
+  it("keeps the default journal in memory on Workers without Node globals", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-workers-project-"))
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
     vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
     try {
-      const invocations = createConsoleInvocations(projectRoot)
+      const processDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process")
+      Reflect.deleteProperty(globalThis, "process")
+      let invocations: AgentInvocations
+      try {
+        invocations = installConsoleInvocations(projectRoot)
+      }
+      finally {
+        if (processDescriptor) Object.defineProperty(globalThis, "process", processDescriptor)
+      }
       const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
       await runAgent(agent, runtime("console-workers"), {})
 

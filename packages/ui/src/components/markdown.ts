@@ -12,10 +12,19 @@ import { ImagePreview } from "../internal/image-preview.ts";
 type Katex = typeof import("katex").default;
 
 let katexModule: Promise<Katex> | undefined;
+let katexStyles: Promise<void> | undefined;
+
+function loadKatexStyles(): Promise<void> {
+  katexStyles ??= import("katex/dist/katex.min.css").then(() => undefined, (error: unknown) => {
+    katexStyles = undefined;
+    throw error;
+  });
+  return katexStyles;
+}
 
 // KaTeX is large, so load it with the first formula instead of with every page that renders Markdown.
 function loadKatex(): Promise<Katex> {
-  katexModule ??= import("katex").then(module => module.default, (error: unknown) => {
+  katexModule ??= Promise.all([import("katex"), loadKatexStyles()]).then(([module]) => module.default, (error: unknown) => {
     katexModule = undefined;
     throw error;
   });
