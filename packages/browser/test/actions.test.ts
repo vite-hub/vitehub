@@ -156,6 +156,15 @@ describe("Browser Run actions", () => {
     }
   })
 
+  it("does not wait for hanging response cancellation", async () => {
+    const cancel = vi.fn(() => new Promise<void>(() => {}))
+    const response = new Response(new ReadableStream({ cancel, start() {} }), { status: 500 })
+    runtime.__env__ = { BROWSER: { quickAction: async () => response } }
+
+    await expect(runBrowserContent("https://example.com")).rejects.toThrow("Browser content request failed with status 500")
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+
   it("allows provider-supported actions to run longer than the default bound", async () => {
     vi.useFakeTimers()
     try {

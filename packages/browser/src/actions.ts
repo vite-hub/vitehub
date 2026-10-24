@@ -155,7 +155,7 @@ export async function runBrowserContent(
 ): Promise<string> {
   const response = await runBrowserAction("content", input)
   if (!response.ok) {
-    await response.body?.cancel().catch(() => {})
+    void response.body?.cancel().catch(() => {})
     throw new Error(`Browser content request failed with status ${response.status}`)
   }
   try {
