@@ -6,10 +6,12 @@ import {
   type GitHubRequiredCheckPolicy,
 } from "../src/server/github-required-checks.ts";
 
-const rules = (overrides: Partial<BranchRules> = {}): BranchRules => ({
-  requiredChecks: [{ context: "CI", appId: 42 }],
-  requiredWorkflows: false,
-  classicSource: "protection-endpoint",
+const branch = { name: "main", protected: true, protection: { enabled: true, required_status_checks: { enforcement_level: "everyone", contexts: ["CI"], checks: [{ context: "CI", app_id: 42 }] } } };
+/** Branch rules as `provider.repos.branchRules()` returns them from GitHub, with `raw` active rules. */
+const rules = (overrides: Partial<BranchRules> = {}, active: unknown[] = []): BranchRules => ({
+  branch: "main",
+  requiredChecks: [{ name: "CI", appId: "42" }],
+  raw: { branch, rules: active, protection: {} },
   ...overrides,
 });
 function reader(value: BranchRules = rules()) {
@@ -41,18 +43,33 @@ const run = {
 
 describe("required check policy", () => {
   it("reports the branch rules of the requested branch", async () => {
-    const read = reader(rules({ requiredChecks: [{ context: "CI", appId: 42 }, { context: "lint", appId: null }], classicSource: "branch-summary" }));
+    // forges warns with `insufficient_scope` when the credential cannot read the protection endpoint.
+    const read = reader(rules({
+      requiredChecks: [{ name: "CI", appId: "42" }, { name: "lint" }, { name: "any", appId: "-1" }],
+      warnings: [{ code: "insufficient_scope", message: "Classic branch protection is not readable", subject: "protection" }],
+    }));
     expect(await createGitHubRequiredCheckPolicyReader(read).read("acme/app", "release/v1")).toMatchObject({
       status: "known",
       classicSource: "branch-summary",
-      required: [{ context: "CI", appId: 42 }, { context: "lint", appId: null }],
+      required: [{ context: "CI", appId: 42 }, { context: "lint", appId: null }, { context: "any", appId: null }],
     });
     expect(read).toHaveBeenCalledWith("acme/app", "release/v1");
   });
   it("treats unreadable rules and required workflows as unknown", async () => {
     expect((await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [] }))).read("acme/app", "main")).status).toBe("known");
-    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredWorkflows: true }))).read("acme/app", "main"))
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({}, [{ type: "workflows", parameters: { workflows: [{ path: ".github/workflows/ci.yml" }] } }]))).read("acme/app", "main"))
       .toMatchObject({ status: "unknown", required: [], reason: "Required workflow rules cannot be reduced to check contexts" });
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({}, [{ type: "workflows" }]))).read("acme/app", "main"))
+      .toMatchObject({ status: "unknown", required: [] });
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [{ name: "CI", appId: "-3" }] }))).read("acme/app", "main"))
+      .toMatchObject({ status: "unknown", required: [] });
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [{ name: "CI", appId: "" }] }))).read("acme/app", "main"))
+      .toMatchObject({ status: "unknown", required: [] });
+    for (const name of ["", "   ", 42]) {
+      expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [{ name } as never] }))).read("acme/app", "main"))
+        .toMatchObject({ status: "unknown", required: [] });
+    }
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules())).read("acme/app", "main")).toMatchObject({ classicSource: "protection-endpoint" });
     const failing = reader();
     failing.mockRejectedValue(new Error("Active branch rules unavailable (HTTP 403)."));
     expect(await createGitHubRequiredCheckPolicyReader(failing).read("acme/app", "main"))

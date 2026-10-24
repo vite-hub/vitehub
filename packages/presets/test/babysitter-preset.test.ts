@@ -179,9 +179,6 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
       return { stdout: JSON.stringify({ data }), stderr: "" };
     }
     if (text.includes("-X PUT") && text.includes("/merge")) return { stdout: JSON.stringify({ status: "merged", details: { sha: "b".repeat(40) } }), stderr: "" };
-    if (text.includes("/protection/required_status_checks")) {
-      return { stdout: JSON.stringify({ contexts: [], checks: [] }), stderr: "" };
-    }
     if (text.includes("/rules/branches/")) {
       const rule = {
         type: "required_status_checks",
@@ -194,6 +191,7 @@ async function fixture(autoMerge = false, discovered = false, preset: { resolveA
     }
     if (text.includes("-X PATCH")) return { stdout: JSON.stringify(pr()), stderr: "" };
     const path = args.find((arg) => arg.startsWith("repos/")) ?? "";
+    if (/^repos\/acme\/app\/branches\/[^/]+$/.test(path)) return { stdout: JSON.stringify({ name: pr().base.ref, protected: false }), stderr: "" };
     if (path.includes("pulls?state=all&head="))
       return { stdout: (preset.parents ?? []).map((value) => JSON.stringify(value)).join("\n"), stderr: "" };
     if (path === "repos/acme/app")

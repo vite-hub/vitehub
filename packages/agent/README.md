@@ -861,18 +861,20 @@ The callback is skipped when provider shutdown fails or exceeds the cleanup dead
 
 Import `createGitHubRequiredCheckPolicyReader` and `evaluateGitHubRequiredChecks`
 from `@vite-hub/agent/server/github` to inspect required checks for scheduling.
-Supply a reader `(repository, branch) => Promise<BranchRules>`. Use `branchRules()`
-from `@vite-hub/forge`: it combines active branch rules with classic branch
-protection, follows every rules page, and preserves required GitHub App identities.
-It throws `FORGE_R0007` when GitHub does not return a complete answer, and the
-policy is then unknown.
+Supply a reader `(repository, branch) => Promise<BranchRules>`. Use
+`provider.repos.branchRules()` from a GitHub provider: it combines active branch
+rules with classic branch protection, follows every rules page, and preserves
+required GitHub App identities. The policy is unknown when the read fails, when
+the rules are not complete (`FORGE_R0007`), or when a ruleset requires workflows.
+A credential without admin access still reads the required checks from the branch
+summary; the policy then has `classicSource: "branch-summary"`.
 
 ```ts
-import { branchRules, repoRef } from '@vite-hub/forge'
+import { repoRef } from '@vite-hub/forge'
 
 const policies = createGitHubRequiredCheckPolicyReader(async (repository, branch) => {
   const provider = await github.forge({ repository })
-  return await branchRules(provider, repoRef(provider, repository), branch)
+  return await provider.repos.branchRules(repoRef(provider, repository), branch)
 })
 const policy = await policies.read('acme/app', 'main')
 const result = evaluateGitHubRequiredChecks(policy, {

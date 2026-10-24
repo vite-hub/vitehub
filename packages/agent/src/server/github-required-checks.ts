@@ -1,4 +1,4 @@
-import type { BranchRules } from "@vite-hub/forge";
+import { githubBranchRuleDetails, type BranchRules, type RequiredCheck } from "@vite-hub/forge";
 export type GitHubRequiredCheck = { context: string; appId: number | null };
 export type GitHubRequiredCheckPolicy = {
   repository: string;
@@ -10,7 +10,7 @@ export type GitHubRequiredCheckPolicy = {
   reason?: string;
   classicSource?: "protection-endpoint" | "branch-summary" | "unprotected-branch";
 };
-/** Read the branch rules of one branch, for example with `branchRules()` from `@vite-hub/forge`. */
+/** Read the branch rules of one branch, for example with `provider.repos.branchRules()` from a GitHub provider. */
 export type GitHubReadBranchRules = (repository: string, branch: string) => Promise<BranchRules>;
 
 export interface GitHubRequiredCheckPolicyReader {
@@ -38,8 +38,9 @@ export function createGitHubRequiredCheckPolicyReader(
     };
     try {
       const rules = await read(repository, branch);
-      if (rules.requiredWorkflows) throw new Error("Required workflow rules cannot be reduced to check contexts");
-      return { ...base, status: "known", classicSource: rules.classicSource, required: rules.requiredChecks };
+      const details = githubBranchRuleDetails(rules);
+      if (details.requiredWorkflows) throw new Error("Required workflow rules cannot be reduced to check contexts");
+      return { ...base, status: "known", classicSource: details.classicSource, required: rules.requiredChecks.map(requiredCheck) };
     } catch (error) {
       return {
         ...base,
@@ -92,6 +93,15 @@ export function createGitHubRequiredCheckPolicyReader(
       }
     },
   };
+}
+
+function requiredCheck(check: RequiredCheck): GitHubRequiredCheck {
+  if (typeof check.name !== "string" || !check.name.trim()) throw new Error("Invalid required-check name");
+  // GitHub reports app ID -1 for a classic check that any app may report.
+  if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) throw new Error("Invalid required-check app ID");
+  const appId = check.appId === undefined || check.appId === "-1" ? null : Number(check.appId);
+  if (appId !== null && (!Number.isSafeInteger(appId) || appId < 0)) throw new Error("Invalid required-check app ID");
+  return { context: check.name, appId };
 }
 
 export type GitHubRequiredCheckState = "pending" | "failed" | "passed" | "unknown";

@@ -20,7 +20,7 @@ export const forgeDiagnostics = /*#__PURE__*/ defineDiagnostics({
     FORGE_R0005: dynamicError,
     /** A GitHub-only Forge helper received a provider for another Forge. */
     FORGE_R0006: dynamicError,
-    /** GitHub did not return complete branch rules, rulesets or classic protection. */
+    /** `githubBranchRuleDetails()` got branch rules that are not complete GitHub rulesets or classic protection. */
     FORGE_R0007: dynamicError,
     /** GitHub did not return complete review threads. */
     FORGE_R0008: dynamicError,
