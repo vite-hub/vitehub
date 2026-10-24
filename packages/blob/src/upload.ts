@@ -67,11 +67,15 @@ async function readJson(event: BlobUploadEvent): Promise<Record<string, unknown>
 
 function readParts(value: unknown): BlobMultipartPart[] {
   if (!Array.isArray(value) || !value.length) throw badRequest("`parts` must be a non-empty array.")
+  const partNumbers = new Set<number>()
   return value.map((part: unknown) => {
-    if (!isPlainObject(part) || typeof part.etag !== "string" || !Number.isInteger(part.partNumber)) {
+    if (!isPlainObject(part) || typeof part.etag !== "string" || !Number.isInteger(part.partNumber) || part.partNumber < 1 || part.partNumber > 10_000) {
       throw badRequest("Each part needs a string `etag` and an integer `partNumber`.")
     }
-    return { etag: part.etag, partNumber: Number(part.partNumber) }
+    const partNumber = Number(part.partNumber)
+    if (partNumbers.has(partNumber)) throw badRequest(`Multipart part number ${partNumber} was provided more than once.`)
+    partNumbers.add(partNumber)
+    return { etag: part.etag, partNumber }
   })
 }
 

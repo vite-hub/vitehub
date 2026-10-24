@@ -140,4 +140,27 @@ describe("handleMultipartUpload", () => {
     await expect(storage.handleMultipartUpload(multipartEvent("complete", "a.txt", { body: "{}", method: "POST", query: { uploadId: "00000000-0000-4000-8000-000000000000" } })))
       .resolves.toMatchObject([{ code: "BLOB_OPERATION_FAILED" }, undefined])
   })
+
+  it.each([
+    { label: "duplicate", parts: (part: { etag: string, partNumber: number }) => [part, part] },
+    { label: "zero", parts: (part: { etag: string }) => [{ ...part, partNumber: 0 }] },
+    { label: "too large", parts: (part: { etag: string }) => [{ ...part, partNumber: 10_001 }] },
+  ])("rejects $label complete parts", async ({ parts }) => {
+    const created = ok(await storage.handleMultipartUpload(multipartEvent("create", "invalid-parts.txt", {
+      method: "POST",
+    })))
+    if (created.action !== "create") throw new TypeError("Expected a create result.")
+    const uploaded = ok(await storage.handleMultipartUpload(multipartEvent("upload", created.pathname, {
+      body: "part",
+      method: "PUT",
+      query: { partNumber: "1", uploadId: created.uploadId },
+    })))
+    if (uploaded.action !== "upload") throw new TypeError("Expected an upload result.")
+
+    await expect(storage.handleMultipartUpload(multipartEvent("complete", created.pathname, {
+      body: JSON.stringify({ parts: parts(uploaded.part) }),
+      method: "POST",
+      query: { uploadId: created.uploadId },
+    }))).rejects.toMatchObject({ statusCode: 400 })
+  })
 })
