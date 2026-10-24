@@ -53,6 +53,8 @@ function canBeChannelDefinitionObject(value: Node): boolean {
   if (!connectors) return properties.some(property => property.node.type === "SpreadElement" || property.key === undefined)
   const connectorsIndex = properties.indexOf(connectors)
   if (properties.slice(connectorsIndex + 1).some(property => property.node.type === "SpreadElement" || property.key === undefined)) return true
+  // Accessors are evaluated at runtime, so their returned connector map is dynamic.
+  if (connectors.node.type === "Property" && connectors.node.kind !== "init") return true
   return connectors.value === undefined || canBeConnectorMap(connectors.value)
 }
 

@@ -160,10 +160,12 @@ describe("discoverChannelDefinitions", () => {
     await touch(root, "server/channels/empty-connectors.ts", "export default { connectors: {} }\n")
     await touch(root, "server/channels/missing-send.ts", "export default { connectors: { log: {} } }\n")
     await touch(root, "server/channels/dynamic-connectors.ts", "const connectors = getConnectors()\nexport default { connectors }\n")
+    await touch(root, "server/channels/getter-connectors.ts", "export default { get connectors() { return { log: { send() {} } } } }\n")
     await touch(root, "server/channels/valid.ts")
 
     expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] }).map(definition => definition.name)).toEqual([
       "dynamic-connectors",
+      "getter-connectors",
       "valid",
     ])
   })
