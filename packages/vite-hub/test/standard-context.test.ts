@@ -7,7 +7,7 @@ import { renderStandardContextNitroPlugin } from "../src/standard-context-vite.t
 type RequestHook = (event: H3Event) => void
 
 /** Evaluate the generated plugin with the runtime installer and return its `request` hook. */
-function requestHook(): RequestHook {
+function requestHook(withBeforeEach = true): RequestHook {
   const source = renderStandardContextNitroPlugin()
     .replace(`import { installStandardContext } from "vite-hub/runtime/h3"`, "")
     .replace("export default function", "return function")
@@ -16,7 +16,9 @@ function requestHook(): RequestHook {
   let hook: RequestHook | undefined
   let beforeEach: ((event: { name: string, args: unknown[] }) => void) | undefined
   plugin({ hooks: {
-    beforeEach: (handler: (event: { name: string, args: unknown[] }) => void) => { beforeEach = handler },
+    ...(withBeforeEach ? {
+      beforeEach: (handler: (event: { name: string, args: unknown[] }) => void) => { beforeEach = handler },
+    } : {}),
     hook: (name: string, handler: RequestHook) => {
       if (name === "request") hook = (event) => {
         beforeEach?.({ name, args: [event] })
@@ -35,5 +37,11 @@ describe("generated Standard Context Nitro plugin", () => {
     requestHook()(event)
     expect(event["~standard"].req).toBe(request)
     expect(event["~standard"].vendor).toBe("h3")
+  })
+
+  it("falls back to the request hook on Nitro 3", () => {
+    const event = new H3Event(new Request("https://app.test/api"))
+    requestHook(false)(event)
+    expect(event["~standard"].req).toBe(event.req)
   })
 })
