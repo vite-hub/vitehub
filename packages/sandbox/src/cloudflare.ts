@@ -153,8 +153,8 @@ function createCloudflareSession(
       throw error;
     }
   };
-  const request = <T>(operation: string, run: () => Promise<T>, timeout = cloudflareControlPlaneTimeout) =>
-    withCloudflareRequest(operation, timeout, run);
+  const request = <T>(operation: string, run: () => Promise<T>, timeout = cloudflareControlPlaneTimeout, signal?: AbortSignal) =>
+    withCloudflareRequest(operation, timeout, run, signal);
   const run = async (options: {
     abortSignal?: AbortSignal;
     command: string;
@@ -233,9 +233,17 @@ function createCloudflareSession(
       : undefined),
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
-      const result = await request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout);
+      const result = await abortable(
+        request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout, abortSignal),
+        abortSignal,
+      );
       if (result.success === false) {
-        const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
+        const exists = stub.exists
+          ? (await abortable(
+              request("exists", async () => await stub.exists!(path), cloudflareControlPlaneTimeout, abortSignal),
+              abortSignal,
+            )).exists
+          : false;
         if (!exists) return null;
         throw sandboxErrorDiagnostics.SANDBOX_R0025({ message: `[vitehub] Cloudflare failed to read ${path}.` });
       }
@@ -315,7 +323,7 @@ function cloudflareProcess(process: Awaited<ReturnType<NonNullable<CloudflareSan
 async function abortable<T>(
   operation: Promise<T>,
   signal: AbortSignal | undefined,
-  abort: () => Promise<void>,
+  abort?: () => Promise<void>,
 ) {
   if (!signal) return await operation;
   signal.throwIfAborted();
@@ -323,7 +331,7 @@ async function abortable<T>(
     const onAbort = () => {
       signal.removeEventListener("abort", onAbort);
       reject(signal.reason);
-      void abort().catch(() => undefined);
+      if (abort) void abort().catch(() => undefined);
     };
     signal.addEventListener("abort", onAbort, { once: true });
     void operation.then(

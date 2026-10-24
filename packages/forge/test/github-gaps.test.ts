@@ -2,7 +2,7 @@ import { fixtureFetch } from "forges/testing"
 import type { Fixture } from "forges/testing"
 import { describe, expect, it } from "vitest"
 
-import { branchRules, forgeProvider, getReviewThread, listReviewThreads, repoRef, retargetPullRequest } from "../src/index.ts"
+import { forgeProvider, getReviewThread, githubBranchRuleDetails, listReviewThreads, repoRef, retargetPullRequest } from "../src/index.ts"
 
 const api = "https://api.github.com"
 const rule = (context = "CI", integration_id: number | null = 42) => ({
@@ -14,7 +14,6 @@ const get = (path: string, status: number, body?: unknown, headers?: Record<stri
   response: { status, body: body ?? { message: "status" }, ...(headers ? { headers } : {}) },
 })
 const rulesPath = "/repos/acme/app/rules/branches/main?per_page=100"
-const classicPath = "/repos/acme/app/branches/main/protection/required_status_checks"
 const branchPath = "/repos/acme/app/branches/main"
 
 async function github(fixtures: Fixture[]) {
@@ -23,65 +22,67 @@ async function github(fixtures: Fixture[]) {
   return { fixture, provider, repo: repoRef(provider, "acme/app") }
 }
 
-describe("branchRules()", () => {
-  it("combines active rules and classic App bindings without weakening them", async () => {
-    const { provider, repo, fixture } = await github([
-      get("/repos/acme/app/rules/branches/release%2Fv1?per_page=100", 200, [rule(), { type: "pull_request", parameters: { allowed_merge_methods: ["squash", "merge"] } }]),
-      get("/repos/acme/app/branches/release%2Fv1/protection/required_status_checks", 200, { contexts: ["CI", "lint"], checks: [{ context: "CI", app_id: 42 }] }),
+describe("githubBranchRuleDetails()", () => {
+  const unprotected = { name: "main", protected: false }
+  const protectedBranch = (checks: unknown = { enforcement_level: "everyone", contexts: ["CI"], checks: [{ context: "CI", app_id: 42 }] }) => ({ name: "main", protected: true, protection: { enabled: true, required_status_checks: checks } })
+
+  it("reads required workflows and ruleset merge methods from every rules page", async () => {
+    const { provider, repo } = await github([
+      get(branchPath, 200, unprotected),
+      get(rulesPath, 200, [{ type: "pull_request", parameters: { allowed_merge_methods: ["squash", "merge"] } }], { link: `<${api}/repositories/1/rules/branches/main?per_page=100&page=2>; rel="next"` }),
+      get("/repositories/1/rules/branches/main?per_page=100&page=2", 200, [{ type: "workflows", parameters: { workflows: [{ path: "ci.yml" }] } }, rule("later"), { type: "pull_request", parameters: { allowed_merge_methods: ["merge", "rebase"] } }]),
     ])
-    await expect(branchRules(provider, repo, "release/v1")).resolves.toEqual({
-      requiredChecks: [{ context: "CI", appId: 42 }, { context: "lint", appId: null }],
-      requiredWorkflows: false,
-      mergeMethods: ["squash", "merge"],
-      classicSource: "protection-endpoint",
-    })
-    expect(fixture.calls).toHaveLength(2)
+    const rules = await provider.repos.branchRules(repo, "main")
+    expect(rules.requiredChecks).toEqual([{ name: "later", appId: "42" }])
+    expect(githubBranchRuleDetails(rules)).toEqual({ requiredWorkflows: true, mergeMethods: ["merge"], classicSource: "unprotected-branch" })
   })
 
-  it("reports required workflows and reads later rule pages", async () => {
-    const { provider, repo } = await github([
-      get(rulesPath, 200, [{ type: "deletion" }], { link: `<${api}/repositories/1/rules/branches/main?per_page=100&page=2>; rel="next"` }),
-      get("/repositories/1/rules/branches/main?per_page=100&page=2", 200, [{ type: "workflows", parameters: { workflows: [{ path: "ci.yml" }] } }, rule("later")]),
-      get(classicPath, 404),
-      get(branchPath, 200, { protected: false }),
-    ])
-    await expect(branchRules(provider, repo, "main")).resolves.toEqual({
-      requiredChecks: [{ context: "later", appId: 42 }],
-      requiredWorkflows: true,
-      classicSource: "unprotected-branch",
-    })
+  it("does not count an empty workflow list", async () => {
+    const { provider, repo } = await github([get(branchPath, 200, unprotected), get(rulesPath, 200, [{ type: "workflows", parameters: { workflows: [] } }])])
+    expect(githubBranchRuleDetails(await provider.repos.branchRules(repo, "main"))).toEqual({ requiredWorkflows: false, classicSource: "unprotected-branch" })
+  })
+
+  it("maps a protection endpoint without admin access to the branch summary source", async () => {
+    const readable = await github([get(branchPath, 200, protectedBranch()), get(rulesPath, 200, []), get(`${branchPath}/protection`, 200, {})])
+    const rules = await readable.provider.repos.branchRules(readable.repo, "main")
+    expect(rules.requiredChecks).toEqual([{ name: "CI", appId: "42" }])
+    expect(githubBranchRuleDetails(rules).classicSource).toBe("protection-endpoint")
+    // forges reads the checks from the branch summary and warns that it cannot read the approvals.
+    const limited = await github([get(branchPath, 200, protectedBranch()), get(rulesPath, 200, []), get(`${branchPath}/protection`, 403, { message: "Resource not accessible by integration" })])
+    const summary = await limited.provider.repos.branchRules(limited.repo, "main")
+    expect(summary.requiredChecks).toEqual([{ name: "CI", appId: "42" }])
+    expect(summary.warnings).toMatchObject([{ code: "insufficient_scope" }])
+    expect(githubBranchRuleDetails(summary).classicSource).toBe("branch-summary")
   })
 
   it("throws instead of returning unknown rules as no rules", async () => {
-    for (const fixtures of [
-      [get(rulesPath, 403), get(classicPath, 200, { contexts: [] })],
-      [get(rulesPath, 200, [rule("CI", -3)]), get(classicPath, 200, { contexts: [] })],
-      [get(rulesPath, 200, []), get(classicPath, 404), get(branchPath, 404)],
-      [get(rulesPath, 200, []), get(classicPath, 500)],
-      [get(rulesPath, 200, [], { link: `<https://other.example/rules?page=2>; rel="next"` }), get(classicPath, 200, { contexts: [] })],
-    ]) {
-      const { provider, repo } = await github(fixtures)
-      await expect(branchRules(provider, repo, "main")).rejects.toMatchObject({ code: "FORGE_R0007" })
+    const cases: Array<[unknown, unknown[]]> = [
+      [unprotected, [{ type: "workflows" }]],
+      [unprotected, [{ type: "workflows", parameters: { workflows: "ci" } }]],
+      [unprotected, [{ type: "required_status_checks", parameters: {} }]],
+      [unprotected, [{ type: "pull_request", parameters: { allowed_merge_methods: "squash" } }]],
+      [unprotected, [{ parameters: {} }]],
+      [{ name: "main", protected: true }, []],
+      [protectedBranch(null), []],
+      [protectedBranch({ contexts: ["CI"], checks: [] }), []],
+      [protectedBranch({ enforcement_level: "unknown", contexts: ["CI"], checks: [] }), []],
+      [protectedBranch({ enforcement_level: "off", contexts: ["CI"], checks: [] }), []],
+    ]
+    for (const [branch, rules] of cases) {
+      const { provider, repo } = await github([get(branchPath, 200, branch), get(rulesPath, 200, rules), get(`${branchPath}/protection`, 200, {})])
+      const result = await provider.repos.branchRules(repo, "main")
+      expect(() => githubBranchRuleDetails(result)).toThrow(expect.objectContaining({ code: "FORGE_R0007" }))
     }
+    expect(() => githubBranchRuleDetails({ branch: "main", requiredChecks: [], raw: {} })).toThrow(expect.objectContaining({ code: "FORGE_R0007" }))
   })
 
-  it("reads the branch summary when the protection endpoint is not readable", async () => {
-    const protection = { enabled: true, required_status_checks: { contexts: ["CI"], checks: [{ context: "CI", app_id: 42 }], enforcement_level: "everyone" } }
-    const { provider, repo } = await github([get(rulesPath, 200, []), get(classicPath, 403), get(branchPath, 200, { protected: true, protection })])
-    await expect(branchRules(provider, repo, "main")).resolves.toMatchObject({ requiredChecks: [{ context: "CI", appId: 42 }], classicSource: "branch-summary" })
-    for (const malformed of [
-      { enabled: true, required_status_checks: null },
-      { enabled: true, required_status_checks: { contexts: ["CI"], checks: [], enforcement_level: "everyone" } },
-      {},
-    ]) {
-      const { provider, repo } = await github([get(rulesPath, 200, []), get(classicPath, 403), get(branchPath, 200, { protected: true, protection: malformed })])
-      await expect(branchRules(provider, repo, "main")).rejects.toMatchObject({ code: "FORGE_R0007" })
+  it("accepts classic contexts when App bindings are absent or empty", async () => {
+    for (const checks of [{ enforcement_level: "everyone", contexts: ["CI"] }, { enforcement_level: "everyone", contexts: ["CI"], checks: [] }]) {
+      const { provider, repo } = await github([get(branchPath, 200, protectedBranch(checks)), get(rulesPath, 200, []), get(`${branchPath}/protection`, 200, {})])
+      const result = await provider.repos.branchRules(repo, "main")
+      expect(result.requiredChecks).toEqual([{ name: "CI" }])
+      expect(githubBranchRuleDetails(result).classicSource).toBe("protection-endpoint")
     }
-  })
-
-  it("is GitHub-only", async () => {
-    const provider = await forgeProvider({ forge: "gitlab", token: "token" })
-    await expect(branchRules(provider, repoRef(provider, "acme/app"), "main")).rejects.toMatchObject({ code: "FORGE_R0006" })
   })
 })
 

@@ -91,7 +91,7 @@ catalogs:
       version: 4.1.4
     forges:
       specifier: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
-      version: 0.2.0
+      version: 0.1.0
     proper-lockfile:
       specifier: 4.1.2
       version: 4.1.2

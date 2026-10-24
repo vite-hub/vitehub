@@ -13,6 +13,10 @@ it.each(["/_vitehub/**:rest", "/_vitehub/**rest", "/_vitehub/:...rest", "/_viteh
   expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toThrow(/route conflicts/)
 })
 
+it.each(["/**/dev", "/_vitehub/**/dev", "/:prefix/**/dev", "/*/**/dev"])("rejects a catch-all prefix %s", (route) => {
+  expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toThrow(/route conflicts/)
+})
+
 it.each(["/_vitehub/**", "/**"])("allows enclosing %s only for the reserved dev route", (route) => {
   expect(validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }], "development invocation", "/_vitehub/agent")).toBe("/_vitehub/agent/invocations/dev")
   expect(() => validateAgentStaticRoute("/_vitehub/agent/invocations/dev", [{ route }])).toThrow(/route conflicts/)

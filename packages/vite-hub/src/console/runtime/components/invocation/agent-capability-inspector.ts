@@ -4,7 +4,7 @@ import { type ComponentOptionsMixin, computed, type DefineComponent, defineCompo
 import { invocationActivities, invocationToolUsage } from "./internal/invocation-activity.ts";
 import { hasRuntimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { ToolList } from "@vite-hub/ui";
+import { ToolList } from "@vite-hub/ui/tool-list";
 import type { AgentInvocationView } from "./types.ts";
 
 function record(value: unknown): Record<string, unknown> | undefined {

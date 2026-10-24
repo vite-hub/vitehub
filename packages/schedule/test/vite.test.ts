@@ -927,6 +927,32 @@ describe("Vite schedule integration", () => {
     await expect(readFile(join(root, ".vitehub", "nitro", "schedule", "provider-registry.js"), "utf8")).resolves.toContain("server/schedules/sync.ts")
   })
 
+  it("does not prepare a Workflow runtime when no schedules are defined", async () => {
+    const root = await temporaryDirectory("vitehub-schedule-empty-workflow-")
+    const prepareScheduleRuntime = vi.fn(async () => ({
+      bundleAlias: {},
+      importBase: "@vite-hub/workflow",
+      native: false,
+      registryFile: join(root, "workflow-registry.js"),
+    }))
+    const plugin = hubSchedule()
+    await (plugin.config as (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => unknown)(
+      { root },
+      { command: "build", mode: "production" },
+    )
+    await (plugin.configResolved as (config: Record<string, unknown>) => Promise<void>)({
+      build: { outDir: "dist/client" },
+      command: "build",
+      plugins: [{ vitehub: { workflow: { prepareScheduleRuntime } } }],
+      resolve: { alias: [] },
+      root,
+    })
+
+    await (plugin.buildEnd as (this: never) => Promise<void>).call({} as never)
+
+    expect(prepareScheduleRuntime).not.toHaveBeenCalled()
+  })
+
   it("keeps suffix standalone output when server schedules use Nitro provider output", async () => {
     const root = await temporaryDirectory("vitehub-schedule-mixed-output-")
     await mkdir(join(root, "server", "schedules"), { recursive: true })

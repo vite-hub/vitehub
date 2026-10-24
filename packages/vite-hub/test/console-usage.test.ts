@@ -41,6 +41,68 @@ describe("Console usage projection", () => {
     });
   });
 
+  it("keeps scalar totals and cost while omitting calls from truncated finish usage", async () => {
+    const record = invocationRecordFromUsageRecord({
+      calls: [{
+        cost: { display: "$0.10", estimated: false, source: "provider", usd: "0.10" },
+        model: "call-model",
+        usage: { inputTokens: 1, outputTokens: 2, totalTokens: 3 },
+      }],
+      cost: { display: "$0.25", estimated: true, source: "provider", usd: "0.25" },
+      model: "truncated-model",
+      usage: { inputTokens: 2, outputTokens: 3, totalTokens: 5 },
+    });
+    const truncated = {
+      ...record,
+      observations: record.observations.map((observation) => ({
+        ...observation,
+        attributes: {
+          ...observation.attributes,
+          "vitehub.observation.truncated": true,
+        },
+      })),
+    };
+
+    expect(invocationUsage(truncated)).toEqual({
+      cost: { display: "$0.25", estimated: true, source: "provider", usd: "0.25" },
+      inputTokens: 2,
+      model: "truncated-model",
+      outputTokens: 3,
+      totalTokens: 5,
+    });
+
+    const { observations: _observations, ...summary } = truncated;
+    const invocations = {
+      get: vi.fn(async () => truncated),
+      getByRunId: vi.fn(async () => truncated),
+      list: vi.fn(async () => ({ invocations: [summary] })),
+    };
+
+    // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- SAFETY: This fixture supplies the three read methods used by the usage summary.
+    await expect(
+      createUsageSummary(invocations as unknown as Parameters<typeof createUsageSummary>[0], {
+        now: "2026-08-27T12:00:00.000Z",
+        window: "24h",
+      }),
+    ).resolves.toMatchObject({
+      models: [{ model: "truncated-model", costUsd: "0.25", totalTokens: 5 }],
+      partial: true,
+      sessions: [{
+        id: "usage-invocation",
+        partial: true,
+        totals: { costAvailable: true, costUsd: "0.25", totalTokens: 5 },
+      }],
+      totals: {
+        costAvailable: true,
+        costEstimated: true,
+        costUsd: "0.25",
+        invocations: 1,
+        totalTokens: 5,
+        totalTokensAvailable: true,
+      },
+    });
+  });
+
   it("reads reasoning tokens from fallback usage details", () => {
     expect(
       invocationUsage(

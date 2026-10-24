@@ -1,7 +1,7 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
+import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,
@@ -27,8 +27,10 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { Markdown, PatchDiff } from "@vite-hub/ui";
-import { ToolList } from "@vite-hub/ui";
+import { Markdown } from "@vite-hub/ui/markdown";
+import { ToolList } from "@vite-hub/ui/tool-list";
+
+const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {
@@ -621,7 +623,7 @@ function imageViewDetails(activity: InvocationActivity, path: string) {
   ]);
 }
 
-function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
+function renderEvent(activity: InvocationActivity, inspect: InspectHandler, openActivities: ReadonlySet<string>, setActivityOpen: (id: string, open: boolean) => void) {
   const command = activity.command;
   const viewedImagePath = imageViewPath(activity);
   const tokenLabel = activity.kind === "reasoning" || activity.kind === "model"
@@ -692,6 +694,10 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
   }, [
     h(hasDetails ? "details" : "div", {
       class: "vh-invocation-event",
+      open: hasDetails ? openActivities.has(activity.id) : undefined,
+      onToggle: hasDetails
+        ? (event: Event) => setActivityOpen(activity.id, (event.currentTarget as HTMLDetailsElement).open)
+        : undefined,
     }, [
       summary,
       hasDetails ? h("div", { class: "vh-invocation-event__details" }, [
@@ -702,7 +708,9 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
           ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
         activity.patches.length
-          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(PatchDiff, { key: index, patch })))
+          ? openActivities.has(activity.id)
+            ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(InvocationPatchDiff, { key: index, patch })))
+            : null
           : command
           ? h("div", { class: "vh-invocation-command" }, [
               h("div", { class: "vh-invocation-command__bar" }, [
@@ -883,7 +891,12 @@ function activityGroup(activity: InvocationActivity | undefined): string | undef
   return stringAttribute(activity.attributes, "vitehub.activity.group");
 }
 
-function renderCapabilityGroup(activities: readonly InvocationActivity[], inspect: InspectHandler) {
+function renderCapabilityGroup(
+  activities: readonly InvocationActivity[],
+  inspect: InspectHandler,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
+) {
   const capabilities = [...new Set(activities.flatMap(activity => {
     const id = stringAttribute(activity.attributes, "agent.capability.id");
     return id ? [id] : [];
@@ -908,7 +921,7 @@ function renderCapabilityGroup(activities: readonly InvocationActivity[], inspec
                 : `Prepared ${summary}`),
         renderDisclosureChevron("vh-invocation-capabilities__disclosure"),
       ]),
-      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(activity => renderEvent(activity, inspect))),
+      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(activity => renderEvent(activity, inspect, openActivities, setActivityOpen))),
     ]),
   ]);
 }
@@ -1302,11 +1315,13 @@ function renderInvocationActivity(
   toggleExpanded: (id: string) => void,
   inspect: InspectHandler,
   messageRendering: MessageRendering,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
   insideWork = false,
 ) {
   return activity.kind === "message"
     ? renderMessage(activity, expanded, toggleExpanded, messageRendering, insideWork)
-    : renderEvent(activity, inspect);
+    : renderEvent(activity, inspect, openActivities, setActivityOpen);
 }
 
 function renderActivitySequence(
@@ -1316,6 +1331,8 @@ function renderActivitySequence(
   toggleExpanded: (id: string) => void,
   inspect: InspectHandler,
   messageRendering: MessageRendering,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
   insideWork = false,
 ) {
   const rendered = [];
@@ -1325,7 +1342,7 @@ function renderActivitySequence(
       let end = index + 1;
       while (activityGroup(activities[end]) === group) end += 1;
       rendered.push(group === "agent-capability-lifecycle"
-        ? renderCapabilityGroup(activities.slice(index, end), inspect)
+        ? renderCapabilityGroup(activities.slice(index, end), inspect, openActivities, setActivityOpen)
         : group === "agent-configuration-lifecycle"
           ? renderAgentConfigurationGroup(activities.slice(index, end), inspect)
         : renderActivityGroup(group, activities.slice(index, end), inspect));
@@ -1333,7 +1350,7 @@ function renderActivitySequence(
       continue;
     }
     if (activities[index]!.kind !== "preparation") {
-      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect, messageRendering, insideWork));
+      rendered.push(renderInvocationActivity(activities[index]!, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, insideWork));
       index += 1;
       continue;
     }
@@ -1354,6 +1371,8 @@ function renderWorkSummary(
   toggleExpanded: (id: string) => void,
   inspect: InspectHandler,
   messageRendering: MessageRendering,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
 ) {
   if (!activities.length) return null;
   const active = invocation.status === "pending" || invocation.status === "running";
@@ -1375,7 +1394,7 @@ function renderWorkSummary(
       ]),
       h("div", { "aria-hidden": "true", class: "vh-invocation-work__divider" }),
       detailsOpen
-        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering, true))
+        ? h("ol", { class: "vh-invocation-work__activities" }, renderActivitySequence(activities, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen, true))
         : null,
     ]),
   ]);
@@ -1388,6 +1407,8 @@ function renderPreviousMessages(
   toggleExpanded: (id: string) => void,
   inspect: InspectHandler,
   messageRendering: MessageRendering,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
 ) {
   if (!messages.length) return null;
   return h("li", { class: "vh-invocation-history", key: "invocation-history" }, [
@@ -1397,7 +1418,7 @@ function renderPreviousMessages(
         renderDisclosureChevron("vh-invocation-history__disclosure"),
       ]),
       h("ol", { class: "vh-invocation-history__messages" },
-        renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering)),
+        renderActivitySequence(messages, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen)),
     ]),
   ]);
 }
@@ -1424,16 +1445,18 @@ function renderInvocationActivities(
   toggleExpanded: (id: string) => void,
   inspect: InspectHandler,
   messageRendering: MessageRendering,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
 ) {
   if (conversation.kind === "activities") {
-    return renderActivitySequence(conversation.activities, invocation, expanded, toggleExpanded, inspect, messageRendering);
+    return renderActivitySequence(conversation.activities, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen);
   }
   return [
-    renderPreviousMessages(conversation.history, invocation, expanded, toggleExpanded, inspect, messageRendering),
-    conversation.prompt ? renderInvocationActivity(conversation.prompt, expanded, toggleExpanded, inspect, messageRendering) : null,
-    renderWorkSummary(conversation.work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering),
-    ...conversation.answers.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect, messageRendering)),
-    ...renderActivitySequence(conversation.followup, invocation, expanded, toggleExpanded, inspect, messageRendering),
+    renderPreviousMessages(conversation.history, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
+    conversation.prompt ? renderInvocationActivity(conversation.prompt, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen) : null,
+    renderWorkSummary(conversation.work, invocation, expanded, workOpen, setWorkOpen, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
+    ...conversation.answers.map(activity => renderInvocationActivity(activity, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen)),
+    ...renderActivitySequence(conversation.followup, invocation, expanded, toggleExpanded, inspect, messageRendering, openActivities, setActivityOpen),
   ].filter(item => item !== null);
 }
 
@@ -1475,6 +1498,7 @@ const agentInvocation = defineComponent({
     const liveNow = ref<Date>();
     let liveClock: ReturnType<typeof setInterval> | undefined;
     const workOpen = ref(false);
+    const openActivities = ref<ReadonlySet<string>>(new Set());
     const messageCopy = ref<{ id: string; status: "copied" | "failed" }>();
     const root = ref<HTMLElement>();
     let selectedElement: HTMLElement | undefined;
@@ -1485,6 +1509,13 @@ const agentInvocation = defineComponent({
       if (next.has(id)) next.delete(id);
       else next.add(id);
       expandedMessages.value = next;
+    }
+
+    function setActivityOpen(id: string, open: boolean) {
+      const next = new Set(openActivities.value);
+      if (open) next.add(id);
+      else next.delete(id);
+      openActivities.value = next;
     }
 
     function inspectWorkspaceArtifact(event: MouseEvent) {
@@ -1524,7 +1555,10 @@ const agentInvocation = defineComponent({
     }
 
     async function focusActivity(id: string | undefined) {
-      if (id) workOpen.value = true;
+      if (id) {
+        workOpen.value = true;
+        setActivityOpen(id, true);
+      }
       await nextTick();
       const target = [...(root.value?.querySelectorAll<HTMLElement>("[data-activity-id]") ?? [])]
         .find(element => element.dataset.activityId === id);
@@ -1548,6 +1582,7 @@ const agentInvocation = defineComponent({
     watch([() => props.selectedActivityId, activities], ([id]) => void focusActivity(id), { flush: "post", immediate: true });
     watch(() => props.invocation.id, () => {
       workOpen.value = false;
+      openActivities.value = new Set();
       messageCopy.value = undefined;
     });
     watch(() => props.invocation.status, (status, previousStatus) => {
@@ -1612,6 +1647,8 @@ const agentInvocation = defineComponent({
                 copiedId: messageCopy.value?.id,
                 copyStatus: messageCopy.value?.status,
               },
+              openActivities.value,
+              setActivityOpen,
             ))]),
             activities.value.length
               ? null

@@ -14,7 +14,7 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function touch(root: string, path: string, source = "export default {}\n"): Promise<void> {
+async function touch(root: string, path: string, source = "export default { connectors: { log: { send() {} } } }\n"): Promise<void> {
   const file = join(root, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, source)
@@ -141,6 +141,33 @@ describe("discoverChannelDefinitions", () => {
     await touch(root, "server/channels/negative.ts", "export default -1\n")
 
     expect(discoverChannelDefinitions({ rootDir: root })).toEqual([])
+  })
+
+  it("skips helper object modules in a mixed flat channel directory", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/alerts.ts", "export default { connectors: { log: { send() {} } } }\n")
+    await touch(root, "server/channels/shared.ts", "export default { format(text: string) { return text.trim() } }\n")
+
+    expect(discoverChannelDefinitions({ rootDir: root })).toEqual([
+      { handler: join(root, "server/channels/alerts.ts"), name: "alerts", source: "server-channels" },
+    ])
+  })
+
+  it("skips statically invalid connector maps while keeping dynamic definitions", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/function-connectors.ts", "export default { connectors() {} }\n")
+    await touch(root, "server/channels/function-value.ts", "export default { connectors: { slack: () => ({}) } }\n")
+    await touch(root, "server/channels/empty-connectors.ts", "export default { connectors: {} }\n")
+    await touch(root, "server/channels/missing-send.ts", "export default { connectors: { log: {} } }\n")
+    await touch(root, "server/channels/dynamic-connectors.ts", "const connectors = getConnectors()\nexport default { connectors }\n")
+    await touch(root, "server/channels/getter-connectors.ts", "export default { get connectors() { return { log: { send() {} } } } }\n")
+    await touch(root, "server/channels/valid.ts")
+
+    expect(discoverChannelDefinitions({ mode: "server-channels", scanDirs: [join(root, "server")] }).map(definition => definition.name)).toEqual([
+      "dynamic-connectors",
+      "getter-connectors",
+      "valid",
+    ])
   })
 
   it("keeps modules that export connectors or that it cannot read statically", async () => {

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 
-import { scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { findProperty, objectProperties, scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import {
   createSuffixDefinitionSource,
   discoverDefinitions,
@@ -46,11 +46,54 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
   return node.type === "Identifier" ? node.name : node.value
 }
 
+function canBeChannelDefinitionObject(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return true
+  const properties = objectProperties(value)
+  const connectors = findProperty(value, "connectors")
+  if (!connectors) return properties.some(property => property.node.type === "SpreadElement" || property.key === undefined)
+  const connectorsIndex = properties.indexOf(connectors)
+  if (properties.slice(connectorsIndex + 1).some(property => property.node.type === "SpreadElement" || property.key === undefined)) return true
+  // Accessors are evaluated at runtime, so their returned connector map is dynamic.
+  if (connectors.node.type === "Property" && connectors.node.kind !== "init") return true
+  return connectors.value === undefined || canBeConnectorMap(connectors.value)
+}
+
+const functionTypes = new Set(["ArrowFunctionExpression", "FunctionExpression"])
+
+function canBeConnector(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return !nonDefinitionTypes.has(value.type)
+  const properties = objectProperties(value)
+  let knownSend = false
+  for (const property of properties.toReversed()) {
+    if (property.node.type === "SpreadElement" || property.key === undefined) return true
+    if (property.key !== "send" || knownSend) continue
+    knownSend = true
+    return property.value === undefined || functionTypes.has(property.value.type) || !nonDefinitionTypes.has(property.value.type)
+  }
+  return false
+}
+
+function canBeConnectorMap(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return value.type !== "ArrayExpression" && !nonDefinitionTypes.has(value.type)
+  const properties = objectProperties(value)
+  if (!properties.length) return false
+  const seen = new Set<string>()
+  let knownConnector = false
+  for (const property of properties.toReversed()) {
+    if (property.node.type === "SpreadElement" || property.key === undefined) return true
+    if (seen.has(property.key)) continue
+    seen.add(property.key)
+    knownConnector = true
+    if (property.value === undefined || !canBeConnector(property.value)) return false
+  }
+  return knownConnector
+}
+
 /**
  * `server/channels` can also hold Agent Channels from `defineChannel()` and Channel factories. A module is an
- * outbound Channel when it exports `connectors`, or when its default export can be a Channel Definition object: not
- * a function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read, not run. A
- * module that cannot be read statically stays a Channel, so the runtime reports its problems.
+ * outbound Channel when it exports `connectors`, or when its default export can be a Channel Definition object with
+ * `connectors`: not a function, a class, a primitive, an array, or an Agent `defineChannel()` call. The module is read,
+ * not run. A module that cannot be read statically stays a Channel, so the runtime reports its problems.
  */
 function isOutboundChannelModule(file: string): boolean {
   const module = scanModule(readFileSync(file, "utf8"), file)
@@ -139,7 +182,7 @@ function isOutboundChannelModule(file: string): boolean {
   }
   if (!value) return true
   if (value.type === "Identifier" && (value.name === "undefined" || value.name === "NaN" || value.name === "Infinity")) return false
-  if (value.type !== "CallExpression") return !nonDefinitionTypes.has(value.type)
+  if (value.type !== "CallExpression") return !nonDefinitionTypes.has(value.type) && canBeChannelDefinitionObject(value)
   const callee = unwrapExpression(value.callee)
   if (callee.type === "Identifier") return !agentChannelFactories.has(callee.name)
   return !(callee.type === "MemberExpression"

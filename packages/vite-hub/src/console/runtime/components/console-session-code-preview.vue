@@ -1,6 +1,43 @@
 <script setup lang="ts">
+import type { HighlighterCore, LanguageRegistration } from "shiki/core";
 import { computed, ref, watch } from "vue";
 import { languageForPath } from "./console-session-code-language";
+
+type LanguageModule = { default: LanguageRegistration[] };
+
+const languageLoaders: Record<string, () => Promise<LanguageModule>> = {
+  css: () => import("shiki/langs/css.mjs"),
+  dockerfile: () => import("shiki/langs/dockerfile.mjs"),
+  html: () => import("shiki/langs/html.mjs"),
+  javascript: () => import("shiki/langs/javascript.mjs"),
+  json: () => import("shiki/langs/json.mjs"),
+  jsonc: () => import("shiki/langs/jsonc.mjs"),
+  jsx: () => import("shiki/langs/jsx.mjs"),
+  make: () => import("shiki/langs/make.mjs"),
+  markdown: () => import("shiki/langs/markdown.mjs"),
+  mdx: () => import("shiki/langs/mdx.mjs"),
+  scss: () => import("shiki/langs/scss.mjs"),
+  shellscript: () => import("shiki/langs/shellscript.mjs"),
+  sql: () => import("shiki/langs/sql.mjs"),
+  tsx: () => import("shiki/langs/tsx.mjs"),
+  typescript: () => import("shiki/langs/typescript.mjs"),
+  vue: () => import("shiki/langs/vue.mjs"),
+  yaml: () => import("shiki/langs/yaml.mjs"),
+};
+
+let highlighter: Promise<HighlighterCore> | undefined;
+
+function loadHighlighter(): Promise<HighlighterCore> {
+  highlighter ??= Promise.all([
+    import("shiki/core"),
+    import("shiki/engine/javascript"),
+    import("shiki/themes/github-light-default.mjs"),
+    import("shiki/themes/github-dark-default.mjs"),
+  ]).then(([{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark]) =>
+    createHighlighterCore({ engine: createJavaScriptRegexEngine(), langs: [], themes: [light.default, dark.default] }),
+  );
+  return highlighter;
+}
 
 const props = defineProps<{ content: string; path: string; wrap?: boolean }>();
 const html = ref("");
@@ -19,11 +56,15 @@ watch(
     html.value = "";
     highlightingFailed.value = false;
     try {
-      const { codeToHtml } = await import("shiki/bundle/web");
-      const rendered = await codeToHtml(content, {
+      const languageName = language.value;
+      const loadLanguage = languageLoaders[languageName];
+      if (!loadLanguage) throw new Error(`No syntax highlighter is registered for ${languageName}.`);
+      const instance = await loadHighlighter();
+      if (!instance.getLoadedLanguages().includes(languageName)) await instance.loadLanguage((await loadLanguage()).default);
+      const rendered = instance.codeToHtml(content, {
         defaultColor: false,
-        lang: language.value,
-        themes: { dark: "github-dark", light: "github-light" },
+        lang: languageName,
+        themes: { dark: "github-dark-default", light: "github-light-default" },
       });
       if (id === renderId) html.value = rendered;
     } catch (error) {

@@ -1,9 +1,8 @@
 <script setup lang="ts">
-import { FileTree, PatchDiff } from "@vite-hub/ui";
 import { AgentCapabilityInspector, AgentInvocationInspector, invocationActivities, type AgentInvocationView } from "./invocation";
 import type { DropdownMenuItem, TabsItem } from "@nuxt/ui";
 import { TabsList, TabsRoot, TabsTrigger } from "reka-ui";
-import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
+import { computed, defineAsyncComponent, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import ConsoleSessionCodePreview from "./console-session-code-preview.vue";
 import ConsoleSessionTrace from "./console-session-trace.vue";
 import ConsoleState from "./console-state.vue";
@@ -12,6 +11,9 @@ import { useConsoleWordWrap } from "./console-wrap";
 import { consoleBytes } from "../client/format";
 import { requestConsole } from "../client/request";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
+
+const ConsoleFileTree = defineAsyncComponent(() => import("@vite-hub/ui/file-tree").then(module => ({ default: module.FileTree })));
+const ConsolePatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
 
 type InspectorTab = "details" | "trace" | "workspace" | "capabilities" | "diff";
 type WorkspaceDescriptor = {
@@ -651,7 +653,7 @@ function message(error: unknown) {
             <input v-model="selectedDiffs" type="checkbox" :value="index" />
             <span>Turn {{ index + 1 }}</span>
           </label>
-          <PatchDiff :patch="diff.patch" class="session-inspector__patch" />
+          <ConsolePatchDiff :patch="diff.patch" class="session-inspector__patch" />
         </section>
       </div>
     </div>
@@ -741,7 +743,7 @@ function message(error: unknown) {
             </div>
           </div>
           <aside v-if="treeOpen && workspace" ref="filesPanel" class="session-inspector__files">
-            <FileTree
+            <ConsoleFileTree
               class="session-inspector__tree"
               :paths="workspace.paths"
               :options="treeOptions"
