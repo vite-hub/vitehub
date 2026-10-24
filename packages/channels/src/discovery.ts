@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 
-import { objectProperties, scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
+import { findProperty, objectProperties, scanModule, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import {
   createSuffixDefinitionSource,
   discoverDefinitions,
@@ -48,7 +48,43 @@ function exportName(node: { type: "Identifier", name: string } | { type: "Litera
 
 function canBeChannelDefinitionObject(value: Node): boolean {
   if (value.type !== "ObjectExpression") return true
-  return objectProperties(value).some(property => property.node.type === "SpreadElement" || property.key === undefined || property.key === "connectors")
+  const properties = objectProperties(value)
+  const connectors = findProperty(value, "connectors")
+  if (!connectors) return properties.some(property => property.node.type === "SpreadElement" || property.key === undefined)
+  const connectorsIndex = properties.indexOf(connectors)
+  if (properties.slice(connectorsIndex + 1).some(property => property.node.type === "SpreadElement" || property.key === undefined)) return true
+  return connectors.value === undefined || canBeConnectorMap(connectors.value)
+}
+
+const functionTypes = new Set(["ArrowFunctionExpression", "FunctionExpression"])
+
+function canBeConnector(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return functionTypes.has(value.type) || !nonDefinitionTypes.has(value.type)
+  const properties = objectProperties(value)
+  let knownSend = false
+  for (const property of properties.toReversed()) {
+    if (property.node.type === "SpreadElement" || property.key === undefined) return true
+    if (property.key !== "send" || knownSend) continue
+    knownSend = true
+    return property.value === undefined || functionTypes.has(property.value.type) || !nonDefinitionTypes.has(property.value.type)
+  }
+  return false
+}
+
+function canBeConnectorMap(value: Node): boolean {
+  if (value.type !== "ObjectExpression") return value.type !== "ArrayExpression" && !nonDefinitionTypes.has(value.type)
+  const properties = objectProperties(value)
+  if (!properties.length) return false
+  const seen = new Set<string>()
+  let knownConnector = false
+  for (const property of properties.toReversed()) {
+    if (property.node.type === "SpreadElement" || property.key === undefined) return true
+    if (seen.has(property.key)) continue
+    seen.add(property.key)
+    knownConnector = true
+    if (property.value === undefined || !canBeConnector(property.value)) return false
+  }
+  return knownConnector
 }
 
 /**
