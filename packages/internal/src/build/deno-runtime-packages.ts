@@ -686,7 +686,7 @@ async function copyPackageToNodeModules(name: string, resolver: NodeJS.Require, 
   if (!packageJsonPath) {
     // mdream includes native bindings for architectures that are not published on npm.
     // Its loader only reaches the binding matching the current architecture.
-    if (options.optional || name.startsWith("@mdream/rust-")) return
+    if (options.optional && name.startsWith("@mdream/rust-")) return
     throw internalErrorDiagnostics.INTERNAL_B0021({ message: "Could not resolve package.json for " + name + "." })
   }
   let resolvedPackageJsonPath = await realpath(packageJsonPath)
