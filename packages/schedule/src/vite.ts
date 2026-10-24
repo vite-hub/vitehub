@@ -705,9 +705,11 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       try {
         const definitions = emitStandaloneProviderOutput ? discoverRegistrySchedules() : []
         const crons = await readDefinitionCrons(definitions)
-        const prepareWorkflow = ((config.plugins ?? []) as WorkflowVitePlugin[])
-          .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
-          ?.vitehub?.workflow?.prepareScheduleRuntime
+        const prepareWorkflow = definitions.length
+          ? ((config.plugins ?? []) as WorkflowVitePlugin[])
+            .find(candidate => candidate.vitehub?.workflow?.prepareScheduleRuntime)
+            ?.vitehub?.workflow?.prepareScheduleRuntime
+          : undefined
         artifactDir = resolve(rootDir, ".vitehub/schedule-generations", randomUUID())
         const contributionArtifactDir = artifactDir
         const workflow = await prepareWorkflow?.(resolve(contributionArtifactDir, "workflow"))
