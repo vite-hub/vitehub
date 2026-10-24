@@ -270,6 +270,16 @@ describe("vitehub", () => {
     expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
   })
 
+  it("enables Nitro file routes for the server convention", async () => {
+    const plugins = vitehub({ preset: "node" })
+    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
+    const config: Record<string, unknown> = { ...await resolveConfig({}, "build") }
+
+    await callHook(preset.config, [config, { command: "build", mode: "production" }])
+
+    expect(config.nitro).toMatchObject({ serverDir: "server" })
+  })
+
   it("serializes the built-in Provider Output finalizer", () => {
     const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
 
