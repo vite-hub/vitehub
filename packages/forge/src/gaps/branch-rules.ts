@@ -61,6 +61,9 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
       if (!isRecord(checks) || !Array.isArray(checks.contexts) || !checks.contexts.every(context => typeof context === "string") || (checks.checks !== undefined && !Array.isArray(checks.checks))) {
         throw invalid("Classic protection response is ambiguous; branch summary is incomplete.")
       }
+      if (checks.enforcement_level !== "everyone" && checks.enforcement_level !== "non_admins" && checks.enforcement_level !== "off") {
+        throw invalid("Classic protection response has an unsupported enforcement level.")
+      }
       // `contexts` repeats the check names without their App binding. forges falls back to it when `checks` is empty or absent.
       const bound = Array.isArray(checks.checks) ? checks.checks : []
       if (checks.enforcement_level === "off" && (checks.contexts.length > 0 || bound.length > 0)) {

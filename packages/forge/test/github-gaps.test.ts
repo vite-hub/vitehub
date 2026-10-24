@@ -64,6 +64,8 @@ describe("githubBranchRuleDetails()", () => {
       [unprotected, [{ parameters: {} }]],
       [{ name: "main", protected: true }, []],
       [protectedBranch(null), []],
+      [protectedBranch({ contexts: ["CI"], checks: [] }), []],
+      [protectedBranch({ enforcement_level: "unknown", contexts: ["CI"], checks: [] }), []],
       [protectedBranch({ enforcement_level: "off", contexts: ["CI"], checks: [] }), []],
     ]
     for (const [branch, rules] of cases) {

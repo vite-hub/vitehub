@@ -97,6 +97,7 @@ export function createGitHubRequiredCheckPolicyReader(
 
 function requiredCheck(check: RequiredCheck): GitHubRequiredCheck {
   // GitHub reports app ID -1 for a classic check that any app may report.
+  if (check.appId !== undefined && (typeof check.appId !== "string" || !/^-?\d+$/.test(check.appId))) throw new Error("Invalid required-check app ID");
   const appId = check.appId === undefined || check.appId === "-1" ? null : Number(check.appId);
   if (appId !== null && (!Number.isSafeInteger(appId) || appId < 0)) throw new Error("Invalid required-check app ID");
   return { context: check.name, appId };

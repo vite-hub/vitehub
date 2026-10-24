@@ -63,6 +63,8 @@ describe("required check policy", () => {
       .toMatchObject({ status: "unknown", required: [] });
     expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [{ name: "CI", appId: "-3" }] }))).read("acme/app", "main"))
       .toMatchObject({ status: "unknown", required: [] });
+    expect(await createGitHubRequiredCheckPolicyReader(reader(rules({ requiredChecks: [{ name: "CI", appId: "" }] }))).read("acme/app", "main"))
+      .toMatchObject({ status: "unknown", required: [] });
     expect(await createGitHubRequiredCheckPolicyReader(reader(rules())).read("acme/app", "main")).toMatchObject({ classicSource: "protection-endpoint" });
     const failing = reader();
     failing.mockRejectedValue(new Error("Active branch rules unavailable (HTTP 403)."));
