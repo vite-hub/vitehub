@@ -35,6 +35,8 @@ interface D1HttpErrorSource {
   errors?: D1HttpErrorInfo[]
 }
 
+const d1HttpRequestTimeoutMs = 30_000
+
 function getD1HttpErrorDetail(...sources: Array<D1HttpErrorSource | undefined>) {
   const messages = sources.flatMap(source => [
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- D1 JSON error fields are untrusted; only strings can enter diagnostics.
@@ -114,6 +116,7 @@ function createCloudflareD1HttpDb<TSchema extends Record<string, unknown>>(
         "Content-Type": "application/json",
       },
       method: "POST",
+      signal: AbortSignal.timeout(d1HttpRequestTimeoutMs),
     }))
 
     let value: unknown
