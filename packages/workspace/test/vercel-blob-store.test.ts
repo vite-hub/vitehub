@@ -173,6 +173,64 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.stat(file.path)).resolves.toMatchObject({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" })
   })
 
+  it.each(["current", "legacy"])("keeps %s bytes paired with attributes from the same root", async (root) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const selectedRoot = root === "current" ? "_vitehub/workspaces/docs" : ".vitehub/workspaces/docs"
+    const otherRoot = root === "current" ? ".vitehub/workspaces/docs" : "_vitehub/workspaces/docs"
+    await blobMock.put(`${selectedRoot}/files/readme.md`, root)
+    await blobMock.put(`${otherRoot}/.vitehub/file-attributes/readme.md.json`, JSON.stringify({ mediaType: "text/stale", metadata: { stale: true } }))
+
+    await expect(store.readFile("readme.md")).resolves.toEqual({ path: "readme.md", content: new TextEncoder().encode(root) })
+    expect(await store.stat("readme.md")).not.toHaveProperty("metadata")
+    expect(await store.stat("readme.md")).not.toHaveProperty("mediaType")
+    expect((await store.list())[0]).not.toHaveProperty("metadata")
+
+    const attributes = { mediaType: "text/markdown", metadata: { root } }
+    await blobMock.put(`${selectedRoot}/.vitehub/file-attributes/readme.md.json`, JSON.stringify(attributes))
+    await expect(store.readFile("readme.md")).resolves.toMatchObject(attributes)
+    await expect(store.stat("readme.md")).resolves.toMatchObject(attributes)
+    await expect(store.list()).resolves.toEqual([expect.objectContaining(attributes)])
+  })
+
+  it("downloads listing attributes concurrently with a bounded limit and current-root precedence", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    for (let index = 0; index < 20; index++) {
+      await blobMock.put(`.vitehub/workspaces/docs/files/${index}.md`, "legacy")
+      await blobMock.put(`.vitehub/workspaces/docs/.vitehub/file-attributes/${index}.md.json`, JSON.stringify({ metadata: { root: "legacy" } }))
+      await store.writeFile(`${index}.md`, { path: `${index}.md`, content: "current", metadata: { index } })
+    }
+    const get = blobMock.get.getMockImplementation()!
+    let active = 0
+    let maximum = 0
+    blobMock.get.mockImplementation(async (...args) => {
+      active++
+      maximum = Math.max(maximum, active)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        return await get(...args)
+      }
+      finally {
+        active--
+      }
+    })
+    try {
+      const entries = await store.list()
+      expect(entries).toHaveLength(20)
+      for (let index = 0; index < 20; index++) {
+        expect(entries).toContainEqual(expect.objectContaining({ path: `${index}.md`, size: 7, metadata: { index } }))
+      }
+      expect(maximum).toBeGreaterThan(1)
+      expect(maximum).toBeLessThanOrEqual(8)
+    }
+    finally {
+      blobMock.get.mockImplementation(get)
+    }
+  })
+
   it("requests uncached reads for public blobs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")

@@ -230,20 +230,21 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
   async readFile(path: string): Promise<WorkspaceFile | undefined> {
     const normalized = normalizeSafeWorkspacePath(path)
     const pathname = this.#fileKey(normalized)
+    let attributesPath = this.#fileAttributesKey(normalized)
     let file = await (await this.#client()).download(pathname).catch((error: unknown) => {
       if (isNotFoundError(error)) return undefined
       throw error
     })
-    if (!file && this.#legacyRoot !== this.#root) file = await (await this.#client()).download(this.#legacyFileKey(normalized)).catch((error: unknown) => {
-      if (isNotFoundError(error)) return undefined
-      throw error
-    })
+    if (!file && this.#legacyRoot !== this.#root) {
+      attributesPath = this.#legacyFileAttributesKey(normalized)
+      file = await (await this.#client()).download(this.#legacyFileKey(normalized)).catch((error: unknown) => {
+        if (isNotFoundError(error)) return undefined
+        throw error
+      })
+    }
     if (!file) return undefined
     const bytes = await file.arrayBuffer()
-    const attributes = await this.#readJson(
-      this.#fileAttributesKey(normalized),
-      this.#legacyRoot !== this.#root ? this.#legacyFileAttributesKey(normalized) : undefined,
-    ) as { mediaType?: unknown, metadata?: unknown } | undefined
+    const attributes = await this.#readJson(attributesPath) as { mediaType?: unknown, metadata?: unknown } | undefined
     return {
       content: new Uint8Array(bytes),
       ...(typeof attributes?.mediaType === "string" ? { mediaType: attributes.mediaType } : {}),
@@ -287,6 +288,7 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       }
     }
     const entries = new Map<string, WorkspaceEntry>()
+    const entryAttributes = new Map<string, string>()
 
     // Process legacy entries first so entries under the current root always win
     // when both roots contain the same workspace path during migration.
@@ -307,13 +309,9 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
       }
 
       const attributesPath = base === currentBase ? this.#fileAttributesKey(path) : this.#legacyFileAttributesKey(path)
-      const attributes = attributeKeys.has(attributesPath)
-        ? await this.#readJson(attributesPath) as { mediaType?: unknown, metadata?: unknown } | undefined
-        : undefined
+      entryAttributes.set(path, attributesPath)
       entries.set(path, {
         mtime: blob.lastModified,
-        ...(typeof attributes?.mediaType === "string" ? { mediaType: attributes.mediaType } : {}),
-        ...(attributes?.metadata && typeof attributes.metadata === "object" && !Array.isArray(attributes.metadata) ? { metadata: attributes.metadata as Record<string, unknown> } : {}),
         path,
         size: blob.size,
         type: "file",
@@ -327,6 +325,19 @@ class VercelBlobWorkspaceStore implements WorkspaceStore {
           entries.set(dir, { path: dir, type: "directory" })
         }
       }
+    }
+
+    // Hydrate only winning file entries, in bounded batches of downloads.
+    const pendingAttributes = [...entryAttributes].filter(([path, key]) => entries.get(path)?.type === "file" && attributeKeys.has(key))
+    for (let index = 0; index < pendingAttributes.length; index += 8) {
+      await Promise.all(pendingAttributes.slice(index, index + 8).map(async ([path, key]) => {
+        const attributes = await this.#readJson(key) as { mediaType?: unknown, metadata?: unknown } | undefined
+        const entry = entries.get(path)!
+        if (typeof attributes?.mediaType === "string") entry.mediaType = attributes.mediaType
+        if (attributes?.metadata && typeof attributes.metadata === "object" && !Array.isArray(attributes.metadata)) {
+          entry.metadata = attributes.metadata as Record<string, unknown>
+        }
+      }))
     }
 
     return [...entries.values()].sort((a, b) => a.path.localeCompare(b.path))
