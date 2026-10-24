@@ -110,7 +110,10 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
   let total = 0
   let ended = false
   let failure: unknown
-  let waiting: ((result: { done?: boolean, value?: unknown }) => void) | undefined
+  let waiting: {
+    resolve: (result: { done?: boolean, value?: unknown }) => void
+    reject: (error: unknown) => void
+  } | undefined
   const produce = async () => {
     try {
       for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
@@ -121,7 +124,7 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
         collected.push(bytes)
         total += bytes.byteLength
         if (waiting) {
-          waiting({ value: bytes })
+          waiting.resolve({ value: bytes })
           waiting = undefined
         }
         else {
@@ -129,13 +132,13 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
         }
       }
       ended = true
-      waiting?.({ done: true })
+      waiting?.resolve({ done: true })
       waiting = undefined
     }
     catch (error) {
       failure = error
       ended = true
-      waiting?.({ done: true })
+      waiting?.reject(error)
       waiting = undefined
       throw error
     }
@@ -150,10 +153,14 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
   event._requestBody = { then: (resolve: (value: Uint8Array) => unknown, reject: (reason: unknown) => unknown) => start().then(resolve, reject) }
   return async () => {
     start()
+    // The cached H3 body promise may not be consumed when only Standard Context
+    // reads the request. Keep its rejection from becoming an unhandled rejection;
+    // the pending reader still receives the original failure below.
+    body?.catch(() => {})
     if (failure) throw failure
     if (chunks.length) return { value: chunks.shift() }
     if (ended) return { done: true }
-    return new Promise(resolve => { waiting = resolve })
+    return new Promise((resolve, reject) => { waiting = { resolve, reject } })
   }
 }
 
