@@ -165,6 +165,19 @@ describe("shared Console navigation layout", () => {
     expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
   })
 
+  it("loads file and diff renderers only when their views open", () => {
+    const inspector = component("console-session-inspector")
+    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/file-tree")')
+    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
+    expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
+    const invocation = readFileSync(new URL("../src/console/runtime/components/invocation/agent-invocation.ts", import.meta.url), "utf8")
+    expect(invocation).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
+    expect(invocation).not.toContain("import { Markdown, PatchDiff } from \"@vite-hub/ui\"")
+    const capabilityInspector = readFileSync(new URL("../src/console/runtime/components/invocation/agent-capability-inspector.ts", import.meta.url), "utf8")
+    expect(capabilityInspector).toContain('import { ToolList } from "@vite-hub/ui/tool-list"')
+    expect(capabilityInspector).not.toContain('import { ToolList } from "@vite-hub/ui"')
+  })
+
   it("loads only the requested syntax grammar for workspace previews", () => {
     const preview = component("console-session-code-preview")
     expect(preview).toContain('import("shiki/core")')
