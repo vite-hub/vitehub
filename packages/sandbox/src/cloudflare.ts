@@ -233,7 +233,11 @@ function createCloudflareSession(
       : undefined),
     async readBinaryFile({ abortSignal, path }) {
       abortSignal?.throwIfAborted();
-      const result = await request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout);
+      const result = await abortable(
+        request("readFile", async () => await stub.readFile(path, { encoding: "base64" }), cloudflareReadTimeout),
+        abortSignal,
+        destroy,
+      );
       if (result.success === false) {
         const exists = stub.exists ? (await request("exists", async () => await stub.exists!(path))).exists : false;
         if (!exists) return null;

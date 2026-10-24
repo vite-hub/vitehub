@@ -218,6 +218,21 @@ describe("remote Sandbox providers", () => {
     expect(closed).toHaveBeenCalledOnce();
   });
 
+  it("rejects Cloudflare file reads when cancellation aborts an in-flight request", async () => {
+    const stub = cloudflareStub(async () => ({ exitCode: 0, stderr: "", stdout: "", success: true }));
+    stub.readFile = async () => await new Promise<never>(() => {});
+    const sandbox = await resolveSandbox({ runtime: createCloudflareRuntime({ getSandbox: () => stub, namespace: namespace(stub) }) }, {});
+    const session = await sandbox.open();
+    const controller = new AbortController();
+    const reason = new Error("cancel read");
+
+    const result = session.files.read("/workspace/output", { signal: controller.signal });
+    controller.abort(reason);
+
+    await expect(result).rejects.toBe(reason);
+    await session.close();
+  });
+
   it("passes cancellation through Vercel provisioning", async () => {
     const controller = new AbortController();
     let received: AbortSignal | undefined;
