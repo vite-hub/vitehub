@@ -15,12 +15,20 @@ interface VercelMultipartState {
 }
 
 function encodeMultipartState(state: VercelMultipartState): string {
-  return btoa(JSON.stringify(state)).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
+  const bytes = new TextEncoder().encode(JSON.stringify(state))
+  let binary = ""
+  for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+    binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
+  }
+  return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "")
 }
 
 function decodeMultipartState(uploadId: string): VercelMultipartState {
   try {
-    const value: unknown = JSON.parse(atob(uploadId.replaceAll("-", "+").replaceAll("_", "/")))
+    const encoded = uploadId.replaceAll("-", "+").replaceAll("_", "/")
+    const binary = atob(encoded + "=".repeat((4 - encoded.length % 4) % 4))
+    const bytes = Uint8Array.from(binary, character => character.charCodeAt(0))
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes))
     if (isPlainObject(value)) {
       const { contentType, key, uploadId: id } = value
       if (typeof key === "string" && typeof id === "string" && (contentType === undefined || typeof contentType === "string")) {

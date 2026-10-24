@@ -104,6 +104,17 @@ describe("Vercel Blob multipart uploads", () => {
     expect(vercel.completeMultipartUpload).toHaveBeenCalledWith("media/clip.mp4", [part], expect.objectContaining({ key: "object-key", uploadId: "vercel-upload" }))
   })
 
+  it("round-trips Unicode pathnames through the upload ID", async () => {
+    const storage = createBlobStorage(createVercelDriver(options), "default")
+
+    const created = ok(await storage.createMultipartUpload("文件/é.txt"))
+    const resumed = ok(await storage.resumeMultipartUpload("文件/é.txt", created.uploadId))
+    const part = ok(await resumed.uploadPart(1, "chunk"))
+
+    expect(part).toEqual({ etag: '"part-1"', partNumber: 1 })
+    expect(vercel.uploadPart).toHaveBeenCalledWith("文件/é.txt", "chunk", expect.objectContaining({ key: "object-key", uploadId: "vercel-upload", partNumber: 1 }))
+  })
+
   it("takes access from the store config, not from the upload ID", async () => {
     const storage = createBlobStorage(createVercelDriver({ ...options, access: "private" }), "default")
     const forged = btoa(JSON.stringify({ access: "public", key: "object-key", uploadId: "vercel-upload" }))
