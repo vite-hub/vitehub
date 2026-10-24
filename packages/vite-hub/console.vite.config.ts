@@ -7,6 +7,7 @@ import { consoleAppConfig } from "./src/console/app.config";
 import { consoleContributedSectionIcons } from "./src/console/contributions";
 
 const clientRoot = resolve(import.meta.dirname, "src/console/runtime/client");
+const katexStyleImport = /^@import\s+["']katex\/dist\/katex\.min\.css["'];?\s*$/m;
 
 export default defineConfig({
   // Resolve lazy chunks from the served bundle URL, including application mounts.
@@ -20,6 +21,18 @@ export default defineConfig({
     dedupe: ["vue", "vue-router"],
   },
   plugins: [
+    {
+      // KaTeX is loaded after the first render. Keep its embedded fonts out of the blocking stylesheet.
+      name: "vitehub-console-deferred-katex-styles",
+      enforce: "pre",
+      transform(code, id) {
+        if (/[\\/]ui[\\/]dist[\\/]styles\.css$/.test(id)) return code.replace(katexStyleImport, "");
+        // Browsers that run the Console support WOFF2, so omit the larger WOFF and TrueType copies.
+        if (/[\\/]katex[\\/]dist[\\/]katex\.min\.css$/.test(id)) {
+          return code.replace(/,url\(fonts\/[\w-]+\.(?:woff|ttf)\) format\("(?:woff|truetype)"\)/g, "");
+        }
+      },
+    },
     vue(),
     ...ui({
       comark: false,
@@ -44,13 +57,13 @@ export default defineConfig({
   build: {
     // Keep font assets portable in pnpm patches and self-contained Console bundles.
     assetsInlineLimit: filePath => /\.(?:woff2?|ttf|otf)$/.test(filePath) ? true : undefined,
-    cssCodeSplit: false,
     emptyOutDir: true,
     outDir: resolve(import.meta.dirname, ".vitehub/console"),
     rolldownOptions: {
       input: resolve(clientRoot, "main.js"),
       output: {
-        assetFileNames: asset => asset.names.some(name => name.endsWith(".css"))
+        // The Console page links only the entry stylesheet. Deferred chunks load their own styles.
+        assetFileNames: asset => asset.names.includes("main.css")
           ? "console-[hash][extname]"
           : "assets/[name]-[hash][extname]",
         chunkFileNames: "chunks/[name]-[hash].js",
