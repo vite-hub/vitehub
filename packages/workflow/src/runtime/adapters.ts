@@ -239,6 +239,15 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
       }
     },
     async run({ definition, event, id, name, payload }) {
+      const existing = getWorkflowRunState(name, id)
+      if (existing) {
+        return {
+          id,
+          provider: config.provider,
+          result: existing.result as TResult | undefined,
+          status: existing.status === "running" ? "queued" : existing.status,
+        }
+      }
       resolveDispatchObserver(event)?.()
       const run = Promise.resolve()
         .then(() => runWorkflowHandler({

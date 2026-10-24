@@ -283,6 +283,35 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("deduplicates inline runs with the same explicit id", async () => {
+    setWorkflowRuntimeConfig({ provider: "vercel" })
+    let calls = 0
+    let release!: () => void
+    const pending = new Promise<void>(resolve => {
+      release = resolve
+    })
+    const workflow = createWorkflow("inline-idempotent", async () => {
+      calls++
+      await pending
+      return { calls }
+    })
+
+    const [first, second] = await Promise.all([
+      workflow.run({}, { id: "fixed-id" }),
+      workflow.run({}, { id: "fixed-id" }),
+    ])
+
+    expect(first).toMatchObject({ id: "fixed-id", provider: "vercel", status: "queued" })
+    expect(second).toMatchObject({ id: "fixed-id", provider: "vercel", status: "queued" })
+    release()
+    await vi.waitFor(() => expect(calls).toBe(1))
+    await vi.waitFor(async () => expect(await workflow.getRun("fixed-id")).toMatchObject({ status: "completed" }))
+
+    const third = await workflow.run({}, { id: "fixed-id" })
+    expect(third).toMatchObject({ id: "fixed-id", provider: "vercel", status: "completed" })
+    expect(calls).toBe(1)
+  })
+
   it("registers object-form handlers for named workflows", async () => {
     setWorkflowRuntimeConfig({ provider: "vercel" })
 
