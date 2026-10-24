@@ -1,7 +1,7 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { computed, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
+import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,
@@ -27,8 +27,10 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
-import { Markdown, PatchDiff } from "@vite-hub/ui";
-import { ToolList } from "@vite-hub/ui";
+import { Markdown } from "@vite-hub/ui/markdown";
+import { ToolList } from "@vite-hub/ui/tool-list";
+
+const InvocationPatchDiff = defineAsyncComponent(() => import("@vite-hub/ui/patch-diff").then(module => ({ default: module.PatchDiff })));
 
 function statusLabel(status: AgentInvocationView["status"]): string {
   const labels = {
@@ -702,7 +704,7 @@ function renderEvent(activity: InvocationActivity, inspect: InspectHandler) {
           ? h("p", { class: "vh-invocation-event__notice" }, "Some activity details were omitted.")
           : null,
         activity.patches.length
-          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(PatchDiff, { key: index, patch })))
+          ? h("div", { class: "vh-invocation-event__diffs" }, activity.patches.map((patch, index) => h(InvocationPatchDiff, { key: index, patch })))
           : command
           ? h("div", { class: "vh-invocation-command" }, [
               h("div", { class: "vh-invocation-command__bar" }, [

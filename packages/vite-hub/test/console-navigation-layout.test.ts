@@ -170,6 +170,9 @@ describe("shared Console navigation layout", () => {
     expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/file-tree")')
     expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
     expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
+    const invocation = readFileSync(new URL("../src/console/runtime/components/invocation/agent-invocation.ts", import.meta.url), "utf8")
+    expect(invocation).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
+    expect(invocation).not.toContain("import { Markdown, PatchDiff } from \"@vite-hub/ui\"")
   })
 
   it("loads only the requested syntax grammar for workspace previews", () => {
