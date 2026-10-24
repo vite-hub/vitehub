@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
-import { vitehub } from "vite-hub"
+import { hubAgent } from "vite-hub/agent/vite"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -14,11 +14,7 @@ export default defineConfig({
     },
     ssr: true,
   },
-  plugins: [vitehub({
-    preset: "node",
-    agent: true,
-    env: false,
-  })],
+  plugins: [hubAgent()],
   ssr: {
     external: ["vite-hub/agent"],
   },
