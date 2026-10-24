@@ -64,7 +64,7 @@ describe("githubBranchRuleDetails()", () => {
       [unprotected, [{ parameters: {} }]],
       [{ name: "main", protected: true }, []],
       [protectedBranch(null), []],
-      [protectedBranch({ enforcement_level: "everyone", contexts: ["CI"], checks: [] }), []],
+      [protectedBranch({ enforcement_level: "off", contexts: ["CI"], checks: [] }), []],
     ]
     for (const [branch, rules] of cases) {
       const { provider, repo } = await github([get(branchPath, 200, branch), get(rulesPath, 200, rules), get(`${branchPath}/protection`, 200, {})])
@@ -72,6 +72,15 @@ describe("githubBranchRuleDetails()", () => {
       expect(() => githubBranchRuleDetails(result)).toThrow(expect.objectContaining({ code: "FORGE_R0007" }))
     }
     expect(() => githubBranchRuleDetails({ branch: "main", requiredChecks: [], raw: {} })).toThrow(expect.objectContaining({ code: "FORGE_R0007" }))
+  })
+
+  it("accepts classic contexts when App bindings are absent or empty", async () => {
+    for (const checks of [{ enforcement_level: "everyone", contexts: ["CI"] }, { enforcement_level: "everyone", contexts: ["CI"], checks: [] }]) {
+      const { provider, repo } = await github([get(branchPath, 200, protectedBranch(checks)), get(rulesPath, 200, []), get(`${branchPath}/protection`, 200, {})])
+      const result = await provider.repos.branchRules(repo, "main")
+      expect(result.requiredChecks).toEqual([{ name: "CI" }])
+      expect(githubBranchRuleDetails(result).classicSource).toBe("protection-endpoint")
+    }
   })
 })
 

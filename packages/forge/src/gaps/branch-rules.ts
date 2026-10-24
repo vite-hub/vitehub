@@ -50,17 +50,23 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
       allowed = allowed ? new Set([...allowed].filter(method => rule.has(method))) : rule
     }
   }
+  if (typeof raw.branch.protected !== "boolean") throw invalid("Branch protection summary is incomplete.")
   const protection = isRecord(raw.branch.protection) ? raw.branch.protection : undefined
   let classicSource: GitHubBranchRuleDetails["classicSource"] = "unprotected-branch"
-  if (protection?.enabled === true) {
+  if (raw.branch.protected === true) {
+    if (!protection || typeof protection.enabled !== "boolean") throw invalid("Branch protection summary is incomplete.")
+    if (protection.enabled !== true) throw invalid("Branch protection summary is incomplete.")
     const checks = protection.required_status_checks
     if (checks !== undefined) {
-      if (!isRecord(checks) || !Array.isArray(checks.contexts) || !Array.isArray(checks.checks)) {
+      if (!isRecord(checks) || !Array.isArray(checks.contexts) || !checks.contexts.every(context => typeof context === "string") || (checks.checks !== undefined && !Array.isArray(checks.checks))) {
         throw invalid("Classic protection response is ambiguous; branch summary is incomplete.")
       }
-      // `contexts` repeats the check names without their App binding. forges falls back to it when `checks` is empty.
-      const bound = checks.checks
-      if (checks.enforcement_level !== "off" && checks.contexts.some(context => !bound.some(item => isRecord(item) && item.context === context))) {
+      // `contexts` repeats the check names without their App binding. forges falls back to it when `checks` is empty or absent.
+      const bound = Array.isArray(checks.checks) ? checks.checks : []
+      if (checks.enforcement_level === "off" && (checks.contexts.length > 0 || bound.length > 0)) {
+        throw invalid("Disabled classic checks contain required-check data.")
+      }
+      if (bound.length > 0 && (bound.some(item => !isRecord(item) || typeof item.context !== "string") || checks.contexts.some(context => !bound.some(item => isRecord(item) && item.context === context)))) {
         throw invalid("Branch summary omits required-check integration bindings.")
       }
     }
@@ -68,6 +74,6 @@ export function githubBranchRuleDetails(rules: BranchRules): GitHubBranchRuleDet
     // The protection endpoint needs admin access; without it, forges warns with `insufficient_scope`.
     classicSource = rules.warnings?.some(warning => warning.code === "insufficient_scope") ? "branch-summary" : "protection-endpoint"
   }
-  else if (raw.branch.protected === true) throw invalid("Branch protection summary is incomplete.")
+  else if (protection !== undefined && protection.enabled !== false) throw invalid("Branch protection summary is incomplete.")
   return { requiredWorkflows, ...(allowed ? { mergeMethods: [...allowed] } : {}), classicSource }
 }
