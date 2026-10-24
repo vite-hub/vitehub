@@ -14,7 +14,7 @@ async function createTempProject(): Promise<string> {
   return root
 }
 
-async function touch(root: string, path: string, source = "export default {}\n"): Promise<void> {
+async function touch(root: string, path: string, source = "export default { connectors: { log: { send() {} } } }\n"): Promise<void> {
   const file = join(root, path)
   await mkdir(dirname(file), { recursive: true })
   await writeFile(file, source)
@@ -141,6 +141,16 @@ describe("discoverChannelDefinitions", () => {
     await touch(root, "server/channels/negative.ts", "export default -1\n")
 
     expect(discoverChannelDefinitions({ rootDir: root })).toEqual([])
+  })
+
+  it("skips helper object modules in a mixed flat channel directory", async () => {
+    const root = await createTempProject()
+    await touch(root, "server/channels/alerts.ts", "export default { connectors: { log: { send() {} } } }\n")
+    await touch(root, "server/channels/shared.ts", "export default { format(text: string) { return text.trim() } }\n")
+
+    expect(discoverChannelDefinitions({ rootDir: root })).toEqual([
+      { handler: join(root, "server/channels/alerts.ts"), name: "alerts", source: "server-channels" },
+    ])
   })
 
   it("keeps modules that export connectors or that it cannot read statically", async () => {
