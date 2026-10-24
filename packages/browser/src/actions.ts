@@ -154,7 +154,10 @@ export async function runBrowserContent(
   input: BrowserActionInput,
 ): Promise<string> {
   const response = await runBrowserAction("content", input)
-  if (!response.ok) throw new Error(`Browser content request failed with status ${response.status}`)
+  if (!response.ok) {
+    void response.body?.cancel().catch(() => {})
+    throw new Error(`Browser content request failed with status ${response.status}`)
+  }
   try {
     return await readQuickActionText(response, "content", normalizeInput(input))
   }
