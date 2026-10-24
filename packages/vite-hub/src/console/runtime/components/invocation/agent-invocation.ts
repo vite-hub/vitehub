@@ -891,7 +891,12 @@ function activityGroup(activity: InvocationActivity | undefined): string | undef
   return stringAttribute(activity.attributes, "vitehub.activity.group");
 }
 
-function renderCapabilityGroup(activities: readonly InvocationActivity[], inspect: InspectHandler) {
+function renderCapabilityGroup(
+  activities: readonly InvocationActivity[],
+  inspect: InspectHandler,
+  openActivities: ReadonlySet<string>,
+  setActivityOpen: (id: string, open: boolean) => void,
+) {
   const capabilities = [...new Set(activities.flatMap(activity => {
     const id = stringAttribute(activity.attributes, "agent.capability.id");
     return id ? [id] : [];
@@ -916,7 +921,7 @@ function renderCapabilityGroup(activities: readonly InvocationActivity[], inspec
                 : `Prepared ${summary}`),
         renderDisclosureChevron("vh-invocation-capabilities__disclosure"),
       ]),
-      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(activity => renderEvent(activity, inspect))),
+      h("ol", { class: "vh-invocation-capabilities__rows" }, activities.map(activity => renderEvent(activity, inspect, openActivities, setActivityOpen))),
     ]),
   ]);
 }
@@ -1337,7 +1342,7 @@ function renderActivitySequence(
       let end = index + 1;
       while (activityGroup(activities[end]) === group) end += 1;
       rendered.push(group === "agent-capability-lifecycle"
-        ? renderCapabilityGroup(activities.slice(index, end), inspect)
+        ? renderCapabilityGroup(activities.slice(index, end), inspect, openActivities, setActivityOpen)
         : group === "agent-configuration-lifecycle"
           ? renderAgentConfigurationGroup(activities.slice(index, end), inspect)
         : renderActivityGroup(group, activities.slice(index, end), inspect));
