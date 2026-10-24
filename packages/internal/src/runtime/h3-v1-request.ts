@@ -40,7 +40,11 @@ const nodeEventRequests = new WeakMap<object, Request>()
 export function isH3V1Event(input: object): input is H3V1Event {
   if (!Object.hasOwn(input, "node")) return false
   const node: unknown = Reflect.get(input, "node")
-  return node instanceof Object && Reflect.get(node, "req") instanceof Object
+  return isObjectLike(node) && isObjectLike(Reflect.get(node, "req"))
+}
+
+function isObjectLike(value: unknown): value is object {
+  return value !== null && (typeof value === "object" || typeof value === "function")
 }
 
 function firstHeader(value: string | string[] | undefined): string | undefined {

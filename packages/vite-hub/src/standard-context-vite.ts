@@ -15,9 +15,9 @@ export function renderStandardContextNitroPlugin(): string {
     `    nitroApp.hooks.beforeEach(({ name, args }) => {`,
     `      if (name === "request") installStandardContext(args[0])`,
     `    })`,
-    `  } else {`,
-    `    nitroApp.hooks.hook("request", installStandardContext)`,
     `  }`,
+    `  // Nitro 3 has no beforeEach seam; retain a request hook as its fallback.`,
+    `  nitroApp.hooks.hook("request", installStandardContext)`,
     "}",
     "",
   ].join("\n")
