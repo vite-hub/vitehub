@@ -16,7 +16,7 @@ export function renderErrorLogNitroPlugin(): string {
     "    const status = Number(error?.status ?? error?.statusCode ?? 500)",
     "    if (error?.unhandled !== true && status < 500) return",
     "    const request = context?.event?.req",
-    "    const url = request?.url ? new URL(request.url) : undefined",
+    "    const url = request?.url ? new URL(request.url, \"http://localhost\") : undefined",
     "    const route = request ? `${request.method} ${url?.pathname ?? \"\"}` : (context?.tags ?? []).join(\",\") || \"server\"",
     // The unhandled HTTPError wraps the thrown error. Log the thrown error so its own message and cause stay first.
     "    const thrown = error?.unhandled === true && error.cause !== undefined ? error.cause : error",

@@ -1,3 +1,5 @@
+import { createRequire } from "node:module"
+
 import { H3Event } from "h3"
 import { describe, expect, it } from "vitest"
 
@@ -26,7 +28,7 @@ function requestHook(withBeforeEach = true): RequestHook {
     },
   } })
   hook = (event) => {
-    beforeEach?.({ name: "request", args: [event] })
+    beforeEach?.({ name: "request", args: ["request", event] })
     for (const handler of requestHooks) handler(event)
   }
   return hook
@@ -39,6 +41,26 @@ describe("generated Standard Context Nitro plugin", () => {
     requestHook()(event)
     expect(event["~standard"].req).toBe(request)
     expect(event["~standard"].vendor).toBe("h3")
+  })
+
+  it("installs before existing consumers with Nitro 2's real Hookable", async () => {
+    const require = createRequire(import.meta.url)
+    const { createHooks } = createRequire(require.resolve("nitropack/package.json"))("hookable") as {
+      createHooks: () => {
+        hook: (name: string, callback: RequestHook) => void
+        callHook: (name: string, event: H3Event) => Promise<void>
+      }
+    }
+    const hooks = createHooks()
+    const event = new H3Event(new Request("https://app.test/api"))
+    hooks.hook("request", request => expect(request["~standard"].req).toBe(request.req))
+    const source = renderStandardContextNitroPlugin()
+      .replace(`import { installStandardContext } from "vite-hub/runtime/h3"`, "")
+      .replace("export default function", "return function")
+    // eslint-disable-next-line no-new-func -- evaluates the generated module body without a loader.
+    const plugin = new Function("installStandardContext", source)(installStandardContext) as (app: unknown) => void
+    plugin({ hooks })
+    await hooks.callHook("request", event)
   })
 
   it("falls back to the request hook on Nitro 3", () => {
