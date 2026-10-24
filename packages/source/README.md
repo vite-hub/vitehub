@@ -149,6 +149,28 @@ registry. Import the registration module before lookup. The Vite integration
 for Collections and Content does not generate `ViteHubSourceMap`.
 `RegisteredSource<"docs">` resolves a registered name to its definition type.
 
+## Split items into parts
+
+`splitSource()` turns each item of a Source into several items, such as the
+sections of a Markdown file. Each part key is `<parent key>#<part key>`:
+
+```ts
+import { createSource, splitSource } from "@vite-hub/source"
+import { glob } from "@vite-hub/source/glob"
+
+const sections = splitSource({
+  source: glob({ cwd: "docs", include: "**/*.md" }),
+  split: file => String(file.content).split(/^## /m).slice(1)
+    .map(section => ({ key: section.slice(0, section.indexOf("\n")), content: section })),
+})
+
+await createSource(sections).read("guide.md#Usage")
+```
+
+The result is a Source definition. `get()` reads only the parent item of the
+part, and a part without a `path` keeps the parent's path. Part keys must be
+unique in their parent item and must not contain `#`.
+
 ## Combine keyed readers
 
 Use ordinary objects or functions for readers that do not need a loader

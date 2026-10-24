@@ -58,6 +58,7 @@ const packageJson = parsePackageManifest(
   readFileSync(new URL("../package.json", import.meta.url), "utf8"),
 );
 const stylesheet = readFileSync(new URL("../dist/styles.css", import.meta.url), "utf8");
+const sourceStylesheet = readFileSync(new URL("../styles.css", import.meta.url), "utf8");
 
 const componentEntries = [...new Set(componentNames.map((name) => `./${componentEntryName(name)}`))];
 
@@ -124,6 +125,11 @@ describe("@vite-hub/ui package contract", () => {
     }
     expect(stylesheet).not.toMatch(/backdrop-filter|mask-image|linear-gradient/);
     expect(stylesheet).not.toContain("--vh-ui-text-muted");
+  });
+
+  it("keeps KaTeX out of the global stylesheet", () => {
+    expect(sourceStylesheet).not.toContain("katex");
+    expect(stylesheet).not.toContain("KaTeX_Main");
   });
 
   it("keeps the Pierre renderer behind an on-demand chunk", () => {

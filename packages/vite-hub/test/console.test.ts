@@ -1939,6 +1939,29 @@ describe("Agent invocation console", () => {
     expect(store.list).not.toHaveBeenCalled()
   })
 
+  it("keeps persisted names in invocation history when they match a registered Agent", async () => {
+    const store = createMemoryAgentInvocationStore()
+    for (const agentName of ["archived", "current"]) {
+      await store.create({
+        agentName,
+        createdAt: "2026-08-31T00:00:00.000Z",
+        id: agentName,
+        observations: [],
+        status: "completed",
+        traceId: `${agentName}-trace`,
+        updatedAt: "2026-08-31T00:00:00.000Z",
+      })
+    }
+    const invocations = defineAgentInvocations({ store })
+    installConsoleInvocationFallback(invocations, process.cwd())
+    installConsoleAgents(["current"], invocations)
+
+    await expect(agentsHandler(event("127.0.0.1"))).resolves.toEqual({
+      agents: ["current"],
+      invocationAgents: ["archived", "current"],
+    })
+  })
+
   it("serves enabled Console sections in stable order for the active project", async () => {
     installConsoleSections("/first", ["agents"])
     installConsoleProjectName("/first", "first-app")
@@ -4620,12 +4643,20 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it("keeps the default journal in memory on Workers", async () => {
+  it("keeps the default journal in memory on Workers without Node globals", async () => {
     const projectRoot = await mkdtemp(join(tmpdir(), "vitehub-console-workers-project-"))
     vi.stubEnv("VITEHUB_CONSOLE_DATABASE_URL", "")
     vi.stubGlobal("navigator", { userAgent: "Cloudflare-Workers" })
     try {
-      const invocations = createConsoleInvocations(projectRoot)
+      const processDescriptor = Object.getOwnPropertyDescriptor(globalThis, "process")
+      Reflect.deleteProperty(globalThis, "process")
+      let invocations: AgentInvocations
+      try {
+        invocations = installConsoleInvocations(projectRoot)
+      }
+      finally {
+        if (processDescriptor) Object.defineProperty(globalThis, "process", processDescriptor)
+      }
       const agent = defineAgent({ driver: { run: () => "in memory" }, runtime: false, version: "1.0.0", invocations })
       await runAgent(agent, runtime("console-workers"), {})
 

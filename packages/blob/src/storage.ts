@@ -5,7 +5,7 @@ import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
 
 import { blobError, blobResult } from "./errors.ts"
-import { handleBlobMultipartUpload, handleBlobUpload } from "./upload.ts"
+import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
 
 // Generated provider runtime modules import the handlers from this entry.
 export { handleBlobMultipartUpload, handleBlobUpload }
@@ -28,7 +28,10 @@ export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: 
     pathname: upload.pathname,
     uploadId: upload.uploadId,
     abort: () => blobResult("multipart", store, () => upload.abort()),
-    complete: parts => blobResult("multipart", store, () => upload.complete(parts)),
+    complete: parts => {
+      validateMultipartParts(parts)
+      return blobResult("multipart", store, () => upload.complete(parts))
+    },
     uploadPart(partNumber, body) {
       if (!Number.isInteger(partNumber) || partNumber < 1 || partNumber > maxPartNumber) {
         throw blobErrorDiagnostics.BLOB_R0031({ message: `\`partNumber\` must be an integer from 1 to ${maxPartNumber}.` })

@@ -484,13 +484,10 @@ function maskInertImportText(module: ScannedModule, packageCallNames: ReadonlySe
       // read its specifier, including escaped characters.
       if (staticModuleSpecifier) return false
       // Keep the `${` and `}` delimiters and the code between them. The closing backtick reads as an operand.
-      for (const quasi of node.quasis) {
-        const textStart = quasi.start + 1
-        const textEnd = quasi.tail ? quasi.end - 1 : quasi.end - 2
-        output[quasi.start] = quasi.start === node.start ? " " : "}"
-        mask(textStart, textEnd, false)
-        if (quasi.tail) output[quasi.end - 1] = "0"
-      }
+      // Output parses as JavaScript, whose template element spans hold only the text, without the delimiters.
+      for (const quasi of node.quasis) mask(quasi.start, quasi.end, false)
+      output[node.start] = " "
+      output[node.end - 1] = "0"
       // Dynamic templates still need their expression children visited so
       // nested literals are masked too.
       return undefined
