@@ -107,11 +107,12 @@ jobs:
           head_sha="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/${release_branch}" --jq .object.sha)"
           # ci.yml reports "ci" and pkg-pr-new.yml reports "publish preview packages".
           for workflow in ci.yml pkg-pr-new.yml; do
-            runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=1" --jq .total_count)"
-            if [[ "$runs" == "0" ]]; then
+            successful_runs="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow}/runs?head_sha=${head_sha}&per_page=100" \
+              --jq '[.workflow_runs[] | select(.status == "completed" and .conclusion == "success")] | length')"
+            if [[ "$successful_runs" == "0" ]]; then
               gh workflow run "$workflow" --repo "$GITHUB_REPOSITORY" --ref "$release_branch"
             else
-              echo "$workflow already ran for $release_branch at $head_sha"
+              echo "$workflow already succeeded for $release_branch at $head_sha"
             fi
           done
 
