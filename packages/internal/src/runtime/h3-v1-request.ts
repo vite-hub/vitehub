@@ -47,6 +47,15 @@ function isObjectLike(value: unknown): value is object {
   return value !== null && (typeof value === "object" || typeof value === "function")
 }
 
+function isWebRequest(value: unknown): value is Request {
+  if (!isObjectLike(value)) return false
+  const headers = Reflect.get(value, "headers")
+  return typeof Reflect.get(value, "url") === "string"
+    && typeof Reflect.get(value, "method") === "string"
+    && isObjectLike(headers)
+    && typeof Reflect.get(headers, "get") === "function"
+}
+
 function firstHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value
 }
@@ -95,7 +104,29 @@ async function openNodeRequestBody(event: H3V1Event): Promise<ChunkReader | unde
     }
   }
   const iterator = request[Symbol.asyncIterator]?.()
-  return iterator ? () => iterator.next() : undefined
+  if (!iterator) return undefined
+  const body = (async () => {
+    const chunks: Uint8Array[] = []
+    for await (const chunk of { [Symbol.asyncIterator]: () => iterator }) {
+      if (typeof chunk === "string") chunks.push(new TextEncoder().encode(chunk))
+      else if (chunk instanceof Uint8Array) chunks.push(chunk)
+      else throw new TypeError("[vitehub] Request body chunks must be strings or bytes.")
+    }
+    const bytes = new Uint8Array(chunks.reduce((n, chunk) => n + chunk.byteLength, 0))
+    let offset = 0
+    for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.byteLength }
+    return bytes
+  })()
+  // H3's body helpers consult this cache when available, allowing both readers.
+  event._requestBody = body
+  const bytes = await body
+  if (!bytes) return undefined
+  let offset = 0
+  return async () => {
+    if (offset) return { done: true }
+    offset = bytes.byteLength
+    return { value: bytes }
+  }
 }
 
 /** Read the body lazily, from a value a host already read or from the Node request stream. */
@@ -125,7 +156,7 @@ function readNodeRequestBody(event: H3V1Event): ReadableStream<Uint8Array> {
 export function toH3V1Request(event: H3V1Event): Request {
   const cached = nodeEventRequests.get(event)
   if (cached) return cached
-  if (event.web?.request instanceof Request) return event.web.request
+  if (isWebRequest(event.web?.request)) return event.web.request
   const request = event.node.req
   const method = (request.method || "GET").toUpperCase()
   const init: RequestInitWithDuplex = { headers: readNodeRequestHeaders(request), method }
