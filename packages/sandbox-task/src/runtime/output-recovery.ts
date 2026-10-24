@@ -211,12 +211,17 @@ async function waitForExecOutput(
         return output
     }
     catch (readError) {
+      if (signal?.aborted)
+        throw signal.reason
       lastError = readError
     }
 
-    await sleep(EXEC_OUTPUT_RECOVERY_POLL_MS, signal)
+    const remaining = deadline - Date.now()
+    if (remaining > 0)
+      await sleep(Math.min(EXEC_OUTPUT_RECOVERY_POLL_MS, remaining), signal)
   }
 
+  signal?.throwIfAborted()
   throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution, {
     lastReadError: getErrorMessage(lastError),
     outputPreview: lastOutput.slice(0, EXEC_OUTPUT_PREVIEW_LENGTH) || undefined,
@@ -254,6 +259,7 @@ async function waitForCloudflareOutput(
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
+  signal?.throwIfAborted()
 
   if (sandbox.provider !== 'cloudflare')
     throw createExecOutputFailure(sandbox, outputPath, error, recoveryTimeout, execution)

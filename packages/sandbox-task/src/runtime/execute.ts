@@ -21,6 +21,8 @@ import type { TaskSandbox } from './task-sandbox'
 
 import type { SandboxTaskDefinitionOptions } from '../module-types'
 
+const SANDBOX_CLEANUP_GRACE_MS = 1_000
+
 export interface SandboxTaskDefinitionExecutionLifecycle {
   onExecution?: (execution: Promise<unknown>) => void
   onHandlerStart?: () => void
@@ -48,6 +50,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
   context?: Record<string, unknown>,
   signal?: AbortSignal,
   lifecycle?: SandboxTaskDefinitionExecutionLifecycle,
+  deadline?: number,
 ) {
   const bundle = normalizeSandboxTaskDefinitionBundle(source)
 
@@ -57,8 +60,8 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       throw signal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError')
   }
 
-  await sandbox.mkdir(files.baseDir, { recursive: true, signal })
   try {
+    await sandbox.mkdir(files.baseDir, { recursive: true, signal })
     throwIfAborted()
     let inputJson = bundle.project
       ? toJson(await encodeSandboxTaskValue(
@@ -151,8 +154,11 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
     })
   }
   finally {
-    if (sandbox.provider === 'cloudflare')
-      await sandbox.exec('rm', ['-rf', '--', files.baseDir]).catch(() => {})
+    if (sandbox.provider === 'cloudflare') {
+      const cleanupTimeout = deadline === undefined ? undefined : SANDBOX_CLEANUP_GRACE_MS
+      const cleanupOptions = cleanupTimeout === undefined ? undefined : { timeout: cleanupTimeout }
+      await sandbox.exec('rm', ['-rf', '--', files.baseDir], cleanupOptions).catch(() => {})
+    }
   }
 }
 
@@ -179,15 +185,31 @@ export async function executeSandboxTaskDefinition<TPayload>(
   externalSignal?.throwIfAborted()
   let timeoutId: ReturnType<typeof setTimeout> | undefined
   const abortController = new AbortController()
+  const deadline = timeout === undefined || timeout <= 0 ? undefined : Date.now() + timeout
+  let timedOut = false
+  let timeoutError: ReturnType<typeof createTimeoutError> | undefined
   const signal = timeout === undefined || timeout <= 0
     ? externalSignal!
     : externalSignal
       ? AbortSignal.any([externalSignal, abortController.signal])
       : abortController.signal
   let externalAbort: (() => void) | undefined
+  let execution: Promise<unknown> | undefined
 
   try {
-    const races: Array<Promise<unknown>> = [execute(signal)]
+    const currentExecution = execution = executeSandboxTaskDefinitionOnce(
+      sandbox,
+      definitionName,
+      definitionOptions,
+      source,
+      payload,
+      context,
+      signal,
+      lifecycle,
+      deadline,
+    )
+    lifecycle?.onExecution?.(currentExecution)
+    const races: Array<Promise<unknown>> = [currentExecution]
     if (externalSignal) {
       races.push(new Promise<never>((_, reject) => {
         externalAbort = () => reject(externalSignal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError'))
@@ -197,13 +219,21 @@ export async function executeSandboxTaskDefinition<TPayload>(
     if (timeout !== undefined && timeout > 0) {
       races.push(new Promise<never>((_, reject) => {
         timeoutId = setTimeout(() => {
-          const timeoutError = createTimeoutError(sandbox.provider, timeout)
+          timeoutError = createTimeoutError(sandbox.provider, timeout)
+          timedOut = true
           abortController.abort(timeoutError)
           reject(timeoutError)
         }, timeout)
       }))
     }
     return await Promise.race(races)
+  }
+  catch (error) {
+    if (timedOut) {
+      await execution!.catch(() => {})
+      throw timeoutError ?? error
+    }
+    throw error
   }
   finally {
     if (timeoutId)
