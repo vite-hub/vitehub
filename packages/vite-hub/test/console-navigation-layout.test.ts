@@ -155,4 +155,11 @@ describe("shared Console navigation layout", () => {
     const inspector = component("console-session-inspector")
     expect(inspector).toMatch(/selectedPath\.value = undefined;[\s\S]*?if \(!workspace\.value && !workspaceLoading\.value\) void loadWorkspace\(\);/)
   })
+
+  it("loads file and diff renderers only when their views open", () => {
+    const inspector = component("console-session-inspector")
+    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/file-tree")')
+    expect(inspector).toContain('defineAsyncComponent(() => import("@vite-hub/ui/patch-diff")')
+    expect(inspector).not.toContain('import { FileTree, PatchDiff } from "@vite-hub/ui"')
+  })
 })
