@@ -38,7 +38,7 @@ export default defineConfig({
     tsconfig: "tsconfig.build.json",
     copy: [{ from: "src/virtual-module.d.ts", to: "dist" }],
     deps: {
-      neverBundle: ["vite", "vue", "esbuild", "sharp", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
+      neverBundle: ["vite", "vue", "esbuild", "sharp", "@vercel/nft", "@vite-hub/blob", "@vite-hub/blob/runtime/state", ...filesSdkProviderPeers],
       alwaysBundle: [
         /^@vite-hub\/internal/,
         /^@vite-hub\/netlify-blobs-runtime$/,
