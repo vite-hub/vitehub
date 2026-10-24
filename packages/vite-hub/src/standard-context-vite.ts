@@ -30,5 +30,21 @@ export function standardContextVitePlugin(): Plugin {
   return generatedNitroPlugin("vite-hub/standard-context", "standard-context.mjs", renderStandardContextNitroPlugin, {
     position: "start",
     types: standardContextTypes,
+    configure(nitro) {
+      const hooks = (nitro.hooks ??= {}) as Record<string, unknown>
+      const existing = hooks.request
+      hooks.request = async (event: unknown, ...args: unknown[]) => {
+        const module = await import("vite-hub/runtime/h3")
+        const install: (event: object) => void = module.installStandardContext
+        if (event === null || (typeof event !== "object" && typeof event !== "function")) return
+        install(event)
+        if (typeof existing === "function") return Reflect.apply(existing, undefined, [event, ...args])
+        if (Array.isArray(existing)) {
+          for (const handler of existing) {
+            if (typeof handler === "function") await Reflect.apply(handler, undefined, [event, ...args])
+          }
+        }
+      }
+    },
   })
 }

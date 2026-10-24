@@ -63,12 +63,16 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
  * request or a Request from another realm, so check the fields that ViteHub reads instead of the prototype.
  */
 function isHostRequest(value: unknown): value is Request {
-  if (!(value instanceof Object)) return false
+  if (!isObjectLike(value)) return false
   const headers: unknown = Reflect.get(value, "headers")
   return typeof Reflect.get(value, "url") === "string"
     && typeof Reflect.get(value, "method") === "string"
-    && headers instanceof Object
+    && isObjectLike(headers)
     && typeof Reflect.get(headers, "get") === "function"
+}
+
+function isObjectLike(value: unknown): value is object {
+  return value !== null && (typeof value === "object" || typeof value === "function")
 }
 
 interface PreparedResponseTarget {
@@ -115,8 +119,8 @@ function createH3StandardProps(event: object): ViteHubStandardProps | undefined 
   const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
   if (isHostRequest(req)) {
     const response: unknown = Reflect.get(event, "res")
-    const headers: unknown = response instanceof Object ? Reflect.get(response, "headers") : undefined
-    if (!(headers instanceof Object) || typeof Reflect.get(headers, "set") !== "function") return undefined
+    const headers: unknown = isObjectLike(response) ? Reflect.get(response, "headers") : undefined
+    if (!isObjectLike(headers) || typeof Reflect.get(headers, "set") !== "function") return undefined
     // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
     res = preparedResponse(response as PreparedResponseTarget)
     readRequest = () => req

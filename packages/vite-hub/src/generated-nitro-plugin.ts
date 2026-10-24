@@ -16,6 +16,7 @@ interface GeneratedNitroPluginOptions {
   position?: "start" | "end"
   /** Declarations to write next to the plugin. `.vitehub/types.d.ts` references them. */
   types?: string
+  configure?: (nitro: Record<string, unknown>) => void
 }
 
 /** Write a Nitro plugin under the project's `.vitehub/nitro` folder and register it with Nitro. */
@@ -33,6 +34,7 @@ export function generatedNitroPlugin(name: string, file: string, render: () => s
       if (options.types) await writeIfChanged(plugin.replace(/\.mjs$/, "-types.d.ts"), options.types)
       const kit = createNitroServerKit(viteConfig.nitro)
       kit.addPlugin(plugin, options.position)
+      options.configure?.(kit.config)
       viteConfig.nitro = kit.config
     },
   }
