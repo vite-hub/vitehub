@@ -51,6 +51,7 @@ async function rejection(result: unknown): Promise<{ code: string, docs: string,
 }
 
 afterEach(() => {
+  vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   Reflect.deleteProperty(globalThis, policyKey)
 })
@@ -138,23 +139,23 @@ describe("Console access policies", () => {
     await expect(rejection(result)).resolves.toMatchObject({ status: 500 })
   })
 
+  it.each([
+    { name: "absent", process: undefined },
+    { name: "partial", process: {} },
+  ])("fails closed for a local Console when the process is $name", async ({ process }) => {
+    vi.stubGlobal("process", process)
+    const denied = await run({ mode: "local" })
+    expect(denied.handler).not.toHaveBeenCalled()
+    await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
+  })
+
   it("keeps the local development Console open and fails closed in production", async () => {
-    vi.stubGlobal("process", undefined)
-    const absentProcess = await run({ mode: "local" })
-    expect(absentProcess.handler).not.toHaveBeenCalled()
-    await expect(rejection(absentProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
-
-    vi.stubGlobal("process", {})
-    const partialProcess = await run({ mode: "local" })
-    expect(partialProcess.handler).not.toHaveBeenCalled()
-    await expect(rejection(partialProcess.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
-
     vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
     const allowed = await run({ mode: "local" })
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
-    vi.stubEnv("NODE_ENV", "production")
+    vi.stubGlobal("process", { env: { NODE_ENV: "production" } })
     const denied = await run({ mode: "local" })
     expect(denied.handler).not.toHaveBeenCalled()
     await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("For production"), message: expect.stringContaining("development-only"), status: 403 })
@@ -304,6 +305,7 @@ describe("Connections manager from Console access", () => {
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
     { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
   ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, session?: string, actor: string }>)("names the manager from the Console policy: $name", async ({ policy, session, actor }) => {
+    if (policy.mode === "local") vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
     installConsoleAccess(policy)
     await expect(consoleConnectionsActor(connectionsEvent(), session ? async () => session : undefined)).resolves.toBe(actor)
   })
