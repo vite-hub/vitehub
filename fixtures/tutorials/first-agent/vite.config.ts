@@ -14,7 +14,7 @@ export default defineConfig({
     },
     ssr: true,
   },
-  plugins: [hubAgent({ runtime: false })],
+  plugins: [hubAgent()],
   ssr: {
     external: ["vite-hub/agent"],
   },

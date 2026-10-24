@@ -35,8 +35,7 @@ pnpm add vite-hub h3 vite
 ::tutorial-step{title="Configure the server build"}
 ## Configure the server build
 
-Add the standalone `hubAgent()` plugin with `runtime: false` to disable runtime
-generation for this function Driver. Vite builds `src/server.ts` into
+Add the standalone `hubAgent()` plugin. Vite builds `src/server.ts` into
 `dist/server.js`, and the plugin discovers Agent Definitions under `server/agents`.
 
 ```ts [vite.config.ts]
@@ -56,7 +55,7 @@ export default defineConfig({
     },
     ssr: true,
   },
-  plugins: [hubAgent({ runtime: false })],
+  plugins: [hubAgent()],
   ssr: {
     external: ["vite-hub/agent"],
   },
@@ -70,7 +69,8 @@ export default defineConfig({
 
 Create `server/agents/greeting.ts`. The file location gives this Agent the name
 `greeting`. Its `driver.run` function receives the input prompt and returns a
-JSON object. Here, the prompt contains the name to greet.
+JSON object. Here, the prompt contains the name to greet. Set `runtime: false`
+on this Agent Definition to run the function Driver inline without a generated runtime.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
