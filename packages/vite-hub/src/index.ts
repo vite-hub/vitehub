@@ -637,10 +637,6 @@ function deploymentPlugins(
           }
         }
         let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
-        // Nitro disables file-system route discovery by default in Vite hosts.
-        // ViteHub owns the `server/` convention, so make those routes reachable
-        // unless the application explicitly opts out or chooses another directory.
-        if (nitro.serverDir === undefined) nitro.serverDir = "server"
         if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
           const optionBlob = options.blob === true ? undefined : options.blob
           const configuredBlob = (config as { blob?: BlobModuleOptions }).blob
@@ -740,6 +736,21 @@ function deploymentPlugins(
         }
         if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
         ;(config as { nitro?: unknown }).nitro = nitro
+        if (nitro.serverDir === undefined && nitro.srcDir === undefined) {
+          // Vite's Nitro key overrides nitro.config.ts. Inspect Nitro's merged
+          // configuration layers before supplying our file-route convention.
+          return import("nitro/builder").then(async ({ loadOptions }) => {
+            const resolved = await loadOptions({
+              ...nitro,
+              rootDir: typeof nitro.rootDir === "string" ? nitro.rootDir : config.root,
+              dev: !building,
+              builder: "vite",
+            }, { dotenv: false })
+            const configured = resolved._c12.layers?.some(layer =>
+              layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)
+            if (!configured) nitro.serverDir = "server"
+          })
+        }
       },
     },
     {

@@ -280,6 +280,22 @@ describe("vitehub", () => {
     expect(config.nitro).toMatchObject({ serverDir: "server" })
   })
 
+  it.each(["custom-server", false])("preserves file-based Nitro serverDir %s", async (serverDir) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-server-dir-"))
+    try {
+      await writeFile(join(root, "nitro.config.ts"), `export default { serverDir: ${JSON.stringify(serverDir)} }`)
+      const preset = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-preset")
+      const config = { root, nitro: {} }
+      await callHook(preset.config, [config, { command: "build", mode: "production" }])
+      const { loadOptions } = await import("nitro/builder")
+      const resolved = await loadOptions({ ...config.nitro, rootDir: root, builder: "vite" })
+      expect(resolved.serverDir).toBe(serverDir === false ? false : `${join(root, serverDir)}/`)
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("serializes the built-in Provider Output finalizer", () => {
     const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
 
