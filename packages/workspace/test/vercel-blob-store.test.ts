@@ -173,6 +173,64 @@ describe("Vercel Blob workspace store", () => {
     await expect(store.stat(file.path)).resolves.toMatchObject({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" })
   })
 
+  it.each([false, true])("serializes writes across Store instances including failed recovery (failure: %s)", async (fail) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const options = { provider: "vercel-blob" as const, token: "token" }
+    const first = createVercelBlobWorkspaceStore(options, "docs")
+    const second = createVercelBlobWorkspaceStore(options, "docs")
+    const path = "readme.md"
+    await first.writeFile(path, { path, content: "original", metadata: { owner: "original" } })
+    const put = blobMock.put.getMockImplementation()!
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    let paused = false
+    blobMock.put.mockImplementation(async (...args) => {
+      if (args[0].includes("file-attributes") && !paused) {
+        paused = true
+        entered.resolve()
+        await release.promise
+        if (fail) throw new Error("sidecar unavailable")
+      }
+      return put(...args)
+    })
+    try {
+      const a = first.writeFile(path, { path, content: "A", metadata: { owner: "A" } })
+      const resultA = a.catch(error => error)
+      await entered.promise
+      let completed = false
+      const b = second.writeFile(path, { path, content: "B", metadata: { owner: "B" } }).then(() => { completed = true })
+      // Give the second writer a full event-loop turn while A is paused.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const completedWhilePaused = completed
+      release.resolve()
+      const result = await resultA
+      await b
+      await expect(second.readFile(path)).resolves.toEqual({ path, content: new TextEncoder().encode("B"), metadata: { owner: "B" } })
+      expect(completedWhilePaused).toBe(false)
+      if (fail) expect(result).toBeInstanceOf(Error)
+      else expect(result).toBeUndefined()
+    }
+    finally {
+      release.resolve()
+      blobMock.put.mockImplementation(put)
+    }
+  })
+
+  it.each([false, true])("retries orphaned sidecar removal (recursive: %s)", async (recursive) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const path = "dir/readme.md"
+    await store.writeFile(path, { path, content: "bytes", metadata: { owner: "docs" } })
+    const del = blobMock.del.getMockImplementation()!
+    blobMock.del.mockImplementationOnce(del).mockRejectedValueOnce(new Error("sidecar unavailable"))
+    await expect(store.rm(recursive ? "dir" : path, { recursive })).rejects.toThrow("sidecar unavailable")
+    await expect(store.readFile(path)).resolves.toBeUndefined()
+    await store.rm(recursive ? "dir" : path, { recursive, force: true })
+    expect((await blobMock.list({ prefix: "_vitehub/workspaces/docs/" })).blobs).toEqual([])
+  })
+
   it.each(["current", "legacy", "missing", "clear"])("restores %s state when updating attributes fails", async (state) => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
