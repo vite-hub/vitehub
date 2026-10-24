@@ -541,6 +541,8 @@ export class ViteHubSqliteAgentStateAdapter implements AgentWebhookQueueStateAda
   async enqueue(threadId: string, entry: QueueEntry, maxSize: number): Promise<number> {
     await this.cleanupExpiredStateIfDue()
     return await this.transaction(async (tx) => {
+      const now = Date.now()
+      await execute(tx, `DELETE FROM ${this.tables.queue} WHERE thread_id = ? AND expires_at <= ?`, [threadId, now])
       await execute(tx, `INSERT INTO ${this.tables.queue} (thread_id, value, enqueued_at, expires_at) VALUES (?, ?, ?, ?)`, [
         threadId,
         JSON.stringify(entry),
