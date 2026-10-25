@@ -1,145 +1,115 @@
 ---
 title: Process a welcome job with Queue
-description: Build a Queue Definition, deploy it to Cloudflare, and verify provider acceptance and handler delivery separately.
+description: Define a welcome job, enqueue it from a route to Cloudflare Queues, and inspect the Queue Definition to verify delivery.
 layout: tutorial
-codePanel: true
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Submit a welcome job from an API route and watch its handler log the delivery. The route returns when Cloudflare accepts the job. It does not wait for the handler to finish.
+Submit a welcome job from an API route and watch the Queue consumer log its delivery. The route returns as soon as the provider accepts the job. It does not wait for the handler's result.
 
-Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root.
+You need Node.js 24.15 or newer, pnpm, a Cloudflare account, and credentials that can create a Queue and deploy a Worker. Start in an empty directory. Queue has hosted providers only, so this tutorial includes a deployment and can incur provider charges. If you only need to run a local handler, use a [Workflow](/docs/workflows/get-started).
 
-Queue has no local delivery provider. You can build and inspect the Definition without credentials, but `pnpm dev` on `localhost:3000` does not prove delivery. Completing this tutorial requires a Cloudflare account with Queues available, permission to create a queue and deploy a Worker, and access to Worker logs. Provisioning and deployment create real provider resources and can incur charges. The deployed Worker must have the generated producer binding and consumer configuration.
+::tutorial-step{title="Install and configure"}
+## Install and configure
 
-This tutorial changes the app's preset from `node` to `cloudflare`. Any other enabled features also need their Cloudflare resources. See [Queue hosts](/docs/queue/hosts) for Vercel, the other supported Queue provider. There is no Queue provider for self-hosted Node or Deno.
+```bash [commands/install]
+pnpm init
+pnpm pkg set type=module
+pnpm add @vite-hub/queue h3 nitro
+pnpm add -D @vite-hub/cli vite
+```
 
-::tutorial-step{title="Enable Queue for Cloudflare"}
-## Enable Queue for Cloudflare
-
-Change the existing `vitehub()` options in `vite.config.ts` to select Cloudflare and enable Queue. Keep the app's other configuration.
+Register the integration in `vite.config.ts`:
 
 ```ts [vite.config.ts]
+import { hubQueue } from '@vite-hub/queue/vite'
 import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
+import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  server: { port: 3000, strictPort: true },
-  plugins: [vitehub({ preset: 'cloudflare', queue: true })],
+  nitro: { preset: 'cloudflare_module' },
+  plugins: [hubQueue({ provider: 'cloudflare' }), nitro()],
 })
 ```
 
-`vitehub()` includes the Nitro integration. The preset selects the Queue provider and Nitro output. If you chose Nuxt in Installation, set these same options on the existing `vite-hub/nuxt` module and keep Nuxt's server integration.
-
-Install Wrangler to read the deployed Worker's logs later:
-
-```bash [commands/install]
-pnpm add -D wrangler
-```
+With the `vite-hub` distribution, use `vitehub({ preset: 'cloudflare', queue: true })` and import from `vite-hub/queue`.
 
 ::
 
 ::tutorial-step{title="Define the job"}
 ## Define the job
 
-Create `server/queues/welcome-email.ts`. Its file name becomes the Queue Definition name, `welcome-email`.
+This handler only logs the job so you can verify delivery without sending mail. A real handler can run more than once after retries; use an idempotency check before a non-repeatable side effect.
 
 ```ts [server/queues/welcome-email.ts]
-import { defineQueue } from 'vite-hub/queue'
+import { defineQueue } from '@vite-hub/queue'
 
 export default defineQueue<{ email: string }>(async ({ payload, id }) => {
   console.log(`Processing welcome job ${id} for ${payload.email}`)
 })
 ```
 
-This handler only logs a message. Providers can deliver a job more than once, so a real handler must tolerate retries after a partial side effect. Add a durable duplicate check before sending mail or doing other work that must not repeat.
+The file name becomes the Queue Definition name. The handler runs in the provider consumer, after the route has returned.
 
 ::
 
 ::tutorial-step{title="Enqueue from a route"}
 ## Enqueue from a route
 
-Create `server/api/welcome.post.ts`. Nitro serves it at `POST /api/welcome`. `runQueue()` takes the Definition name and payload as separate arguments.
+`runQueue()` selects `welcome-email` by its Definition name and submits the email as a payload. The handler runs separately from this route.
 
 ```ts [server/api/welcome.post.ts]
-import { createError, defineEventHandler, readBody } from 'h3'
-import { runQueue } from 'vite-hub/queue'
+import { defineEventHandler, readBody } from 'h3'
+import { runQueue } from '@vite-hub/queue'
 
 export default defineEventHandler(async (event) => {
-  const body = await readBody<{ email?: unknown }>(event)
-  if (typeof body?.email !== 'string' || !body.email.trim()) {
-    throw createError({ statusCode: 400, message: 'Send a non-empty email.' })
-  }
+  const { email } = await readBody<{ email: string }>(event)
 
-  const [error, result] = await runQueue('welcome-email', { email: body.email.trim() })
+  const [error, result] = await runQueue('welcome-email', { email })
   if (error) throw error
   return result
 })
 ```
 
-`runQueue()` returns `[error, result]`. Check `error` before using the result. Configuration errors, such as a missing Cloudflare binding, throw. See [Queue limits and errors](/docs/queue/limits-and-errors).
+`runQueue()` returns `[error, result]`. Check `error` first. Its `code` names the failure, and [Queue limits and errors](/docs/queue/limits-and-errors) explains each code.
+
+The response is an acceptance signal:
+
+```json [output/response.json]
+{ "status": "queued", "messageId": "..." }
+```
+
+`status: 'queued'` does not contain the handler result. The provider will deliver the job later and may retry it after a failure. Make the handler safe to run more than once. Cloudflare does not support Vercel's `idempotencyKey`; use that option only when you select the Vercel provider.
 
 ::
 
-::tutorial-step{title="Build and inspect"}
-## Build and inspect
+::tutorial-step{title="Inspect the definition"}
+## Inspect the definition
 
-Use the build script from Installation, then inspect the discovered Definition and provider output:
+Build the app and inspect the generated definition before deploying:
 
 ```bash [commands/inspect]
-pnpm build
+pnpm vite build
 pnpm vitehub inspect definitions --kind queue
 pnpm vitehub inspect provider-output
 ```
 
-The definitions list must include `welcome-email`. Nitro writes the Worker configuration to `.output/server/wrangler.json`; check its `queues.producers` and `queues.consumers` entries. ViteHub derives the physical queue name from the app name and Definition name.
+You should see `welcome-email` and the generated Cloudflare producer and consumer output. Nitro writes the Worker configuration to `.output/server/wrangler.json`. This build proves discovery and output. Queue has no local provider.
 
-This is the credential-free stopping point. A successful build proves discovery and generated output. It does not create the remote queue or run the handler.
+Provision the queue and deploy the generated Worker with Cloudflare credentials:
 
-::
-
-::tutorial-step{title="Provision and deploy"}
-## Provision and deploy
-
-Set `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` in your terminal environment using your account credentials. The token needs permission to provision Queues, deploy Workers, and read Worker logs. Keep it out of source files.
-
-Review the resource plan, then create any missing resources:
-
-```bash [commands/provision]
-pnpm vitehub provision run --provider cloudflare --dry-run
-pnpm vitehub provision run --provider cloudflare
-```
-
-Build again so the output includes any provisioned resource IDs. For the Vite app, deploy with Nitro:
+The next commands create provider resources and deploy the Worker. Use an account intended for this tutorial, and review the generated output before running them.
 
 ```bash [commands/deploy]
-pnpm build
+export CLOUDFLARE_ACCOUNT_ID=...
+export CLOUDFLARE_API_TOKEN=...
+pnpm vitehub provision run --provider cloudflare
 pnpm exec nitro deploy --prebuilt
 ```
 
-For the Nuxt alternative, use its build script and the generated Wrangler configuration:
-
-```bash [commands/deploy-nuxt]
-pnpm build
-pnpm exec wrangler deploy --config .output/server/wrangler.json
-```
-
-Use the Worker URL printed by deployment for the next step. See [Cloudflare](/docs/frameworks-hosts/cloudflare) for the full host setup.
-
-::
-
-::tutorial-step{title="Check acceptance and delivery"}
-## Check acceptance and delivery
-
-Start the live log stream in one terminal:
-
-```bash [commands/logs]
-pnpm exec wrangler tail --config .output/server/wrangler.json
-```
-
-In another terminal, replace the example URL with your deployed Worker URL and submit a job:
+Set `QUEUE_URL` to the deployed Worker URL, then send a request:
 
 ```bash [commands/request]
 QUEUE_URL=https://your-worker.workers.dev
@@ -148,19 +118,12 @@ curl -X POST "$QUEUE_URL/api/welcome" \
   -d '{"email":"dev@example.com"}'
 ```
 
-The response has this shape. The message ID varies:
+The response confirms provider acceptance. Look for the handler log in the provider consumer to confirm delivery.
 
-```json [output/response.json]
-{ "status": "queued", "messageId": "..." }
-```
-
-`status: 'queued'` confirms provider acceptance. The handler's log confirms that Cloudflare delivered the job and ran the handler:
-
-```text [output/delivery.log]
-Processing welcome job <delivery-id> for dev@example.com
-```
-
-Cloudflare assigns the delivery ID. It differs from the locally generated `messageId` in the enqueue response. The handler does not return a result to the HTTP caller. For tracked completion and progress, use a [Workflow](/docs/workflows/get-started).
-
-Continue with [Configuration](/docs/queue/configure#queue-definition-options) for retry policy and [Server API](/docs/queue/server-api) for enqueue options. Add access checks before exposing this route to users.
 ::
+
+## Continue
+
+- Read [Make Queue handlers safe to retry](/docs/queue/configure#queue-definition-options) before sending non-repeatable side effects.
+- Read the [Server API](/docs/queue/server-api) for delays, direct clients, and delivery failures.
+- Read [Hosts](/docs/queue/hosts) before choosing Cloudflare or Vercel.
