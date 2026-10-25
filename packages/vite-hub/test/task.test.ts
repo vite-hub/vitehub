@@ -1,28 +1,29 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-vi.mock("@vite-hub/internal/dev-token", async importOriginal => ({
-  ...await importOriginal<typeof import("@vite-hub/internal/dev-token")>(),
-  readViteHubDevToken: async () => "test-task-token",
-}))
-
 const runTask = vi.hoisted(() => vi.fn())
 vi.mock("nitro/task", () => ({ runTask }))
 
-import { handleTaskDevRequest } from "../src/_internal/task/runtime/dev.ts"
-import { runTaskCli } from "../src/task/cli.ts"
-import { taskDevHeader, taskDevHeaderValue, taskDevRoute, taskDevRuntimeRoute, taskDevTokenServerHeader } from "../src/task/dev.ts"
+import { taskOperations } from "../src/task/operations.ts"
+import { taskRegistryKey } from "../src/task/registry.ts"
 import { discoverTaskDefinitions } from "../src/task/discovery.ts"
 import { viteHubTaskPlugin } from "../src/task/vite.ts"
 
-const rootDir = "/app"
+import { operationCliPath } from "@vite-hub/internal/operations"
+
+import type { OperationContext } from "@vite-hub/internal/operations"
+
+const scope = globalThis as Record<symbol, unknown>
+const registryKey = Symbol.for(taskRegistryKey)
+const context: OperationContext = { access: { mode: "local", sections: "all" }, surface: "cli", user: null }
 const roots: string[] = []
 
 afterEach(async () => {
   runTask.mockReset()
+  Reflect.deleteProperty(scope, registryKey)
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -34,24 +35,6 @@ async function project(files: Record<string, string>): Promise<string> {
     await writeFile(join(root, file), contents)
   }
   return root
-}
-
-function stream() {
-  let value = ""
-  return { output: () => value, write: (chunk: string | Uint8Array) => { value += String(chunk) } }
-}
-
-function context() {
-  const stdout = stream()
-  const stderr = stream()
-  return { context: { env: {}, rootDir, stderr, stdout }, stderr, stdout }
-}
-
-/** Fake dev server: `GET` discovery, then one `POST` operation. */
-function devServer(result: unknown, status = 200) {
-  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => request?.method === "POST"
-    ? Response.json(result, { status })
-    : Response.json({ root: rootDir, runtime: "nitro", taskDevTokenServerId: "test-server" }))
 }
 
 async function runConfigHook(root: string, nitro?: Record<string, unknown>, command: "build" | "serve" = "build") {
@@ -79,7 +62,7 @@ describe("viteHubTaskPlugin", () => {
   it("enables Nitro tasks and registers the discovered files", async () => {
     const root = await project({ "server/tasks/db/seed.ts": "" })
     const { config } = await runConfigHook(root, { tasks: { "db:seed": { description: "Seed" } } })
-    expect(config.nitro).toEqual({
+    expect(config.nitro).toMatchObject({
       experimental: { tasks: true },
       tasks: { "db:seed": { description: "Seed", handler: join(root, "server/tasks/db/seed.ts") } },
     })
@@ -93,18 +76,27 @@ describe("viteHubTaskPlugin", () => {
     expect((await runConfigHook(optedOut, { experimental: { tasks: false } })).config.nitro).toEqual({ experimental: { tasks: false } })
   })
 
-  it("enables the endpoint for tasks declared in Nitro config", async () => {
+  it("contributes the task operations only when the app has tasks", async () => {
+    const withTasks = await runConfigHook(await project({ "server/tasks/seed.ts": "" }))
+    const without = await runConfigHook(await project({}))
+    const entries = (plugin: ReturnType<typeof viteHubTaskPlugin>) => (plugin.vitehub.operations as () => unknown[])()
+    expect(entries(withTasks.plugin)).toEqual([expect.objectContaining({ export: "taskOperations", module: "vite-hub/_internal/task/operations" })])
+    expect(entries(without.plugin)).toEqual([])
+  })
+
+  it("enables Nitro tasks for tasks declared in Nitro config", async () => {
     const empty = await project({})
-    expect((await runConfigHook(empty, { tasks: { seed: { handler: "/tmp/seed.ts" } } })).config.nitro).toEqual({
+    expect((await runConfigHook(empty, { tasks: { seed: { handler: "/tmp/seed.ts" } } })).config.nitro).toMatchObject({
       experimental: { tasks: true },
       tasks: { seed: { handler: "/tmp/seed.ts" } },
     })
   })
 
-  it("adds the dev-only Nitro handler in serve mode and lists tasks for inspection", async () => {
+  it("registers the Nitro plugin that hands over the tasks, and lists tasks for inspection", async () => {
     const root = await project({ "server/tasks/seed.ts": "" })
-    const { config, plugin } = await runConfigHook(root, undefined, "serve")
-    expect(config.nitro).toMatchObject({ handlers: [{ route: taskDevRuntimeRoute }] })
+    const { config, plugin } = await runConfigHook(root)
+    expect(config.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/task/registry.mjs")] })
+    expect(await readFile(join(root, ".vitehub/nitro/task/registry.mjs"), "utf8")).toContain("#nitro/virtual/tasks")
     const inspect = plugin.vitehub.inspect
     const contributor = typeof inspect === "function" ? await inspect() : inspect
     const [inspector] = contributor?.definitions ?? []
@@ -113,119 +105,84 @@ describe("viteHubTaskPlugin", () => {
   })
 })
 
-describe("vitehub task", () => {
-  it("includes metadata declared by the task handler", async () => {
-    const request = new Request("http://localhost", {
-      body: JSON.stringify({ operation: "list" }),
-      headers: { [taskDevHeader]: taskDevHeaderValue, [taskDevTokenServerHeader]: "test-server", ["x-vitehub-dev-token"]: "test-task-token", "content-type": "application/json" },
-      method: "POST",
-    })
-    const response = await handleTaskDevRequest(request, {
-      rootDir,
-      tasks: { seed: { resolve: async () => ({ meta: { description: "Seed rows" } }) } },
-    })
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ tasks: [{ description: "Seed rows", name: "seed" }] })
+function operation(name: string) {
+  const found = taskOperations.find(candidate => candidate.name === name)
+  if (!found) throw new TypeError(`No operation ${name}.`)
+  return found
+}
+
+function call(name: string, input: unknown): Promise<unknown> {
+  return Promise.resolve((operation(name).run as (input: unknown, context: OperationContext) => unknown)(input, context))
+}
+
+describe("task operations", () => {
+  const tasks = { "db:seed": { meta: { description: "Add one demo note" } }, notes: { meta: {} } }
+
+  it("names task.list and task.run under `vitehub task`", () => {
+    expect(taskOperations.map(({ kind, name, section }) => ({ kind, name, section }))).toEqual([
+      { kind: "read", name: "task.list", section: "tasks" },
+      { kind: "write", name: "task.run", section: "tasks" },
+    ])
+    expect(taskOperations.map(operationCliPath)).toEqual([{ command: "list", namespace: "task" }, { command: "run", namespace: "task" }])
+  })
+
+  it("lists the registered tasks with their descriptions", async () => {
+    scope[registryKey] = {
+      ...tasks,
+      lazy: { resolve: async () => ({ meta: { description: "Seed rows" } }) },
+    }
+    await expect(call("task.list", {})).resolves.toEqual({ tasks: [{ description: "Add one demo note", name: "db:seed" }, { description: "Seed rows", name: "lazy" }, { name: "notes" }] })
   })
 
   it("keeps listing tasks when lazy metadata resolution fails", async () => {
-    const request = new Request("http://localhost", {
-      body: JSON.stringify({ operation: "list" }),
-      headers: { [taskDevHeader]: taskDevHeaderValue, [taskDevTokenServerHeader]: "test-server", ["x-vitehub-dev-token"]: "test-task-token", "content-type": "application/json" },
-      method: "POST",
-    })
-    const response = await handleTaskDevRequest(request, {
-      rootDir,
-      tasks: {
-        broken: { resolve: async () => { throw new Error("cannot load task") } },
-        healthy: { meta: { description: "Healthy task" } },
-      },
-    })
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({ tasks: [{ name: "broken" }, { description: "Healthy task", name: "healthy" }] })
+    scope[registryKey] = {
+      broken: { resolve: async () => { throw new Error("cannot load task") } },
+      healthy: { meta: { description: "Healthy task" } },
+    }
+    await expect(call("task.list", {})).resolves.toEqual({ tasks: [{ name: "broken" }, { description: "Healthy task", name: "healthy" }] })
   })
 
-  it("lists tasks", async () => {
-    const result = context()
-    const fetch = devServer({ tasks: [{ description: "Add one demo note", name: "db:seed" }, { name: "notes" }] })
-    await expect(runTaskCli("list", ["--url", "http://127.0.0.1:4321"], result.context, { fetch })).resolves.toBe(0)
-    expect(String(fetch.mock.calls[0]?.[0])).toBe(`http://127.0.0.1:4321${taskDevRoute}`)
-    expect(result.stdout.output()).toBe("NAME     DESCRIPTION\ndb:seed  Add one demo note\nnotes\n")
-
-    const empty = context()
-    await expect(runTaskCli("list", [], empty.context, { fetch: devServer({ tasks: [] }) })).resolves.toBe(0)
-    expect(empty.stdout.output()).toContain("No tasks.")
-  })
-
-  it("sends --key options and --payload as the task payload", async () => {
-    const result = context()
-    const fetch = devServer({ durationMs: 3, name: "db:seed", result: { id: 1, title: "First" } })
-    await expect(runTaskCli("run", ["db:seed", "--payload", "{\"count\":2,\"title\":\"x\"}", "--title", "First", "--dry-run", "--mode=fast"], result.context, { fetch })).resolves.toBe(0)
-    expect(fetch.mock.calls[1]?.[1]).toMatchObject({
-      body: JSON.stringify({ name: "db:seed", operation: "run", payload: { count: 2, title: "First", "dry-run": true, mode: "fast" } }),
-      headers: { [taskDevHeader]: taskDevHeaderValue, [taskDevTokenServerHeader]: "test-server" },
-      method: "POST",
-    })
-    expect(result.stdout.output()).toBe("Task db:seed finished in 3 ms.\n{\n  \"id\": 1,\n  \"title\": \"First\"\n}\n")
-  })
-
-  it("reports failures on stderr, or as JSON with --json", async () => {
-    const failure = { error: { code: "TASK_FAILED", message: "Task \"db:seed\" failed: no such table: notes" } }
-    const human = context()
-    await expect(runTaskCli("run", ["db:seed"], human.context, { fetch: devServer(failure, 500) })).resolves.toBe(1)
-    expect(human.stderr.output()).toBe("Task \"db:seed\" failed: no such table: notes\n")
-
-    const json = context()
-    await expect(runTaskCli("run", ["db:seed", "--json"], json.context, { fetch: devServer(failure, 500) })).resolves.toBe(1)
-    expect(JSON.parse(json.stdout.output())).toEqual(failure)
-
-    const missing = context()
-    await expect(runTaskCli("run", [], missing.context, { fetch: devServer({}) })).resolves.toBe(1)
-    expect(missing.stderr.output()).toContain("Missing task name.")
-
-    const badPayload = context()
-    await expect(runTaskCli("run", ["seed", "--payload", "[1]"], badPayload.context, { fetch: devServer({}) })).resolves.toBe(1)
-    expect(badPayload.stderr.output()).toContain("--payload must be a JSON object.")
-  })
-})
-
-describe("Task Dev runtime handler", () => {
-  const tasks = { "db:seed": { meta: { description: "Add one demo note" } }, "notes": { meta: {} } }
-
-  function request(body: unknown, headers: Record<string, string> = { "x-vitehub-dev-token": "test-task-token", [taskDevTokenServerHeader]: "test-server" }) {
-    return new Request(`http://localhost${taskDevRuntimeRoute}`, {
-      body: JSON.stringify(body),
-      headers: { "content-type": "application/json", [taskDevHeader]: taskDevHeaderValue, ...headers },
-      method: "POST",
-    })
-  }
-
-  it("rejects a request without the private token", async () => {
-    const response = await handleTaskDevRequest(request({ operation: "list" }, { "x-vitehub-dev-token": "wrong", [taskDevTokenServerHeader]: "test-server" }), { rootDir, tasks })
-    expect(response.status).toBe(403)
-    expect(runTask).not.toHaveBeenCalled()
-  })
-
-  it("lists tasks and runs one with Nitro's runTask", async () => {
-    const list = await handleTaskDevRequest(request({ operation: "list" }), { rootDir, tasks })
-    expect(await list.json()).toEqual({ tasks: [{ description: "Add one demo note", name: "db:seed" }, { name: "notes" }] })
-
+  it("runs a task with Nitro's runTask and returns its result", async () => {
+    scope[registryKey] = tasks
     runTask.mockResolvedValueOnce({ result: { id: 1 } })
-    const run = await handleTaskDevRequest(request({ name: "db:seed", operation: "run", payload: { title: "First" } }), { rootDir, tasks })
-    expect(await run.json()).toMatchObject({ name: "db:seed", result: { id: 1 } })
+
+    await expect(call("task.run", { name: "db:seed", payload: { title: "First" } })).resolves.toMatchObject({ name: "db:seed", result: { id: 1 } })
     expect(runTask).toHaveBeenCalledWith("db:seed", { context: {}, payload: { title: "First" } })
   })
 
-  it("returns 404 for an unknown task and 500 when the task throws", async () => {
-    const missing = await handleTaskDevRequest(request({ name: "nope", operation: "run" }), { rootDir, tasks })
-    expect(missing.status).toBe(404)
-    expect(await missing.json()).toMatchObject({ error: { code: "TASK_NOT_FOUND" } })
+  it("fails with TASK_NOT_FOUND for an unknown task, and does not run it", async () => {
+    scope[registryKey] = tasks
 
+    await expect(call("task.run", { name: "nope" })).rejects.toMatchObject({ code: "TASK_NOT_FOUND", status: 404 })
+    expect(runTask).not.toHaveBeenCalled()
+  })
+
+  it("does not run a name that only the prototype defines", async () => {
+    scope[registryKey] = tasks
+
+    await expect(call("task.run", { name: "toString" })).rejects.toMatchObject({ code: "TASK_NOT_FOUND" })
+  })
+
+  it("fails with TASK_FAILED, and the message, when the task throws", async () => {
+    scope[registryKey] = tasks
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
     runTask.mockRejectedValueOnce(new Error("no such table: notes"))
-    const failed = await handleTaskDevRequest(request({ name: "db:seed", operation: "run" }), { rootDir, tasks })
+
+    await expect(call("task.run", { name: "db:seed" })).rejects.toMatchObject({ code: "TASK_FAILED", message: "Task \"db:seed\" failed: no such table: notes", status: 500 })
     consoleError.mockRestore()
-    expect(failed.status).toBe(500)
-    expect(await failed.json()).toEqual({ error: { code: "TASK_FAILED", message: "Task \"db:seed\" failed: no such table: notes" } })
+  })
+
+  it("fails with TASK_NOT_IMPLEMENTED for a task file without run()", async () => {
+    scope[registryKey] = tasks
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {})
+    runTask.mockRejectedValueOnce(Object.assign(new Error("Task `db:seed` is not implemented!"), { status: 501 }))
+
+    await expect(call("task.run", { name: "db:seed" })).rejects.toMatchObject({ code: "TASK_NOT_IMPLEMENTED", status: 501 })
+    consoleError.mockRestore()
+  })
+
+  it("fails with TASK_RUNTIME_UNAVAILABLE when the server did not install the registry", async () => {
+    await expect(call("task.list", {})).rejects.toMatchObject({ code: "TASK_RUNTIME_UNAVAILABLE", status: 503 })
+    await expect(call("task.run", { name: "seed" })).rejects.toMatchObject({ code: "TASK_RUNTIME_UNAVAILABLE" })
   })
 })

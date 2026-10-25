@@ -183,6 +183,12 @@
       "require": "./dist/_internal/markdown-template.js",
       "default": "./dist/_internal/markdown-template.js"
     },
+    "./_internal/queue/operations": {
+      "types": "./dist/_internal/queue/operations.d.ts",
+      "import": "./dist/_internal/queue/operations.js",
+      "require": "./dist/_internal/queue/operations.js",
+      "default": "./dist/_internal/queue/operations.js"
+    },
     "./_internal/rate-limit/runtime": {
       "types": "./dist/_internal/rate-limit/runtime.d.ts",
       "import": "./dist/_internal/rate-limit/runtime.js",
@@ -207,17 +213,17 @@
       "require": "./dist/_internal/schedule.js",
       "default": "./dist/_internal/schedule.js"
     },
+    "./_internal/schedule/operations": {
+      "types": "./dist/_internal/schedule/operations.d.ts",
+      "import": "./dist/_internal/schedule/operations.js",
+      "require": "./dist/_internal/schedule/operations.js",
+      "default": "./dist/_internal/schedule/operations.js"
+    },
     "./_internal/schedule/runtime": {
       "types": "./dist/_internal/schedule/runtime.d.ts",
       "import": "./dist/_internal/schedule/runtime.js",
       "require": "./dist/_internal/schedule/runtime.js",
       "default": "./dist/_internal/schedule/runtime.js"
-    },
-    "./_internal/schedule/runtime/dev": {
-      "types": "./dist/_internal/schedule/runtime/dev.d.ts",
-      "import": "./dist/_internal/schedule/runtime/dev.js",
-      "require": "./dist/_internal/schedule/runtime/dev.js",
-      "default": "./dist/_internal/schedule/runtime/dev.js"
     },
     "./_internal/schedule/runtime/kv": {
       "types": "./dist/_internal/schedule/runtime/kv.d.ts",
@@ -237,11 +243,11 @@
       "require": "./dist/_internal/schedule/runtime/static.js",
       "default": "./dist/_internal/schedule/runtime/static.js"
     },
-    "./_internal/task/runtime/dev": {
-      "types": "./dist/_internal/task/runtime/dev.d.ts",
-      "import": "./dist/_internal/task/runtime/dev.js",
-      "require": "./dist/_internal/task/runtime/dev.js",
-      "default": "./dist/_internal/task/runtime/dev.js"
+    "./_internal/task/operations": {
+      "types": "./dist/_internal/task/operations.d.ts",
+      "import": "./dist/_internal/task/operations.js",
+      "require": "./dist/_internal/task/operations.js",
+      "default": "./dist/_internal/task/operations.js"
     },
     "./_internal/workflow": {
       "types": "./dist/_internal/workflow.d.ts",
@@ -249,17 +255,17 @@
       "require": "./dist/_internal/workflow.js",
       "default": "./dist/_internal/workflow.js"
     },
-    "./_internal/workflow/runtime/cloudflare-runner": {
-      "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
-      "import": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
-      "require": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
-      "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
-    },
     "./_internal/workflow/operations": {
       "types": "./dist/_internal/workflow/operations.d.ts",
       "import": "./dist/_internal/workflow/operations.js",
       "require": "./dist/_internal/workflow/operations.js",
       "default": "./dist/_internal/workflow/operations.js"
+    },
+    "./_internal/workflow/runtime/cloudflare-runner": {
+      "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
+      "import": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
+      "require": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
+      "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
     },
     "./_internal/workflow/runtime/cloudflare-vite": {
       "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
@@ -291,12 +297,6 @@
       "require": "./dist/_internal/workspace.js",
       "default": "./dist/_internal/workspace.js"
     },
-    "./_internal/workspace/internal/runtime/history-dev": {
-      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
-    },
     "./_internal/workspace/internal/runtime/hosted": {
       "types": "./dist/_internal/workspace/internal/runtime/hosted.d.ts",
       "import": "./dist/_internal/workspace/internal/runtime/hosted.js",
@@ -314,6 +314,12 @@
       "import": "./dist/_internal/workspace/internal/runtime/state.js",
       "require": "./dist/_internal/workspace/internal/runtime/state.js",
       "default": "./dist/_internal/workspace/internal/runtime/state.js"
+    },
+    "./_internal/workspace/operations": {
+      "types": "./dist/_internal/workspace/operations.d.ts",
+      "import": "./dist/_internal/workspace/operations.js",
+      "require": "./dist/_internal/workspace/operations.js",
+      "default": "./dist/_internal/workspace/operations.js"
     },
     "./_internal/workspace/runtime": {
       "types": "./dist/_internal/workspace/runtime.d.ts",
