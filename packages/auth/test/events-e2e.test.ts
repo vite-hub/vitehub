@@ -1,28 +1,30 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { getMigrations } from "better-auth/db/migration"
+import { APIError } from "better-auth"
+import { createAuthMiddleware } from "better-auth/api"
 import { admin, organization, twoFactor } from "better-auth/plugins"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
 import { aggregateAuthEvents, createBetterAuthOptions, getAuthForDefinition, handleAuthRequest, listAuthEvents } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
 import { runViteHubCli } from "../../cli/src/index.ts"
 import { eventDatabase } from "./event-helpers.ts"
-import type { AuthDefinition } from "../src/types.ts"
+import type { AuthDefinition, AuthRuntimeOptions } from "../src/types.ts"
 
 const origin = "http://localhost:3000"
 const databases: ReturnType<typeof eventDatabase>[] = []
 afterEach(() => { databases.splice(0).forEach(db => db.sqlite.close()); vi.restoreAllMocks() })
 function cookies(response: Response) { return response.headers.getSetCookie().map(value => value.split(";")[0]).filter(value => !value?.endsWith("=")).join("; ") }
-async function setup() {
+async function setup(overrides: AuthRuntimeOptions = {}) {
   const { sqlite, db } = eventDatabase(); databases.push({ sqlite, db, queries: [] })
   const store = createDatabaseAuthEventStore({ db })
   const userHook = vi.fn()
   let otp = ""
   const definition = defineAuth({
-    runtime: { database: sqlite, secret: "auth-events-test-secret-12345678901234567890", baseURL: origin },
     emailAndPassword: { enabled: true },
     plugins: [admin(), organization(), twoFactor({ skipVerificationOnEnable: true, otpOptions: { sendOTP: async (input) => { otp = input.otp } } })],
     databaseHooks: { user: { create: { after: userHook } } },
     events: { store, authorize: ({ user }) => user.role === "admin" },
+    runtime: { database: sqlite, secret: "auth-events-test-secret-12345678901234567890", baseURL: origin, ...overrides },
   })
   await (await getMigrations(createBetterAuthOptions(definition))).runMigrations()
   const request = (path: string, body?: object, cookie?: string) => handleAuthRequest(definition, new Request(`${origin}/api/auth/${path}`, {
@@ -68,6 +70,7 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     const window = { from: new Date(Date.now() - 86400_000).toISOString(), to: new Date(Date.now() + 1000).toISOString() }
     expect((await aggregateAuthEvents(window, definition)).totals).toEqual({ signUps: 2, signIns: 4, activeUsers: 2, methods: { "email-password": 4 } })
     expect((await request("vitehub/events")).status).toBe(401)
+    expect((await request("vitehub/events?cursor=%25", undefined, owner.cookie)).status).toBe(400)
     const plainUser = await signUp("plain")
     expect((await request("vitehub/events", undefined, plainUser.cookie)).status).toBe(403)
     const output: string[] = []; const errors: string[] = []
@@ -114,12 +117,74 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     const challengeCookie = cookies(challenge)
     expect((await app.request("two-factor/send-otp", {}, challengeCookie)).status).toBe(200)
     expect(app.otp()).not.toBe("")
+    expect((await app.request("two-factor/verify-otp", { code: "incorrect" }, challengeCookie)).status).toBe(401)
+    expect((await app.store.list({ type: "sign_in.failed" })).events).toHaveLength(1)
     const verified = await app.request("two-factor/verify-otp", { code: app.otp() }, challengeCookie)
     expect(verified.status).toBe(200)
     expect((await app.store.list({ type: "user.signed_in" })).events).toHaveLength(before + 1)
     expect((await app.store.list({ type: "user.signed_in" })).events[0]?.metadata.method).toBe("two-factor")
     expect((await app.request("get-session", undefined, cookies(verified))).status).toBe(200)
     expect((await app.store.list({ type: "user.signed_in" })).events).toHaveLength(before + 1)
+  })
+
+  it.each([false, true])("records secondary-storage deletions once (database: %s)", async (storeSessionInDatabase) => {
+    const values = new Map<string, string>()
+    const app = await setup({
+      secondaryStorage: { get: async key => values.get(key) ?? null, set: async (key, value) => { values.set(key, value) }, delete: async key => { values.delete(key) } },
+      session: storeSessionInDatabase ? { storeSessionInDatabase: true } : {},
+    })
+    const user = await app.signUp("secondary")
+    const second = await app.request("sign-in/email", { email: "secondary@example.com", password: "passwordpassword" })
+    const token = (await second.json() as { token: string }).token
+    expect((await app.request("revoke-session", { token }, user.cookie)).status).toBe(200)
+    expect((await app.store.list({ type: "session.revoked" })).events).toHaveLength(1)
+    expect((await app.request("sign-out", {}, user.cookie)).status).toBe(200)
+    expect((await app.store.list({ type: "user.signed_out" })).events).toHaveLength(1)
+    const third = await app.request("sign-in/email", { email: "secondary@example.com", password: "passwordpassword" })
+    expect((await app.request("revoke-sessions", {}, cookies(third))).status).toBe(200)
+    expect((await app.store.list({ type: "session.revoked" })).events).toHaveLength(2)
+    const fourth = await app.request("sign-in/email", { email: "secondary@example.com", password: "passwordpassword" })
+    await app.request("sign-in/email", { email: "secondary@example.com", password: "passwordpassword" })
+    expect((await app.request("revoke-other-sessions", {}, cookies(fourth))).status).toBe(200)
+    expect((await app.store.list({ type: "session.revoked" })).events).toHaveLength(3)
+    await (await getAuthForDefinition(app.definition).$context).internalAdapter.updateUser(user.id, { role: "admin" })
+    const owner = await app.request("sign-in/email", { email: "secondary@example.com", password: "passwordpassword" })
+    const member = await app.signUp("impersonated")
+    const impersonation = await app.request("admin/impersonate-user", { userId: member.id }, cookies(owner))
+    expect(impersonation.status).toBe(200)
+    expect((await app.request("admin/stop-impersonating", {}, cookies(impersonation))).status).toBe(200)
+    expect((await app.store.list({ type: "impersonation.stopped" })).events).toHaveLength(1)
+  })
+
+  it.each(["throw", "return", "replace-failure"])("uses the endpoint outcome before an application after-hook: %s", async (mode) => {
+    const app = await setup({ hooks: { after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/sign-in/email") return
+      if (mode === "replace-failure") return ctx.json({ replaced: true })
+      if (mode === "throw") throw new APIError("BAD_REQUEST")
+      return new APIError("BAD_REQUEST")
+    }) } })
+    await app.signUp("hook")
+    await app.request("sign-in/email", { email: "hook@example.com", password: mode === "replace-failure" ? "incorrect-password" : "passwordpassword" })
+    expect((await app.store.list({ type: "user.signed_in" })).events).toHaveLength(mode === "replace-failure" ? 1 : 2)
+    expect((await app.store.list({ type: "sign_in.failed" })).events).toHaveLength(mode === "replace-failure" ? 1 : 0)
+  })
+
+  it("does not classify an invalid enrollment code as a failed sign-in", async () => {
+    const app = await setup({ plugins: [twoFactor()] })
+    const user = await app.signUp("enrollment")
+    expect((await app.request("two-factor/enable", { password: "passwordpassword" }, user.cookie)).status).toBe(200)
+    expect((await app.request("two-factor/verify-totp", { code: "invalid" }, user.cookie)).status).toBe(401)
+    expect((await app.store.list({ type: "sign_in.failed" })).events).toHaveLength(0)
+  })
+
+  it("preserves custom authorization responses", async () => {
+    const database = eventDatabase(); databases.push(database)
+    const app = await setup({ events: { store: createDatabaseAuthEventStore({ db: database.db }), authorize: () => new Response("Try later", { status: 429, headers: { "retry-after": "60" } }) } })
+    const user = await app.signUp("rejected")
+    const response = await app.request("vitehub/events", undefined, user.cookie)
+    expect(response.status).toBe(429)
+    expect(response.headers.get("retry-after")).toBe("60")
+    expect(await response.text()).toBe("Try later")
   })
 
   it("keeps database-free auth and existing hooks usable when events are disabled", async () => {

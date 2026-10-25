@@ -37,7 +37,7 @@ describe("auth event SQLite store", () => {
     expect((await store.list({ from: "2026-10-20T10:00:00.000Z" })).events).toHaveLength(3)
     expect((await store.list({ actor: "user:' OR 1=1 --" })).events).toEqual([])
   })
-  it("aggregates daily and window-distinct users in two queries and zero-fills days", async () => {
+  it("aggregates daily and window-distinct users in one snapshot and zero-fills days", async () => {
     const { db, queries } = database()
     const store = createDatabaseAuthEventStore({ db, retention: false })
     for (const item of [
@@ -49,10 +49,24 @@ describe("auth event SQLite store", () => {
     ]) await store.append(item)
     queries.length = 0
     const result = await store.aggregate(window)
-    expect(queries).toHaveLength(2)
+    expect(queries).toHaveLength(1)
     expect(result.totals).toEqual({ signUps: 1, signIns: 4, activeUsers: 2, methods: { "email-password": 3, "oauth:github": 1 } })
     expect(result.days.map(day => day.activeUsers)).toEqual([1, 2, 0])
     expect(result.days[2]).toEqual({ day: "2026-10-22", signUps: 0, signIns: 0, activeUsers: 0, methods: {} })
+  })
+  it("keeps method totals consistent when a write follows the aggregate read", async () => {
+    const { db } = database()
+    const store = createDatabaseAuthEventStore({ db, retention: false })
+    await store.append(event("before"))
+    const all = db.all.bind(db)
+    vi.spyOn(db, "all").mockImplementation(async (query) => {
+      const rows = await all(query)
+      await store.append(event("during"))
+      return rows
+    })
+    const result = await store.aggregate(window)
+    expect(result.totals.signIns).toBe(1)
+    expect(Object.values(result.totals.methods).reduce((sum, count) => sum + count, 0)).toBe(result.totals.signIns)
   })
   it("enforces retention by age and count on writes and hides expired rows on reads", async () => {
     vi.useFakeTimers(); vi.setSystemTime(new Date("2026-10-21T10:00:00Z"))

@@ -147,17 +147,19 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
       const to = new Date(v.parse(timestamp, window.to)).toISOString()
       if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
       await initialize()
-      // Two SQL queries, independent of user count. Totals use distinct over the full window.
+      // One statement gives daily counts, full-window distinct users and methods one snapshot.
       const where = sql`${visible()} AND time >= ${from} AND time < ${to} AND type IN ('user.signed_up', 'user.signed_in')`
       const counts = sql`SUM(CASE WHEN type = 'user.signed_up' THEN 1 ELSE 0 END) AS signUps, SUM(CASE WHEN type = 'user.signed_in' THEN 1 ELSE 0 END) AS signIns, COUNT(DISTINCT CASE WHEN type = 'user.signed_in' THEN user_id END) AS activeUsers`
-      const rows = await db.all(sql`SELECT substr(time, 1, 10) AS day, ${counts} FROM vitehub_auth_events WHERE ${where} GROUP BY day UNION ALL SELECT NULL AS day, ${counts} FROM vitehub_auth_events WHERE ${where}`)
-      const methods = await db.all(sql`SELECT substr(time, 1, 10) AS day, method, COUNT(*) AS count FROM vitehub_auth_events WHERE ${where} AND type = 'user.signed_in' GROUP BY day, method`)
+      const rows = await db.all(sql`SELECT substr(time, 1, 10) AS day, ${counts}, NULL AS method, NULL AS count FROM vitehub_auth_events WHERE ${where} GROUP BY day
+        UNION ALL SELECT NULL AS day, ${counts}, NULL AS method, NULL AS count FROM vitehub_auth_events WHERE ${where}
+        UNION ALL SELECT substr(time, 1, 10) AS day, NULL AS signUps, NULL AS signIns, NULL AS activeUsers, method, COUNT(*) AS count FROM vitehub_auth_events WHERE ${where} AND type = 'user.signed_in' GROUP BY day, method`)
+      const methods = rows.filter(row => (row as { count: unknown }).count !== null)
       const empty = (): AuthEventCounts => ({ signUps: 0, signIns: 0, activeUsers: 0, methods: {} })
       const days = new Map<string, AuthEventCounts>()
       for (let time = Date.parse(`${from.slice(0, 10)}T00:00:00.000Z`); time < Date.parse(to); time += 86400_000) days.set(new Date(time).toISOString().slice(0, 10), empty())
       let totals = empty()
       const countSchema = v.object({ day: v.nullable(v.string()), signUps: v.nullable(v.number()), signIns: v.nullable(v.number()), activeUsers: v.number() })
-      for (const row of rows) {
+      for (const row of rows.filter(row => (row as { count: unknown }).count === null)) {
         const item = v.parse(countSchema, row)
         const value = { signUps: item.signUps ?? 0, signIns: item.signIns ?? 0, activeUsers: item.activeUsers, methods: {} }
         if (item.day) days.set(item.day, value)

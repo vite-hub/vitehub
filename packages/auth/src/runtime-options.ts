@@ -1,3 +1,4 @@
+import { createAuthMiddleware } from "better-auth/api"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { applyAuthPreset } from "./preset-options.ts"
@@ -62,12 +63,21 @@ function stripViteHubOptions(
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
+  const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
+  const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
     ...storage,
     ...sessionRefresh,
-    ...(events ? { plugins: [...plugins, createAuthEventsPlugin(events)] } : {}),
+    ...(eventPlugin ? {
+      plugins: [...plugins, eventPlugin],
+      hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
+        // Capture the endpoint outcome before application/plugin after-hooks replace it.
+        eventPlugin.captureOutcome(args[0])
+        return after(...args)
+      }, { options: after.options }) },
+    } : {}),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions

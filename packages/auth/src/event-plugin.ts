@@ -39,7 +39,9 @@ export function authEventDevice(agent: string | null | undefined): AuthDevice {
 }
 
 /** Compose with Better Auth's own hook pipeline, including direct auth.api calls. */
-export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin {
+export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin & { captureOutcome: (ctx: GenericEndpointContext) => void } {
+  const outcomes = new WeakMap<object, unknown>()
+  const challenges = new WeakSet<object>()
   const wrappedAdapters = new WeakSet<object>()
   const createdSessions = new WeakSet<object>()
   const recordedSessions = new WeakSet<object>()
@@ -53,8 +55,13 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
       console.warn("[vitehub] AUTH_EVENT_WRITE_FAILED: Could not record an auth event.")
     }
   }
+  async function deleted(session: { userId: string, id: string, impersonatedBy?: unknown }, ctx: GenericEndpointContext | null) {
+    const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"
+    await append(type, session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined))
+  }
   return {
     id: "vitehub-auth-events",
+    captureOutcome(ctx) { outcomes.set(ctx.context, ctx.context.returned) },
     init: () => ({ options: { databaseHooks: {
       user: {
         create: { async after(user, ctx) {
@@ -86,13 +93,43 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           }
         } },
         delete: { async after(session, ctx) {
-          const type = ctx?.path === "/sign-out" ? "user.signed_out" : ctx?.path === "/admin/stop-impersonating" ? "impersonation.stopped" : "session.revoked"
-          await append(type, session.userId, ctx, { sessionId: session.id }, identifier(session.impersonatedBy) ?? (type === "user.signed_out" ? session.userId : undefined))
+          await deleted(session, ctx)
         } },
       },
     } } }),
     hooks: {
       before: [{
+        matcher: () => true,
+        handler: createAuthMiddleware(async (ctx) => {
+          if (ctx.path?.startsWith("/two-factor/verify-") && !await getSessionFromCtx(ctx, { disableRefresh: true })) {
+            const cookie = ctx.context.createAuthCookie("two_factor")
+            const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
+            if (token && await ctx.context.internalAdapter.findVerificationValue(token)) challenges.add(ctx.context)
+          }
+          // Secondary-only sessions bypass database deletion hooks. Wrap the request's
+          // internal adapter, preserving the original deletion and recording only afterward.
+          if (!ctx.context.options.secondaryStorage || ctx.context.options.session?.storeSessionInDatabase) return
+          const adapter = ctx.context.internalAdapter
+          ctx.context.internalAdapter = {
+            ...adapter,
+            async deleteSession(token) {
+              const session = await adapter.findSession(token)
+              await adapter.deleteSession(token)
+              if (session) await deleted(session.session, ctx)
+            },
+            async deleteSessions(tokens) {
+              const sessions = await Promise.all(tokens.map(token => adapter.findSession(token)))
+              await adapter.deleteSessions(tokens)
+              for (const session of sessions) if (session) await deleted(session.session, ctx)
+            },
+            async deleteUserSessions(userId) {
+              const sessions = await adapter.listSessions(userId)
+              await adapter.deleteUserSessions(userId)
+              for (const session of sessions) await deleted(session, ctx)
+            },
+          }
+        }),
+      }, {
         matcher: ctx => Boolean(ctx.path?.startsWith("/oauth2/")),
         handler: createAuthMiddleware(async (ctx) => {
           // OAuth Provider writes its own models through the public adapter, outside core databaseHooks.
@@ -132,10 +169,6 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
         handler: createAuthMiddleware(async (ctx) => {
           const path = ctx.path ?? ""
           const result: unknown = ctx.context.returned
-          if (result instanceof APIError) {
-            if (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path.startsWith("/two-factor/verify-")) await append("sign_in.failed", null, ctx, { method: method(ctx) })
-            return
-          }
           const value = record(result)
           const signedIn = ctx.context.newSession
           // Better Auth clears newSession when the first factor still needs 2FA.
@@ -144,6 +177,11 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             recordedSessions.add(signedIn.session)
             await append("user.signed_in", signedIn.user.id, ctx, { method: method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
           }
+          const outcome = outcomes.get(ctx.context)
+          if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || challenges.has(ctx.context))) {
+            await append("sign_in.failed", null, ctx, { method: method(ctx) })
+          }
+          if (result instanceof APIError) return
           if (path === "/admin/set-user-password") {
             const userId = identifier(record(ctx.body).userId)
             if (userId) { await getSessionFromCtx(ctx, { disableRefresh: true }); await append("user.updated", userId, ctx, { fields: ["password"] }) }
@@ -166,7 +204,10 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
     },
     endpoints: options.authorize ? {
       vitehubAuthEvents: createAuthEndpoint("/vitehub/events", { method: "GET", use: [sensitiveSessionMiddleware] }, async (ctx) => {
-        if (!ctx.request || await options.authorize!({ request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session }) !== true) throw new APIError("FORBIDDEN")
+        if (!ctx.request) throw new APIError("FORBIDDEN")
+        const authorization = await options.authorize!({ request: ctx.request, user: ctx.context.session.user, session: ctx.context.session.session })
+        if (authorization instanceof Response) return authorization
+        if (authorization !== true) throw new APIError("FORBIDDEN")
         ctx.setHeader("cache-control", "no-store")
         const query = new URL(ctx.request.url).searchParams
         try {
@@ -175,7 +216,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
           return ctx.json(await options.store.list({ ...input, ...(query.has("limit") ? { limit: Number(query.get("limit")) } : {}) } as AuthEventListInput))
         }
         catch (error) {
-          if (error instanceof TypeError || error instanceof SyntaxError || record(error).name === "ValiError") throw new APIError("BAD_REQUEST", { message: "Invalid auth event filters." })
+          if (error instanceof TypeError || error instanceof SyntaxError || error instanceof URIError || record(error).name === "ValiError") throw new APIError("BAD_REQUEST", { message: "Invalid auth event filters." })
           throw error
         }
       }),
