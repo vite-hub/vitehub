@@ -437,6 +437,24 @@ describe("ViteHub Nuxt integration", () => {
     expect(result.outputFiles?.[0]?.text).toContain("installConsoleDefinitions")
   })
 
+  it.each([false, true])("bundles facade and owner imports through Nitro runtime aliases (dev: %s)", async (dev) => {
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    const inline = ["existing-inline"]
+    const external = ["existing-external"]
+    const nitroConfig = { externals: { inline, external, trace: false } }
+
+    await viteHubNuxtModule({ preset: "node", blob: true, kv: true, database: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.externals).toEqual({
+      inline: ["existing-inline", "vite-hub", "@vite-hub/"],
+      external,
+      trace: false,
+    })
+    expect(inline).toEqual(["existing-inline"])
+  })
+
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
     let resolvedKv: unknown
     let resolvedBlob: unknown
@@ -2279,6 +2297,17 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
   })
 
+  it.each([undefined, false, true])("defaults Cloudflare deployment output while preserving an explicit %s setting", async (deployConfig) => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { cloudflare: { deployConfig, wrangler: { name: "existing-worker" } } } })
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({
+      cloudflare: { deployConfig: deployConfig ?? true, wrangler: { name: "existing-worker" } },
+    })
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
@@ -2453,6 +2482,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
+      externals: { inline: ["vite-hub", "@vite-hub/"] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3683,7 +3713,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node"],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/"],
       external: ["external-package"],
       trace: false,
     }
@@ -3714,7 +3744,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual(externals)
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/"] })
+    expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)
   })

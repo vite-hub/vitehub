@@ -148,6 +148,10 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
  */
 function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string, devHandler?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
+  const externals = cloneNitroConfig(nitro.externals)
+  const inline = Array.isArray(externals.inline) ? externals.inline : []
+  // Generated file imports and package imports must share Nitro's bundled runtime.
+  nitro.externals = { ...externals, inline: [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler
@@ -162,7 +166,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(plugin)
-  if (cloudflare) kit.addHandler({ handler: middleware, middleware: true, route: "/**" })
+  if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
   if (devHandler) kit.addHandler({ handler: devHandler, route: blobDevRuntimeRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
@@ -232,7 +236,6 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
           "import { env as vitehubEnv } from 'cloudflare:workers'",
         ]
       : []),
-    "import { defineMiddleware } from 'nitro'",
     `import { setActiveCloudflareEnv } from '${importBase}/runtime/state'`,
     "",
     "type CloudflareEnv = Record<string, unknown>",
@@ -243,8 +246,8 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
     "  req?: { runtime?: { cloudflare?: { env?: CloudflareEnv } } }",
     "}",
     "",
-    "export default defineMiddleware((event) => {",
-    "  const target = event as unknown as CloudflareEvent",
+    "export default function vitehubBlobMiddleware(event: unknown) {",
+    "  const target = event as CloudflareEvent",
     ...(workersModule
       ? [`  const env = ${requestEnv} ?? (vitehubEnv as unknown as CloudflareEnv)`, "  setActiveCloudflareEnv(env)"]
       : [
@@ -252,7 +255,7 @@ function renderNitroBlobMiddleware(importBase = blobPackageName, workersModule =
           `  const env = ${requestEnv}`,
           "  if (env) setActiveCloudflareEnv(env)",
         ]),
-    "})",
+    "}",
     "",
   ].join("\n")
 }
@@ -261,71 +264,52 @@ function renderBlobServeRouteHandler(serve: BlobServeConfig, importBase = blobPa
   const headers = serve.headers && Object.keys(serve.headers).length > 0 ? serve.headers : undefined
   // Authorized objects belong to one user, so shared caches must not store them unless the app sets its own policy.
   const cacheControl = Object.entries(headers ?? {}).findLast(([name]) => name.toLowerCase() === "cache-control")?.[1]
-    ?? (serve.authorize ? "private, no-cache" : undefined)
+    ?? (serve.authorize ? "private, no-cache" : "public, max-age=0, s-maxage=0")
   return [
     `import { blob, parseImageVariant } from '${importBase}'`,
     ...(serve.authorize ? [`import { withAuthorization } from ${JSON.stringify(AUTH_SERVER_ID)}`] : []),
     ...(authorizeModule ? [`import { authorize } from ${JSON.stringify(authorizeModule)}`] : []),
-    `import { createError, ${serve.authorize ? "defineHandler, " : ""}getQuery, getRouterParam${cacheControl !== undefined ? ", handleCacheHeaders, setResponseHeader" : ""}${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
-    ...(serve.authorize ? ["import type { H3Event } from 'h3'"] : []),
-    "import { defineCachedHandler } from 'nitro/cache'",
+    `import { createError, defineEventHandler, getQuery, getResponseStatus, getRouterParam, setResponseHeader${headers ? ", removeResponseHeader, setResponseHeaders" : ""} } from 'h3'`,
+    "import type { H3Event } from 'h3'",
     "",
     `const storeName = ${JSON.stringify(serve.store)}`,
     ...(headers ? [`const responseHeaders = ${JSON.stringify(headers)}`] : []),
     "",
-    `${serve.authorize ? "const serveBlob =" : "export default"} defineCachedHandler(async (event) => {`,
+    "async function serveBlob(event: H3Event) {",
     "  const pathname = getRouterParam(event, '_', { decode: false }) || ''",
     "  if (!pathname) throw createError({ statusCode: 404, statusMessage: 'Blob not found' })",
     "  // ?w=&h=&fit=&fmt=&q=&crop= selects an image variant. Invalid values are client errors.",
-    "  let options: { variant: NonNullable<ReturnType<typeof parseImageVariant>> } | undefined",
+    `  const options: { variant?: NonNullable<ReturnType<typeof parseImageVariant>>, cacheControl: string } = { cacheControl: ${JSON.stringify(cacheControl)} }`,
     "  try {",
     "    const variant = parseImageVariant(getQuery(event))",
-    "    if (variant) options = { variant }",
+    "    if (variant) options.variant = variant",
     "  }",
     "  catch (error) {",
     "    throw createError({ cause: error, statusCode: 400, statusMessage: error instanceof Error ? error.message : 'Invalid image variant' })",
     "  }",
     ...(headers ? ["  setResponseHeaders(event, responseHeaders)"] : []),
-    ...(headers
-      ? [
-          "  try {",
-          "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
-          "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
-          "    if (error) throw error",
-          "    return stream",
-          "  }",
-          "  catch (error) {",
-          "    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)",
-          "    throw error",
-          "  }",
-        ]
-      : [
-          "  const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
-          "  if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
-          "  if (error) throw error",
-          "  return stream",
-        ]),
-    ...(cacheControl !== undefined
-      ? [
-          "}, {",
-          "  headersOnly: true,",
-          "  maxAge: 0,",
-          "  // Keep the configured policy after conditional request handling sets default cache headers.",
-          "  handleCacheHeaders(event, conditions) {",
-          "    const handled = handleCacheHeaders(event, conditions)",
-          `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
-          "    return handled",
-          "  },",
-          "})",
-        ]
-      : ["}, { headersOnly: true, maxAge: 0 })"]),
+    "  try {",
+    "    const [error, stream] = await blob.store(storeName).serve(event, pathname, options)",
+    "    if (error?.code === 'BLOB_NOT_FOUND') throw createError({ cause: error, statusCode: 404, statusMessage: 'Blob not found' })",
+    "    if (error) throw error",
+    // H3 2 merges event headers over returned values. Keep the final policy on the event.
+    `    setResponseHeader(event, 'Cache-Control', ${JSON.stringify(cacheControl)})`,
+    // H3 2 adds Content-Length: 0 to null values, which is incorrect for an unchanged object.
+    "    if (stream === null && getResponseStatus(event) === 304) return new Response(null, { status: 304 })",
+    "    return stream",
+    "  }",
+    "  catch (error) {",
+    ...(headers ? ["    for (const name of Object.keys(responseHeaders)) removeResponseHeader(event, name)"] : []),
+    "    throw error",
+    "  }",
+    "}",
+    "",
     ...(serve.authorize
       ? [
-          "",
           "// Authorize before the store read and before conditional request handling.",
-          `export default defineHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
+          `export default defineEventHandler(withAuthorization(${authorizeModule ? "authorize" : "true"}, (event: H3Event) => serveBlob(event)))`,
         ]
-      : []),
+      : ["export default defineEventHandler(serveBlob)"]),
     "",
   ].join("\n")
 }

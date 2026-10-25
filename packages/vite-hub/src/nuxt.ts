@@ -772,6 +772,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nitro.preset = nitroPreset
   if (plan.preset === "cloudflare") {
+    const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
+    cloudflare.deployConfig ??= true
     const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
     wasm.lazy ??= true
   }
@@ -1287,6 +1289,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
+    const externals = isRecord(config.externals) ? config.externals : {}
+    const inline = Array.isArray(externals.inline) ? externals.inline : []
+    // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
+    config.externals = { ...externals, inline: [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config)
     if (emailPlugin && nuxt.options.dev) {

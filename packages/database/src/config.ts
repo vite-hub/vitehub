@@ -210,7 +210,7 @@ function readStringExpression(expression: Expression | undefined): string | unde
   return typeof resolved === "string" && resolved.trim() ? resolved : undefined
 }
 
-function resolveObjectLiteral(value: Expression | undefined, file: string): ObjectExpression | undefined {
+function resolveModuleExpression(value: Expression | undefined, file: string): Expression | undefined {
   const module = scanModule(readFileSync(file, "utf8"), file)
   const seen = new Set<string>()
   let expression = value && unwrapExpression(value)
@@ -218,7 +218,11 @@ function resolveObjectLiteral(value: Expression | undefined, file: string): Obje
     seen.add(expression.name)
     expression = readModuleDeclaration(module, expression.name)
   }
-  return objectLiteral(expression)
+  return expression
+}
+
+function resolveObjectLiteral(value: Expression | undefined, file: string): ObjectExpression | undefined {
+  return objectLiteral(resolveModuleExpression(value, file))
 }
 
 /** Whether a Database Definition's source sets `cloudflare.readReplication`. Undefined when it does not set it as a literal. */
@@ -537,11 +541,11 @@ export function isStaticD1HttpDefinition(file: string) {
 }
 
 function readDefinitionConnectionConfig(file: string) {
-  const body = objectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"))
+  const body = resolveObjectLiteral(readObjectPropertyValue(readDefinitionObjectBody(file), "connection"), file)
   if (!body) return
   const value = {
-    authToken: readConfigValue(body, "authToken"),
-    url: readConfigValue(body, "url"),
+    authToken: readConfigExpression(resolveModuleExpression(readObjectPropertyValue(body, "authToken"), file)),
+    url: readConfigExpression(resolveModuleExpression(readObjectPropertyValue(body, "url"), file)),
   }
   return Object.values(value).some(item => typeof item !== "undefined") ? value : undefined
 }
@@ -830,7 +834,7 @@ function hasConnectionValue(value: DatabaseConfigValue | undefined) {
 function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback: DatabaseConfigValue | undefined) {
   const resolved = resolveConfigValue(value)
   if (typeof resolved === "string" && resolved.trim()) return value
-  return typeof value === "object" && typeof fallback !== "undefined" ? value : fallback
+  return typeof value === "object" ? value : fallback
 }
 
 function resolveDefinitionConnection(file: string, name: string, fallback?: DatabaseConnectionConfig) {

@@ -906,7 +906,7 @@ describe("resolveDBViteConfig", () => {
     }
   })
 
-  it("uses the local connection fallback when an env-only URL is unset", async () => {
+  it("retains env-only connection declarations when their values are unset", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN
     const originalUrl = process.env.TURSO_DATABASE_URL
@@ -921,10 +921,13 @@ describe("resolveDBViteConfig", () => {
         ].join("\n"),
       })
 
-      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
-        authToken: undefined,
-        url: "file:.vitehub/data/database/sqlite.db",
+      const connection = resolveDBViteConfig(undefined, rootDir)?.databases.default.connection
+      expect(connection).toEqual({
+        authToken: { kind: "env-variable", source: { kind: "env", name: "TURSO_AUTH_TOKEN" } },
+        url: { kind: "env-variable", source: { kind: "env", name: "TURSO_DATABASE_URL" } },
       })
+      process.env.TURSO_DATABASE_URL = "libsql://runtime.example.turso.io"
+      expect(resolveConfigValue(connection?.url)).toBe("libsql://runtime.example.turso.io")
     }
     finally {
       if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
