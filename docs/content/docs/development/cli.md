@@ -425,9 +425,9 @@ Start the app's Vite Development Server, then run the task from another terminal
 
 ```bash [Terminal]
 pnpm vitehub task list
-pnpm vitehub task run db:seed --payload '{"title":"First note"}'
-pnpm vitehub task run db:seed --payload '{"title":"First note","count":3}' --json
-pnpm vitehub task run db:seed --url https://app.example.com
+pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
+pnpm vitehub task run db:seed --payload '{"title":"First note","count":3}' --json --yes
+pnpm vitehub task run db:seed --url https://app.example.com --yes
 ```
 
 ```json [Output]
@@ -450,7 +450,7 @@ pnpm vitehub task run db:seed --url https://app.example.com
 
 `vitehub inspect definitions --kind task` lists the files in `server/tasks/` without a running server. `task list` asks the running app, so it also shows tasks that `nitro.tasks` declares in the Vite config.
 
-`task list` and `task run` are the `task.list` and `task.run` [operations](/docs/development/operations) in the `tasks` section. They exist when the app has task files or declares `nitro.tasks`. A generated Nitro plugin hands the registry of Nitro to them, so they work on a deployment too, with `--url` and the Console credentials. The `tasks` section has no Console page. Grant it in `console.authorize` with `sections: ['tasks']`, or `'tasks:read'` to allow listing only. A task can change anything the app can, so give `tasks` only to people who may run a seed or a backfill. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt.
+`task list` and `task run` are the `task.list` and `task.run` [operations](/docs/development/operations) in the `tasks` section. They exist when the app has task files or declares `nitro.tasks`. A generated Nitro plugin hands the registry of Nitro to them, so they work on a deployment too, with `--url` and the Console credentials, when `console.invoke` is on for `task run`. `task run` is `destructive`, so it asks for `--yes`. The `tasks` section has no Console page. Grant it in `console.authorize` with `sections: ['tasks']`, or `'tasks:read'` to allow listing only. A task can change anything the app can, so give `tasks` only to people who may run a seed or a backfill. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt.
 
 Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `nitro.tasks` already declares keeps its handler and description.
 
@@ -481,6 +481,10 @@ pnpm vitehub invocations get ainv_123 --json
 pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
+
+The generated commands need the Console RPC, so they exist in apps that use `vitehub()`. A project that adds `hubWorkflow()`, `hubSchedule()`, `hubQueue()`, or another package plugin directly gets no generated commands from it.
+
+An operation that runs code of the app, `workflow.start`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
 The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
@@ -513,7 +517,7 @@ The Console runs the same operation from the Schedules page, and a read-only gra
 
 ### Signed dispatch
 
-A CI job without a Console login can still post a signed run to `/_vitehub/schedules/run`. The deployment derives the dispatch key from its [`VITEHUB_SECRET`](/docs/env/app-secret). `vitehub schedule run` does not sign: send the request yourself. The route takes signed dispatches only.
+A CI job without a Console login can still run a Schedule. When `VITEHUB_DISPATCH_KEY` (or `VITEHUB_SECRET`) is set, `vitehub schedule run <name> --url <origin>` signs the input and posts it to `/_vitehub/schedules/run`. Without a key, it calls the Console RPC with the Console credentials. The deployment derives the dispatch key from its [`VITEHUB_SECRET`](/docs/env/app-secret). The route takes signed dispatches only.
 
 ```bash [Terminal]
 # Once, where the deployment's root secret is available:

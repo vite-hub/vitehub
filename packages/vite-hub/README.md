@@ -121,7 +121,7 @@ Start `vite dev`, then run the task from another terminal. The task runs in the 
 
 ```sh
 pnpm vitehub task list
-pnpm vitehub task run db:seed --title "First note"
+pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
 ```
 
 `vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.

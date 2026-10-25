@@ -67,6 +67,10 @@ interface OperationContext {
 }
 ```
 
+An operation that sets `invoke: true` runs code of the app: `workflow.start`, `queue.send`, `task.run`, and `schedule.run`. The Console registers it only when `console.invoke` is on, which is the default in development and off in a production build. Without `invoke`, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch of the operation, so `schedule run --url` can run with a dispatch key and no Console credentials.
+
+The generated commands call the Console RPC, so an app needs `vitehub()` for them. A project that adds a package plugin such as `hubWorkflow()` directly has the operations in the plugin but no commands.
+
 `console.authorize` grants a section as `'kv'` (every operation) or `'kv:read'` (only `kind: 'read'` operations and calls that `readOnlyWhen` marks as read only). The check runs once, in the shared access path, so the Console RPC, the CLI with `--url`, agent tools, and MCP agree. An operation that serves both reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` so a read-only role keeps its reads.
 
 Check the policy of your own package inside `run`. The section check only decides who may reach the operation. `content.*` operations, for example, call `content.can()` for each document.
