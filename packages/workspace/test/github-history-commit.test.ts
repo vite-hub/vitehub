@@ -328,7 +328,7 @@ describe("GitHub history commit", () => {
     expect(fake.pulls[0]).toMatchObject({ base: "main", head: "vitehub/publish/abc1234-1", body: "Body" })
     await target.openPullRequest!({ head: "other/branch", base: "published", title: "Other" })
     vi.useFakeTimers({ toFake: ["Date"] })
-    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([opened])
+    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([{ ...opened, mergeBase: published }])
     fake.mergePullRequest(1)
     vi.advanceTimersByTime(6_000)
     await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([])
