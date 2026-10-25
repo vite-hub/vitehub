@@ -20,6 +20,7 @@ const emit = defineEmits<{ close: []; changed: [action: AuthConsoleAction] }>();
 const text = ref("");
 const expires = ref("");
 const checked = ref(false);
+const unset = ref(false);
 const error = ref("");
 const pending = ref(false);
 const labels: Record<AuthConsoleAction, string> = {
@@ -54,6 +55,7 @@ const open = computed({
 watch(
   () => [props.action, props.field?.key, props.userId, props.id],
   () => {
+    unset.value = false;
     error.value = "";
     expires.value = "";
     checked.value = props.value === true;
@@ -84,7 +86,8 @@ async function submit() {
         break;
       case "editField": {
         let value: AuthConsoleValue = text.value;
-        if (props.field?.type === "boolean") value = checked.value;
+        if (unset.value && !props.field?.required) value = null;
+        else if (props.field?.type === "boolean") value = checked.value;
         else if (props.field?.type === "number") {
           if (!text.value.trim()) throw new Error("Enter a number.");
           value = Number(text.value);
@@ -145,11 +148,24 @@ async function submit() {
           ><UInput v-model="text" required class="w-full"
         /></UFormField>
         <UFormField v-if="action === 'editField'" :label="field?.label" :required="field?.required">
-          <USelect v-if="field?.values" v-model="text" :items="field.values" class="w-full" />
-          <USwitch v-else-if="field?.type === 'boolean'" v-model="checked" :label="field.label" />
+          <USwitch v-if="!field?.required" v-model="unset" label="Unset value" />
+          <USelect
+            v-if="field?.values"
+            v-model="text"
+            :disabled="unset"
+            :items="field.values"
+            class="w-full"
+          />
+          <USwitch
+            v-else-if="field?.type === 'boolean'"
+            v-model="checked"
+            :disabled="unset"
+            :label="field.label"
+          />
           <UInput
             v-else
             v-model="text"
+            :disabled="unset"
             :type="field?.type === 'number' ? 'number' : 'text'"
             :placeholder="field?.type === 'date' ? '2026-10-25T12:00:00Z' : undefined"
             :required="field?.required"

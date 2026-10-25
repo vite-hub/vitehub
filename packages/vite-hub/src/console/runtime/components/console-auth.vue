@@ -58,6 +58,12 @@ const icons: Record<AuthConsolePage, string> = {
   agents: "i-lucide-bot",
 };
 let controller: AbortController | undefined;
+let orgController: AbortController | undefined;
+function closeOrganization() {
+  orgController?.abort();
+  selectedOrg.value = undefined;
+  orgError.value = undefined;
+}
 let timer: ReturnType<typeof setTimeout> | undefined;
 async function refresh() {
   controller?.abort();
@@ -127,7 +133,7 @@ function navigate(target: AuthConsolePage) {
 watch(page, () => {
   offset.value = 0;
   selectedUser.value = undefined;
-  selectedOrg.value = undefined;
+  closeOrganization();
   void refresh();
 });
 watch([search, filter], () => {
@@ -137,21 +143,29 @@ watch([search, filter], () => {
 });
 watch(offset, () => void refresh());
 async function openOrganization(id: string, offset = 0) {
+  orgController?.abort();
+  const current = new AbortController();
+  orgController = current;
   orgError.value = undefined;
   try {
-    selectedOrg.value = await readAuthConsole(props.managementBase, "organization", {
-      id,
-      query: { offset, limit },
-    });
+    const result = await readAuthConsole(
+      props.managementBase,
+      "organization",
+      { id, query: { offset, limit } },
+      current.signal,
+    );
+    if (current.signal.aborted) return;
+    selectedOrg.value = result;
     orgOffset.value = offset;
   } catch (cause) {
-    orgError.value = cause;
+    if (!current.signal.aborted) orgError.value = cause;
   }
 }
 rememberConsoleSection("auth");
 void refresh();
 onBeforeUnmount(() => {
   controller?.abort();
+  orgController?.abort();
   clearTimeout(timer);
 });
 </script>
@@ -450,8 +464,7 @@ onBeforeUnmount(() => {
       @update:open="
         (value) => {
           if (!value) {
-            selectedOrg = undefined;
-            orgError = undefined;
+            closeOrganization();
           }
         }
       "
