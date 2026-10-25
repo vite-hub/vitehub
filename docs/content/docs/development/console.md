@@ -360,7 +360,7 @@ export default defineConsoleAuthorize(({ user }) => {
 })
 ```
 
-A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins.
+A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins. The Console hides the write actions of a section it may only read, such as the KV editor and the Blob upload.
 
 ::warning
 Breaking change: a section grant now includes the write actions of its section. `{ sections: ['kv'] }` lets a user set and delete keys, `'blob'` lets them upload and delete blobs, and `'rate-limits'` lets them reset counters, where these pages only read before. Use `'<section>:read'`, for example `{ sections: ['kv:read', 'blob:read'] }`, for a read-only role.
