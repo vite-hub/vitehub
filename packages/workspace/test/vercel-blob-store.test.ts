@@ -182,14 +182,16 @@ describe("Vercel Blob workspace store", () => {
     const path = "readme.md"
     await first.writeFile(path, { path, content: "original", metadata: { owner: "original" } })
     const put = blobMock.put.getMockImplementation()!
-    const entered = Promise.withResolvers<void>()
-    const release = Promise.withResolvers<void>()
+    let enter!: () => void
+    let release!: () => void
+    const entered = new Promise<void>((resolve) => { enter = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
     let paused = false
     blobMock.put.mockImplementation(async (...args) => {
       if (args[0].includes("file-attributes") && !paused) {
         paused = true
-        entered.resolve()
-        await release.promise
+        enter()
+        await released
         if (fail) throw new Error("sidecar unavailable")
       }
       return put(...args)
@@ -197,13 +199,13 @@ describe("Vercel Blob workspace store", () => {
     try {
       const a = first.writeFile(path, { path, content: "A", metadata: { owner: "A" } })
       const resultA = a.catch(error => error)
-      await entered.promise
+      await entered
       let completed = false
       const b = second.writeFile(path, { path, content: "B", metadata: { owner: "B" } }).then(() => { completed = true })
       // Give the second writer a full event-loop turn while A is paused.
       await new Promise(resolve => setTimeout(resolve, 0))
       const completedWhilePaused = completed
-      release.resolve()
+      release()
       const result = await resultA
       await b
       await expect(second.readFile(path)).resolves.toEqual({ path, content: new TextEncoder().encode("B"), metadata: { owner: "B" } })
@@ -212,7 +214,7 @@ describe("Vercel Blob workspace store", () => {
       else expect(result).toBeUndefined()
     }
     finally {
-      release.resolve()
+      release()
       blobMock.put.mockImplementation(put)
     }
   })
