@@ -1,5 +1,4 @@
 import type { AgentInvocationStore } from "../invocations.ts"
-import { Diagnostic } from "nostics"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
@@ -30,19 +29,28 @@ export interface LocalAgentInvocationCancellation {
 
 const cancellationHandlesKey = Symbol.for("vitehub.agentInvocationCancellations")
 
-const agentInvocationCancellationCode = "AGENT_R0970"
-const cancellationInvocationId = Symbol.for("vitehub.agentInvocationCancellationId")
-const observedCancellationFailures = new WeakMap<object, Set<string>>()
+const cancellationErrorsKey = Symbol.for("vitehub.agent.invocation-cancellation-errors")
+
+interface CancellationErrors {
+  reasons: WeakMap<object, string>
+  observed: WeakMap<object, Set<string>>
+}
+
+function cancellationErrors(): CancellationErrors {
+  // SAFETY: Cancellation factories and observers own this slot across bundles in this process.
+  const scope = globalThis as typeof globalThis & { [cancellationErrorsKey]?: CancellationErrors }
+  return scope[cancellationErrorsKey] ??= { reasons: new WeakMap(), observed: new WeakMap() }
+}
 
 /** Retains the owner-observed cancellation identity for genuine abort failures. */
 export function markAgentInvocationCancellationFailure(error: unknown, reason: unknown): void {
-  if (!isRuntimeRecord(error)) return
-  if (!(reason instanceof Diagnostic) || reason.code !== agentInvocationCancellationCode) return
-  const id: unknown = Reflect.get(reason, cancellationInvocationId)
-  if (!hasRuntimeType(id, "string")) return
-  const ids = observedCancellationFailures.get(error) ?? new Set<string>()
+  if (!isRuntimeRecord(error) || !isRuntimeRecord(reason)) return
+  const { reasons, observed } = cancellationErrors()
+  const id = reasons.get(reason)
+  if (id === undefined) return
+  const ids = observed.get(error) ?? new Set<string>()
   ids.add(id)
-  observedCancellationFailures.set(error, ids)
+  observed.set(error, ids)
 }
 
 function handles(owner: AgentInvocationStore): Map<string, Set<AgentInvocationCancellationHandle>> {
@@ -103,7 +111,7 @@ export function agentInvocationCancellationDriver(driver: { kind: "model" | "pro
 
 export function createAgentInvocationCancellationError(id: string): Error {
   const error = agentDiagnostics.AGENT_R0970({ message: `[vitehub] Cancellation was requested for Agent Invocation ${JSON.stringify(id)}.` })
-  Object.defineProperty(error, cancellationInvocationId, { value: id })
+  cancellationErrors().reasons.set(error, id)
   return error
 }
 
@@ -139,14 +147,15 @@ export function isAgentInvocationCancellationError(error: unknown, id?: string):
     try {
       if (!isRuntimeRecord(current) || seen.has(current)) continue
       seen.add(current)
-      const observed = observedCancellationFailures.get(current)
+      const errors = cancellationErrors()
+      const observed = errors.observed.get(current)
       if (observed && (id === undefined ? observed.size > 0 : observed.has(id))) return true
-      if (current instanceof Diagnostic && current.code === agentInvocationCancellationCode
-        && (id === undefined || Reflect.get(current, cancellationInvocationId) === id)) return true
+      const reasonId = errors.reasons.get(current)
+      if (reasonId !== undefined && (id === undefined || reasonId === id)) return true
       pending.push(current.cause)
       // Wrappers and aggregates may come from another realm; only the matched reason needs our identity.
-      const errors: unknown = current.errors
-      if (Array.isArray(errors)) pending.push(...errors)
+      const children: unknown = current.errors
+      if (Array.isArray(children)) pending.push(...children)
     } catch {
       // An unreadable error must not replace the original Invocation failure.
     }
