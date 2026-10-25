@@ -1238,6 +1238,7 @@
     "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
     "@standard-schema/spec": "catalog:runtime",
+    "standard-context": "catalog:runtime",
     "@types/node": "catalog:tooling",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",

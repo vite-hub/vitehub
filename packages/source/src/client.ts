@@ -65,6 +65,27 @@ export class CollectionAccessError extends Diagnostic {
     this.name = "CollectionAccessError"
     this.status = status
   }
+
+  override toJSON(): {
+    code: string
+    data: undefined
+    docs: string | undefined
+    fix: string | undefined
+    name: string
+    status: 401 | 403
+    why: string
+  } {
+    return {
+      code: this.code,
+      // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
+      data: undefined,
+      docs: this.docs,
+      fix: this.fix,
+      name: this.name,
+      status: this.status,
+      why: this.why,
+    }
+  }
 }
 
 function accessError(error: unknown): CollectionAccessError | undefined {

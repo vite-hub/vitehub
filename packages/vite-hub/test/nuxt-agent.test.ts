@@ -144,7 +144,8 @@ it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro confi
   await nitroConfigHook(nitroConfig)
 
   const generated = join(rootDir, ".vitehub/nitro/agent/invocations.mjs")
-  expect(nitroConfig.plugins).toEqual([generated, "/app/existing-plugin.mjs", ...(nitroConfig.plugins as string[]).slice(2)])
+  const standardContext = join(rootDir, ".vitehub/nitro/standard-context.mjs")
+  expect(nitroConfig.plugins).toEqual([generated, standardContext, "/app/existing-plugin.mjs", ...(nitroConfig.plugins as string[]).slice(3)])
   expect((nitroConfig.plugins as string[]).filter(plugin => plugin === generated)).toHaveLength(1)
   await expect(readFile(generated, "utf8")).resolves.toContain(`installAgentInvocations({ default: "memory" })`)
 })

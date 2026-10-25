@@ -167,6 +167,7 @@ function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
   const details: Record<string, unknown> = { message: error.message };
   if (error.fix) details.fix = error.fix;
   if (error.docs) details.docs = error.docs;
+  if (error.sources?.length) details.sources = error.sources;
   if (error.code !== undefined) details.code = error.code;
   if (error.requestId) details.requestId = error.requestId;
   if (error.status !== undefined) details.status = error.status;
