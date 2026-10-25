@@ -29,16 +29,33 @@ export function operationCell(item: unknown, column: ConsoleOperationColumn): st
   return column.format === "excerpt" && line.length > excerptLength ? `${line.slice(0, excerptLength - 1)}…` : line
 }
 
-/** The link of one row, or undefined when the view has none or the row does not match `when`. */
+// The page rule of @vite-hub/comments: an app path with no second slash or backslash, whitespace, `?`, or `#`.
+const pagePath = /^\/(?![/\\])[^\s\\?#]*$/
+
+/**
+ * The link of one row, or undefined when the view has none, the row does not match `when`, or a value is missing.
+ * `{path}` fills a value with `encodeURIComponent`. `{path:path}` fills an app path: each segment is encoded, and a value
+ * that is not an app path, such as `//evil.com/x`, gives no link.
+ */
 export function operationLink(item: unknown, view: ConsoleOperationView): string | undefined {
   const link = view.link
   if (!link) return undefined
   if (link.when && operationValue(item, link.when.path) !== link.when.equals) return undefined
   let complete = true
-  const href = link.template.replaceAll(/\{([^}]+)\}/g, (_match, path: string) => {
-    const value = operationValue(item, path)
-    if (value === undefined || value === null) complete = false
-    return String(value ?? "")
+  const href = link.template.replaceAll(/\{([^}]+)\}/g, (_match, name: string) => {
+    const asPath = name.endsWith(":path")
+    const value = operationValue(item, asPath ? name.slice(0, -":path".length) : name)
+    if (value === undefined || value === null) {
+      complete = false
+      return ""
+    }
+    const text = String(value)
+    if (!asPath) return encodeURIComponent(text)
+    if (!pagePath.test(text)) {
+      complete = false
+      return ""
+    }
+    return text.split("/").map(segment => encodeURIComponent(segment)).join("/")
   })
   return complete ? href : undefined
 }

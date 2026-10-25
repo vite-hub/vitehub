@@ -57,7 +57,11 @@ export interface ViteHubConsoleOperationView {
   columns: readonly ViteHubConsoleOperationColumn[]
   filters?: readonly ViteHubConsoleOperationFilter[]
   kind: "operation-view"
-  /** Makes each row a link: `{path}` placeholders take values from the item. Rows where `when.path` is not `when.equals` get none. */
+  /**
+   * Makes each row a link: `{path}` placeholders take values from the item and are URL-encoded, and `{path:path}` takes an
+   * app path and encodes each segment (a value that is not an app path, such as `//evil.com/x`, gives no link). Rows where
+   * `when.path` is not `when.equals` get none.
+   */
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
   /** Operation name, such as `comments.list`. */
