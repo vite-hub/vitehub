@@ -11,6 +11,7 @@ async function appFiles(directory: string, prefix = ""): Promise<string[]> {
   const entries = await readdir(directory, { withFileTypes: true });
   const files: string[] = [];
   for (const entry of entries) {
+    if (entry.isDirectory() && entry.name === ".vitehub") continue;
     const name = `${prefix}${entry.name}`;
     if (entry.isDirectory() && ["app", "server", "shared", "scripts"].includes(entry.name)) {
       files.push(...await appFiles(resolve(directory, entry.name), `${name}/`));
