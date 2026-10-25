@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "dev": "node --max-old-space-size=6144 node_modules/nuxt/bin/nuxt.mjs dev --no-fork --host 127.0.0.1 --port 4318",
-    "build": "node --max-old-space-size=6144 node_modules/nuxt/bin/nuxt.mjs build",
+    "dev": "nuxt dev --host 127.0.0.1 --port 4318",
+    "build": "nuxt build",
     "start": "node --env-file=.env .output/server/index.mjs",
     "typecheck": "nuxt typecheck",
     "test": "node --test test/store.test.ts",

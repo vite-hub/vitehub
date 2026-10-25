@@ -24,8 +24,6 @@ Open `http://127.0.0.1:4318`. Read `CHAT_PASSWORD` from `.env` and sign in. Sele
 
 The Nuxt config sets `buildDir: ".nuxt"` so Nitro transforms the generated TypeScript. The pinned Nitro version skips TypeScript under `node_modules`, which contains Nuxt's default build directory.
 
-The `dev` and `build` scripts allow up to 6 GiB for Node's V8 old-space heap. Nitro bundling exceeds the default heap with this dependency graph. Total process memory can be higher, so leave additional RAM available. Development uses `--no-fork` because Nuxt's forked launcher resets Node flags. The production `start` command has no heap flag.
-
 ## Check the app
 
 From this directory:

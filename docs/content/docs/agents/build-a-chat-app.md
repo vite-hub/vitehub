@@ -36,8 +36,6 @@ cd fixtures/tutorials/chat-app
 
 The checkout already contains the finished files. Read and edit them as you follow the steps. All file paths below are relative to `fixtures/tutorials/chat-app`. The code panel contains each complete application file.
 
-The `dev` and `build` scripts allow up to 6 GiB for Node's V8 old-space heap because Nitro bundling exceeds the default heap with these dependencies. Total process memory can be higher, so leave additional RAM available. Development uses `--no-fork` to keep the heap flag, which Nuxt's forked launcher resets. The production `start` command has no heap flag.
-
 ```json [package.json]
 {
   "name": "vitehub-chat-tutorial",
@@ -45,8 +43,8 @@ The `dev` and `build` scripts allow up to 6 GiB for Node's V8 old-space heap bec
   "type": "module",
   "scripts": {
     "setup": "node scripts/setup.mjs",
-    "dev": "node --max-old-space-size=6144 node_modules/nuxt/bin/nuxt.mjs dev --no-fork --host 127.0.0.1 --port 4318",
-    "build": "node --max-old-space-size=6144 node_modules/nuxt/bin/nuxt.mjs build",
+    "dev": "nuxt dev --host 127.0.0.1 --port 4318",
+    "build": "nuxt build",
     "start": "node --env-file=.env .output/server/index.mjs",
     "typecheck": "nuxt typecheck",
     "test": "node --test test/store.test.ts",
