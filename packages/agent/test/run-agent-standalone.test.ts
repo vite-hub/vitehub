@@ -178,6 +178,30 @@ describe("standalone Agent invocations", () => {
     await expect(result.text()).rejects.toBe(failure)
   })
 
+  it("creates a memo cache for each Invocation when the Runtime Context has none", async () => {
+    const create = vi.fn(() => ({}))
+    const agent = defineAgent({
+      driver: { run: context => context.memo("value", create) === context.memo("value", create) },
+      runtime: false,
+    })
+    const runtime = { runtime: "unknown", waitUntil: vi.fn() } as const
+    await expect(runAgent(agent, runtime, {})).resolves.toBe(true)
+    await expect(runAgent(agent, runtime, {})).resolves.toBe(true)
+    expect(create).toHaveBeenCalledTimes(2)
+    expect(runtime).not.toHaveProperty("memo")
+  })
+
+  it("keeps the host memo cache", async () => {
+    const keys: string[] = []
+    function memo<T>(key: string, create: () => T): T {
+      keys.push(key)
+      return create()
+    }
+    const agent = defineAgent({ driver: { run: context => context.memo("value", () => "cached") }, runtime: false })
+    await expect(runAgent(agent, { memo, runtime: "unknown", waitUntil: vi.fn() }, {})).resolves.toBe("cached")
+    expect(keys).toContain("value")
+  })
+
   it("keeps the explicit Runtime Context return and throw contract", async () => {
     const runtime = createRuntimeContext({ runtime: "unknown", run: { runId: "provided" } })
     const run = vi.fn(context => context.run?.runId)
