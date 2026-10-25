@@ -10,6 +10,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
   codes: {
     INTERNAL_R0012: dynamicError,
     INTERNAL_R0013: dynamicError,
+    INTERNAL_R0014: {
+      why: ({ path }: { path: string }) => `Cannot read Provision State from "${path}".`,
+      fix: "Check file access and restore valid JSON while preserving existing resource IDs.",
+    },
     INTERNAL_B0001: dynamicError,
     INTERNAL_B0002: dynamicError,
     INTERNAL_B0003: dynamicError,
