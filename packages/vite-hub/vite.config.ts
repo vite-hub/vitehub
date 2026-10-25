@@ -401,6 +401,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/schema-form"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
+        delete exports["./console/runtime/client/workflow"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
