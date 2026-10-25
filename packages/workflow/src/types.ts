@@ -195,8 +195,13 @@ export interface WorkflowSignalResult {
   provider: WorkflowProvider
 }
 
+/**
+ * Maps Workflow names to module loaders. The registry does not know each
+ * payload type, so it uses `never` as the payload. A definition with any
+ * payload type fits without a cast.
+ */
 export interface WorkflowDefinitionRegistry {
-  [name: string]: (() => Promise<{ default?: WorkflowDefinition, [exportName: string]: unknown } | WorkflowDefinition>) & {
+  [name: string]: (() => Promise<{ default?: WorkflowDefinition<never>, [exportName: string]: unknown } | WorkflowDefinition<never>>) & {
     /** @internal Identifies provider-generated Agent invocation recovery definitions without evaluating their modules. */
     internalAgentInvocationRecovery?: true
   }
