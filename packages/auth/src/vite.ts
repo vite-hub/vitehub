@@ -16,6 +16,7 @@ export function shouldPassThroughAuthResponse(basePath: string, status: number):
   return basePath === "/" && status === 404
 }
 
+import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -48,7 +49,7 @@ export interface AuthVitePluginAPI {
   refresh: () => ResolvedAuthViteConfig | undefined
 }
 
-export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
+export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata }
 
 export interface AuthInspectionOptions {
   projectRoot: string
@@ -308,6 +309,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       refresh: refreshRuntimeConfig,
     },
     vitehub: {
+      cli: async () => resolvedOptions() === false ? undefined : (await import("./cli.ts")).createAuthCliContributor(),
       inspect: () => {
         if (resolvedOptions() === false) return
         return {

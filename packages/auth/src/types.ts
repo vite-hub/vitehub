@@ -1,5 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
+import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 declare global {
@@ -13,6 +14,7 @@ declare global {
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
 export type AuthReservedOption =
   | AuthRuntimeOption
+  | "events"
   | "console"
   | "access"
   | "basePath"
@@ -55,7 +57,7 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
   requestOrigin: string
 }
 
-export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">>
+export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">> & { events?: AuthEventsConfiguration | false }
 export type AuthRuntimeOptionsResolver = (context: AuthRuntimeContext) => AuthRuntimeOptions
 export type AuthRuntimeConfiguration = AuthRuntimeOptions | AuthRuntimeOptionsResolver
 
@@ -110,6 +112,8 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  /** Opt in to durable auth events with an explicit store. */
+  events?: AuthEventsConfiguration | false
   console?: AuthConsoleOptions;
   access?: AuthAccessConfiguration
   basePath?: string
@@ -184,6 +188,7 @@ export type AuthBetterAuthRuntimeOptions<
   ? Omit<
       TResolved,
       | AuthRuntimeOption
+      | "events"
       | "console"
       | "access"
       | "database"
@@ -195,6 +200,7 @@ export type AuthBetterAuthRuntimeOptions<
   : Omit<
       TOptions,
       | AuthRuntimeOption
+      | "events"
       | "console"
       | "access"
       | "database"
