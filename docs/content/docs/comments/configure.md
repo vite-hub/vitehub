@@ -85,13 +85,14 @@ export default defineComments({
 | `overlay.paths` | `string[]` | every page | Globs of the pages that get the overlay, relative to the app base. `*` is one path segment, `**` any depth: `/docs/**` is `/docs` and everything below it. |
 | `overlay.exclude` | `string[]` | none | Globs of the pages that never get it. |
 
-The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all.
+The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all. The loader follows navigation: when a visitor moves to a page that the globs leave out, the overlay hides and its `C` hotkey stops, and when they move to an allowed page it shows again. If the landing page was left out, the loader waits, and the first allowed page loads the overlay.
 
-The loader and the overlay are served by your app at `/_vitehub/comments/loader.js` and `/_vitehub/comments/overlay.js`. The URL carries a hash of the bundle (`?v=`), so they are sent with `Cache-Control: max-age=31536000`, and a new release changes the URL.
+The loader and the overlay are served by your app below `/_vitehub/comments/`, as `loader.<hash>.js` and `overlay.<hash>.js`. The file names carry a hash of their content, and the tag names both, so a page always loads a loader and an overlay of the same build. They are sent with `Cache-Control: max-age=31536000`, and a new release has new names.
 
 ### Content Security Policy and privacy
 
-- **CSP.** Both files come from your own origin, so `script-src 'self'` is enough. The loader makes `fetch` calls to your own origin, so `connect-src 'self'` too. The overlay sets its styles through a constructed stylesheet in its shadow root, so it needs no `style-src 'unsafe-inline'`; where the browser has no constructed stylesheets it falls back to a `<style>` element.
+- **CSP.** Both files come from your own origin, so `script-src 'self'` is enough, and `connect-src 'self'` covers the loader's `fetch`. With a nonce policy (`script-src 'nonce-…' 'strict-dynamic'`) the loader tag gets the nonce of the response's `Content-Security-Policy` automatically, in the Nitro middleware and in the Nuxt `render:html` hook. The loader loads the overlay with a dynamic `import()`, which `'strict-dynamic'` allows from a trusted script. The overlay builds its icons from SVG elements and sets no `innerHTML`, so it works under Trusted Types. It adopts its styles as a constructed stylesheet, which needs no `style-src 'unsafe-inline'`; where the browser has none, it falls back to a `<style>` element that carries the loader's nonce.
+- **What gets the tag.** The middleware rewrites only UTF-8 `text/html` that is not compressed and has a `</body>` or `</html>`: streamed pages are rewritten as they stream, and fragments, JSON, and other types are never touched.
 - **Privacy.** The loader sends one `POST /_vitehub/rpc/__call` with the session cookie and no other data. It receives your own user, and whether you may read and write, and nothing about anyone else. Everything else is downloaded only after `authorize` says you may read comments. The Console page never gets the loader.
 
 ## Database
