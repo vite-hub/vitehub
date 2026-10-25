@@ -916,7 +916,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(viteDatabaseRoot !== undefined ? { projectRoot: viteDatabaseRoot } : {}),
       ...(options.database === true ? {} : options.database),
     }
-    // Cloudflare apps default to a D1 host resource unless every Database Definition uses Postgres.
+    // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.
     const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,

@@ -729,16 +729,13 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
-  it.each([
-    { content: true, dialect: "" },
-    { content: false, dialect: 'dialect: "postgresql",' },
-  ])("adds the default Cloudflare D1 host resource only for SQLite Definitions: $dialect", async ({ content, dialect }) => {
+  it.each(["", 'dialect: "postgresql",'])("does not invent a separate Nuxt Content resource for discovered Definitions: %s", async (dialect) => {
     await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", `export default defineDatabase({ ${dialect} schema: {} })\n`)
     const application = createNuxt(true)
     await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
 
-    expect(Boolean((application.nuxt.options as { content?: { database?: unknown } }).content?.database)).toBe(content)
+    expect((application.nuxt.options as { content?: { database?: unknown } }).content?.database).toBeUndefined()
     await application.runCloseHook()
   })
 
