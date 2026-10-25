@@ -1044,6 +1044,46 @@ describe("vercel provider", () => {
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
   })
 
+  it.each([302, 400, 500])("retries a Vercel handler that returns HTTP %s", async (status) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn(() => ({ afterSeconds: 30 }))
+    const acknowledge = vi.fn()
+    const definition = {
+      handler: async () => new Response("failed", { status }),
+      options: { callbackOptions: { retry } },
+    }
+    const metadata = { deliveryCount: 1, messageId: "message-1" }
+    // The Vercel SDK acknowledges resolved handlers and retries only rejections.
+    vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
+      try {
+        await (handler as (payload: unknown, metadata: unknown) => Promise<unknown>)({}, metadata)
+        acknowledge()
+      } catch (error) {
+        return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
+      }
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(retry).toHaveBeenCalledWith(expect.objectContaining({ message: `Queue handler returned HTTP ${status}`, status }), metadata)
+    expect(result).toEqual({ afterSeconds: 30 })
+  })
+
+  it.each([undefined, 200, 204])("accepts a successful Vercel handler with status %s", async (status) => {
+    const definition = { handler: async () => status === undefined ? undefined : new Response(null, { status }) }
+    vercelQueueMock.handleCallback.mockImplementationOnce(handler => async () => {
+      await (handler as (payload: unknown) => Promise<unknown>)({})
+      return "acknowledged"
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)).resolves.toBe("acknowledged")
+  })
+
   it("preserves Vercel behavior when the retry callback returns undefined", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn(() => undefined)

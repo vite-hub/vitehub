@@ -67,12 +67,18 @@ function createVercelJobHandler(definition: QueueDefinition) {
   return async (payload: unknown, metadata?: unknown) => {
     // SAFETY: Vercel supplies this optional delivery metadata shape to queue callbacks.
     const meta = metadata as { deliveryCount?: number, messageId?: string } | undefined
-    return toResponse(await definition.handler({
+    const response = toResponse(await definition.handler({
       attempts: typeof meta?.deliveryCount === "number" ? meta.deliveryCount : 1,
       id: typeof meta?.messageId === "string" ? meta.messageId : "vercel-message",
       metadata,
       payload,
     }))
+    if (!response.ok) {
+      const error = new Error(`Queue handler returned HTTP ${response.status}`)
+      Object.assign(error, { status: response.status })
+      throw error
+    }
+    return response
   }
 }
 
