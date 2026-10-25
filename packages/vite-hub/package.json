@@ -255,17 +255,17 @@
       "require": "./dist/_internal/workflow/runtime/cloudflare-runner.js",
       "default": "./dist/_internal/workflow/runtime/cloudflare-runner.js"
     },
+    "./_internal/workflow/operations": {
+      "types": "./dist/_internal/workflow/operations.d.ts",
+      "import": "./dist/_internal/workflow/operations.js",
+      "require": "./dist/_internal/workflow/operations.js",
+      "default": "./dist/_internal/workflow/operations.js"
+    },
     "./_internal/workflow/runtime/cloudflare-vite": {
       "types": "./dist/_internal/workflow/runtime/cloudflare-vite.d.ts",
       "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
       "require": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
       "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
-    },
-    "./_internal/workflow/runtime/dev": {
-      "types": "./dist/_internal/workflow/runtime/dev.d.ts",
-      "import": "./dist/_internal/workflow/runtime/dev.js",
-      "require": "./dist/_internal/workflow/runtime/dev.js",
-      "default": "./dist/_internal/workflow/runtime/dev.js"
     },
     "./_internal/workflow/runtime/execute": {
       "types": "./dist/_internal/workflow/runtime/execute.d.ts",

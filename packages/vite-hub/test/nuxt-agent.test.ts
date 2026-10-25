@@ -94,10 +94,6 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
           handler: join(buildDir, "vitehub/agent/invocations-dev-handler.ts"),
           route: "/_vitehub/agent/invocations/dev",
         },
-        {
-          handler: join(rootDir, ".vitehub/nitro/workflow/dev-handler.mjs"),
-          route: "/_vitehub/workflow/dev",
-        },
       ] : []),
     ].map(handler => expect.objectContaining(handler))),
   })

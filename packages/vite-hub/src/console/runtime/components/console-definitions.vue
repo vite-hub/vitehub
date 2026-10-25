@@ -16,6 +16,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
+import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -28,6 +29,8 @@ const props = defineProps<{
   scheduleRunBase?: string;
   searchBase: string;
   sectionsBase: string;
+  /** Console route of the `workflow.*` operations. Set on the Workflows section. */
+  workflowBase?: string;
 }>();
 
 interface ConsoleSectionEntry {
@@ -287,7 +290,7 @@ onBeforeUnmount(() => request?.abort());
     >
       <ConsolePageHeader :title="selectedEntry?.id || sectionDetails.label">
         <template #right>
-          <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
+          <span v-if="!workflowBase" class="hidden text-xs text-dimmed sm:inline">Read-only</span>
           <UButton
             v-if="canRunSelected"
             icon="i-lucide-play"
@@ -320,6 +323,7 @@ onBeforeUnmount(() => request?.abort());
             <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
           </div>
           <ConsolePropertyList title="Definition" :items="definitionFields" />
+          <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :workflow="selectedDefinition.name" />
           <p class="flex gap-2 text-xs leading-relaxed text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />

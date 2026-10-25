@@ -249,6 +249,7 @@ function addContributedRoutes(navigation) {
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         details,
         ...(section === "schedules" ? { scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run") } : {}),
+        ...(section === "workflows" ? { workflowBase: consolePath("/api/_vitehub/console/workflow") } : {}),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
         sectionsBase,
