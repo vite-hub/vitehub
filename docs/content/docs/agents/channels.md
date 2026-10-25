@@ -511,7 +511,6 @@ Select the Channel and its destination when the application starts the invocatio
 import { runAgent } from 'vite-hub/agent'
 
 await runAgent(agent, {
-  memo: (_key, create) => create(),
   runtime: 'vite',
   waitUntil: schedule.waitUntil ?? (() => {}),
   run: {
