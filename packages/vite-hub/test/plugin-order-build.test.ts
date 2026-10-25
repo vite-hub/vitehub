@@ -80,13 +80,28 @@ describe("Plugin order with the Nitro Vite plugin", () => {
     }
   }, 180_000)
 
-  it("fails with a coded error when Nitro's config hook cannot be held back", async () => {
+  it.each([
+    ["a config hook object without a handler", { order: "post" }],
+    ["a config hook that runs first", { order: "pre", handler: () => undefined }],
+  ])("fails with a coded error when Nitro has %s", async (_name, config) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-plugin-order-"))
     try {
-      // A Nitro version that moves the hook into an object without a handler leaves ViteHub no way to run it later.
-      const nitroInit = { name: "nitro:init", config: { order: "post" } } as never
+      // A Nitro version with such a hook leaves ViteHub no way to run it later exactly once.
+      const nitroInit = { name: "nitro:init", config } as never
       await expect(resolveConfig({ configFile: false, plugins: [nitroInit, vitehub({ preset: "node" })], root }, "build"))
         .rejects.toMatchObject({ code: "VITE_HUB_R0135", message: expect.stringContaining("Put vitehub() before nitro()") })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true, maxRetries: 3 })
+    }
+  })
+
+  it("leaves a Nitro plugin without a config hook alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-plugin-order-"))
+    try {
+      const nitroEnv = { name: "nitro:env" } as never
+      const config = await resolveConfig({ configFile: false, plugins: [nitroEnv, vitehub({ preset: "node" })], root }, "build")
+      expect(config.plugins.some(plugin => plugin.name === "vite-hub/nitro-order")).toBe(true)
     }
     finally {
       await rm(root, { force: true, recursive: true, maxRetries: 3 })

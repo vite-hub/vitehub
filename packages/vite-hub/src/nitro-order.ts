@@ -45,12 +45,14 @@ export function nitroOrderPlugins(): Plugin[] {
         async handler(config, env) {
           const plugins = (await flatten(config.plugins)).filter(plugin => applies(plugin, config, env))
           const self = plugins.findLastIndex(plugin => plugin.name === marker)
-          const nitro = plugins.slice(0, Math.max(self, 0)).filter(plugin => nitroConfigPlugins.includes(plugin.name))
+          const nitro = plugins.slice(0, Math.max(self, 0)).filter(plugin => nitroConfigPlugins.includes(plugin.name) && plugin.config !== undefined)
           if (nitro.length === 0) return
           const next: Held[] = []
           for (const plugin of nitro) {
             const handler = handlerOf(plugin.config)
-            if (!handler) {
+            // A hook that runs first would run before the hold and then again after it.
+            const early = typeof plugin.config === "object" && plugin.config.order === "pre"
+            if (!handler || early) {
               throw viteHubErrorDiagnostics.VITE_HUB_R0135({ message: "[vitehub] This version of Nitro cannot run after vitehub() when nitro() comes first. Put vitehub() before nitro() in plugins." })
             }
             next.push({ handler, hook: plugin.config, plugin })
