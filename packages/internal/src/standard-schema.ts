@@ -60,7 +60,7 @@ export async function validateStandardSchema<TSchema extends StandardSchemaV1>(
 export function standardIssuePath(issue: StandardSchemaV1.Issue): Array<string | number> {
   return (issue.path ?? []).map((segment) => {
     const key = isRecord(segment) && "key" in segment ? segment.key : segment
-    return Number(key) === key ? key : String(key)
+    return typeof key === "number" ? key : String(key)
   })
 }
 
