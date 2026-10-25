@@ -132,9 +132,9 @@ describe("GitHub history commit", () => {
     const refs = await target.refs()
     expect(refs.map(ref => ref.name)).toEqual(["draft", "literal", "published"])
     expect(refs.find(ref => ref.name === "draft")!.head.id).toBe(draft)
-    expect(target.forksFrom?.("draft")).toBe("published")
-    expect(target.forksFrom?.("published")).toBeUndefined()
-    expect(history().forksFrom?.("draft")).toBeUndefined()
+    await expect(target.forksFrom?.("draft")).resolves.toBe("published")
+    await expect(target.forksFrom?.("published")).resolves.toBeUndefined()
+    await expect(history().forksFrom?.("draft")).resolves.toBeUndefined()
   })
 
   it("reads and writes at the repository root", async () => {
@@ -176,6 +176,19 @@ describe("GitHub history commit", () => {
     const page = await target.list({ ref: "main", path: "posts/a.md", limit: 1 })
     expect(page.revisions.map(revision => revision.id)).toEqual([third])
     expect((await target.list({ ref: "main", path: "posts/a.md", limit: 1, cursor: page.cursor })).revisions.map(revision => revision.id)).toEqual([first])
+  })
+
+  it("lists the revisions after a revision id", async () => {
+    const first = fake.commit("main", { "posts/a.md": "a" })
+    const second = fake.commit("main", { "posts/a.md": "a2" })
+    const third = fake.commit("main", { "posts/a.md": "a3" })
+    const target = history()
+    const page = await target.list({ ref: "main", cursor: third, limit: 1 })
+    expect(page.revisions.map(revision => revision.id)).toEqual([second])
+    expect(page.cursor).toBe(second)
+    const next = await target.list({ ref: "main", cursor: page.cursor, limit: 2 })
+    expect(next.revisions.map(revision => revision.id)).toEqual([first, baseSha])
+    expect(next.cursor).toBeUndefined()
   })
 
   it("keeps a branch head for a short time", async () => {

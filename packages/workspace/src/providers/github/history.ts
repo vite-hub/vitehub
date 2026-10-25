@@ -354,7 +354,9 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     }
-    const page = pageFromCursor(ref, listOptions.cursor)
+    // A revision id as the cursor lists the revisions after that one, as the Blob + Database Store does.
+    const afterId = listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined
+    const page = afterId ? 1 : pageFromCursor(ref, listOptions.cursor)
     // Only the commits that changed this file or folder.
     const gitPath = !listOptions.path ? "" : joinGitPath(options.root, normalizeHistoryPath(listOptions.path))
     let result: Page<Commit>
@@ -364,18 +366,25 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const cursor = page === 1
           ? undefined
           : { nextUrl: `${provider.baseUrl.replace(/\/+$/, "")}/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/commits?sha=${encodeURIComponent(branch)}&per_page=${limit}&page=${page}${gitPath ? `&path=${encodeURIComponent(gitPath)}` : ""}` }
-        return await provider.commits.list(repo, { cursor, perPage: limit, ref: branch, ...(gitPath ? { path: gitPath } : {}) }).page()
+        return await provider.commits.list(repo, { cursor, perPage: afterId ? Math.min(limit + 1, 100) : limit, ref: afterId ?? branch, ...(gitPath ? { path: gitPath } : {}) }).page()
       }, "commit list")
     }
     catch (error) {
       if (isNoHistoryError(error)) return { revisions: [] }
       throw error
     }
-    const revisions = await Promise.all(result.items.slice(0, limit).map(commit => {
+    // The listing starts at the cursor's revision, which the caller already has.
+    const items = afterId && result.items[0]?.sha === afterId ? result.items.slice(1) : result.items
+    const shown = items.slice(0, limit)
+    const revisions = await Promise.all(shown.map(commit => {
       if (!nonEmptyString(commit.sha)) malformed("commit list")
       return revision(ref, commit.sha)
     }))
     const followingPage = nextPage(result.cursor?.nextUrl)
+    if (afterId) {
+      const last = shown.at(-1)?.sha
+      return { revisions, ...(last && (items.length > limit || followingPage !== undefined) ? { cursor: last } : {}) }
+    }
     return {
       revisions,
       ...(followingPage === undefined ? {} : { cursor: cursorFor(ref, followingPage) }),
@@ -564,7 +573,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       return id ? await revision(ref, id) : null
     },
     digest: gitBlobSha,
-    forksFrom: ref => options.refs?.published && ref !== "published" ? "published" : undefined,
+    forksFrom: async ref => options.refs?.published && ref !== "published" ? "published" : undefined,
     list,
     refs,
     open,

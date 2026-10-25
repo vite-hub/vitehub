@@ -46,7 +46,7 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader, co
   }
   return {
     ...(history.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
-    ...(history.forksFrom ? { forksFrom: ref => history.forksFrom!(ref) } : {}),
+    ...(history.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
@@ -145,7 +145,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
 
   return {
     digest,
-    ...(store.history?.forksFrom ? { forksFrom: (ref: string) => store.history!.forksFrom!(ref) } : {}),
+    ...(store.history?.forksFrom ? { forksFrom: async (ref: string) => await store.history!.forksFrom!(ref) } : {}),
     head: async options => await history().head(options),
     list: async options => await history().list(options),
     refs: async () => await history().refs(),
@@ -165,7 +165,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
       const current = await retained.head({ ref })
       if ((current?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, current?.id ?? null)
       // A missing ref that the Store starts from another ref begins with the files of that ref.
-      const forkRef = current ? undefined : store.history?.forksFrom?.(ref)
+      const forkRef = current ? undefined : await store.history?.forksFrom?.(ref)
       const startRevision = current ?? (forkRef ? await retained.head({ ref: forkRef }) : null)
       const previous = startRevision ? await retained.open(startRevision.id) : undefined
       const previousEntries = new Map<string, WorkspaceEntry>()

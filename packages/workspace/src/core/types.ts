@@ -400,7 +400,7 @@ export interface WorkspaceHistoryReader {
    * The ref that a missing `ref` starts from when a commit creates it with `ifHead: null`, or undefined when the ref
    * starts empty. The GitHub Store starts `draft` from the head of `published`.
    */
-  forksFrom?(ref: string): string | undefined
+  forksFrom?(ref: string): Promise<string | undefined>
   head(options?: WorkspaceHistoryRefOptions): Promise<WorkspaceRevision | null>
   list(options?: WorkspaceHistoryListOptions): Promise<WorkspaceHistoryListResult>
   /** Refs that have at least one revision, sorted by name. */
