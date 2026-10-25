@@ -39,14 +39,15 @@ function historyUnavailable() {
 }
 
 /** Forward history only when the caller can inspect the complete folder. */
-export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader, complete: boolean): WorkspaceHistoryReader {
+export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | undefined, complete: boolean): WorkspaceHistoryReader {
   function requireHistory() {
     if (!complete) throw workspaceErrorDiagnostics.WORKSPACE_R0069({ message: "[vitehub] Retained folder history requires access to the complete Workspace." })
+    if (!history) throw historyUnavailable()
     return history
   }
   return {
-    ...(history.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
-    ...(history.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
+    ...(history?.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
+    ...(history?.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
