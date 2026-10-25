@@ -14,7 +14,8 @@ const runtimeRoot = resolve(packageRoot, "../runtime")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 
-it("publishes Env error codes for the shared ViteHubError contract", async () => {
+// Allow both compiler processes and fixture cleanup to finish on shared CI runners.
+it("publishes Env error codes for the shared ViteHubError contract", { timeout: 45_000 }, async () => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-env-types-"))
 
   try {
@@ -29,7 +30,7 @@ it("publishes Env error codes for the shared ViteHubError contract", async () =>
     // Runtime's public diagnostic types refer to its production dependency.
     await cp(join(runtimeRoot, "node_modules", "nostics"), join(root, "node_modules", "nostics"), { dereference: true, recursive: true })
 
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root])
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", root], { timeout: 15_000, killSignal: "SIGKILL" })
 
     // `@vite-hub/env/cli` is a Node entry point, so it is checked with Node types.
     await writeFile(join(root, "tsconfig.cli.json"), JSON.stringify({
@@ -37,7 +38,7 @@ it("publishes Env error codes for the shared ViteHubError contract", async () =>
       extends: "./tsconfig.json",
       files: ["cli-consumer.ts"],
     }))
-    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", join(root, "tsconfig.cli.json")])
+    await execFileAsync(process.execPath, [tsc, "--noEmit", "-p", join(root, "tsconfig.cli.json")], { timeout: 15_000, killSignal: "SIGKILL" })
   }
   finally {
     await rm(root, { force: true, recursive: true })

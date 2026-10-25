@@ -1,11 +1,34 @@
-import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv, getCloudflareExecutionContext, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
+import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 import { createRuntimeContext } from "./index.ts"
+import type { CloudflareWorkerExecutionContext } from "@vite-hub/internal/runtime/cloudflare-env"
+import type { EventHandlerRequest } from "h3"
+import type { StandardContext } from "standard-context"
 import type { CreatedRuntimeContext, RuntimeContextInput, RuntimeHostContext } from "./index.ts"
 
-/** Structural event input shared by H3 1 and H3 2. */
-export interface H3RuntimeEvent {
-  context: object
-  req?: unknown
+/** The host data that ViteHub puts in `runtime` of a Standard Context. */
+export interface ViteHubRuntime {
+  cloudflare?: {
+    context?: CloudflareWorkerExecutionContext
+    env: Record<string, unknown>
+  }
+  /** The client IP address that the host reports. ViteHub does not read it from forwarding headers. */
+  clientAddress?: string
+}
+
+/** The `~standard` properties of a request event in a ViteHub app. */
+export type ViteHubStandardProps = StandardContext.Props<ViteHubRuntime, void>
+
+/** A request event in a ViteHub app: any server context with Standard Context properties. */
+export type ViteHubContext<C = {}> = StandardContext<C, ViteHubRuntime, void>
+
+declare module "h3" {
+  // The type parameters must match the H3Event class of H3 1 and H3 2.
+  interface H3Event<_RequestT extends EventHandlerRequest = EventHandlerRequest> {
+    /** Set by ViteHub for each request until H3 implements Standard Context. */
+    readonly "~standard": ViteHubStandardProps
+  }
 }
 
 type H3RuntimeName = "cloudflare-agents" | "deno" | "unknown" | "vercel" | "vite"
@@ -17,8 +40,8 @@ export type H3RuntimeContextOptions = Omit<RuntimeContextInput, "event" | "runti
 export type H3RuntimeContext<TOptions extends H3RuntimeContextOptions = {}> = CreatedRuntimeContext<
   TOptions & {
     cloudflare?: RuntimeHostContext["cloudflare"]
-    event: H3RuntimeEvent
-    request?: Request
+    event: ViteHubContext
+    request: Request
     runtime: H3RuntimeName
     vercel?: RuntimeHostContext["vercel"]
   }
@@ -35,127 +58,158 @@ function detectRuntime(cloudflare: boolean): H3RuntimeName {
   return "unknown"
 }
 
-function isRequest(value: unknown): value is Request {
-  // Prototype traversal is synchronous and can be intercepted by proxies.
-  // Keep the validator bounded while leaving ample room for ordinary derived
-  // Request chains. This is the documented maximum supported foreign-chain
-  // depth; it keeps hostile self-consistent proxy chains finite while allowing
-  // the supported deep-subclass cases while bounding hostile proxy work.
-  const maxPrototypeDepth = 131_072
-  try {
-    if (value === null || typeof value !== "object") return false
-    const nativeGetter = Object.getOwnPropertyDescriptor(Request.prototype, "bodyUsed")?.get
-    if (typeof nativeGetter !== "function") return false
-    try {
-      nativeGetter.call(value)
-      return true
-    } catch {
-      let prototype: object | null = value
-      const visited = new Set<object>()
-      let depth = 0
-      let reachedObjectPrototype = false
-      let foundRequestPrototype = false
-      while (prototype !== null) {
-        if (depth++ >= maxPrototypeDepth) return false
-        if (visited.has(prototype)) return false
-        visited.add(prototype)
-        // Every ordinary class prototype owns its constructor. A proxy that
-        // manufactures a new prototype on each step is still bounded by the
-        // ceiling above.
-        if (prototype !== value
-          && !Object.prototype.hasOwnProperty.call(prototype, "constructor")) return false
-        if (prototype === Request.prototype) return false
-        const terminalConstructor: unknown = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        if (typeof terminalConstructor === "function"
-          && terminalConstructor.name === "Object"
-          && terminalConstructor.prototype === prototype) reachedObjectPrototype = true
-        const constructor = Object.getOwnPropertyDescriptor(prototype, "constructor")?.value
-        // Ordinary class prototypes point their constructor back to themselves.
-        // Fresh proxy-created objects do not, so they fail closed immediately.
-        if (prototype !== value
-          && (typeof constructor !== "function" || constructor.prototype !== prototype)) return false
-        const bodyGetter = Object.getOwnPropertyDescriptor(prototype, "bodyUsed")?.get
-        if (typeof constructor === "function" && constructor.name === "Request"
-          && constructor.prototype === prototype && typeof bodyGetter === "function") {
-          // A foreign-looking prototype layered directly on this realm's
-          // Request prototype is a copied-method spoof. The native fast path
-          // above already accepts genuine same-realm requests, so reject this
-          // mixed chain before trusting its caller-controlled accessors.
-          if (Object.getPrototypeOf(prototype) === Request.prototype) return false
-          // Read the Web IDL tag only after the bounded prototype walk has
-          // established a concrete candidate. A proxy can otherwise recurse
-          // while resolving Symbol.toStringTag before cycle detection runs.
-          if (Object.prototype.toString.call(value) !== "[object Request]") return false
-          const findDescriptor = (name: string): PropertyDescriptor | undefined => {
-            let current: object | null = prototype
-            const seen = new Set<object>()
-            let level = 0
-            while (current !== null) {
-              if (level++ >= maxPrototypeDepth) return undefined
-              if (seen.has(current)) return undefined
-              seen.add(current)
-              const descriptor = Object.getOwnPropertyDescriptor(current, name)
-              if (descriptor) return descriptor
-              current = Object.getPrototypeOf(current)
-            }
-            return undefined
-          }
-          const accessorNames = ["body", "headers", "method", "url", "signal"] as const
-          const accessors = Object.fromEntries(accessorNames.map(name => [name, findDescriptor(name)])) as Record<typeof accessorNames[number], PropertyDescriptor | undefined>
-          if (accessorNames.some(name => typeof accessors[name]?.get !== "function")) return false
-          // Request's body operations are part of the host-provided Fetch
-          // surface. Requiring the complete method set prevents a plain
-          // object from passing solely by imitating a handful of accessors.
-          const bodyMethodNames = ["arrayBuffer", "blob", "formData", "json", "text", "clone"] as const
-          const methods = Object.fromEntries(bodyMethodNames.map(name => [name, findDescriptor(name)])) as Record<typeof bodyMethodNames[number], PropertyDescriptor | undefined>
-          if (bodyMethodNames.some(name => typeof methods[name]?.value !== "function")) return false
-          // A foreign Request must not merely inherit this realm's methods on a
-          // caller-controlled prototype. Such copied methods brand-check the
-          // receiver against this realm's internal slots and identify a spoof,
-          // rather than a genuine foreign Request implementation.
-          const nativeClone = Object.getOwnPropertyDescriptor(Request.prototype, "clone")?.value
-          if (methods.clone?.value === nativeClone) return false
-          bodyGetter.call(value)
-          const headers = accessors.headers?.get?.call(value)
-          const headersPrototype = headers && Object.getPrototypeOf(headers)
-          const headersGet = headersPrototype && Object.getOwnPropertyDescriptor(headersPrototype, "get")?.value
-          if (typeof headersGet !== "function") return false
-          headersGet.call(headers, "x-vite-hub-brand")
-          foundRequestPrototype = true
+/**
+ * Return true for the Request of an H3 2 event. Hosts pass their own Request classes, such as srvx's Node
+ * request or a Request from another realm, so check the fields that ViteHub reads instead of the prototype.
+ */
+function isHostRequest(value: unknown): value is Request {
+  if (!isObjectLike(value)) return false
+  const headers: unknown = Reflect.get(value, "headers")
+  return typeof Reflect.get(value, "url") === "string"
+    && typeof Reflect.get(value, "method") === "string"
+    && isObjectLike(headers)
+    && typeof Reflect.get(headers, "get") === "function"
+}
 
-        }
-        // A proxy can manufacture a fresh prototype on every lookup. Ordinary
-        // class chains are stable, so reject a changing successor before the
-        // walk can become unbounded without imposing a depth limit.
-        const nextPrototype = Object.getPrototypeOf(prototype)
-        prototype = nextPrototype
-      }
-      return foundRequestPrototype && reachedObjectPrototype
-    }
-  } catch {
-    return false
+function isObjectLike(value: unknown): value is object {
+  return value !== null && (typeof value === "object" || typeof value === "function")
+}
+
+interface PreparedResponseTarget {
+  headers: Headers
+  status?: number
+}
+
+/** Map Standard Context response fields to the response that H3 sends. H3 sends the value the handler returns as the body. */
+function preparedResponse(target: PreparedResponseTarget): StandardContext.PreparedResponse {
+  return {
+    get body() {
+      return undefined
+    },
+    set body(_value) {
+      throw runtimeErrorDiagnostics.RUNTIME_R0016({ message: "[vitehub] H3 does not read `~standard.res.body`. Return the body or a Response from the handler." })
+    },
+    get headers() {
+      return target.headers
+    },
+    set headers(value) {
+      // Copy the names first. Deleting while iterating Headers skips entries.
+      for (const name of Array.from(target.headers.keys())) target.headers.delete(name)
+      for (const [name, item] of value ?? []) target.headers.append(name, item)
+    },
+    get status() {
+      return target.status
+    },
+    set status(value) {
+      target.status = value
+    },
   }
 }
 
+function h3V2ClientAddress(request: Request): string | undefined {
+  // srvx adds the client address to the Request it passes to H3 2.
+  const ip: unknown = Reflect.get(request, "ip")
+  return typeof ip === "string" && ip ? ip : undefined
+}
 
-/** Adapt one H3 operation. Await flushWaitUntil when the host has no lifetime API. */
-export function getRuntimeContext(event: H3RuntimeEvent): H3RuntimeContext
+function createH3StandardProps(event: object): ViteHubStandardProps | undefined {
+  let readRequest: () => Request
+  let res: StandardContext.PreparedResponse
+  let clientAddress: string | undefined
+  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
+  if (isHostRequest(req)) {
+    const response: unknown = Reflect.get(event, "res")
+    const headers: unknown = isObjectLike(response) ? Reflect.get(response, "headers") : undefined
+    if (!isObjectLike(headers) || typeof Reflect.get(headers, "set") !== "function") return undefined
+    // SAFETY: H3 2 events expose an H3EventResponse with mutable status and a Headers object.
+    res = preparedResponse(response as PreparedResponseTarget)
+    readRequest = () => req
+    clientAddress = h3V2ClientAddress(req)
+  }
+  else if (isH3V1Event(event)) {
+    const response = event.node.res
+    if (!response) return undefined
+    const headers = createH3V1ResponseHeaders(response)
+    res = preparedResponse({
+      headers,
+      get status() {
+        return response.statusCode
+      },
+      set status(value) {
+        if (value !== undefined) response.statusCode = value
+      },
+    })
+    readRequest = () => toH3V1Request(event)
+    clientAddress = event.node.req.socket?.remoteAddress || event.node.req.connection?.remoteAddress || undefined
+  }
+  else {
+    return undefined
+  }
+  const env = getCloudflareEnv(event, { fallback: false })
+  const context = getCloudflareExecutionContext(event)
+  const waitUntil = resolveWaitUntil(event, { preferHost: true })
+  const runtime: ViteHubRuntime = {
+    ...(env ? { cloudflare: { env, ...(context ? { context } : {}) } } : {}),
+    ...(clientAddress ? { clientAddress } : {}),
+  }
+  return {
+    vendor: "h3",
+    // H3 1 builds the Request on first read, so a route that reads the Node body stream keeps working.
+    get req() {
+      return readRequest()
+    },
+    res,
+    runtime,
+    ...(waitUntil ? { waitUntil } : {}),
+  }
+}
+
+/**
+ * Set `event["~standard"]` on an H3 1 or H3 2 event. A value that the host set stays.
+ * ViteHub calls this for each request in a Nitro `request` hook. Call it yourself only for an event that
+ * Nitro did not create, such as in a test. Throws `RUNTIME_R0015` when the event has no request.
+ */
+export function installStandardContext<T extends object>(event: T): asserts event is T & ViteHubContext {
+  if ("~standard" in event) return
+  const props = createH3StandardProps(event)
+  if (!props) {
+    throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot set `~standard`. Pass the event of an H3 or Nitro route." })
+  }
+  Object.defineProperty(event, "~standard", { configurable: true, enumerable: false, value: props })
+}
+
+/** Adapt one request. Await flushWaitUntil when the host has no lifetime API. */
+export function getRuntimeContext(event: ViteHubContext): H3RuntimeContext
 export function getRuntimeContext<const TOptions extends H3RuntimeContextOptions>(
-  event: H3RuntimeEvent,
+  event: ViteHubContext,
   options: TOptions,
 ): H3RuntimeContext<TOptions>
 export function getRuntimeContext(
-  event: H3RuntimeEvent,
+  event: ViteHubContext,
   options: H3RuntimeContextOptions = {},
 ): H3RuntimeContext<H3RuntimeContextOptions> {
-  const env = getCloudflareEnv(event, { fallback: false })
+  // Keep host resources when replacing the request, while still allowing a
+  // synthetic event to provide only the explicit request override.
+  if (!(event as Partial<ViteHubContext>)["~standard"]) {
+    try {
+      installStandardContext(event)
+    }
+    catch (error) {
+      if (options.request === undefined || (error as { name?: unknown })?.name !== "RUNTIME_R0015") throw error
+    }
+  }
+  const standard = (event as Partial<ViteHubContext>)["~standard"]
+  const request = options.request ?? standard?.req
+  if (!request) {
+    throw runtimeErrorDiagnostics.RUNTIME_R0015({ message: "[vitehub] The event has no request, so ViteHub cannot create a runtime context." })
+  }
   const waitUntil = options.waitUntil?.bind(options)
     ?? options.vercel?.waitUntil?.bind(options.vercel)
-    ?? resolveWaitUntil(event, { preferHost: true })
-  const cloudflare = options.cloudflare ?? (env ? { env } : undefined)
+    ?? standard?.waitUntil
+  const cloudflare = options.cloudflare ?? standard?.runtime?.cloudflare
   const runtime = options.runtime ?? detectRuntime(!!cloudflare)
   return createRuntimeContext({
-    ...(isRequest(event.req) ? { request: event.req } : {}),
+    request,
     ...options,
     ...(cloudflare ? { cloudflare } : {}),
     event,

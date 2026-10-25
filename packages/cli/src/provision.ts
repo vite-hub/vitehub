@@ -157,6 +157,9 @@ async function runProvision(args: string[], context: ProvisionFeatureContext, op
     return 1
   }
 
+  // Reject unreadable state before providers can create resources whose IDs would be lost.
+  if (!parsed.dryRun) await readProvisionState(context.rootDir)
+
   const { actions, warnings } = await planProvision(provider, context, options, parsed.json)
   if (!parsed.json) {
     if (!actions.length) {
