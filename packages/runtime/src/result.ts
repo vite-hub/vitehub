@@ -10,10 +10,18 @@ import type { Diagnostic, DiagnosticCallParams, DiagnosticDefinition, Diagnostic
  * - `fix` tells what to do next.
  * - `docs` links to the code on vitehub.dev.
  * - `cause` keeps the lower-level error, for example the provider error.
+ * - `data` keeps catalog metadata in memory. Its type is inferred by `defineErrors()`.
  */
-export interface ResultError<TCode extends string = string> extends Diagnostic {
+export interface ResultError<TCode extends string = string, TData = unknown> extends Omit<Diagnostic<TData>, "toJSON"> {
   readonly code: TCode
   readonly name: TCode
+  toJSON(): {
+    code: TCode
+    name: TCode
+    why: string
+    fix: string | undefined
+    docs: string | undefined
+  }
 }
 
 /**
@@ -26,7 +34,7 @@ export type Result<TData, TCode extends string = string> =
 
 /** Error catalog of one package. Each code creates a `ResultError` with that code. */
 export type ErrorCatalog<TCodes extends Record<string, DiagnosticDefinition>> = {
-  [TCode in keyof TCodes & string]: (...args: Parameters<Diagnostics<TCodes, []>[TCode]>) => ResultError<TCode>
+  [TCode in keyof TCodes & string]: (...args: Parameters<Diagnostics<TCodes, []>[TCode]>) => ResultError<TCode, ReturnType<Diagnostics<TCodes, []>[TCode]>["data"]>
 }
 
 export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDefinition>> {
@@ -41,16 +49,16 @@ export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDef
  * Sets name to code to match the result contract, including diagnostics renamed by their owner.
  * The caller owns code allowlisting and the public text. JSON includes only the public fields.
  */
-export function toResultError<TCode extends string>(
-  error: (Diagnostic<unknown> | ResultError) & { readonly code: TCode },
-): ResultError<TCode> {
+export function toResultError<TCode extends string, TData>(
+  error: (Diagnostic<TData> | ResultError<string, TData>) & { readonly code: TCode },
+): ResultError<TCode, TData> {
   Object.defineProperty(error, "name", { configurable: true, value: error.code, writable: true })
   Object.defineProperty(error, "toJSON", {
     configurable: true,
     value: () => ({ code: error.code, docs: error.docs, fix: error.fix, name: error.name, why: error.why }),
   })
   // SAFETY: The name/code invariant and public serializer are established above.
-  return error as ResultError<TCode>
+  return error as ResultError<TCode, TData>
 }
 
 /**
@@ -71,6 +79,7 @@ export function defineErrors<const TCodes extends Record<string, DiagnosticDefin
     catalog[code] = (params?: DiagnosticCallParams) => toResultError(create(params))
   }
   // SAFETY: Nostics sets the `code` and `name` of each diagnostic to its catalog key.
+  // It preserves per-code data, and toResultError establishes the name and public serializer.
   // doctor-disable-next-line typescript/evidence/no-widen-then-assert -- Nostics types `code` as `string`; this narrows it to the catalog key.
   return catalog as ErrorCatalog<TCodes>
 }
