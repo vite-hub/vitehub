@@ -62,7 +62,6 @@ import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
-import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
@@ -1158,11 +1157,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(hubQueue({
-      importBase: "vite-hub/queue",
-      provider: plan.services.queue.adapter,
-      providerImportAliases,
-    } as QueueModuleOptions))
+    plugins.push(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" }))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
