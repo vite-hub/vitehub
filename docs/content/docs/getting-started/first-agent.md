@@ -35,15 +35,14 @@ pnpm add vite-hub h3 vite
 ::tutorial-step{title="Configure the server build"}
 ## Configure the server build
 
-Add `vitehub()` with the `node` preset and `agent: true`. Vite builds
-`src/server.ts` into `dist/server.js`, and ViteHub discovers Agent Definitions
-under `server/agents`.
+Add the standalone `hubAgent()` plugin. Vite builds `src/server.ts` into
+`dist/server.js`, and the plugin discovers Agent Definitions under `server/agents`.
 
 ```ts [vite.config.ts]
 import { resolve } from "node:path"
 
 import { defineConfig } from "vite"
-import { vitehub } from "vite-hub"
+import { hubAgent } from "vite-hub/agent/vite"
 
 export default defineConfig({
   root: import.meta.dirname,
@@ -56,11 +55,7 @@ export default defineConfig({
     },
     ssr: true,
   },
-  plugins: [vitehub({
-    preset: "node",
-    agent: true,
-    env: false,
-  })],
+  plugins: [hubAgent()],
   ssr: {
     external: ["vite-hub/agent"],
   },
@@ -74,12 +69,14 @@ export default defineConfig({
 
 Create `server/agents/greeting.ts`. The file location gives this Agent the name
 `greeting`. Its `driver.run` function receives the input prompt and returns a
-JSON object. Here, the prompt contains the name to greet.
+JSON object. Here, the prompt contains the name to greet. Set `runtime: false`
+on this Agent Definition to run the function Driver inline without a generated runtime.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
 
 export default defineAgent({
+  runtime: false,
   driver: {
     run({ prompt }) {
       const name = typeof prompt === "string" ? prompt : "friend"

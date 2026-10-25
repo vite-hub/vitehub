@@ -749,6 +749,12 @@ describe("framework package contract", () => {
     expect(consoleCss).toContain("--ui-text:oklch(37.1% 0 0)");
     // Geist ships inside the stylesheet, so the Console does not depend on fonts that the host installs.
     expect(consoleCss).toMatch(/font-family:["']?Geist Variable/);
+    expect(consoleCss).not.toContain("KaTeX_");
+    const consoleMathCssFiles = globSync("dist/console/runtime/public/console/assets/katex-*.css", { cwd: packageRoot });
+    expect(consoleMathCssFiles).toHaveLength(1);
+    const consoleMathCss = readFileSync(`${packageRoot}/${consoleMathCssFiles[0]}`, "utf8");
+    expect(consoleMathCss).toContain("data:font/woff2;base64,");
+    expect(consoleMathCss).not.toMatch(/data:font\/(?:woff|ttf);/);
     expect(
       globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot }).length,
     ).toBeGreaterThan(0);
@@ -767,6 +773,8 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
+    expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
+    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures Nitro with Console files from the distributed package", async () => {
