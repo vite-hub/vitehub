@@ -74,6 +74,11 @@
       "import": "./dist/code-view.js",
       "default": "./dist/code-view.js"
     },
+    "./comments": {
+      "types": "./dist/comments.d.ts",
+      "import": "./dist/comments.js",
+      "default": "./dist/comments.js"
+    },
     "./connection-status": {
       "types": "./dist/connection-status.d.ts",
       "import": "./dist/connection-status.js",
@@ -192,6 +197,7 @@
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
     "@types/node": "catalog:tooling",
+    "@vite-hub/comments": "workspace:*",
     "nostics": "catalog:runtime",
     "katex": "^0.17.0",
     "reka-ui": "catalog:ui",
