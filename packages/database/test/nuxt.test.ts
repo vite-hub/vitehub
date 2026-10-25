@@ -590,7 +590,7 @@ describe("Database Nuxt integration", () => {
       ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
       await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
       const binding = { binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: migrationsDir }
-      const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding] } } }
+      const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding, { binding: "HOST_A", database_id: "a", database_name: "a" }, { binding: "HOST_B", database_id: "b", database_name: "b" }] } } }
       await callHook(hooks, "nitro:config", config)
       const callbacks: Array<() => Promise<void>> = []
       for (const module of config.modules as Array<(nitro: unknown) => void>) module({
@@ -601,6 +601,26 @@ describe("Database Nuxt integration", () => {
       const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
       expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
       await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each(["absolute", "../../server/databases/migrations", ".", "nested/../../outside"])("rejects unsafe inherited migration target %s before copying", async (target) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-unsafe-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const source = join(rootDir, "server/databases/migrations")
+      await mkdir(source, { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ schema: {} })")
+      await writeFile(join(source, "0001.sql"), "SELECT 1;")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
+      const config = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: target === "absolute" ? source : target }] } } }
+      await expect(callHook(hooks, "nitro:config", config)).rejects.toThrow("must be a relative directory inside Nitro's server output")
+      expect(config).not.toHaveProperty("modules")
+      await expect(readFile(join(source, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })

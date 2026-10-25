@@ -339,6 +339,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
               if (binding.migrations_dir) migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
             }
             // Copy callbacks remove their entire target, so aliases and nested targets cannot be shared.
+            const managedTargets = new Set(migrationCopies.map(copy => resolve(root, copy.target)))
             const targets = (wrangler.d1_databases as Array<{ binding: string, migrations_dir?: string }>).map(binding => ({
               binding: binding.binding,
               path: resolve(root, binding.migrations_dir ?? "migrations"),
@@ -346,6 +347,7 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             for (let index = 0; index < targets.length; index++) {
               const target = targets[index]!
               for (const other of targets.slice(index + 1)) {
+                if (!managedTargets.has(target.path) && !managedTargets.has(other.path)) continue
                 if (target.path === other.path || target.path.startsWith(`${other.path}${sep}`) || other.path.startsWith(`${target.path}${sep}`)) {
                   throw new Error(`D1 migration directories overlap for bindings ${target.binding} and ${other.binding}; configure an exclusive migrations_dir for each binding.`)
                 }
@@ -718,6 +720,10 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
 }
 
 function installNitroCloudflareMigrations(config: Record<string, unknown>, sourceDir: string, targetDir = generatedNitroMigrationsDir) {
+  const normalizedTarget = relative(resolve("."), resolve(targetDir))
+  if (isAbsolute(targetDir) || normalizedTarget === "" || normalizedTarget === ".." || normalizedTarget.startsWith(`..${sep}`)) {
+    throw new Error("D1 migrations_dir must be a relative directory inside Nitro's server output.")
+  }
   const modules = Array.isArray(config.modules) ? [...config.modules] : []
   modules.push((nitro: {
     hooks: { hook: (name: "compiled", callback: () => Promise<void>) => void }
