@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
-import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware } from "../src/overlay.ts"
+import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware, scriptNonce } from "../src/overlay.ts"
 import { hubComments } from "../src/vite.ts"
 
 const roots: string[] = []
@@ -29,61 +29,146 @@ const indexHtml = (plugin: ReturnType<typeof hubComments>) => {
   const hook = plugin.transformIndexHtml
   return (hook && "handler" in hook ? hook.handler : hook) as unknown as (html: string) => string
 }
-const assets = { dir: "/dist/comments-overlay", version: "abc123" }
+const assets = { dir: "/dist/comments-overlay", loader: "loader.abc123.js", overlay: "overlay.def456.js" }
 
 describe("the overlay loader tag", () => {
-  it("builds the URL below the app mount, with the version and the page filter", () => {
+  it("builds the URL below the app mount, with the overlay file and the page filter", () => {
     expect(mountPath(undefined)).toBe("")
     expect(mountPath("/")).toBe("")
     expect(mountPath("./")).toBe("")
     expect(mountPath("/portal/")).toBe("/portal")
     expect(mountPath("https://cdn.example.com/app/")).toBe("/app")
     expect(mountPath("//evil.example.com/")).toBe("")
-    expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.js?v=abc123")
+    expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
     const filtered = loaderUrl("/portal", assets, { exclude: ["/admin/**"], paths: ["/docs/**"] })
-    expect(filtered.startsWith("/portal/_vitehub/comments/loader.js?v=abc123&o=")).toBe(true)
+    expect(filtered.startsWith("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
     expect(JSON.parse(decodeURIComponent(filtered.split("&o=")[1]!))).toEqual({ exclude: ["/admin/**"], paths: ["/docs/**"] })
     expect(loaderTag(filtered)).toBe(`<script type="module" src="${filtered.replaceAll("&", "&amp;")}"></script>`)
+    expect(loaderTag("/x.js", "abc+/=-_")).toBe(`<script type="module" nonce="abc+/=-_" src="/x.js"></script>`)
+    // A nonce that could break out of the attribute is dropped.
+    expect(loaderTag("/x.js", `a" onload="x`)).toBe(`<script type="module" src="/x.js"></script>`)
   })
 
-  it("goes before the last </body>, once", () => {
+  it("goes before the first </body> or </html>, once, and never into a fragment", () => {
     const tag = loaderTag(loaderUrl("", assets))
     const html = "<html><body><main>Hi</main></body></html>"
     const once = injectLoader(html, tag)
     expect(once).toBe(`<html><body><main>Hi</main>${tag}</body></html>`)
     expect(injectLoader(once, tag)).toBe(once)
-    expect(injectLoader("<p>fragment</p>", tag)).toBe(`<p>fragment</p>${tag}`)
-    expect(injectLoader("<body>a</body><script>'</body>'</script></body>", tag)).toMatch(/<\/script><script type="module".*<\/body>$/)
+    expect(injectLoader("<html><main>Hi</main></html>", tag)).toBe(`<html><main>Hi</main>${tag}</html>`)
+    expect(injectLoader("<p>fragment</p>", tag)).toBe("<p>fragment</p>")
+    expect(injectLoader("{\"json\": true}", tag)).toBe("{\"json\": true}")
+    // A mention of the file in text is not a loader tag.
+    const mention = "<body><p>See /_vitehub/comments/loader.abc123.js</p></body>"
+    expect(injectLoader(mention, tag)).toContain(tag)
+    const comment = "<body><!-- /_vitehub/comments/loader.abc123.js --></body>"
+    expect(injectLoader(comment, tag)).toContain(tag)
+    expect(injectLoader(`<body><script src='/portal/_vitehub/comments/loader.zzz.js?f=overlay.q.js'></script></body>`, tag)).not.toContain(tag)
+  })
+
+  it("reads the nonce that the policy allows for scripts", () => {
+    expect(scriptNonce("default-src 'self'; script-src 'self' 'nonce-abc123' 'strict-dynamic'")).toBe("abc123")
+    expect(scriptNonce("script-src-elem 'nonce-elem'; script-src 'nonce-plain'")).toBe("elem")
+    expect(scriptNonce("default-src 'nonce-fallback'")).toBe("fallback")
+    expect(scriptNonce("script-src 'self'")).toBeUndefined()
+    expect(scriptNonce("style-src 'nonce-style'")).toBeUndefined()
+    expect(scriptNonce("script-src 'nonce-a\"b'")).toBeUndefined()
+    expect(scriptNonce(null)).toBeUndefined()
   })
 })
 
 describe("the Nitro middleware", () => {
+  const url = loaderUrl("", assets)
   async function middleware() {
-    const source = renderOverlayMiddleware(loaderTag(loaderUrl("", assets)))
-    const url = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
-    return (await import(/* @vite-ignore */ url)).default as (event: unknown, next?: () => unknown) => Promise<unknown>
+    const source = renderOverlayMiddleware(url)
+    const moduleUrl = `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+    return (await import(/* @vite-ignore */ moduleUrl)).default as (event: unknown, next?: () => unknown) => Promise<unknown>
   }
-  const event = (path = "/", method = "GET", type = "") => ({ req: { method, url: `http://localhost${path}` }, res: { headers: new Headers(type ? { "content-type": type } : {}) } })
+  const event = (path = "/", method = "GET", type = "", extra: Record<string, string> = {}) => ({ req: { method, url: `http://localhost${path}` }, res: { headers: new Headers({ ...(type ? { "content-type": type } : {}), ...extra }) } })
+  const page = "<html><body><h1>Hi</h1></body></html>"
+  const html = (body: BodyInit, headers: Record<string, string> = {}, status = 200) => new Response(body, { headers: { "content-type": "text/html; charset=utf-8", ...headers }, status })
+  const stream = (chunks: string[]) => new ReadableStream<Uint8Array>({ start(controller) { for (const chunk of chunks) controller.enqueue(new TextEncoder().encode(chunk)); controller.close() } })
+  const run = async (inject: Awaited<ReturnType<typeof middleware>>, response: Response, ev = event()) => {
+    const result = await (inject as (event: unknown, next: () => unknown) => Promise<unknown>)(ev, async () => response) as Response
+    return { headers: result.headers, status: result.status, text: await result.text() }
+  }
 
-  it("adds the loader to HTML responses and strings, and leaves the rest alone", async () => {
+  it("adds the loader to a streamed page, also when the closing tag is split across chunks", async () => {
     const inject = await middleware()
-    const html = new Response("<html><body>Hi</body></html>", { headers: { "content-length": "28", "content-type": "text/html; charset=utf-8" }, status: 201 })
-    const injected = await inject(event(), async () => html) as Response
-    expect(injected.status).toBe(201)
-    expect(injected.headers.has("content-length")).toBe(false)
-    expect(await injected.text()).toContain("/_vitehub/comments/loader.js?v=abc123")
-    expect(await inject(event("/", "GET", "text/html"), async () => "<main>Hi</main>")).toContain("loader.js")
-    expect(await inject(event(), async () => "<html><body>Hi</body></html>")).toContain("loader.js")
-    const json = new Response("{}", { headers: { "content-type": "application/json" } })
-    expect(await inject(event(), async () => json)).toBe(json)
-    expect(await inject(event("/", "GET", "text/plain"), async () => "plain")).toBe("plain")
-    expect(await inject(event("/", "POST"), async () => "<body></body>")).toBe("<body></body>")
-    // The Console page is HTML too, and never gets the overlay.
-    expect(await inject(event("/_vitehub/content"), async () => "<body></body>")).toBe("<body></body>")
-    expect(await inject(event("/_vitehub"), async () => "<body></body>")).toBe("<body></body>")
-    expect(await inject(event("/portal/_vitehub"), async () => "<body></body>")).toBe("<body></body>")
-    expect(await inject(event("/_vitehubs"), async () => "<body></body>")).toContain("loader.js")
-    expect(await inject(event(), async () => ({ ok: true }))).toEqual({ ok: true })
+    const whole = await run(inject, html(page, { "content-length": String(page.length), etag: "\"x\"" }, 201))
+    expect(whole.status).toBe(201)
+    expect(whole.headers.has("content-length")).toBe(false)
+    expect(whole.headers.has("etag")).toBe(false)
+    expect(whole.text).toBe(page.replace("</body>", `<script type="module" src="${url.replaceAll("&", "&amp;")}"></script></body>`))
+    for (const cut of [4, 5, 6, 7, 11, 20, page.indexOf("</body>") + 3, page.indexOf("</body>") + 6]) {
+      const split = await run(inject, html(stream([page.slice(0, cut), page.slice(cut)])))
+      expect(split.text, `cut at ${cut}`).toBe(whole.text)
+    }
+    // Many small chunks, and a long page: the tail that is held back never loses text.
+    const long = `<html><body>${"<p>é paragraph</p>".repeat(2_000)}</body></html>`
+    const many = await run(inject, html(stream(Array.from({ length: 200 }, (_, index) => long.slice(index * Math.ceil(long.length / 200), (index + 1) * Math.ceil(long.length / 200))))))
+    expect(many.text).toBe(long.replace("</body>", `<script type="module" src="${url.replaceAll("&", "&amp;")}"></script></body>`))
+  })
+
+  it("leaves fragments, other types, other charsets, compressed bodies, and empty bodies alone", async () => {
+    const inject = await middleware()
+    expect((await run(inject, html("<p>Only a fragment</p>"))).text).toBe("<p>Only a fragment</p>")
+    expect((await run(inject, html(stream(["<p>a fragment</p>", "<p>in chunks</p>"])))).text).toBe("<p>a fragment</p><p>in chunks</p>")
+    const untouched = [
+      new Response(page, { headers: { "content-type": "application/json" } }),
+      new Response(page, { headers: { "content-type": "text/plain" } }),
+      new Response(page, { headers: { "content-type": "application/xhtml+xml" } }),
+      html(page, { "content-type": "text/html; charset=iso-8859-1" }),
+      html(page, { "content-encoding": "gzip" }),
+      html(page, { "content-encoding": "br" }),
+      new Response(null, { headers: { "content-type": "text/html" }, status: 304 }),
+      new Response(null, { headers: { "content-type": "text/html" }, status: 204 }),
+    ]
+    for (const response of untouched) {
+      const result = await (inject as (event: unknown, next: () => unknown) => Promise<Response>)(event(), async () => response)
+      expect(result).toBe(response)
+    }
+    const identity = await run(inject, html(page, { "content-encoding": "identity" }))
+    expect(identity.text).toContain("loader.abc123.js")
+    expect((await run(inject, html(page, { "content-type": "text/html" }))).text).toContain("loader.abc123.js")
+    expect((await run(inject, html(page, { "content-type": "TEXT/HTML; Charset=UTF-8" }))).text).toContain("loader.abc123.js")
+  })
+
+  it("rewrites strings only when they are HTML", async () => {
+    const inject = await middleware()
+    const string = (text: string, type = "", extra: Record<string, string> = {}) => (inject as (event: unknown, next: () => unknown) => Promise<unknown>)(event("/", "GET", type, extra), async () => text)
+    expect(await string(page, "text/html")).toContain("loader.abc123.js")
+    expect(await string(page)).toContain("loader.abc123.js")
+    expect(await string("<p>fragment</p>", "text/html")).toBe("<p>fragment</p>")
+    expect(await string("<p>fragment</p>")).toBe("<p>fragment</p>")
+    // A type that is not HTML means a string with markup in it is data.
+    expect(await string(page, "application/json")).toBe(page)
+    expect(await string(page, "text/plain")).toBe(page)
+    expect(await string(page, "text/html; charset=latin1")).toBe(page)
+    expect(await string(page, "text/html", { "content-encoding": "gzip" })).toBe(page)
+  })
+
+  it("adds the script nonce of the response policy to the tag", async () => {
+    const inject = await middleware()
+    const response = await run(inject, html(page, { "content-security-policy": "script-src 'nonce-Zm9vYg==' 'strict-dynamic'" }))
+    expect(response.text).toContain(`<script type="module" nonce="Zm9vYg==" src=`)
+    const string = await (inject as (event: unknown, next: () => unknown) => Promise<string>)(event("/", "GET", "text/html", { "content-security-policy": "default-src 'nonce-n0nce'" }), async () => page)
+    expect(string).toContain(`nonce="n0nce"`)
+    expect((await run(inject, html(page, { "content-security-policy": "script-src 'self'" }))).text).not.toContain("nonce")
+  })
+
+  it("does not add a second loader, and skips other methods, the Console, and anything that is not a page", async () => {
+    const inject = await middleware()
+    const tagged = `<html><body><script type="module" src="/_vitehub/comments/loader.old.js?f=overlay.old.js"></script></body></html>`
+    expect((await run(inject, html(stream([tagged.slice(0, 40), tagged.slice(40)])))).text).toBe(tagged)
+    expect((await run(inject, html(tagged))).text).toBe(tagged)
+    for (const [path, method] of [["/", "POST"], ["/_vitehub/content", "GET"], ["/_vitehub", "GET"], ["/portal/_vitehub", "GET"]] as const) {
+      const response = html(page)
+      expect(await (inject as (event: unknown, next: () => unknown) => Promise<Response>)(event(path, method), async () => response), `${method} ${path}`).toBe(response)
+    }
+    expect((await run(inject, html(page), event("/_vitehubs"))).text).toContain("loader.abc123.js")
+    const object = { ok: true }
+    expect(await (inject as (event: unknown, next: () => unknown) => Promise<unknown>)(event(), async () => object)).toBe(object)
   })
 
   it("does nothing where the host calls it without next", async () => {
@@ -97,7 +182,7 @@ describe("hubComments overlay", () => {
     const plugin = hubComments({ overlayAssets: assets })
     await configHook(plugin)({ root })
     ;(plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => void)({ base: "/", plugins: [{ name: "@vite-hub/database/vite" }] })
-    expect(indexHtml(plugin)("<body>Hi</body>")).toBe(`<body>Hi<script type="module" src="/_vitehub/comments/loader.js?v=abc123"></script></body>`)
+    expect(indexHtml(plugin)("<body>Hi</body>")).toBe(`<body>Hi<script type="module" src="/_vitehub/comments/loader.abc123.js?f=overlay.def456.js"></script></body>`)
 
     const off = hubComments({ overlay: false, overlayAssets: assets })
     await configHook(off)({ root })
@@ -114,6 +199,19 @@ describe("hubComments overlay", () => {
     expect(indexHtml(without)("<body>Hi</body>")).toBe("<body>Hi</body>")
   })
 
+  it("follows the resolved base: the generated files are written again when it differs from the config", async () => {
+    const root = await project()
+    const plugin = hubComments({ overlayAssets: assets })
+    await configHook(plugin)({ root })
+    const middleware = join(root, ".vitehub/comments/inject-overlay.mjs")
+    expect(await readFile(middleware, "utf8")).toContain('"/_vitehub/comments/loader.abc123.js')
+    const resolved = plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => void
+    resolved({ base: "/docs/", plugins: [{ name: "@vite-hub/database/vite" }] })
+    expect(await readFile(middleware, "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
+    expect(indexHtml(plugin)("<body></body>")).toContain('src="/docs/_vitehub/comments/loader.abc123.js')
+  })
+
   it("serves the bundle from Nitro with a long cache and adds the middleware and the render hook", async () => {
     const root = await project()
     const plugin = hubComments({ overlay: { exclude: ["/admin/**"] }, overlayAssets: assets })
@@ -122,21 +220,30 @@ describe("hubComments overlay", () => {
     const nitro = config.nitro as { handlers: Array<Record<string, unknown>>, plugins: string[], publicAssets: Array<Record<string, unknown>> }
     expect(nitro.publicAssets).toEqual([{ baseURL: "/portal/_vitehub/comments", dir: assets.dir, fallthrough: false, maxAge: 31_536_000 }])
     expect(nitro.handlers).toEqual([{ handler: join(root, ".vitehub/comments/inject-overlay.mjs"), middleware: true, route: "/**" }])
-    expect(await readFile(nitro.handlers[0]!.handler as string, "utf8")).toContain("/portal/_vitehub/comments/loader.js?v=abc123&amp;o=")
+    expect(await readFile(nitro.handlers[0]!.handler as string, "utf8")).toContain("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")
 
     // Nitro 2, under Nuxt, renders through a hook, and the plugin adds the tag once.
     const generated = await readFile(nitro.plugins[0]!, "utf8")
     expect(generated).toContain("render:html")
-    const hooks = new Map<string, (html: { bodyAppend: string[] }) => void>()
-    const source = generated.replaceAll(/^import .*$/gm, "").replace("export default function", "function").replace(/const databaseName[\s\S]*?\nconst overlayTag/, "const overlayTag")
+    const hooks = new Map<string, (html: { bodyAppend: string[] }, context?: unknown) => void>()
+    const source = generated.replaceAll(/^import .*$/gm, "").replace("export default function", "function").replace(/const databaseName[\s\S]*?\nconst overlayUrl/, "const overlayUrl")
     const run = new Function("installComments", "databases", "createCommentsStore", "app", `${source}\nreturn viteHubComments`)
     const viteHubComments = run(() => undefined, {}, () => undefined, {}) as (app: unknown) => void
-    viteHubComments({ hooks: { hook: (name: string, handler: (html: { bodyAppend: string[] }) => void) => hooks.set(name, handler) } })
+    viteHubComments({ hooks: { hook: (name: string, handler: (html: { bodyAppend: string[] }, context?: unknown) => void) => hooks.set(name, handler) } })
     const html = { bodyAppend: [] as string[] }
     hooks.get("render:html")!(html)
     hooks.get("render:html")!(html)
     expect(html.bodyAppend).toHaveLength(1)
-    expect(html.bodyAppend[0]).toContain("/portal/_vitehub/comments/loader.js")
+    expect(html.bodyAppend[0]).toContain("/portal/_vitehub/comments/loader.abc123.js")
+    expect(html.bodyAppend[0]).not.toContain("nonce")
+    // Under a Content-Security-Policy with a script nonce, the tag carries it.
+    const strict = { bodyAppend: [] as string[] }
+    hooks.get("render:html")!(strict, { event: { node: { res: { getHeader: (name: string) => name === "content-security-policy" ? "script-src 'nonce-Zm9v' 'strict-dynamic'" : undefined } } } })
+    expect(strict.bodyAppend[0]).toContain(`nonce="Zm9v"`)
+    // A page that has the loader already (a second hook run, or an app that added it) gets no second one.
+    const tagged = { bodyAppend: [`<script type="module" src="/_vitehub/comments/loader.old.js?f=overlay.old.js"></script>`] }
+    hooks.get("render:html")!(tagged)
+    expect(tagged.bodyAppend).toHaveLength(1)
     // Another host calls the plugin with no hooks at all.
     expect(() => viteHubComments(undefined)).not.toThrow()
   })

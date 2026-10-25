@@ -679,9 +679,14 @@ describe("the overlay session", () => {
     expect(await value("comments.session")).toEqual({ canRead: true, canWrite: true, user: ana })
     signedIn = ben
     expect(await value("comments.session")).toEqual({ canRead: true, canWrite: false, user: ben })
-    // No user: the policy decides read, and nobody writes without one.
+  })
+
+  it("answers an anonymous visitor without asking the policy", async () => {
+    const authorize = vi.fn(() => true)
+    await setup(defineComments({ authorize }))
     signedIn = undefined
-    expect(await value("comments.session")).toEqual({ canRead: true, canWrite: false, user: null })
+    expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: null })
+    expect(authorize).not.toHaveBeenCalled()
   })
 
   it("says no to everything without a policy, when the policy refuses, or when it cannot answer without a thread", async () => {

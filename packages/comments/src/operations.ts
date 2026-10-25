@@ -396,6 +396,9 @@ const session = defineOperation({
   name: "comments.session",
   run: async (_input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
     const who = await caller(context)
+    // A visitor who is not signed in gets no answer from the policy: the overlay asks on every page view, so the policy
+    // does not run for each anonymous one, and nothing about the app leaks.
+    if (!who.user) return { canRead: false, canWrite: false, user: null }
     // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
     const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action).catch(() => false) : Promise.resolve(false)
     const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
