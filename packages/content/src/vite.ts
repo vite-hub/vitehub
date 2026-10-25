@@ -23,7 +23,7 @@ import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseCo
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { OperationContributionEntry } from "@vite-hub/internal/operations"
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./cms-build.ts"
@@ -66,7 +66,7 @@ export type ContentVitePlugin = Plugin & {
    * Contributions that the Workspace and Database plugins collect, empty without the `cms` preset, plus the
    * `vitehub content` commands, the Content operations, and the Content Definition inspector.
    */
-  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory, operations: readonly OperationContributionEntry[] } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
+  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory, operations: OperationContributions } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
 
 type ContentPluginConfig = UserConfig & {
@@ -173,7 +173,10 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     api: { resolveCmsPreset },
     vitehub: {
       // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
-      operations: [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }],
+      // An app without server/content.ts has no Content to operate on, so it contributes nothing.
+      operations: async () => await discover()
+        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }]
+        : [],
       cli: async () => {
         if (!await discover()) return
         const { createContentCliContributor } = await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./cli.ts" : "./cli.js")

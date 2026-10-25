@@ -107,9 +107,13 @@ async function contentRuntime(): Promise<ContentOperationsRuntime> {
   return content
 }
 
-/** The `dev` Console access has no sign-in, so the policy of `defineContent({ authorize })` cannot name a user for the CLI. */
+/**
+ * `vite dev` has no sign-in for the CLI (the `local` access, or `open` when the app sets `console.auth: false`), so
+ * `defineContent({ authorize })` cannot name a user. The dev RPC serves only loopback requests, and a production server
+ * never gets this trust.
+ */
 function trusted(context: OperationContext): boolean {
-  return context.surface === "cli" && context.access.mode === "local"
+  return context.surface === "cli" && (context.access.mode === "local" || context.access.mode === "open") && globalThis.process?.env?.NODE_ENV === "development"
 }
 
 interface Guard {
@@ -441,6 +445,9 @@ const save = defineOperation({
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "save")
     await access.allow("write", collection.name, id)
+    if (input.lease === "override" && context.surface === "agent" && !context.overrideLeases) {
+      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Create the capability with operations({ overrideLeases: true }) if Agents may write over an edit lease." })
+    }
     const parsed = parseDocumentFile(input.text, collection.format)
     if (!("frontmatter" in parsed)) {
       throw new ContentOperationError(422, "CONTENT_INVALID", `Content document ${JSON.stringify(`${collection.name}/${id}`)} cannot be read as ${collection.format}.`, { details: { collection: collection.name, id, issues: parsed.issues } })
@@ -473,6 +480,7 @@ const publish = defineOperation({
   }),
   kind: "destructive",
   name: "content.publish",
+  readOnlyWhen: input => input.dryRun === true,
   run: async (input, context): Promise<ContentDevPublishResult> => attempt(async () => {
     const content = await contentRuntime()
     const access = guard(content, context)

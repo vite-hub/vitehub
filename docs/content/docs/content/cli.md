@@ -40,7 +40,7 @@ The namespace appears when the app has a Content file. Without `--url`, the comm
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
-Every command accepts `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173` (or set `VITEHUB_DEV_SERVER_URL`), and `--timeout <ms>`. Errors go to stderr, or into `{ "error": { "code", "message", "details"? } }` on stdout with `--json`. Failed commands exit with status 1.
+Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, the command calls the dev server of this project, found through `.vitehub/dev-server.json` or `VITEHUB_DEV_SERVER_URL` (see [Run any operation](/docs/development/cli#run-any-operation)). Errors go to stderr, or into `{ "error": { "code", "message", "details"? } }` on stdout with `--json`. Failed commands exit with status 1.
 
 ## List and show
 
@@ -172,7 +172,7 @@ Fix them with `vitehub content edit <collection> <id>`, then run the command aga
 
 With `--json`, the error is `CONTENT_INVALID` and `details.documents` lists `{ collection, id, path, issues }`.
 
-The operations call `content.can()` with the signed-in Console user, like the Console editor does. The one exception is `vite dev` without Console sign-in: there the CLI has no user, so it skips the policy, as it did before. A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
+The operations call `content.can()` with the signed-in Console user, like the Console editor does. The one exception is `vite dev` without Console sign-in (`local` access, or `console: { auth: false }`): there the CLI has no user, so it skips the policy, as it did before. That trust applies only to a development server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
 
 ## Schedule
 

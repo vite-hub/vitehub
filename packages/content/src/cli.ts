@@ -4,7 +4,8 @@ import { basename, join, resolve } from "node:path"
 
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 
-import { readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { callOperation } from "@vite-hub/internal/operations"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
@@ -170,7 +171,7 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     "Options:",
     ...command.options.map(option => optionHelp[option]),
     "  --json               Print JSON.",
-    "  --url <url>          Dev server or deployed app URL. Defaults to http://localhost:5173.",
+    "  --url <url>          Dev server or deployed app URL. Defaults to the dev server of this project (.vitehub/dev-server.json).",
     "  --timeout <ms>       Request timeout.",
     "  -h, --help           Show this help.",
     "",
@@ -218,7 +219,7 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
 }
 
 function parseArgs(command: ContentCliCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedContentArgs {
-  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: resolveViteHubDevServerUrl(env), xml: false, yes: false }
+  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: "", xml: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -717,6 +718,16 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
   return 0
 }
 
+/** The roots that a dev server may name for this project: the Vite root and the ViteHub project root. */
+function projectRoots(rootDir: string): string[] {
+  try {
+    return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
+  }
+  catch {
+    return [rootDir]
+  }
+}
+
 async function runContentCommand(command: ContentCliCommand, args: string[], context: ContentCliContext, options: ContentCliOptions): Promise<number> {
   let parsed: ParsedContentArgs
   try {
@@ -738,11 +749,22 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
+  // The dev server of this project, never a guessed port. Another project may use 5173.
+  if (!parsed.url) {
+    const roots = projectRoots(context.rootDir)
+    const found = findViteHubDevServerUrl(roots, context.env)
+    if (!found) {
+      const error = contentErrorDiagnostics.CONTENT_R0015({ message: `No dev server is running for ${context.rootDir}.` })
+      return writeFailure(parsed, context, { code: "CONTENT_R0015", fix: Reflect.get(error, "fix") as string, message: error.message })
+    }
+    parsed.url = found
+  }
   const call: ContentDevCall = async <TOperation extends ContentDevOperation>(operation: TOperation, input: ContentDevRequestOptions) => {
     const result = await callOperation({
       env: context.env,
       fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
       ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      roots: projectRoots(context.rootDir),
       url: parsed.url,
     }, `content.${operation}`, input)
     if (!result.ok) {
