@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat, symlink, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -7,8 +7,8 @@ import { build } from "esbuild"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createEmail } from "../src/client.ts"
-import { emailDevHeader, emailDevHeaderValue } from "../src/dev.ts"
-import { clearEmailOutbox, getEmailOutboxMessage, listEmailOutbox, handleEmailDevRequest, readEmailOutboxConsoleRecords } from "../src/runtime/console.ts"
+import { clearEmailOutbox, getEmailOutboxMessage, listEmailOutbox, readEmailOutboxConsoleRecords } from "../src/runtime/console.ts"
+import { clearEmailOutboxMessages, listEmailOutboxMessages } from "../src/runtime/operations.ts"
 import { getEmailOutbox } from "../src/runtime/outbox.ts"
 import { hubEmail } from "../src/vite.ts"
 
@@ -19,9 +19,11 @@ type ConfigResolvedHook = (config: { root: string }) => Promise<void>
 
 const tempDirs: string[] = []
 const outboxState = Symbol.for("vitehub.email.outbox")
+const captureState = Symbol.for("vitehub.email.devCapture")
 
 afterEach(async () => {
   Reflect.deleteProperty(globalThis, outboxState)
+  Reflect.deleteProperty(globalThis, captureState)
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
@@ -41,8 +43,6 @@ async function configure(plugin: ReturnType<typeof hubEmail>, root: string, comm
   if (!handler) throw new Error("Expected a configured Email definition")
   return { config, definition: handler }
 }
-
-const devHandler = (root: string) => join(root, ".vitehub", "nitro", "email", "dev-handler.ts")
 
 describe("Email development outbox output", () => {
   it("exposes the configured runtime identity through the public server export", async () => {
@@ -88,7 +88,7 @@ describe("Email development outbox output", () => {
     expect(resolved.outboxRuntimeId).toBe(generated.outboxRuntimeId)
   })
 
-  it("never adds the outbox or its handler to build output", async () => {
+  it("never adds the outbox to build output", async () => {
     for (const command of ["build", undefined] as const) {
       const root = await createTempProject()
       const { config, definition } = await configure(hubEmail({ driver: "resend", outbox: { deliver: false } }), root, command)
@@ -97,27 +97,22 @@ describe("Email development outbox output", () => {
       expect(source).toContain("https://api.resend.com")
       expect(source).not.toContain("createEmailDevOutboxDriver")
       expect(source).not.toContain("vitehub.email.outbox")
-      expect(JSON.stringify(config.nitro)).not.toContain("dev-handler")
-      await expect(stat(devHandler(root))).rejects.toMatchObject({ code: "ENOENT" })
+      expect(source).not.toContain("devCapture")
+      expect(JSON.stringify(config.nitro)).not.toContain("email/dev")
     }
   })
 
-  it("wraps the provider driver and adds the guarded handler in vite dev", async () => {
+  it("wraps the provider driver in vite dev", async () => {
     const root = await createTempProject()
     const { config, definition } = await configure(hubEmail({ driver: "resend", outbox: { deliver: false, limit: 3 } }), root, "serve")
 
     const source = await readFile(definition, "utf8")
     expect(source).toContain("vitehub.email.outbox")
-    expect(config.nitro).toMatchObject({
-      baseURL: "/app/",
-      handlers: [{ handler: devHandler(root), route: "/_vitehub/email/dev" }],
-    })
-    expect(await readFile(devHandler(root), "utf8"))
-      .toContain("import { handleEmailDevRequest as handleViteHubDevRequest } from \"@vite-hub/email/runtime/console\"")
+    // The operations carry the outbox, so the plugin adds no Nitro route or handler.
+    expect(config.nitro).toEqual({ baseURL: "/app/", modules: expect.any(Array) })
 
     // The generated definition is a separate bundle. It must write to the outbox that the Console reader reads.
     const module: { definition: EmailDefinition, outboxRuntimeId: string } = await import(pathToFileURL(definition).href)
-    expect(await readFile(devHandler(root), "utf8")).toContain(JSON.stringify(module.outboxRuntimeId))
     const email = createEmail(module.definition)
     for (const subject of ["One", "Two", "Three", "Four"]) {
       await expect(email.send({ from: "hello@example.com", html: "<p>Hi</p>", subject, to: "ada@example.com" }))
@@ -144,8 +139,8 @@ describe("Email development outbox output", () => {
     expect(secondModule.outboxRuntimeId).not.toBe(firstModule.outboxRuntimeId)
     expect(getEmailOutbox(secondModule.outboxRuntimeId)).toBeUndefined()
     await createEmail(secondModule.definition).send({ from: "hello@example.com", subject: "Second app", text: "Hi", to: "ada@example.com" })
-    const clear = await handleEmailDevRequest(new Request("http://localhost/_vitehub/email/dev", { body: JSON.stringify({ operation: "clear" }), headers: { "content-type": "application/json", [emailDevHeader]: emailDevHeaderValue }, method: "POST" }), secondModule.outboxRuntimeId)
-    expect(await clear.json()).toEqual({ cleared: 1 })
+    // The operations answer for the newest outbox, which is the second application's.
+    expect(clearEmailOutboxMessages()).toEqual({ cleared: 1 })
     expect(readEmailOutboxConsoleRecords(firstModule.outboxRuntimeId)).toHaveLength(1)
     expect(getEmailOutbox(firstModule.outboxRuntimeId)?.list()).toHaveLength(1)
     await createEmail(secondModule.definition).send({ from: "hello@example.com", subject: "Retained second app", text: "Hi", to: "ada@example.com" })
@@ -172,12 +167,13 @@ describe("Email development outbox output", () => {
     expect(getEmailOutbox(module.outboxRuntimeId)?.list()[0]).toMatchObject({ delivery: { status: "failed" }, provider: "resend", subject: "Hi" })
   })
 
-  it("keeps the handler but reports a disabled outbox with outbox: false", async () => {
+  it("tells the operations that the outbox is disabled with outbox: false", async () => {
     const root = await createTempProject()
     const { definition } = await configure(hubEmail({ driver: "resend", outbox: false }), root, "serve")
 
     expect(await readFile(definition, "utf8")).not.toContain("vitehub.email.outbox")
-    expect(await readFile(devHandler(root), "utf8")).toContain("handleDisabledEmailDevRequest")
+    await import(`${pathToFileURL(definition).href}?disabled`)
+    expect(() => listEmailOutboxMessages()).toThrowError(expect.objectContaining({ code: "EMAIL_OUTBOX_DISABLED", status: 409 }))
   })
 
   it("rejects invalid outbox options", () => {

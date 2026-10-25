@@ -153,6 +153,12 @@
       "require": "./dist/_internal/database/runtime/state.js",
       "default": "./dist/_internal/database/runtime/state.js"
     },
+    "./_internal/email/operations": {
+      "types": "./dist/_internal/email/operations.d.ts",
+      "import": "./dist/_internal/email/operations.js",
+      "require": "./dist/_internal/email/operations.js",
+      "default": "./dist/_internal/email/operations.js"
+    },
     "./_internal/email/runtime/console": {
       "types": "./dist/_internal/email/runtime/console.d.ts",
       "import": "./dist/_internal/email/runtime/console.js",

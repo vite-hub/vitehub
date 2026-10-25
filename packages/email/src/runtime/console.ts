@@ -1,12 +1,7 @@
-import * as v from "valibot"
-import { validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
-
-import { emailDevHeader, emailDevHeaderValue } from "../dev.ts"
 import { getEmailOutbox } from "./outbox.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField } from "@vite-hub/internal/inspect"
-import type { EmailDevRequestBody } from "../dev.ts"
 import type { EmailOutboxDelivery, EmailOutboxMessage } from "./outbox.ts"
 
 export type { EmailOutboxAttachment, EmailOutboxDelivery, EmailOutboxMessage } from "./outbox.ts"
@@ -33,7 +28,8 @@ export interface EmailOutboxList {
 /** Longest HTML source that one Console record shows. Use `vitehub email outbox show <id> --html` for the full source. */
 export const emailConsoleHtmlSourceLimit = 4000
 
-function listItem(message: EmailOutboxMessage): EmailOutboxListItem {
+/** The row of one message in a list. */
+export function toEmailOutboxListItem(message: EmailOutboxMessage): EmailOutboxListItem {
   return {
     attachments: message.attachments.length,
     capturedAt: message.capturedAt,
@@ -49,7 +45,7 @@ function listItem(message: EmailOutboxMessage): EmailOutboxListItem {
 /** Lists the messages of the development outbox, newest first. */
 export function listEmailOutbox(runtimeId?: string): EmailOutboxList {
   const outbox = getEmailOutbox(runtimeId)
-  return { limit: outbox?.limit ?? null, messages: (outbox?.list() ?? []).map(listItem) }
+  return { limit: outbox?.limit ?? null, messages: (outbox?.list() ?? []).map(toEmailOutboxListItem) }
 }
 
 /** Returns one captured message, or `undefined` when the outbox has no message with this id. */
@@ -135,63 +131,4 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
  */
 export function readEmailOutboxConsoleRecords(runtimeId?: string): ViteHubConsoleRecord[] {
   return (getEmailOutbox(runtimeId)?.list() ?? []).map(consoleRecord)
-}
-
-function json(value: unknown, status = 200): Response {
-  return Response.json(value, { headers: { "cache-control": "no-store" }, status })
-}
-
-function failure(message: string, status: number, code?: string): Response {
-  const error: { code?: string, message: string } = { message }
-  if (code) error.code = code
-  return json({ error }, status)
-}
-
-async function readBody(request: Request): Promise<EmailDevRequestBody | undefined> {
-  const body: unknown = await request.json().catch(() => undefined)
-  const parsed = v.safeParse(v.object({ operation: v.picklist(["list", "get", "clear"]), id: v.optional(v.pipe(v.string(), v.minLength(1))) }), body)
-  return parsed.success ? parsed.output : undefined
-}
-
-function runOperation(body: EmailDevRequestBody, runtimeId?: string): Response {
-  switch (body.operation) {
-    case "list":
-      return json(listEmailOutbox(runtimeId))
-    case "get": {
-      if (!body.id) return failure("The get operation requires an id.", 400)
-      const message = getEmailOutboxMessage(body.id, runtimeId)
-      return message
-        ? json({ message })
-        : failure("Outbox message was not found. The outbox keeps only recent messages and a restart clears it.", 404, "EMAIL_OUTBOX_MESSAGE_NOT_FOUND")
-    }
-    case "clear":
-      return json({ cleared: clearEmailOutbox(runtimeId) })
-  }
-}
-
-const devHeaders = { header: emailDevHeader, headerValue: emailDevHeaderValue, label: "Email Dev" }
-
-/**
- * Handles one outbox operation from `vitehub email outbox`. The Vite Development Server forwards the request into the
- * Nitro runtime, so the operation reads the same outbox as `email.send()`.
- *
- * The request must carry the Email dev header, must not come from another origin, and must use JSON.
- */
-export async function handleEmailDevRequest(request: Request, runtimeContext?: string | { runtimeId?: string }): Promise<Response> {
-  const runtimeId = v.is(v.string(), runtimeContext) ? runtimeContext : runtimeContext?.runtimeId
-  const { rejection } = await validateViteHubNitroDevRequest(request, devHeaders)
-  if (rejection) return rejection
-  const body = await readBody(request)
-  if (!body) return failure("The Email Dev request body is invalid.", 400)
-  return runOperation(body, runtimeId)
-}
-
-/**
- * Handles `vitehub email outbox` requests when the application sets `email.outbox: false`. Each valid request gets
- * `409` with `EMAIL_OUTBOX_DISABLED`.
- */
-export async function handleDisabledEmailDevRequest(request: Request): Promise<Response> {
-  const { rejection } = await validateViteHubNitroDevRequest(request, devHeaders)
-  if (rejection) return rejection
-  return failure("The Email development outbox is disabled. Remove `email.outbox: false` to capture messages in `vite dev`.", 409, "EMAIL_OUTBOX_DISABLED")
 }

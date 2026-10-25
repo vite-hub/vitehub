@@ -204,7 +204,7 @@ export const defaultViteHubDevServerUrl = "http://localhost:5173"
  */
 export interface ViteHubDevTargetArgs {
   timeout?: number
-  url: string
+  url?: string
 }
 
 /**

@@ -1,17 +1,11 @@
-import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Readable, Writable } from "node:stream"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createEmailCliContributor, runEmailOutboxCli, runEmailPreviewCli } from "../src/cli.ts"
-import { emailDevHeader, emailDevHeaderValue, emailDevRoute, emailDevRuntimeRoute } from "../src/dev.ts"
-import { emailDevRuntimeUnavailableMessage, registerEmailDevEndpoint } from "../src/vite-dev.ts"
 
-import type { IncomingMessage, ServerResponse } from "node:http"
-import type { ViteHubNitroDevServer } from "@vite-hub/internal/dev-endpoint"
 import type { EmailOutboxMessage } from "../src/runtime/console.ts"
 
 const rootDir = "/app"
@@ -35,14 +29,26 @@ function stream() {
 function context(root = rootDir) {
   const stdout = stream()
   const stderr = stream()
-  return { context: { cwd: root, env: {}, rootDir: root, stderr, stdout }, stderr, stdout }
+  return { context: { cwd: root, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" } as NodeJS.ProcessEnv, rootDir: root, stderr, stdout }, stderr, stdout }
 }
 
-/** Fake dev server: `GET` discovery, then one `POST` operation. */
-function devServer(result: unknown, init: { discovery?: Record<string, unknown>, status?: number } = {}) {
-  return vi.fn(async (_url: string | URL | Request, request?: RequestInit) => request?.method === "POST"
-    ? Response.json(result, { status: init.status ?? 200 })
-    : Response.json(init.discovery ?? { root: rootDir, runtime: "nitro" }))
+/**
+ * A fake app: it answers the operation RPC. A result is the value of the operation. With `status`, the result is an
+ * error body, `{ error: { code?, message } }`, which the RPC reports as the failure fields.
+ */
+function devServer(result: unknown, init: { status?: number } = {}) {
+  return vi.fn(async (_url: string | URL | Request, _request?: RequestInit) => {
+    const status = init.status ?? 200
+    if (status < 400) return Response.json({ ok: true, value: result }, { status })
+    const error = (result as { error: { code?: string, message: string } }).error
+    return Response.json({ ok: false, code: error.code ?? "EMAIL_FAILED", message: error.message, status }, { status })
+  })
+}
+
+/** The operation and input that a command sent. */
+function sentCall(fetch: ReturnType<typeof devServer>) {
+  const request = fetch.mock.calls[0]?.[1]
+  return { body: JSON.parse(String(request?.body)) as { input: unknown, operation: string }, headers: new Headers(request?.headers), method: request?.method }
 }
 
 const captured: EmailOutboxMessage = {
@@ -67,7 +73,7 @@ const listResult = {
   ],
 }
 
-describe("Email discovery failure output", () => {
+describe("Email outbox failure output", () => {
   it.each([["show", "--json"], ["list", "--json", "--html"], ["send", "--json"], ["--json"]])("returns JSON for outbox argument errors: %j", async (...args) => {
     const output = context()
     const fetch = vi.fn()
@@ -80,7 +86,7 @@ describe("Email discovery failure output", () => {
   it.each([{ flags: [] }, { flags: ["--json"] }])("reports malformed outbox rows with flags %j", async ({ flags }) => {
     const output = context()
     await expect(runEmailOutboxCli(["list", ...flags], output.context, { fetch: devServer({ ...listResult, messages: [{}] }) })).resolves.toBe(1)
-    expect(output.stdout.output() + output.stderr.output()).toContain("response is invalid")
+    expect(output.stdout.output() + output.stderr.output()).toContain("invalid result")
   })
 
   it("prints a JSON error without stderr diagnostics", async () => {
@@ -90,29 +96,13 @@ describe("Email discovery failure output", () => {
     expect(output.stderr.output()).toBe("")
   })
 
-  it("applies timeout to discovery", async () => {
+  it("applies the request timeout", async () => {
     const output = context()
     const fetch = vi.fn((_url: string | URL | Request, request?: RequestInit) => new Promise<Response>((_resolve, reject) => {
       request?.signal?.addEventListener("abort", () => reject(request.signal?.reason), { once: true })
     }))
     await expect(runEmailOutboxCli(["list", "--json", "--timeout", "10"], output.context, { fetch })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toHaveProperty("error.message")
-    expect(fetch).toHaveBeenCalledOnce()
-  })
-
-  it("keeps a valid discovery root when another field is malformed", async () => {
-    const output = context()
-    const fetch = devServer({}, { discovery: { root: "/other", runtime: 123 } })
-    await expect(runEmailOutboxCli(["list"], output.context, { fetch })).resolves.toBe(1)
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(fetch.mock.calls).toHaveLength(1)
-  })
-
-  it("rejects a malformed discovery root", async () => {
-    const output = context()
-    const fetch = devServer({}, { discovery: { root: 123 } })
-    await expect(runEmailOutboxCli(["list"], output.context, { fetch })).resolves.toBe(1)
-    expect(output.stderr.output()).toContain("Invalid Vite Development Server discovery root.")
     expect(fetch).toHaveBeenCalledOnce()
   })
 })
@@ -130,13 +120,10 @@ describe("vitehub email outbox", () => {
       "2 messages (limit 50).",
       "",
     ].join("\n"))
-    const [discovery, operation] = fetch.mock.calls
-    expect(String(discovery?.[0])).toBe(`http://127.0.0.1:4321${emailDevRoute}`)
-    expect(operation?.[1]).toMatchObject({
-      body: JSON.stringify({ operation: "list" }),
-      headers: { "content-type": "application/json", [emailDevHeader]: emailDevHeaderValue },
-      method: "POST",
-    })
+    expect(String(fetch.mock.calls[0]?.[0])).toBe("http://127.0.0.1:4321/_vitehub/rpc/__call")
+    const sent = sentCall(fetch)
+    expect(sent).toMatchObject({ body: { input: {}, operation: "email.outbox-list" }, method: "POST" })
+    expect(sent.headers.get("x-vitehub-console")).toBe("1")
 
     const json = context()
     await expect(runEmailOutboxCli(["list", "--json"], json.context, { fetch: devServer(listResult) })).resolves.toBe(0)
@@ -151,7 +138,7 @@ describe("vitehub email outbox", () => {
     const human = context()
     const fetch = devServer({ message: captured })
     await expect(runEmailOutboxCli(["show", "outbox-2"], human.context, { fetch })).resolves.toBe(0)
-    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ body: JSON.stringify({ id: "outbox-2", operation: "get" }) })
+    expect(sentCall(fetch).body).toEqual({ input: { id: "outbox-2" }, operation: "email.outbox-show" })
     expect(human.stdout.output()).toBe([
       "Message: outbox-2",
       "Captured: 2026-09-29T10:00:00.000Z",
@@ -195,7 +182,7 @@ describe("vitehub email outbox", () => {
     const human = context()
     const fetch = devServer({ cleared: 2 })
     await expect(runEmailOutboxCli(["clear"], human.context, { fetch })).resolves.toBe(0)
-    expect(fetch.mock.calls[1]?.[1]).toMatchObject({ body: JSON.stringify({ operation: "clear" }) })
+    expect(sentCall(fetch).body).toEqual({ input: {}, operation: "email.outbox-clear" })
     expect(human.stdout.output()).toBe("Removed 2 messages from the outbox.\n")
 
     const json = context()
@@ -219,18 +206,13 @@ describe("vitehub email outbox", () => {
     expect(JSON.parse(disabled.stdout.output())).toEqual(disabledError)
   })
 
-  it("explains hosts that cannot reach the Email runtime", async () => {
-    const unavailable = context()
-    const fetch = devServer({}, { discovery: { message: emailDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" } })
-    await expect(runEmailOutboxCli(["list", "--json"], unavailable.context, { fetch })).resolves.toBe(1)
-    expect(fetch).toHaveBeenCalledOnce()
-    expect(JSON.parse(unavailable.stdout.output())).toEqual({
-      error: { code: "EMAIL_DEV_RUNTIME_UNAVAILABLE", message: emailDevRuntimeUnavailableMessage },
-    })
-
-    const missing = context()
-    await expect(runEmailOutboxCli(["list"], missing.context, { fetch: vi.fn(async () => new Response("Not found", { status: 404 })) })).resolves.toBe(1)
-    expect(missing.stderr.output()).toContain("`vitehub email outbox` needs a running Vite + Nitro Development Server with `email` enabled. Nuxt and plain Vite are not supported.\n")
+  it("says to start the dev server when none runs", async () => {
+    const output = context()
+    output.context.env = {}
+    const fetch = vi.fn()
+    await expect(runEmailOutboxCli(["list"], output.context, { fetch })).resolves.toBe(1)
+    expect(output.stderr.output()).toContain("No dev server is running for /app.")
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("validates arguments before it calls the server", async () => {
@@ -346,86 +328,5 @@ describe("vitehub email preview", () => {
     const usage = context(root)
     await expect(runEmailPreviewCli([], usage.context)).resolves.toBe(1)
     expect(usage.stderr.output()).toContain("Missing template name.")
-  })
-})
-
-type Middleware = (req: IncomingMessage, res: ServerResponse, next: () => void) => void
-
-function fakeServer(environments?: Record<string, unknown>) {
-  const middlewares: Middleware[] = []
-  const server: ViteHubNitroDevServer = {
-    config: { root: rootDir, server: { port: 5173 } },
-    environments,
-    middlewares: { use: handler => middlewares.push(handler) },
-  }
-  return { middlewares, server }
-}
-
-async function call(middleware: Middleware, init: { body?: string, headers?: Record<string, string>, method: string }) {
-  const req = Object.assign(Readable.from(init.body ? [Buffer.from(init.body)] : []), {
-    headers: { host: "localhost:5173", ...init.headers },
-    method: init.method,
-    url: emailDevRoute,
-  }) as unknown as IncomingMessage
-  const done = new EventEmitter()
-  const chunks: Buffer[] = []
-  const headers: Record<string, string> = {}
-  const res = Object.assign(new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(Buffer.from(chunk))
-      callback()
-    },
-    final(callback) {
-      done.emit("end")
-      callback()
-    },
-  }), {
-    setHeader(name: string, value: string) {
-      headers[name] = value
-    },
-    statusCode: 200,
-  })
-  const ended = new Promise(resolve => done.once("end", resolve))
-  middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
-  await ended
-  return { body: Buffer.concat(chunks).toString("utf8"), headers, status: res.statusCode }
-}
-
-const guard = { [emailDevHeader]: emailDevHeaderValue }
-
-describe("Email dev endpoint", () => {
-  it("rejects requests without the guard header or from another origin", async () => {
-    const { middlewares, server } = fakeServer()
-    registerEmailDevEndpoint(server)
-
-    expect(await call(middlewares[0]!, { method: "GET" })).toMatchObject({ body: "Forbidden Email Dev request.", status: 403 })
-    expect(await call(middlewares[0]!, { headers: { ...guard, origin: "https://attacker.test" }, method: "GET" })).toMatchObject({ status: 403 })
-    expect(await call(middlewares[0]!, { body: "{}", headers: { ...guard, "content-type": "text/plain" }, method: "POST" })).toMatchObject({ status: 415 })
-    expect(await call(middlewares[0]!, { headers: guard, method: "DELETE" })).toMatchObject({ status: 405 })
-  })
-
-  it("reports hosts without an in-process Nitro environment", async () => {
-    const { middlewares, server } = fakeServer()
-    registerEmailDevEndpoint(server)
-
-    const discovery = await call(middlewares[0]!, { headers: guard, method: "GET" })
-    expect(JSON.parse(discovery.body)).toEqual({ message: emailDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })
-    const operation = await call(middlewares[0]!, { body: "{\"operation\":\"list\"}", headers: { ...guard, "content-type": "application/json" }, method: "POST" })
-    expect(operation.status).toBe(501)
-    expect(JSON.parse(operation.body)).toMatchObject({ error: { code: "EMAIL_DEV_RUNTIME_UNAVAILABLE" } })
-  })
-
-  it("forwards operations into the Nitro environment under the Nitro base URL", async () => {
-    const dispatchFetch = vi.fn(async (request: Request) => Response.json({ body: await request.text(), url: request.url }))
-    const { middlewares, server } = fakeServer({ nitro: { dispatchFetch } })
-    registerEmailDevEndpoint(server, { nitroBaseURL: () => "/app/" })
-
-    expect(JSON.parse((await call(middlewares[0]!, { headers: guard, method: "GET" })).body)).toEqual({ root: rootDir, runtime: "nitro" })
-    const operation = await call(middlewares[0]!, { body: "{\"operation\":\"list\"}", headers: { ...guard, "content-type": "application/json" }, method: "POST" })
-
-    expect(operation.status).toBe(200)
-    expect(operation.headers["cache-control"]).toBe("no-store")
-    expect(JSON.parse(operation.body)).toEqual({ body: "{\"operation\":\"list\"}", url: `http://localhost/app${emailDevRuntimeRoute}` })
-    expect(dispatchFetch.mock.calls[0]?.[0].headers.get(emailDevHeader)).toBe(emailDevHeaderValue)
   })
 })

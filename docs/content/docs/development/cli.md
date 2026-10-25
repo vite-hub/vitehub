@@ -93,8 +93,8 @@ Available namespaces:
 | `vitehub env check` | Available | Env Package | Fail CI or a deploy step when Server Env would not load for a stage. |
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
-| `vitehub email outbox` | Available | Email Package | List, show, or clear messages captured by a running Vite + Nitro Development Server. |
-| `vitehub email preview` | Available | Email Package | Render a `server/emails` template locally without sending it. |
+| `vitehub email outbox` | Available | Email Package | List, show, or clear the messages that the development outbox captured, on the dev server or with `--url`. |
+| `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
@@ -172,6 +172,8 @@ pnpm vitehub email outbox clear
 ```
 
 Use `--json` for machine-readable output. The outbox is available only in `vite dev` and is cleared when the server restarts. Use `vitehub email preview <template>` to render a `server/emails` template without sending it.
+
+The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox-list`, `outbox-show`, and `outbox-clear`, which print JSON.
 
 ## Inspect Server Env
 

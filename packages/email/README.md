@@ -150,7 +150,7 @@ hubEmail({
 
 `limit` defaults to `50` and accepts 1 to 1000. `outbox: false` disables the outbox. A restart clears it. Header and metadata values with secret names, and credentials in delivery errors, are redacted. Message bodies are kept as rendered.
 
-Read the outbox from a running Vite + Nitro Development Server, or render a template without sending it:
+Read the outbox from a running Development Server, or render a template without sending it. The commands run the `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, and `email.preview` operations, which the Console and agents can also run:
 
 ```bash
 pnpm vitehub email outbox list

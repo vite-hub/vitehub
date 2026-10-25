@@ -1156,7 +1156,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubEmail({
       ...emailOptions,
       hosting: plan.nitroPreset,
-      importBase: `${generatedImportBase}/email`,
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: options.workflow && options.workflow !== true ? options.workflow.provider : undefined,
     } as EmailVitePluginOptions))

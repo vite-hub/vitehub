@@ -143,6 +143,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/content/runtime/console",
+  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/operations",
