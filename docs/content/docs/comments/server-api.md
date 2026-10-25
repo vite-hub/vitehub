@@ -12,15 +12,23 @@ All operations belong to the Console section `comments`. Run them from the Conso
 
 | Operation | Kind | Input | Result |
 | --- | --- | --- | --- |
-| `comments.list` | read | `{ subject?, page?, status?, mine?, mentions? }` | `CommentThread[]`, ordered by number. |
-| `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null`. |
+| `comments.list` | read | `{ subject?, page?, status?, mine?, mentions?, limit?, before? }` | `CommentThread[]`, newest first. |
+| `comments.get` | read | `{ id }` or `{ scope, n }` | The thread, or `null` when it does not exist or you may not read it. |
 | `comments.create` | write | `{ subject, anchor, body, mentions?, attachments? }` | The new thread. |
 | `comments.reply` | write | `{ threadId, body, mentions?, attachments? }` | The thread. |
 | `comments.edit` | write | `{ threadId, messageId, body, mentions? }` | The thread. Only the author. |
 | `comments.delete` | destructive | `{ threadId, messageId? }` | The thread, or `null` when it is gone. |
 | `comments.resolve` | write | `{ threadId }` | The thread. |
 | `comments.reopen` | write | `{ threadId }` | The thread. |
-| `comments.users` | read | `{ query, limit? }` | `CommentUser[]` to mention. |
+| `comments.users` | read | `{ query, limit? }` | Up to 10 `{ id, name, image }` to mention. A `query` under 2 characters gives `[]`, and it needs the right to `write`. |
+
+`attachments` takes only an empty list for now: no operation uploads a file yet, so anything else fails with `COMMENTS_R0014`. Attachments come with the upload operation.
+
+A `page` subject id is an app path: one `/`, then no second `/` or `\`, no whitespace, `?`, or `#`, and at most 500 characters.
+
+### Paging
+
+`list` returns an array, newest first (by `updatedAt`, then `id`), at most `limit` threads (default 200, at most 500). For the next page pass the last thread of the page as `before`: `{ before: { updatedAt, id } }`. A page shorter than `limit` is the last one, because `list` keeps asking for threads until it has `limit` that you may read or the threads end. `mentions` is filtered in the database, so it does not count against `limit`.
 
 Without `messageId`, `delete` removes the whole thread. Deleting the first message also removes the thread. Times are milliseconds since the epoch.
 

@@ -18,7 +18,7 @@ export default defineComments({
 
 Add the file and ViteHub does the rest:
 
-- It adds the `vitehub_comment_threads` and `vitehub_comment_messages` tables to your Database.
+- It adds the `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` tables to your Database.
 - It adds the operations `comments.list`, `get`, `create`, `reply`, `edit`, `delete`, `resolve`, `reopen`, and `users`. The Console, `vitehub comments list`, the [MCP endpoint](/docs/development/mcp), and the browser client call the same code.
 - It adds a **Comments** section to the [Console](/docs/development/console) that lists the threads the signed-in user may read, with filter chips and a link to the page.
 
