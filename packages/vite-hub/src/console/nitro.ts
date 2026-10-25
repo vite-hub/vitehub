@@ -50,12 +50,14 @@ export function addConsoleRpcHandler(
   nitro: { handlers?: Array<{ handler: string; route: string }> },
   consoleRuntimeRoot: string,
   base?: string,
+  sections: readonly string[] = [],
 ): void {
   const kit = createNitroServerKit(nitro)
   // SAFETY: The Console only adds Nitro handlers with string handler and route fields.
   const handlers = kit.config.handlers as NitroHandler[]
   const registrations = [
     { suffix: "/_vitehub/rpc/**", handler: join(consoleRuntimeRoot, "server/rpc.js") },
+    { suffix: "/_vitehub/auth/manage", handler: join(consoleRuntimeRoot, "server/auth-manage.js") },
     { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js") },
     { suffix: "/_vitehub/channels/replay", handler: join(consoleRuntimeRoot, "server/channel-replay.js") },
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js") },
@@ -69,12 +71,14 @@ export function addConsoleRpcHandler(
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
   for (const registration of registrations) {
+    if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
     const route = mountPath(base, registration.suffix)
     const conflict = retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
     if (conflict) {
-      const message = registration.suffix === "/_vitehub/rpc/**"
-        ? `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".`
-        : `Cannot mount the ViteHub ${registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : "Schedule run"} handler at "${route}" because that route is already registered.`
+      const message =
+        registration.suffix === "/_vitehub/rpc/**"
+          ? `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".`
+          : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : "Schedule run"} handler at "${route}" because that route is already registered.`;
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
     const handler: NitroHandler = { handler: registration.handler, route }

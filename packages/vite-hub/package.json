@@ -1223,6 +1223,18 @@
       "import": "./dist/console/runtime/server/documents.js",
       "require": "./dist/console/runtime/server/documents.js",
       "default": "./dist/console/runtime/server/documents.js"
+    },
+    "./auth/console": {
+      "types": "./dist/auth/console.d.ts",
+      "import": "./dist/auth/console.js",
+      "require": "./dist/auth/console.js",
+      "default": "./dist/auth/console.js"
+    },
+    "./auth/console-runtime": {
+      "types": "./dist/auth/console-runtime.d.ts",
+      "import": "./dist/auth/console-runtime.js",
+      "require": "./dist/auth/console-runtime.js",
+      "default": "./dist/auth/console-runtime.js"
     }
   },
   "scripts": {

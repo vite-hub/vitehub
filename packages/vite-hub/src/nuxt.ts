@@ -344,7 +344,7 @@ async function installConsole(
   }))).flat()
   installConsoleSections(projectRoot, [...sections, ...documentEditorSections], independentAuth)
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsolePageHandlers>[0] & { plugins?: string[] }
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL)
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, sections);
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
   addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL)
@@ -807,6 +807,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let resolvedConsoleFixture: string | undefined
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
+  let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
   if (options.console) {
     const configuredConsole = resolveConsoleOptions(options.console)
@@ -814,13 +815,13 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const viteAuth = nuxt.options.vite?.auth
     const effectiveAuth = viteAuth ?? options.auth
     if (!nuxt.options.vitehubCliDiscovery) {
-      const appAuth = configuredConsole.auth === "app" && effectiveAuth
-        ? resolveAuthViteConfig(
-            effectiveAuth === true ? undefined : effectiveAuth,
-            viteRoot,
-            { serverDirs: resolveNuxtServerDirs(nuxt.options) },
-          )
-        : undefined
+      const appAuth = effectiveAuth
+        ? resolveAuthViteConfig(effectiveAuth === true ? undefined : effectiveAuth, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
+        : undefined;
+      consoleHasPrimaryAuth = Boolean(appAuth);
+      const authIndex = consoleSections.indexOf("auth");
+      if (!appAuth && authIndex !== -1) consoleSections.splice(authIndex, 1);
+      if (appAuth && authIndex === -1) consoleSections.push("auth");
       assertConsoleAccess(configuredConsole, {
         auth: appAuth,
         sections: consoleSections,
@@ -1192,6 +1193,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       const resolvedSections = resolveConsoleSectionIds({
         ...options,
+        auth: consoleHasPrimaryAuth,
         connections: isConsoleConnectionsEnabled(options, nuxt.options.dev === true) ? options.connections : false,
         env: options.env !== false,
         blob: replayedBlobEnabled,
@@ -1221,7 +1223,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(options.console)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
-      addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL)
+      addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, consoleSections);
       addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL)
       if (consoleSections.includes("connections")) {
         // The Connections management handler records the signed-in Console user as the actor.

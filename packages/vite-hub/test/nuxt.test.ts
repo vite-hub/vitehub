@@ -1912,6 +1912,10 @@ describe("ViteHub Nuxt integration", () => {
       }, production.nuxt)).resolves.toBeUndefined()
 
       expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]))
+      expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" })]))
+      const replayed: Record<string, unknown> = {}
+      for (const hook of production.nitroConfigHooks) await hook(replayed)
+      expect(replayed.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage" })]))
     } finally {
       await rm(authDefinition, { force: true })
     }

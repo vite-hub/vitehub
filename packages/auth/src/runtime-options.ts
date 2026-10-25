@@ -45,6 +45,7 @@ function stripViteHubOptions(
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
+    console: _console,
     database,
     route: _route,
     runtime: _runtime,
