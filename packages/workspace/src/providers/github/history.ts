@@ -26,11 +26,13 @@ import {
   readGitHubFile,
   type GitFileMode,
   type GitHubFileUpdate,
+  type GitHubProvider,
   type GitHubRepository,
 } from "./shared.ts"
 
 import type {
   GitHubWorkspaceRefs,
+  WorkspaceMergeConflict,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
   WorkspacePullRequest,
@@ -599,67 +601,196 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return await revision(ref, commitSha, commitOptions.metadata)
   }
 
-  let pullRequestCache: { expires: number, value: Promise<WorkspacePullRequest[]> } | undefined
+  let pullRequestCache: { expires: number, prefix: string, value: Promise<WorkspacePullRequest[]> } | undefined
+
+  const repoPath = (repo: { owner: string, name: string }) => `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`
+  const refPath = (branch: string) => branch.split("/").map(encodeURIComponent).join("/")
+
+  /** Branches that start with `prefix`, from the matching-refs endpoint, page by page. */
+  const matchingBranches = async (prefix: string): Promise<string[]> => await githubRequest(client, async (provider, repo) => {
+    const names: string[] = []
+    for (let page = 1; page <= 10; page++) {
+      const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`, { query: { per_page: 100, page } })
+      const items: unknown[] = Array.isArray(response.data) ? response.data : []
+      for (const item of items) {
+        const name: unknown = item !== null && typeof item === "object" ? Reflect.get(item, "ref") : undefined
+        if (nonEmptyString(name) && name.startsWith("refs/heads/")) names.push(name.slice("refs/heads/".length))
+      }
+      if (items.length < 100) break
+    }
+    return names
+  }, "branch list")
+
+  /** The open pull request whose head is `branch`, found by the head filter of the pulls endpoint. */
+  const openPullRequestOf = async (branch: string): Promise<WorkspacePullRequest | undefined> => await githubRequest(client, async (provider, repo) => {
+    const response = await provider.request<unknown>("GET", `${repoPath(repo)}/pulls`, { query: { state: "open", head: `${repo.owner}:${branch}`, per_page: 5 } })
+    for (const item of Array.isArray(response.data) ? response.data : []) {
+      if (item === null || typeof item !== "object") continue
+      const number: unknown = Reflect.get(item, "number")
+      const url: unknown = Reflect.get(item, "html_url")
+      const title: unknown = Reflect.get(item, "title")
+      const base: unknown = Reflect.get(Object(Reflect.get(item, "base")), "ref")
+      const headRef: unknown = Reflect.get(Object(Reflect.get(item, "head")), "ref")
+      // The head filter matches a branch of a fork with the same name too.
+      if (!Number.isSafeInteger(number) || !nonEmptyString(url) || !nonEmptyString(base) || headRef !== branch) continue
+      return { number: Number(number), url, title: String(title ?? ""), head: fromBranch(branch), base: fromBranch(base) }
+    }
+  }, "pull request list")
 
   const pullRequests = async (listOptions?: { headPrefix?: string }): Promise<WorkspacePullRequest[]> => {
-    if (!pullRequestCache || pullRequestCache.expires <= Date.now()) {
-      const value = githubRequest(client, async (provider, repo) => {
-        const threads = await provider.threads.list(repo, { kind: "pull_request", state: "open", perPage: 100 }).page()
-        return threads.items.flatMap((thread): WorkspacePullRequest[] => {
-          const head = thread.branches?.head.ref
-          const base = thread.branches?.base.ref
-          const number = Number(thread.ref.number)
-          if (!head || !base || !thread.url || !Number.isSafeInteger(number)) return []
-          return [{ number, url: thread.url, title: thread.title, head: fromBranch(head), base: fromBranch(base) }]
-        })
-      }, "pull request list")
-      pullRequestCache = { expires: Date.now() + githubHeadCacheMs, value }
+    // The branches that start with the prefix come first, so only they cost a pull request lookup.
+    const prefix = listOptions?.headPrefix ?? ""
+    if (!prefix) throw workspaceError("[vitehub] pullRequests() requires a headPrefix on the GitHub Store.")
+    if (!pullRequestCache || pullRequestCache.expires <= Date.now() || pullRequestCache.prefix !== prefix) {
+      const value = (async () => {
+        const found = await Promise.all((await matchingBranches(prefix)).map(async branch => await openPullRequestOf(branch)))
+        // Newest first: the number only grows.
+        return found.filter(entry => entry !== undefined).sort((left, right) => right.number - left.number)
+      })()
+      pullRequestCache = { expires: Date.now() + githubHeadCacheMs, prefix, value }
       // A failed read is not kept.
       value.catch(() => {
         if (pullRequestCache?.value === value) pullRequestCache = undefined
       })
     }
-    const all = await pullRequestCache.value
-    return listOptions?.headPrefix === undefined ? all : all.filter(pullRequest => pullRequest.head.startsWith(listOptions.headPrefix!))
+    return await pullRequestCache.value
+  }
+
+  const deleteBranch = async (branch: string) => {
+    heads.delete(branch)
+    await githubRequest(client, async (provider, repo) => await provider.request("DELETE", `${repoPath(repo)}/git/refs/heads/${refPath(branch)}`))
   }
 
   const openPullRequest = async (pullRequest: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest> => {
     const head = resolveRef(pullRequest.head)
     const base = resolveRef(pullRequest.base)
-    const created = await githubRequest(client, async (provider, repo) => await provider.threads.create(repo, {
-      kind: "pull_request",
-      title: pullRequest.title,
-      body: pullRequest.body,
-      head: head.branch,
-      base: base.branch,
-      draft: pullRequest.draft,
-    }), "pull request")
+    let created: Awaited<ReturnType<GitHubProvider["threads"]["create"]>>
+    try {
+      created = await githubRequest(client, async (provider, repo) => await provider.threads.create(repo, {
+        kind: "pull_request",
+        title: pullRequest.title,
+        body: pullRequest.body,
+        head: head.branch,
+        base: base.branch,
+        draft: pullRequest.draft,
+      }), "pull request")
+    }
+    catch (error) {
+      // The branch only existed for this pull request.
+      if (pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
+      throw error
+    }
     const number = Number(created.ref.number)
     if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
     pullRequestCache = undefined
     return { number, url: created.url, title: created.title, head: head.ref, base: base.ref }
   }
 
+  /**
+   * GitHub answers 409 to a merge that conflicts, and to one that raced another update of the branch. The body of the
+   * response tells them apart: "Merge conflict" against "Head branch was modified".
+   */
+  const isMergeConflict = (error: unknown): boolean => {
+    if (githubRequestStatus(error) !== 409) return false
+    for (const entry of [error, error instanceof Error ? error.cause : undefined]) {
+      const body: unknown = entry !== null && typeof entry === "object" ? Reflect.get(entry, "body") : undefined
+      if (typeof body === "string" && /merge conflict/i.test(body)) return true
+    }
+    return false
+  }
+
+  /** The files of a commit by repository path, with their blob sha and mode. */
+  const readFullTree = async (sha: string): Promise<Map<string, { mode: GitFileMode, sha: string }>> => await githubRequest(client, async (provider, repo) => {
+    const tree = provider.contents.tree(repo, { recursive: true, ref: sha })
+    const files = new Map<string, { mode: GitFileMode, sha: string }>()
+    for await (const entry of tree) {
+      if (entry.type !== "file" && entry.type !== "symlink") continue
+      if (!entry.sha) malformed("tree")
+      files.set(entry.path, { mode: gitFileMode(entry.mode), sha: entry.sha })
+    }
+    if (tree.warnings.some(warning => warning.code === "tree_truncated")) {
+      throw workspaceError("[vitehub] GitHub workspace store could not merge because GitHub returned a truncated tree.")
+    }
+    return files
+  }, "tree")
+
+  /**
+   * Merge with the Git data API when the Merges API conflicts: files that only one side changed take that side, and
+   * files that both changed keep the receiving ref's version. `onConflict` sees the files that stayed.
+   */
+  const mergeKeepingOurs = async (from: { branch: string, ref: string }, into: { branch: string, ref: string }, mergeOptions: WorkspaceMergeOptions): Promise<WorkspaceRevision> => {
+    let metadata = mergeOptions.metadata
+    const sha = await githubRequest(client, async (provider, repo) => {
+      const oursSha = await provider.contents.resolveRef(repo, `heads/${into.branch}`)
+      const theirsSha = await provider.contents.resolveRef(repo, `heads/${from.branch}`)
+      if (!oursSha || !theirsSha) malformed("commit")
+      const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(oursSha)}...${encodeURIComponent(theirsSha)}`)).data
+      const mergeBase: unknown = Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha")
+      if (!nonEmptyString(mergeBase)) malformed("compare")
+      const [before, ours, theirs] = await Promise.all([readFullTree(mergeBase), readFullTree(oursSha), readFullTree(theirsSha)])
+      const same = (left: { mode: string, sha: string } | undefined, right: { mode: string, sha: string } | undefined) => left?.sha === right?.sha && left?.mode === right?.mode
+      const changes: Array<{ mode: string, path: string, sha: string | null, type: "blob" }> = []
+      const conflicts: WorkspaceMergeConflict[] = []
+      for (const path of new Set([...before.keys(), ...ours.keys(), ...theirs.keys()])) {
+        const b = before.get(path)
+        const o = ours.get(path)
+        const t = theirs.get(path)
+        if (same(o, t) || same(t, b)) continue
+        if (same(o, b)) {
+          changes.push({ mode: t?.mode ?? "100644", path, sha: t?.sha ?? null, type: "blob" })
+          continue
+        }
+        const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
+        if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) conflicts.push({ path: workspacePath, ours: o?.sha ?? null, theirs: t?.sha ?? null })
+      }
+      metadata = { ...mergeOptions.metadata, ...await mergeOptions.onConflict!(conflicts) }
+      const message = messageWithMetadata(mergeOptions.message ?? `Merge ${from.ref} into ${into.ref}`, metadata)
+      const oursTree = (await provider.request<unknown>("GET", `${repoPath(repo)}/git/commits/${encodeURIComponent(oursSha)}`)).data
+      const baseTree: unknown = Reflect.get(Object(Reflect.get(Object(oursTree), "tree")), "sha")
+      if (!nonEmptyString(baseTree)) malformed("commit")
+      let tree = baseTree
+      if (changes.length) {
+        const created: unknown = (await provider.request<unknown>("POST", `${repoPath(repo)}/git/trees`, { body: { base_tree: baseTree, tree: changes } })).data
+        const createdSha: unknown = Reflect.get(Object(created), "sha")
+        if (!nonEmptyString(createdSha)) malformed("tree")
+        tree = createdSha
+      }
+      const commit: unknown = (await provider.request<unknown>("POST", `${repoPath(repo)}/git/commits`, { body: { message, tree, parents: [oursSha, theirsSha] } })).data
+      const commitSha: unknown = Reflect.get(Object(commit), "sha")
+      if (!nonEmptyString(commitSha)) malformed("commit")
+      await provider.request("PATCH", `${repoPath(repo)}/git/refs/heads/${refPath(into.branch)}`, { body: { sha: commitSha, force: false } })
+      return commitSha
+    }, "merge")
+    heads.set(into.branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(sha) })
+    return await revision(into.ref, sha, metadata)
+  }
+
   const merge = async (mergeOptions: WorkspaceMergeOptions): Promise<WorkspaceRevision | null> => {
     const from = resolveRef(mergeOptions.from)
     const into = resolveRef(mergeOptions.into)
     const message = messageWithMetadata(mergeOptions.message ?? `Merge ${from.ref} into ${into.ref}`, mergeOptions.metadata)
-    let response: { data: unknown, status: number }
-    try {
-      response = await githubRequest(client, async (provider, repo) => await provider.request<unknown>("POST", `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}/merges`, {
-        body: { base: into.branch, head: from.branch, commit_message: message },
-      }), "merge")
-    }
-    catch (error) {
-      heads.delete(into.branch)
-      if (githubRequestStatus(error) === 409) {
-        throw workspaceConflict(`[vitehub] Merging ${from.ref} into ${into.ref} conflicts: the same lines changed on both. Resolve the conflict on the ${into.branch} branch, or make the change again after it.`, {
-          cause: error,
-          details: { from: from.ref, into: into.ref },
-        })
+    let response: { data: unknown, status: number } | undefined
+    for (let attempt = 1; !response; attempt++) {
+      try {
+        response = await githubRequest(client, async (provider, repo) => await provider.request<unknown>("POST", `${repoPath(repo)}/merges`, {
+          body: { base: into.branch, head: from.branch, commit_message: message },
+        }), "merge")
       }
-      if (githubRequestStatus(error) === 404) throw workspaceError(`[vitehub] Cannot merge ${from.ref} into ${into.ref}: a branch does not exist.`, { cause: error })
-      throw error
+      catch (error) {
+        heads.delete(into.branch)
+        const status = githubRequestStatus(error)
+        if (isMergeConflict(error)) {
+          if (mergeOptions.onConflict) return await mergeKeepingOurs(from, into, mergeOptions)
+          throw workspaceConflict(`[vitehub] Merging ${from.ref} into ${into.ref} conflicts: the same lines changed on both. Resolve the conflict on the ${into.branch} branch, or make the change again after it.`, {
+            cause: error,
+            details: { from: from.ref, into: into.ref },
+          })
+        }
+        // A 409 that is not a conflict means another update of the branch won. Try once more.
+        if (status === 409 && attempt === 1) continue
+        if (status === 404) throw workspaceError(`[vitehub] Cannot merge ${from.ref} into ${into.ref}: a branch does not exist.`, { cause: error })
+        throw error
+      }
     }
     // GitHub answers 204 when `into` already has everything in `from`.
     if (response.status === 204) return null

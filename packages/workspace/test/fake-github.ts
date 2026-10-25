@@ -202,24 +202,22 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     return seen
   }
 
-  /** Merge `head` into `base`: a three-way merge of whole files. It reports a conflict when both changed the same file. */
-  function mergeBranches(base: string, head: string, message: string): { conflict: true } | { sha: string } | { upToDate: true } {
-    const ours = branches.get(base)!
-    const theirs = branches.get(head)!
-    if (reachable(ours).has(theirs)) return { upToDate: true }
+  /** The nearest commit that both reach, walking back from `ours`. */
+  function mergeBase(ours: string, theirs: string): string | undefined {
     const theirAncestors = reachable(theirs)
-    // The nearest commit that both reach, walking back from ours.
-    const ancestor = (() => {
-      const queue = [ours]
-      const seen = new Set<string>()
-      while (queue.length) {
-        const next = queue.shift()!
-        if (seen.has(next)) continue
-        seen.add(next)
-        if (theirAncestors.has(next)) return next
-        queue.push(...(commits.get(next)?.parents ?? []))
-      }
-    })()
+    const queue = [ours]
+    const seen = new Set<string>()
+    while (queue.length) {
+      const next = queue.shift()!
+      if (seen.has(next)) continue
+      seen.add(next)
+      if (theirAncestors.has(next)) return next
+      queue.push(...(commits.get(next)?.parents ?? []))
+    }
+  }
+
+  /** The tree that results from taking the changes of `theirs` since `ancestor` onto `ours`. Null on a conflict. */
+  function mergeTrees(ancestor: string | undefined, ours: string, theirs: string): FakeTreeEntry[] | null {
     const shaOf = (tree: FakeTreeEntry[]) => new Map(tree.map(entry => [entry.path, entry]))
     const before = shaOf(ancestor ? commits.get(ancestor)!.tree : [])
     const mine = shaOf(commits.get(ours)!.tree)
@@ -232,9 +230,19 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       let pick: FakeTreeEntry | undefined
       if (o === t || t === b) pick = mine.get(path)
       else if (o === b) pick = other.get(path)
-      else return { conflict: true }
+      else return null
       if (pick) merged.push(pick)
     }
+    return merged
+  }
+
+  /** Merge `head` into `base`: a three-way merge of whole files. It reports a conflict when both changed the same file. */
+  function mergeBranches(base: string, head: string, message: string): { conflict: true } | { sha: string } | { upToDate: true } {
+    const ours = branches.get(base)!
+    const theirs = branches.get(head)!
+    if (reachable(ours).has(theirs)) return { upToDate: true }
+    const merged = mergeTrees(mergeBase(ours, theirs), ours, theirs)
+    if (!merged) return { conflict: true }
     const commit = addCommit({ message, parents: [ours, theirs], tree: merged })
     branches.set(base, commit.sha)
     return { sha: commit.sha }
@@ -312,6 +320,18 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (rest === "" && method === "GET") {
       return json({ default_branch: state.defaultBranch, full_name: `${owner}/${repo}`, name: repo, owner: { login: owner }, private: true })
     }
+    if (rest.startsWith("/compare/") && method === "GET") {
+      const [left, right] = rest.slice("/compare/".length).split("...")
+      const base = left && right ? mergeBase(left, right) : undefined
+      return base ? json({ merge_base_commit: { sha: base } }) : failure(404, "Not Found")
+    }
+    if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
+      const prefix = rest.slice("/git/matching-refs/heads/".length)
+      return page([...branches].filter(([name]) => name.startsWith(prefix)).sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ object: { sha, type: "commit" }, ref: `refs/heads/${name}` })), url)
+    }
+    if (rest.startsWith("/git/refs/heads/") && method === "DELETE") {
+      return branches.delete(rest.slice("/git/refs/heads/".length)) ? new Response(null, { status: 204 }) : failure(422, "Reference does not exist")
+    }
     if (rest === "/merges" && method === "POST") {
       const base = String(request.body?.base)
       const head = String(request.body?.head)
@@ -331,7 +351,8 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
     if (rest === "/pulls" && method === "GET") {
       const state = url.searchParams.get("state") ?? "open"
-      return page(pulls.filter(pull => state === "all" || pull.state === state).map(pullBody).reverse(), url)
+      const head = url.searchParams.get("head")
+      return page(pulls.filter(pull => (state === "all" || pull.state === state) && (!head || head === `${owner}:${pull.head}`)).map(pullBody).reverse(), url)
     }
     if (rest === "/branches" && method === "GET") {
       return page([...branches].sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ commit: { sha }, name, protected: false })), url)
@@ -494,11 +515,38 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     },
     /** The pull requests that were opened. */
     pulls,
-    /** Merge a pull request, as its author would on GitHub. */
-    mergePullRequest(number: number) {
+    /**
+     * Merge a pull request the way GitHub does. `merge` makes a merge commit, `squash` one commit with the branch's
+     * changes, and `rebase` replays each commit of the branch on the base. Only a merge commit keeps the branch's
+     * commits in the history of the base.
+     */
+    mergePullRequest(number: number, method: "merge" | "rebase" | "squash" = "merge") {
       const pull = pulls.find(entry => entry.number === number)!
-      const result = mergeBranches(pull.base, pull.head, `Merge pull request #${number} from ${pull.head}`)
-      if ("conflict" in result) throw new Error("The fake cannot merge a conflicting pull request.")
+      const ours = branches.get(pull.base)!
+      const theirs = branches.get(pull.head)!
+      if (method === "merge") {
+        const result = mergeBranches(pull.base, pull.head, `Merge pull request #${number} from ${pull.head}`)
+        if ("conflict" in result) throw new Error("The fake cannot merge a conflicting pull request.")
+      }
+      else if (method === "squash") {
+        const tree = mergeTrees(mergeBase(ours, theirs), ours, theirs)
+        if (!tree) throw new Error("The fake cannot merge a conflicting pull request.")
+        branches.set(pull.base, addCommit({ message: `${pull.title} (#${number})`, parents: [ours], tree }).sha)
+      }
+      else {
+        // The commits of the branch since the base, oldest first, each replayed as the changes it made.
+        const stop = mergeBase(ours, theirs)
+        const chain: FakeCommit[] = []
+        for (let current = commits.get(theirs); current && current.sha !== stop; current = current.parents[0] ? commits.get(current.parents[0]) : undefined) chain.unshift(current)
+        for (const commit of chain) {
+          const before = new Map((commits.get(commit.parents[0] ?? "")?.tree ?? []).map(entry => [entry.path, entry]))
+          const changes: FakeChanges = {}
+          for (const entry of commit.tree) if (before.get(entry.path)?.sha !== entry.sha) changes[entry.path] = { content: blobs.get(entry.sha) ?? new Uint8Array(), mode: entry.mode }
+          for (const path of before.keys()) if (!commit.tree.some(entry => entry.path === path)) changes[path] = null
+          const head = branches.get(pull.base)!
+          branches.set(pull.base, addCommit({ message: commit.message, parents: [head], tree: applyChanges(commits.get(head)!.tree, changes) }).sha)
+        }
+      }
       pull.state = "closed"
       pull.merged = true
     },

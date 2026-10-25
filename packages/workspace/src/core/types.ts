@@ -414,9 +414,27 @@ export interface WorkspaceOpenPullRequestOptions {
   title: string
   body?: string
   draft?: boolean
+  /** Delete the head ref when the pull request cannot be opened, so a failed publish leaves no branch behind. */
+  deleteHeadOnFailure?: boolean
+}
+
+/** A file that both refs changed in different ways. Digests are the Store's (`history.digest`); null means deleted. */
+export interface WorkspaceMergeConflict {
+  /** The Workspace path. */
+  path: string
+  /** The digest on the ref that receives the merge. */
+  ours: string | null
+  /** The digest on the ref that is merged in. */
+  theirs: string | null
 }
 
 export interface WorkspaceMergeOptions {
+  /**
+   * Called when the Store's own merge conflicts. With it, the Store merges everything else, keeps the receiving ref's
+   * version of each conflicting file, and calls this with those files. It returns metadata for the merge commit, which
+   * is added to `metadata`. Without it, a conflict throws `WORKSPACE_CONFLICT`.
+   */
+  onConflict?(conflicts: WorkspaceMergeConflict[]): Record<string, unknown> | Promise<Record<string, unknown>>
   /** The ref to bring in. */
   from: string
   /** The ref that receives the merge. */
@@ -429,8 +447,8 @@ export interface WorkspaceMergeOptions {
 
 export interface WorkspaceHistoryReader {
   /**
-   * The open pull requests of the repository, newest first, for a Store that has them. `headPrefix` keeps the ones whose
-   * head ref starts with it.
+   * The open pull requests whose head ref starts with `headPrefix`, newest first, for a Store that has them. The GitHub
+   * Store finds the branches with that prefix first, so it requires `headPrefix`.
    */
   pullRequests?(options?: { headPrefix?: string }): Promise<WorkspacePullRequest[]>
   /**
