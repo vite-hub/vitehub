@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { glob as tinyglobby } from "tinyglobby"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { createSource } from "../../src/core/reader.ts"
 import { glob } from "../../src/glob.ts"
 
 vi.mock("tinyglobby", () => ({
@@ -25,6 +26,31 @@ afterEach(async () => {
 })
 
 describe("@vite-hub/source glob source cache", () => {
+  it("keeps public key mutations separate from cached membership", async () => {
+    const root = await createRoot()
+    await mkdir(join(root, "docs"), { recursive: true })
+    await writeFile(join(root, "docs", "README.md"), "# Docs\n")
+    const docs = glob({ include: "**/*.md" })
+    const ctx = { rootDir: root }
+
+    const keys = await docs.getKeys(ctx)
+    keys.splice(0, 1, "missing.md")
+    await expect(docs.getKeys(ctx)).resolves.toEqual(["docs/README.md"])
+    await expect(docs.getItem("docs/README.md", ctx)).resolves.toMatchObject({ key: "docs/README.md" })
+    await expect(docs.getMeta?.("docs/README.md", ctx)).resolves.toMatchObject({ digest: expect.any(String) })
+    await expect(docs.getItem("missing.md", ctx)).rejects.toThrow('glob could not find "missing.md"')
+
+    const reader = createSource(docs, ctx)
+    const readerKeys = await reader.keys()
+    readerKeys.splice(0, 1, "missing.md")
+    await expect(reader.keys()).resolves.toEqual(["docs/README.md"])
+    await expect(reader.exists("docs/README.md")).resolves.toBe(true)
+    await expect(reader.exists("missing.md")).resolves.toBe(false)
+    await expect(reader.get("docs/README.md")).resolves.toMatchObject({ key: "docs/README.md" })
+    await expect(reader.meta("docs/README.md")).resolves.toMatchObject({ digest: expect.any(String) })
+    expect(tinyglobby).toHaveBeenCalledTimes(2)
+  })
+
   it("reuses a prepared glob listing for item reads and metadata", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })

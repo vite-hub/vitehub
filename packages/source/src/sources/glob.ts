@@ -155,7 +155,7 @@ export function glob(input: GlobInput): FileSource<string> {
       await getCachedListing(ctx)
     },
     async getKeys(ctx: SourceContext) {
-      return (await getCachedListing(ctx)).keys
+      return (await getCachedListing(ctx)).keys.slice()
     },
     async getMeta(key: string, ctx: SourceContext) {
       await assertKey(key, ctx)
