@@ -204,6 +204,42 @@ describe("Blob response transforms", () => {
     expect(cache?.blobs).toHaveLength(1)
   })
 
+  it.each(["x".repeat(8192), "€".repeat(3000)])("reuses and inspects cached transforms with long keys (%#)", async (key) => {
+    const settings = { transform: { key, run } }
+    const app = new H3().all("/photo", async (request) => {
+      const [error, body] = await storage.serve(request, "private/original", settings)
+      if (error) throw error
+      return body
+    })
+    for (let count = 0; count < 2; count++) {
+      const response = await app.fetch(new Request("https://example.test/photo"))
+      expect(response.status).toBe(200)
+      expect(response.headers.get("content-type")).toBe("text/plain")
+      expect(response.headers.get("content-length")).toBe("6")
+      expect(await response.text()).toBe("public")
+      storage = createBlobStorage(createDriver({ driver: "fs", base: directory }))
+    }
+    expect.soft(run).toHaveBeenCalledOnce()
+    const [error, variants] = await storage.media.variants("private/original")
+    expect(error).toBeNull()
+    expect(variants).toHaveLength(1)
+    expect(variants?.[0]).toMatchObject({ contentType: "text/plain", key, size: 6 })
+  })
+
+  it.each(["not-json\npayload", '{"type":"text/plain"}'])("regenerates damaged cache headers (%#)", async (damaged) => {
+    const [, first] = await storage.serve(event(), "private/original", options)
+    await first?.cancel()
+    const cache = await driver.list({ prefix: "_vitehub/derived/" })
+    await driver.put(cache.blobs[0]!.pathname, damaged)
+
+    const [, variants] = await storage.media.variants("private/original")
+    expect(variants?.[0]?.size).toBe(new TextEncoder().encode(damaged).length)
+    const [error, body] = await storage.serve(event(), "private/original", options)
+    expect(error).toBeNull()
+    expect(await new Response(body).text()).toBe("public")
+    expect(run).toHaveBeenCalledTimes(2)
+  })
+
   it("caches through drivers that reject custom metadata", async () => {
     const put = driver.put.bind(driver)
     vi.spyOn(driver, "put").mockImplementation(async (path, body, settings) => {
