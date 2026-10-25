@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { renderErrorLogNitroPlugin } from "../src/error-log-vite.ts"
 
-type ErrorHook = (error: unknown, context?: { event?: { req: Request }, tags?: string[] }) => void
+type ErrorHook = (error: unknown, context?: { event?: { req: { url: string, method: string } }, tags?: string[] }) => void
 
 /** Evaluates the generated plugin with the runtime normalizer and returns its `error` hook. */
 function errorHook(): ErrorHook {
@@ -44,6 +44,14 @@ describe("generated error log Nitro plugin", () => {
       stack: expect.stringContaining("sync failed"),
       cause: { message: "Gmail token refresh failed", status: 502 },
     })
+  })
+
+  it("logs H3 1 requests with a relative Node request URL", () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {})
+    const thrown = new Error("request failed")
+    errorHook()(unhandled(thrown), { event: { req: { url: "/api/post?draft=true", method: "GET" } } })
+    expect(log.mock.calls[0]?.[0]).toBe("[vitehub] Unhandled error in GET /api/post")
+    expect(log.mock.calls[0]?.[1]).toMatchObject({ message: "request failed" })
   })
 
   it("does not log errors that a route throws on purpose", () => {

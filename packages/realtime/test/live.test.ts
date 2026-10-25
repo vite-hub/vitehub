@@ -544,6 +544,22 @@ describe("history checkpoints", () => {
     client.close()
   })
 
+  it("re-seeds when an adapter checkpoint returns a serialized conflict", async () => {
+    const memory = createMemoryAdapter({ page: { body: "Start" } })
+    const conflict: unknown = JSON.parse(JSON.stringify(new RealtimeDocumentConflict()))
+    const checkpoint = vi.fn().mockRejectedValueOnce(conflict)
+    const server = createTestServer(liveDefinition({ ...memory.adapter, checkpoint }, { history: { checkpoint: true } }))
+    const client = await server.connect("page")
+    await settle()
+
+    const response = await server.post("page", "checkpoint", { state: Y.encodeStateAsUpdate(client.doc) })
+
+    expect(checkpoint).toHaveBeenCalledOnce()
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toMatchObject({ data: { code: "REALTIME_SOURCE_CHANGED" } })
+    expect(client.controls.at(-1)).toMatchObject({ type: "reset", reason: "source-changed" })
+  })
+
   it("rebases a conflicting Workspace checkpoint and re-seeds when the remote version wins", async () => {
     let content = "Base"
     let digest = "baseline"
@@ -679,9 +695,11 @@ describe("room authorities", () => {
     expect(idFromName.mock.calls).toEqual([["server"], ["server"]])
   })
 
-  it("re-seeds when an explicit save conflicts", async () => {
+  it.each(["instance", "JSON"])("re-seeds when an explicit save conflicts (%s)", async (representation) => {
     const memory = createMemoryAdapter({ page: { body: "Start" } })
-    memory.adapter.save.mockRejectedValueOnce(new RealtimeDocumentConflict())
+    const conflict = new RealtimeDocumentConflict()
+    const error: unknown = representation === "JSON" ? JSON.parse(JSON.stringify(conflict)) : conflict
+    memory.adapter.save.mockRejectedValueOnce(error)
     const server = createTestServer(liveDefinition(memory.adapter))
     const client = await server.connect("page")
     await settle()

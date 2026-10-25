@@ -1,6 +1,6 @@
 import { decodeSandboxTaskValue, encodeSandboxTaskValue } from './binary-sidecars'
 import { sandboxTaskError } from '../sandbox-task/errors'
-import { readSandboxTaskErrorMetadata } from './error-normalization'
+import { combineSandboxTaskErrors, readSandboxTaskErrorMetadata } from './error-normalization'
 import { createEntrySource } from './entry-script'
 import { prepareSandboxTaskDefinition } from './definition-preparation'
 import {
@@ -55,6 +55,7 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
   const bundle = normalizeSandboxTaskDefinitionBundle(source)
 
   const files = createExecutionFiles(definitionName)
+  let failure: { error: unknown } | undefined
   const throwIfAborted = () => {
     if (signal?.aborted)
       throw signal.reason ?? new DOMException('The Sandbox invocation was aborted.', 'AbortError')
@@ -153,11 +154,34 @@ async function executeSandboxTaskDefinitionOnce<TPayload>(
       exitCode: execution?.code,
     })
   }
+  catch (error) {
+    failure = { error }
+    throw error
+  }
   finally {
     if (sandbox.provider === 'cloudflare') {
       const cleanupTimeout = deadline === undefined ? undefined : SANDBOX_CLEANUP_GRACE_MS
       const cleanupOptions = cleanupTimeout === undefined ? undefined : { timeout: cleanupTimeout }
-      await sandbox.exec('rm', ['-rf', '--', files.baseDir], cleanupOptions).catch(() => {})
+      try {
+        const cleanup = await sandbox.exec('rm', ['-rf', '--', files.baseDir], cleanupOptions).catch((error: unknown) => {
+          throw sandboxTaskError('Sandbox invocation cleanup failed.', {
+            provider: sandbox.provider,
+            cause: error,
+          })
+        })
+        if (!cleanup.ok || cleanup.code !== 0) {
+          throw sandboxTaskError('Sandbox invocation cleanup failed.', {
+            provider: sandbox.provider,
+            details: { operation: 'cleanup', exitCode: cleanup.code },
+            cause: cleanup,
+          })
+        }
+      }
+      catch (cleanupError) {
+        if (failure)
+          throw combineSandboxTaskErrors(failure.error, cleanupError)
+        throw cleanupError
+      }
     }
   }
 }
@@ -230,7 +254,15 @@ export async function executeSandboxTaskDefinition<TPayload>(
   }
   catch (error) {
     if (timedOut) {
-      await execution!.catch(() => {})
+      await execution!.catch((executionError: unknown) => {
+        if (executionError !== timeoutError) {
+          throw sandboxTaskError(timeoutError!.message, {
+            code: 'SANDBOX_TASK_TIMEOUT',
+            details: timeoutError!.details,
+            cause: executionError,
+          })
+        }
+      })
       throw timeoutError ?? error
     }
     throw error

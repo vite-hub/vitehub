@@ -3,7 +3,7 @@ import { createWorkflowError } from "../errors.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isWorkflowBoundaryError, runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 
-import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
+import type { WorkflowDefinition, WorkflowDefinitionOptions, WorkflowProviderContext, WorkflowRun, WorkflowRunStatus, WorkflowRunStep, WorkflowSignalResult } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface VercelRun {
@@ -227,7 +227,7 @@ async function readRunIdentity(run: VercelRun): Promise<{ exists: false } | { ex
 
 function getNativeWorkflowName<TPayload, TResult>(name: string, definition: WorkflowDefinition<TPayload, TResult>): string {
   // SAFETY: Vercel's transform attaches workflowId to the generated native handler.
-  const workflowName = (definition.options?.native as WorkflowDefinition<TPayload, TResult>["handler"] & { workflowId?: string } | undefined)?.workflowId
+  const workflowName = (definition.options?.native as NonNullable<WorkflowDefinitionOptions<TPayload, TResult>["native"]> & { workflowId?: string } | undefined)?.workflowId
   if (!workflowName) {
     throw createWorkflowError({
       code: "WORKFLOW_NATIVE_ENTRY_INVALID",
@@ -294,7 +294,7 @@ export async function startVercelWorkflow<TPayload = unknown, TResult = unknown>
       details: { ...(safeWorkflowName(name) ? { name } : {}), provider: "vercel" },
     })
   }
-  const context: WorkflowExecutionContext<TPayload> = {
+  const context: WorkflowProviderContext<TPayload> = {
     name,
     // SAFETY: The optional payload belongs to this Workflow definition's payload contract.
     payload: payload as TPayload,

@@ -41,6 +41,7 @@ export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNa
 
 export {
   formatRuntimeDiagnosticError,
+  isRuntimeDiagnostic,
   normalizeRuntimeDiagnosticError,
   type RuntimeDiagnosticError,
   type RuntimeDiagnosticErrorOptions,
@@ -67,6 +68,7 @@ export {
 
 export {
   defineErrors,
+  toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
   type Result,
@@ -113,19 +115,19 @@ export interface ExecutionAuthority {
   readonly processes: "arbitrary" | "none" | "restricted" | "unknown"
 }
 
-export const noExecutionAuthority: ExecutionAuthority = Object.freeze({
+export const noExecutionAuthority: ExecutionAuthority = /* @__PURE__ */ Object.freeze({
   credentials: "none",
   environment: "none",
-  filesystem: Object.freeze({ access: "none", scope: "none" }),
+  filesystem: /* @__PURE__ */ Object.freeze({ access: "none", scope: "none" }),
   isolation: "none",
   network: "none",
   processes: "none",
 }) satisfies ExecutionAuthority
 
-export const unknownExecutionAuthority: ExecutionAuthority = Object.freeze({
+export const unknownExecutionAuthority: ExecutionAuthority = /* @__PURE__ */ Object.freeze({
   credentials: "unknown",
   environment: "unknown",
-  filesystem: Object.freeze({ access: "unknown", scope: "unknown" }),
+  filesystem: /* @__PURE__ */ Object.freeze({ access: "unknown", scope: "unknown" }),
   isolation: "unknown",
   network: "unknown",
   processes: "unknown",
@@ -173,7 +175,7 @@ function inspectExecutionAuthority(value: unknown): InspectedExecutionAuthority 
   }
 }
 
-const canonicalExecutionAuthorities = new WeakSet<object>([noExecutionAuthority, unknownExecutionAuthority])
+const canonicalExecutionAuthorities = /* @__PURE__ */ new WeakSet<object>([noExecutionAuthority, unknownExecutionAuthority])
 
 export function normalizeExecutionAuthority(value: unknown): ExecutionAuthority {
   if (isRuntimeObject(value) && canonicalExecutionAuthorities.has(value)) {

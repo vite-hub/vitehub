@@ -8,6 +8,14 @@ import {
   toAgentPublicError,
 } from "./agent-error.ts"
 
+const httpErrorsKey = Symbol.for("vitehub.agent.http-errors")
+
+function httpErrors(): WeakSet<object> {
+  // SAFETY: Agent HTTP error constructors own this shared slot in each bundle.
+  const scope = globalThis as typeof globalThis & { [httpErrorsKey]?: WeakSet<object> }
+  return scope[httpErrorsKey] ??= new WeakSet<object>()
+}
+
 export class AgentHttpError extends Diagnostic {
   readonly status: number
   readonly statusCode: number
@@ -17,6 +25,7 @@ export class AgentHttpError extends Diagnostic {
     this.name = "AgentHttpError"
     this.status = statusCode
     this.statusCode = statusCode
+    httpErrors().add(this)
   }
 }
 
@@ -33,7 +42,7 @@ function getHttpErrorStatusCode(error: unknown): number | undefined {
 
 function isAgentHttpError(error: unknown): error is AgentHttpError {
   try {
-    return error instanceof AgentHttpError
+    return typeof error === "object" && error !== null && httpErrors().has(error)
   }
   catch {
     return false

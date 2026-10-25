@@ -15,8 +15,8 @@ icon: i-lucide-workflow
   // They run in the order you call them.
   export default defineWorkflow<{ email: string }>(
     async ({ payload, steps }) => {
-      const user = await steps!.createUser(payload)
-      return await steps!.sendWelcome(user)
+      const user = await steps.createUser(payload)
+      return await steps.sendWelcome(user)
     },
   )
   ```

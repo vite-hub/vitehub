@@ -33,6 +33,7 @@ export type {
   WorkflowHandler,
   WorkflowModuleOptions,
   WorkflowModuleProviderOptions,
+  WorkflowProviderContext,
   WorkflowProviderStep,
   WorkflowProvider,
   WorkflowProviderOptions,

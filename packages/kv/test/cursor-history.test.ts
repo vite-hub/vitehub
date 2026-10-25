@@ -15,6 +15,27 @@ it("rejects a continuation owned by another storage namespace", () => {
   expect(() => createCursorHistory("deno-kv").take(cursor)).toThrow("different storage backend")
 })
 
+it.each([[0, 0], [1, 0], [0, 1]])("transfers retry ownership across history instances with epochs %i and %i", (ownerEpoch, consumerEpoch) => {
+  const owner = createCursorHistory()
+  const consumer = createCursorHistory()
+  for (let index = 0; index < ownerEpoch; index++) owner.clear()
+  for (let index = 0; index < consumerEpoch; index++) consumer.clear()
+  const cursor = owner.store("provider", new Set(["first", "provider"]))
+
+  try {
+    const continuation = consumer.take(cursor)
+    consumer.restore(cursor, continuation)
+    owner.clear()
+
+    expect(consumer.take(cursor)).toMatchObject({ providerCursor: "provider", history: new Set(["first", "provider"]) })
+    consumer.complete(cursor)
+  }
+  finally {
+    owner.clear()
+    consumer.clear()
+  }
+})
+
 it("rejects duplicate consumers while a continuation is in flight", () => {
   const history = createCursorHistory()
   const cursor = history.store("provider", new Set(["provider"]))
@@ -24,6 +45,19 @@ it("rejects duplicate consumers while a continuation is in flight", () => {
 
   history.restore(cursor, continuation)
   expect(history.take(cursor)).toMatchObject({ providerCursor: "provider" })
+})
+
+it("does not restore a transferred cursor after its consumer is cleared", () => {
+  const owner = createCursorHistory()
+  const consumer = createCursorHistory()
+  const cursor = owner.store("provider", new Set(["provider"]))
+  const continuation = consumer.take(cursor)
+
+  consumer.clear()
+  consumer.restore(cursor, continuation)
+
+  expect(() => consumer.take(cursor)).toThrow("expired")
+  owner.clear()
 })
 
 it("rejects duplicate consumers across history instances", () => {

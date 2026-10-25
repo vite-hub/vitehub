@@ -563,7 +563,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
 | `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
 | `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
-| `CONSOLE_DEVELOPMENT_ONLY` | `403` | The development-only Console reached a production runtime. Set `console: { auth: 'app' }` or `console: { auth: { ... }, authorize }` for production. |
+| `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |

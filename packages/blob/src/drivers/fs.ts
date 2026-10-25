@@ -64,7 +64,10 @@ function decodeCursor(cursor: string | undefined) {
 }
 
 function encodeMetaKey(pathname: string) {
-  return Buffer.from(pathname).toString("base64url")
+  const encoded = Buffer.from(pathname).toString("base64url")
+  // Reserve five bytes for .json within the usual 255-byte filename limit.
+  // The dot keeps hashed keys distinct from legacy Base64url keys.
+  return encoded.length <= 250 ? encoded : `sha256.${createHash("sha256").update(pathname).digest("hex")}`
 }
 
 function isInside(root: string, path: string) {
