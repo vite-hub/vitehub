@@ -9,6 +9,7 @@ import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
+  const root = resolve(options.base)
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
   const hasItem = driver.hasItem
@@ -16,7 +17,7 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     // Keep the underlying driver's key validation before resolving its file path.
     if (!await hasItem(key, operationOptions)) return false
     try {
-      return (await stat(join(options.base, key.replace(/:/g, "/")))).isFile()
+      return (await stat(join(root, key.replace(/:/g, "/")))).isFile()
     }
     catch (error) {
       // A key can be removed between the existence check and stat.
@@ -35,7 +36,6 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     finally { await dispose?.call(driver) }
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
-    const root = resolve(options.base)
     const keys: string[] = []
 
     async function* walk(): AsyncGenerator<string | undefined> {
