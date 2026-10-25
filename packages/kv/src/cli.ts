@@ -3,21 +3,16 @@ import { resolve } from "node:path"
 
 import * as v from "valibot"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
+import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
 
-import { kvDevDefaultListLimit, kvDevHeader, kvDevHeaderValue, kvDevMaximumListLimit, kvDevRoute } from "./dev.ts"
 import { kvErrorDiagnostics } from "./error-diagnostics.ts"
+import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "./results.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
-import type { KVDevOperation, KVDevRequestBody } from "./dev.ts"
-import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./runtime/dev.ts"
+import type { KVDevOperation, KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./results.ts"
 
-export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
+export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface KVCliOptions {
   fetch?: typeof fetch
@@ -44,25 +39,14 @@ interface ParsedKVArgs {
   store?: string
   timeout?: number
   ttl?: number
-  url: string
+  url?: string
   value?: string
-}
-
-interface KVDevDiscovery {
-  message?: unknown
-  root?: unknown
-  runtime?: unknown
 }
 
 interface KVCliFailure {
   code?: string
+  fix?: string
   message: string
-}
-
-const kvDevEndpoint = {
-  header: kvDevHeader,
-  headerValue: kvDevHeaderValue,
-  route: kvDevRoute,
 }
 
 const kvDevTargetErrors = {
@@ -70,9 +54,6 @@ const kvDevTargetErrors = {
   invalidTimeout: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
   missingValue: (message: string) => kvErrorDiagnostics.KV_CLI_USAGE({ problem: message }),
 }
-
-// Nuxt mounts Vite under `/_nuxt/`, so the KV dev endpoint is not reachable there.
-const kvDevServerHint = "`vitehub kv` needs a running Vite + Nitro Development Server with `kv` enabled. Nuxt and plain Vite are not supported."
 
 const kvCommands: readonly KVCommand[] = [
   { description: "List keys of a KV store, one page at a time.", key: false, name: "list", options: ["prefix", "limit", "cursor"] },
@@ -110,14 +91,14 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
     `Usage: ${commandUsage(command)}`,
     "",
     command.description,
-    "The command calls the KV runtime of a running Vite + Nitro Development Server.",
+    "The command runs the kv operation of the app: on the dev server of this project, or on a deployed app with --url.",
     ...(command.value ? ["A value that starts with @ names a UTF-8 file. The path is relative to the current directory."] : []),
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      KV store. Defaults to `default`.",
     "  --json              Print JSON.",
-    "  --url <url>         Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
     "",
@@ -148,8 +129,8 @@ function readOptionValue(args: readonly string[], index: number, name: string): 
   if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
 }
 
-function parseArgs(command: KVCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedKVArgs {
-  const parsed: ParsedKVArgs = { help: false, json: false, jsonValue: false, url: resolveViteHubDevServerUrl(env) }
+function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
+  const parsed: ParsedKVArgs = { help: false, json: false, jsonValue: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -340,36 +321,17 @@ function exitCode(operation: KVDevOperation, result: Record<string, unknown>): n
   return 0
 }
 
-async function readFailure(response: Response): Promise<KVCliFailure> {
-  let text: string
-  try { text = await response.text() }
-  catch (error) { return { message: `Could not read the KV error response: ${error instanceof Error ? error.message : String(error)}` } }
-  try {
-    const body: unknown = JSON.parse(text)
-    const parsed = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.string() }) }), body)
-    if (parsed.success) return parsed.output.error
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `KV Dev request failed with HTTP ${response.status}.` }
-}
-
 function writeFailure(parsed: Pick<ParsedKVArgs, "json">, context: KVCliContext, failure: KVCliFailure): number {
   if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}\n`)
+  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
   return 1
-}
-
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
 }
 
 async function runKVCommand(command: KVCommand, args: string[], context: KVCliContext, options: KVCliOptions): Promise<number> {
   let parsed: ParsedKVArgs
   let value: unknown
   try {
-    parsed = parseArgs(command, args, context.env)
+    parsed = parseArgs(command, args)
     if (command.value && !parsed.help) value = await readValue(parsed, context.cwd)
   }
   catch (error) {
@@ -383,58 +345,26 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
     writeUsage(command, context.stdout)
     return 0
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<KVDevDiscovery>({
-    endpoint: kvDevEndpoint,
-    fetch: fetchImpl,
-    parseDiscovery: (value) => {
-      const parsed = v.safeParse(v.object({ message: v.optional(v.string()), root: v.optional(v.string()), runtime: v.optional(v.string()) }), value)
-      return parsed.success ? parsed.output : {}
-    },
+  const input: Record<string, unknown> = {}
+  if (parsed.cursor !== undefined) input.cursor = parsed.cursor
+  if (parsed.key !== undefined) input.key = parsed.key
+  if (parsed.limit !== undefined) input.limit = parsed.limit
+  if (parsed.prefix !== undefined) input.prefix = parsed.prefix
+  if (parsed.store !== undefined) input.store = parsed.store
+  if (parsed.ttl !== undefined) input.ttl = parsed.ttl
+  if (command.value) input.value = value
+  const called = await callOperationFromCli({
+    env: context.env,
+    fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
-    ...withTimeout(parsed.timeout),
-    serverUrl: parsed.url,
-    stderr: parsed.json ? { write: (chunk) => { discoveryError += chunk; return true } } : context.stderr,
-  })
-  if (!server) {
-    if (parsed.json) return writeFailure(parsed, context, { message: `${discoveryError.trim()} ${kvDevServerHint}` })
-    context.stderr.write(`${kvDevServerHint}\n`)
-    return 1
-  }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed, context, {
-      code: "KV_DEV_RUNTIME_UNAVAILABLE",
-      message: v.is(v.string(), server.discovery.message)
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the KV runtime.",
-    })
-  }
-  const body: KVDevRequestBody = { operation: command.name }
-  if (parsed.cursor !== undefined) body.cursor = parsed.cursor
-  if (parsed.key !== undefined) body.key = parsed.key
-  if (parsed.limit !== undefined) body.limit = parsed.limit
-  if (parsed.prefix !== undefined) body.prefix = parsed.prefix
-  if (parsed.store !== undefined) body.store = parsed.store
-  if (parsed.ttl !== undefined) body.ttl = parsed.ttl
-  if (command.value) body.value = value
-  let response: Response
-  try {
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, kvDevEndpoint, {
-      body: JSON.stringify(body),
-      headers: { accept: "application/json", "content-type": "application/json" },
-      method: "POST",
-      ...withTimeout(parsed.timeout),
-    })
-  }
-  catch (error) {
-    return writeFailure(parsed, context, { message: `KV Dev request failed: ${error instanceof Error ? error.message : String(error)}` })
-  }
-  if (!response.ok) return writeFailure(parsed, context, await readFailure(response))
-  const result: unknown = await response.json().catch(() => undefined)
-  if (!isRecord(result)) return writeFailure(parsed, context, { message: "The KV Dev response is not valid JSON." })
+    ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+    ...(parsed.url ? { url: parsed.url } : {}),
+  }, `kv.${command.name}`, input)
+  if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  const result = called.value
+  if (!isRecord(result)) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result." })
   const commandResult = parseResult(command.name, result)
-  if (!commandResult) return writeFailure(parsed, context, { message: "The KV Dev response has an invalid result shape." })
+  if (!commandResult) return writeFailure(parsed, context, { message: "The kv operation answered with an invalid result shape." })
   if (!parsed.json) return writeResult(commandResult, context)
   context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   return exitCode(command.name, result)

@@ -165,11 +165,11 @@
       "require": "./dist/_internal/kv.js",
       "default": "./dist/_internal/kv.js"
     },
-    "./_internal/kv/runtime/dev": {
-      "types": "./dist/_internal/kv/runtime/dev.d.ts",
-      "import": "./dist/_internal/kv/runtime/dev.js",
-      "require": "./dist/_internal/kv/runtime/dev.js",
-      "default": "./dist/_internal/kv/runtime/dev.js"
+    "./_internal/kv/operations": {
+      "types": "./dist/_internal/kv/operations.d.ts",
+      "import": "./dist/_internal/kv/operations.js",
+      "require": "./dist/_internal/kv/operations.js",
+      "default": "./dist/_internal/kv/operations.js"
     },
     "./_internal/kv/runtime/disabled-upstash": {
       "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",

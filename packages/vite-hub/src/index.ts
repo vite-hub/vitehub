@@ -1163,7 +1163,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else plugins.push(hubEmailOptionalPeerResolver())
   if (options.kv) {
-    plugins.push(hubKv(presetKVOptions || undefined, { importBase: `${generatedImportBase}/kv` }))
+    plugins.push(hubKv(presetKVOptions || undefined))
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {

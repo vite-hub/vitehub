@@ -221,7 +221,6 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocation.get.js"),
     join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
     join(consoleRuntimeRoot, "server/invocations.get.js"),
-    join(consoleRuntimeRoot, "server/kv.get.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
     join(consoleRuntimeRoot, "server/sections.get.js"),

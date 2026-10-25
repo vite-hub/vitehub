@@ -145,7 +145,7 @@ Created blob avatars/ada.png in store default (48213 B, image/png).
 Deleted blob avatars/ada.png from store default.
 ```
 
-Every command accepts `--store <name>`, `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173`, and `--timeout <ms>`. The commands use the Default Blob Store. Pass `--store` to select a named store from `blob.stores`. An unknown store fails and lists the configured stores, with `default` first, as the Console does.
+Every command accepts `--store <name>`, `--json`, `--url <url>` for a deployed app, and `--timeout <ms>`. The commands use the Default Blob Store. Pass `--store` to select a named store from `blob.stores`. An unknown store fails and lists the configured stores, with `default` first, as the Console does.
 
 - `list` prints a table of pathname, size, content type, and upload time. `--limit` defaults to 100 and has a maximum of 250. When more blobs exist, stderr shows the `--cursor` value for the next page.
 - `head` prints the metadata of one blob. A missing blob exits with status 1.
@@ -348,7 +348,7 @@ pnpm vitehub db migrate
 
 ## Read and write KV keys
 
-Start the app's Vite Development Server, then run `vitehub kv` from another terminal. The commands call the same KV storage as the running app, so they read and write the keys that the app uses.
+Start the app's Vite Development Server, then run `vitehub kv` from another terminal. Each command runs a `kv.*` [operation](/docs/development/operations) of the app, so it reads and writes the keys that the app uses. With `--url`, the same command runs on a deployed app that enables the Console, with the credentials in [Run any operation](#run-any-operation).
 
 ```bash [Terminal]
 pnpm vitehub kv list --prefix users: --limit 20
@@ -380,7 +380,7 @@ The KV storage deserializes stored strings that look like JSON, so a string such
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print values as they are stored and do not redact them, as the Console KV page does. Do not store credentials in keys that you inspect in shared logs.
 
-The commands use a guarded dev endpoint that `hubKv()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the KV storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
+The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
 
 ## Run app tasks
@@ -460,7 +460,7 @@ pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub databases browse`, `vitehub definitions list`, `vitehub env get`, `vitehub schedules run`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get|has|set|del`, `vitehub databases browse`, `vitehub definitions list`, `vitehub env get`, `vitehub schedules run`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |

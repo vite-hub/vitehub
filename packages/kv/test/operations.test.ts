@@ -2,9 +2,13 @@ import { rm } from "node:fs/promises"
 
 import { afterAll, describe, expect, it, vi } from "vitest"
 
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+
 import { kv } from "../src/index.ts"
-import { kvDevHeader, kvDevHeaderValue } from "../src/dev.ts"
-import { handleKVDevRequest, listKVDevStores } from "../src/runtime/dev.ts"
+import { kvOperations } from "../src/operations.ts"
+import { KVOperationError, listKVDevStores, runKVOperation } from "../src/runtime/operations.ts"
+
+import type { KVDevStore } from "../src/runtime/operations.ts"
 
 const roots = vi.hoisted(() => {
   const base = `${process.env.TMPDIR || "/tmp"}/vitehub-kv-dev-${process.pid}-${Date.now()}`
@@ -30,22 +34,34 @@ afterAll(async () => {
   await rm(roots.base, { force: true, recursive: true })
 })
 
-function devRequest(body: unknown, init: { headers?: Record<string, string>, method?: string } = {}): Request {
-  const method = init.method ?? "POST"
-  return new Request("http://localhost/_vitehub/kv/dev", {
-    ...(method === "POST" ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
-    headers: { "content-type": "application/json", [kvDevHeader]: kvDevHeaderValue, ...init.headers },
-    method,
-  })
+const registry = createOperationRegistry([{ operations: kvOperations }])
+const access = { mode: "local", sections: "all" } as const
+
+/** Run `kv.<operation>` as the RPC does. With `stores`, run the runtime function with exactly those stores. */
+async function handle(body: Record<string, unknown>, stores?: readonly KVDevStore[]): Promise<{ json(): Promise<Record<string, unknown>>, status: number }> {
+  const { operation, ...input } = body
+  if (stores) {
+    try {
+      const value = await runKVOperation(operation as "get", input, stores)
+      return { json: async () => value as Record<string, unknown>, status: 200 }
+    }
+    catch (error) {
+      if (!(error instanceof KVOperationError)) throw error
+      return { json: async () => ({ error: { code: error.code, message: error.message } }), status: error.status }
+    }
+  }
+  const result = await runOperation(registry, `kv.${String(operation)}`, input, { access, surface: "cli", user: null })
+  return result.ok
+    ? { json: async () => result.value as Record<string, unknown>, status: 200 }
+    : { json: async () => ({ error: { code: result.code, message: result.message } }), status: result.status }
 }
 
-async function run(body: unknown): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await handleKVDevRequest(devRequest(body))
-  expect(response.headers.get("cache-control")).toBe("no-store")
-  return { body: await response.json() as Record<string, unknown>, status: response.status }
+async function run(body: Record<string, unknown>): Promise<{ body: Record<string, unknown>, status: number }> {
+  const response = await handle(body)
+  return { body: await response.json(), status: response.status }
 }
 
-describe("KV dev runtime handler", () => {
+describe("kv operations", () => {
   it.each(["get", "has", "set", "del"] as const)("passes empty keys through the %s runtime operation", async operation => {
     const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, "empty key"])
     const has = vi.spyOn(kv, "has").mockResolvedValue([undefined, true])
@@ -97,7 +113,7 @@ describe("KV dev runtime handler", () => {
   it("reports the effective Cloudflare TTL when fractional seconds are rounded", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handleKVDevRequest(devRequest({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }), [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "fractional", operation: "set", ttl: 60.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
       expect(set).toHaveBeenCalledWith("fractional", "x", { ttl: 61 })
       expect(await response.json()).toMatchObject({ ttl: 61, notice: expect.stringContaining("61 seconds") })
     }
@@ -168,7 +184,7 @@ describe("KV dev runtime handler", () => {
   it.each([0.001, 0.5])("rejects sub-second Upstash TTL without writing: %s", async ttl => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handleKVDevRequest(devRequest({ key: "short", operation: "set", ttl, value: "x" }), [{ driver: "upstash", name: "default" }])
+      const response = await handle({ key: "short", operation: "set", ttl, value: "x" }, [{ driver: "upstash", name: "default" }])
       expect(response.status).toBe(400)
       expect(await response.json()).toMatchObject({ error: { message: "Upstash TTL must be at least 1 second." } })
       expect(set).not.toHaveBeenCalled()
@@ -179,7 +195,7 @@ describe("KV dev runtime handler", () => {
   it("rounds fractional Upstash TTL before storage and reports the effective seconds", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handleKVDevRequest(devRequest({ key: "rounded", operation: "set", ttl: 1.5, value: "x" }), [{ driver: "upstash", name: "default" }])
+      const response = await handle({ key: "rounded", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "upstash", name: "default" }])
       expect(set).toHaveBeenCalledWith("rounded", "x", { ttl: 2 })
       expect(await response.json()).toMatchObject({ ttl: 2, notice: expect.stringContaining("2 seconds") })
     }
@@ -189,7 +205,7 @@ describe("KV dev runtime handler", () => {
   it("clamps Cloudflare TTL before calling storage", async () => {
     const set = vi.spyOn(kv, "set").mockResolvedValue([undefined, undefined])
     try {
-      const response = await handleKVDevRequest(devRequest({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }), [{ driver: "cloudflare-kv-binding", name: "default" }])
+      const response = await handle({ key: "clamped", operation: "set", ttl: 1.5, value: "x" }, [{ driver: "cloudflare-kv-binding", name: "default" }])
       expect(response.status).toBe(200)
       expect(set).toHaveBeenCalledWith("clamped", "x", { ttl: 60 })
       expect(await response.json()).toMatchObject({ ttl: 60, notice: expect.stringContaining("60 seconds") })
@@ -211,9 +227,9 @@ describe("KV dev runtime handler", () => {
       body: { error: { code: "KV_STORE_NOT_FOUND", message: "KV store \"missing\" was not found. Stores: default, archive, cache." } },
       status: 404,
     })
-    expect((await run({ operation: "clear" })).status).toBe(400)
-    expect((await run("not json")).status).toBe(400)
-    expect(await run({ operation: "get" })).toEqual({ body: { error: { message: "The get operation requires a key." } }, status: 400 })
+    // There is no operation that clears a store.
+    expect((await run({ operation: "clear" })).body).toMatchObject({ error: { code: "INTERNAL_R0021" } })
+    expect(await run({ operation: "get" })).toMatchObject({ body: { error: { code: "INTERNAL_R0022" } }, status: 400 })
     expect((await run({ key: "a", operation: "set" })).status).toBe(400)
     expect((await run({ key: "a", operation: "set", ttl: 0, value: "x" })).status).toBe(400)
     expect((await run({ limit: 5_000, operation: "list" })).status).toBe(400)
@@ -221,15 +237,22 @@ describe("KV dev runtime handler", () => {
   })
 
   it("reports disabled KV", async () => {
-    const response = await handleKVDevRequest(devRequest({ key: "a", operation: "get" }), [])
+    const response = await handle({ key: "a", operation: "get" }, [])
     expect(response.status).toBe(409)
     expect(await response.json()).toMatchObject({ error: { code: "KV_DISABLED" } })
   })
 
-  it("rejects requests without the guard header, from another origin, or with the wrong method", async () => {
-    expect((await handleKVDevRequest(devRequest({ operation: "list" }, { headers: { [kvDevHeader]: "" } }))).status).toBe(403)
-    expect((await handleKVDevRequest(devRequest({ operation: "list" }, { headers: { origin: "https://attacker.test" } }))).status).toBe(403)
-    expect((await handleKVDevRequest(devRequest({ operation: "list" }, { headers: { "content-type": "text/plain" } }))).status).toBe(415)
-    expect((await handleKVDevRequest(devRequest(undefined, { method: "GET" }))).status).toBe(405)
+  it("answers only to a call whose access includes the kv section", async () => {
+    const call = (sections: "all" | readonly string[]) => runOperation(registry, "kv.set", { key: "guarded", value: "x" }, { access: { mode: "app", sections }, surface: "console", user: null })
+    expect(await call(["blob"])).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+    expect(await run({ key: "guarded", operation: "has" })).toMatchObject({ body: { exists: false } })
+    expect(await call(["kv"])).toMatchObject({ ok: true, value: { created: true, key: "guarded" } })
+    expect(await call("all")).toMatchObject({ ok: true, value: { created: false } })
+  })
+
+  it("marks the write and the delete, and lists every command once", () => {
+    expect(kvOperations.map(operation => [operation.name, operation.kind])).toEqual([
+      ["kv.list", "read"], ["kv.get", "read"], ["kv.has", "read"], ["kv.set", "write"], ["kv.del", "destructive"],
+    ])
   })
 })

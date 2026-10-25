@@ -226,25 +226,6 @@ const invocationsWorkspace = defineConsoleOperation({
   section: "agents",
 })
 
-const kvList = defineConsoleOperation({
-  description: "List the keys of a KV store.",
-  input: v.strictObject({ cursor: optionalText, limit: optionalCount, prefix: optionalText, store: optionalText }),
-  kind: "read",
-  name: "kv.list",
-  run: async (input, context) => (await import("./kv.get.ts")).default(legacyEvent("kv", "GET", { query: input }, context)),
-  section: "kv",
-})
-
-const kvGet = defineConsoleOperation({
-  cli: { positional: ["key"] },
-  description: "Read the value of one KV key.",
-  input: v.strictObject({ key: text, store: optionalText }),
-  kind: "read",
-  name: "kv.get",
-  run: async (input, context) => (await import("./kv.get.ts")).default(legacyEvent("kv", "POST", { body: input }, context)),
-  section: "kv",
-})
-
 const mediaAction = defineConsoleOperation({
   description: "Run one media library action of a Console section.",
   input: v.strictObject({ action: text, body: v.optional(v.unknown()), section: text }),
@@ -343,8 +324,6 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsGet,
   invocationsList,
   invocationsWorkspace,
-  kvGet,
-  kvList,
   mediaAction,
   schedulesRun,
   searchQuery,

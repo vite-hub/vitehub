@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
+import { useConsoleToast } from "../client/toast";
 import { rememberConsoleSection } from "../sections";
 import { consoleBytes } from "../client/format";
 import ConsoleFrame from "./console-frame.vue";
@@ -15,8 +16,6 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
 interface KVListResponse {
   cursor?: string;
-  error?: string;
-  errorCode?: "cursor_expired";
   keys: string[];
   limit: number;
   prefix: string;
@@ -55,6 +54,13 @@ const valueLoading = ref(false);
 const listError = ref<unknown>();
 const valueError = ref<unknown>();
 const loadedStore = ref<string>();
+const toast = useConsoleToast();
+const editing = ref(false);
+const editText = ref("");
+const editError = ref<string>();
+const saving = ref(false);
+const removeOpen = ref(false);
+const removing = ref(false);
 let listRequest: AbortController | undefined;
 let valueRequest: AbortController | undefined;
 let applyingRouteSelection = false;
@@ -89,13 +95,10 @@ function parseList(value: unknown): KVListResponse {
   return {
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
     cursor: typeof source.cursor === "string" ? source.cursor : undefined,
-    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-    error: typeof source.error === "string" ? source.error : undefined,
-    errorCode: source.errorCode === "cursor_expired" ? source.errorCode : undefined,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate every key before rendering it.
     keys: source.keys.filter((key): key is string => typeof key === "string"),
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional limit at this boundary.
-    limit: typeof source.limit === "number" ? source.limit : 200,
+    limit: typeof source.limit === "number" ? source.limit : 100,
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional prefix at this boundary.
     prefix: typeof source.prefix === "string" ? source.prefix : "",
     // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the selected store at this boundary.
@@ -125,6 +128,65 @@ function parseValue(value: unknown): KVValueResponse {
   return parsed;
 }
 
+/** A value can be edited when the page shows all of it as text. Bytes and cut values are read only. */
+const editable = computed(() => {
+  const value = selectedValue.value;
+  return Boolean(value?.found) && !value?.truncated && value?.type !== "bytes";
+});
+
+function startEdit(): void {
+  editText.value = selectedValue.value?.value ?? "";
+  editError.value = undefined;
+  editing.value = true;
+}
+
+/** A string stays text. Any other type is written as the JSON that the editor shows. */
+function editedValue(): unknown {
+  if (selectedValue.value?.type === "string") return editText.value;
+  try {
+    return JSON.parse(editText.value);
+  } catch {
+    throw new Error("This value is not valid JSON.");
+  }
+}
+
+async function saveEdit(): Promise<void> {
+  const key = selectedKey.value;
+  if (key === undefined || saving.value) return;
+  saving.value = true;
+  editError.value = undefined;
+  try {
+    const value = editedValue();
+    await requestConsole(props.kvBase, { body: { action: "set", key, store: selectedStore.value, value }, method: "POST" });
+    editing.value = false;
+    toast.show({ title: "Value saved" });
+    await loadValue(key);
+  } catch (error) {
+    editError.value = errorMessage(error) ?? "The Console could not save this value.";
+  } finally {
+    saving.value = false;
+  }
+}
+
+async function confirmRemove(): Promise<void> {
+  const key = selectedKey.value;
+  if (key === undefined || removing.value) return;
+  removing.value = true;
+  try {
+    await requestConsole(props.kvBase, { body: { action: "del", key, store: selectedStore.value }, method: "POST" });
+    removeOpen.value = false;
+    toast.show({ title: "Key deleted" });
+    selectedKey.value = undefined;
+    syncRouteSelection();
+    await loadKeys();
+  } catch (error) {
+    removeOpen.value = false;
+    toast.error(errorMessage(error) ?? "The Console could not delete this key.");
+  } finally {
+    removing.value = false;
+  }
+}
+
 function errorMessage(error: unknown): string | undefined {
   return error instanceof Error
     ? error.message
@@ -137,6 +199,7 @@ async function loadValue(key = selectedKey.value): Promise<void> {
   valueRequest?.abort();
   selectedValue.value = undefined;
   valueError.value = undefined;
+  editing.value = false;
   if (key === undefined) return;
   const controller = new AbortController();
   valueRequest = controller;
@@ -192,11 +255,6 @@ async function loadKeys(
     );
     if (listRequest !== controller) return;
     stores.value = value.stores;
-    if (value.error) {
-      const error = viteHubErrorDiagnostics.VITE_HUB_R0105({ message: value.error });
-      if (value.errorCode) Object.assign(error, { code: value.errorCode });
-      throw error;
-    }
     keys.value = options.append ? appendUniqueConsoleKeys(keys.value, value.keys) : value.keys;
     nextCursor.value = value.cursor;
     listError.value = undefined;
@@ -217,7 +275,7 @@ async function loadKeys(
         options.append === true &&
         error instanceof Object &&
         "code" in error &&
-        error.code === "cursor_expired";
+        error.code === "KV_INVALID_CURSOR";
       if (!retryExpiredCursor) listError.value = error;
     }
   } finally {
@@ -335,8 +393,7 @@ onBeforeUnmount(() => {
     <UDashboardPanel id="kv-value" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader title="KV" :description="stores.length > 1 ? undefined : selectedStore" :toggle="false">
         <template #right>
-          <span class="text-xs text-dimmed">Read-only</span>
-          <UTooltip text="Refresh keys">
+                    <UTooltip text="Refresh keys">
             <UButton aria-label="Refresh keys" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="listLoading || valueLoading" @click="refresh" />
           </UTooltip>
         </template>
@@ -411,8 +468,24 @@ onBeforeUnmount(() => {
               </h2>
               <ConsoleStatus v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
               <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
+              <template v-if="!editing">
+                <UTooltip :text="editable ? 'Edit value' : 'Bytes and cut values are read only'">
+                  <UButton aria-label="Edit value" icon="i-lucide-pencil" size="sm" variant="ghost" :disabled="!editable" @click="startEdit" />
+                </UTooltip>
+                <UTooltip text="Delete key">
+                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" size="sm" variant="ghost" @click="removeOpen = true" />
+                </UTooltip>
+              </template>
             </header>
-            <pre class="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-toned"><code>{{ selectedValue.value }}</code></pre>
+            <div v-if="editing" class="flex min-h-0 flex-1 flex-col gap-2 p-4">
+              <UTextarea v-model="editText" class="min-h-0 flex-1" :rows="12" :ui="{ base: 'font-mono text-xs' }" aria-label="Value" autofocus />
+              <p v-if="editError" class="text-xs text-error" role="alert">{{ editError }}</p>
+              <div class="flex justify-end gap-2">
+                <UButton label="Cancel" variant="ghost" :disabled="saving" @click="editing = false" />
+                <UButton label="Save" :loading="saving" @click="saveEdit" />
+              </div>
+            </div>
+            <pre v-else class="min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-5 text-toned"><code>{{ selectedValue.value }}</code></pre>
           </template>
           <UEmpty
             v-else-if="!listLoading"
@@ -425,5 +498,19 @@ onBeforeUnmount(() => {
         </section>
       </div>
     </UDashboardPanel>
+
+    <UModal v-model:open="removeOpen" title="Delete this key?" :ui="{ content: 'sm:max-w-[440px]' }">
+      <template #body>
+        <p class="text-[13px] text-muted">
+          <span class="font-mono text-xs text-highlighted">{{ selectedKey || "(empty key)" }}</span> is deleted from the store <span class="font-medium">{{ selectedStore }}</span>. This cannot be undone.
+        </p>
+      </template>
+      <template #footer>
+        <div class="flex w-full justify-end gap-2">
+          <UButton variant="ghost" label="Cancel" @click="removeOpen = false" />
+          <UButton color="error" label="Delete" :loading="removing" @click="confirmRemove" />
+        </div>
+      </template>
+    </UModal>
   </ConsoleFrame>
 </template>
