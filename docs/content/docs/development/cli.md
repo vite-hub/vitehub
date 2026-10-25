@@ -72,7 +72,11 @@ Available namespaces:
 | `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
 | `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
-| `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments. |
+| `vitehub channels list` | Available | Agent Package | List the Channels of the Agents with their provider and how long each keeps its history. |
+| `vitehub channels threads` | Available | Agent Package | List the conversation threads of one Channel. |
+| `vitehub channels conversation` | Available | Agent Package | Read the messages of one thread in order. |
+| `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. `channels export` is the same command. |
+| `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
 | `vitehub channels replay` | Available | Agent Package | Replay stored Channel history through an Agent from a development server or authenticated Console. |
 | `vitehub content collections` | Available | Content Package | List collections and singletons with their fields and document counts. |
@@ -303,6 +307,17 @@ Use `--agent <name>` or `--channel <id>` to narrow a multi-Agent application. Sw
 Telegram exposes the registered URL and delivery errors through `getWebhookInfo`, but it does not return the configured secret token or allowed update list. The plan marks those fields as unverifiable. Use `--force` to reapply them when the URL already matches and credential or subscription configuration changed. Telegram accepts public webhook ports 443, 80, 88, and 8443; the CLI rejects other explicit ports before applying.
 
 `channels sync` owns only the provider's mechanical registration. The first Telegram synchronizer subscribes to message updates because that is the built-in Channel's supported inbound event. Admission rules, allowed users, secrets, and additional update types remain in the application. An app that needs a custom adapter, certificate, fixed IP, or connection policy must keep the provider lifecycle application-owned; an app-owned `adapter` is not a synchronization target.
+
+## Export a Channel conversation
+
+`conversations export` calls the `conversations.export` [operation](/docs/development/operations) of the running dev server, or of the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
+
+```bash [Terminal]
+pnpm vitehub conversations export support telegram telegram:456 > chat.md
+pnpm vitehub conversations export support telegram telegram:456 --format json --output ./chat --url https://app.example.com
+```
+
+Without `--output`, the text goes to stdout and the attachments are not included. A warning about a retention window goes to stderr. With `--output`, the directory must not exist. It gets the file (`history.json` or `<thread>.md`) and the attachments in `media/`. `--media` and `--no-media` override the default. `channels list`, `channels threads`, and `channels conversation` read the same data as the generated commands of an operation. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation).
 
 ## Download Channel history
 
