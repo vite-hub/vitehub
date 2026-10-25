@@ -60,7 +60,13 @@ interface GitHubHistoryOptions {
 export const githubHeadCacheMs = 5_000
 
 const metadataTrailer = "Vitehub-Metadata: "
-const metadataTrailerPattern = /\n*^Vitehub-Metadata: (.*)$/m
+// Only the last line of the message is a trailer, so a line in the middle of a message is plain text.
+const metadataTrailerPattern = /(?:^|\n\n)Vitehub-Metadata: ([^\n]*)\s*$/
+const reservedTrailerPattern = /^Vitehub-Metadata:/m
+
+/** The most bytes of commit metadata as JSON, and of a commit message, that the Store writes. */
+export const githubMaxMetadataBytes = 64 * 1024
+export const githubMaxMessageBytes = 16 * 1024
 
 type GitHubCommit = Commit
 type GitHubTreeItem = TreeEntry
@@ -130,6 +136,7 @@ function readCommitMessage(message: string | undefined): { message?: string, met
   if (!message) return {}
   const match = metadataTrailerPattern.exec(message)
   if (!match) return { message }
+  if (new TextEncoder().encode(match[1]!).byteLength > githubMaxMetadataBytes) return { message }
   let metadata: Record<string, unknown> | undefined
   try {
     const value: unknown = JSON.parse(match[1]!)
@@ -145,8 +152,17 @@ function readCommitMessage(message: string | undefined): { message?: string, met
 }
 
 function messageWithMetadata(message: string, metadata: Record<string, unknown> | undefined): string {
+  const limit = (what: string, size: number, max: number) => {
+    if (size > max) throw workspaceErrorDiagnostics.WORKSPACE_R0073({ message: `[vitehub] GitHub history commit ${what} is ${size} bytes, over the limit of ${max}. Shorten it.` })
+  }
+  if (reservedTrailerPattern.test(message)) {
+    throw workspaceErrorDiagnostics.WORKSPACE_R0073({ message: `[vitehub] GitHub history commit message cannot contain a line that starts with "${metadataTrailer.trim()}". The Store writes that line from the metadata option. Remove it.` })
+  }
+  limit("message", new TextEncoder().encode(message).byteLength, githubMaxMessageBytes)
   if (!metadata || !Object.keys(metadata).length) return message
-  return `${message}\n\n${metadataTrailer}${JSON.stringify(metadata)}`
+  const json = JSON.stringify(metadata)
+  limit("metadata", new TextEncoder().encode(json).byteLength, githubMaxMetadataBytes)
+  return `${message}\n\n${metadataTrailer}${json}`
 }
 
 function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistoryEntry[], url?: string, suppliedMetadata?: Record<string, unknown>): WorkspaceRevision {
@@ -166,8 +182,9 @@ function publicRevision(commit: GitHubCommit, ref: string, entries: GitHubHistor
     : {}
   const metadata = Object.keys(authorMetadata).length || commit.url || url || suppliedMetadata
     ? {
-        ...authorMetadata,
         ...suppliedMetadata,
+        // The commit's own author and link win, so a trailer cannot forge them.
+        ...authorMetadata,
         ...(commit.url || url ? { url: commit.url || url } : {}),
       }
     : undefined
@@ -236,6 +253,21 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const toBranch = (ref: string): string => {
     const refs = options.refs
     return (ref === "published" ? refs?.published : ref === "draft" ? refs?.draft : undefined) ?? ref
+  }
+  /**
+   * A given ref name, its branch, and the name that revisions on it report. The branch of an alias is reached only by
+   * the alias, so a caller cannot write the published branch under another name and skip the rules that guard `published`.
+   * A call without `ref` uses `main`, which is the alias when `refs` points `published` at it.
+   */
+  const resolveRef = (given: unknown): { branch: string, ref: string } => {
+    const name = normalizeHistoryRef(given)
+    const refs = options.refs
+    if (given !== undefined && name !== "published" && name !== "draft" && (name === refs?.published || name === refs?.draft)) {
+      const alias = name === refs?.published ? "published" : "draft"
+      throw workspaceErrorDiagnostics.WORKSPACE_R0071({ message: `[vitehub] History ref ${JSON.stringify(name)} is the branch of the ref ${JSON.stringify(alias)} in this Store. Use ${JSON.stringify(alias)}.` })
+    }
+    const branch = toBranch(name)
+    return { branch, ref: fromBranch(branch) }
   }
   const fromBranch = (branch: string): string => {
     const refs = options.refs
@@ -348,8 +380,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   }
 
   const list = async (listOptions: WorkspaceHistoryListOptions = {}): Promise<WorkspaceHistoryListResult> => {
-    const ref = normalizeHistoryRef(listOptions.ref)
-    const branch = toBranch(ref)
+    const { branch, ref } = resolveRef(listOptions.ref)
     const limit = listOptions.limit ?? 20
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
@@ -498,12 +529,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   }
 
   const commit = async (commitOptions: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision> => {
-    const ref = normalizeHistoryRef(commitOptions.ref)
-    const branch = toBranch(ref)
+    const { branch, ref } = resolveRef(commitOptions.ref)
     if (commitOptions.ifHead !== null && !nonEmptyString(commitOptions.ifHead)) throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
     // A branch that does not exist yet starts from the published branch when `refs` names one, else from the default branch.
     const publishedBranch = options.refs?.published
-    const state = await readGitHubBranchState({ branch, fork: publishedBranch && publishedBranch !== branch ? publishedBranch : undefined, repository: client, root: options.root })
+    const state = await readGitHubBranchState({ branch, fork: publishedBranch && publishedBranch !== branch ? publishedBranch : undefined, from: commitOptions.startFrom, repository: client, root: options.root })
     const actual = state.branchExists ? state.refSha : null
     // A conflict means the cached head was stale, so the next read asks GitHub.
     if (actual !== commitOptions.ifHead) {
@@ -515,11 +545,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // immediately before constructing the commit rather than silently ignoring
     // the assertion (which would allow pinned publishes to use stale drafts).
     for (const [expectedRef, expectedHead] of Object.entries(commitOptions.ifHeads ?? {})) {
-      const name = normalizeHistoryRef(expectedRef)
-      const currentHead = await readCurrentHead(client, toBranch(name))
+      const expected = resolveRef(expectedRef)
+      const currentHead = await readCurrentHead(client, expected.branch)
       if (currentHead !== expectedHead) {
-        heads.delete(toBranch(name))
-        throw historyConflict(name, expectedHead, currentHead)
+        heads.delete(expected.branch)
+        throw historyConflict(expected.ref, expectedHead, currentHead)
       }
     }
     const updates: GitHubFileUpdate[] = []
@@ -568,8 +598,8 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
 
   return {
     head: async (headOptions) => {
-      const ref = normalizeHistoryRef(headOptions?.ref)
-      const id = await readBranchHead(toBranch(ref))
+      const { branch, ref } = resolveRef(headOptions?.ref)
+      const id = await readBranchHead(branch)
       return id ? await revision(ref, id) : null
     },
     digest: gitBlobSha,

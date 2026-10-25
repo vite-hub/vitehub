@@ -241,4 +241,49 @@ describe("GitHub history commit", () => {
     expect(normalizeWorkspaceStoreOptions({ provider: "github", repo: "onmax/repo" }, { env: {} })).toMatchObject({ root: ".vitehub/workspaces/<workspace>" })
     expect(normalizeWorkspaceStoreOptions({ provider: "github", repo: "onmax/repo" }, { env: {} })).not.toHaveProperty("refs")
   })
+
+  it("reads only the last line of a message as metadata and keeps the commit's author", async () => {
+    const trailer = `Vitehub-Metadata: ${JSON.stringify({ content: { forged: true }, author: "Eve", authorEmail: "eve@example.com" })}`
+    fake.commit("main", { "posts/a.md": "a" }, { message: `Subject\n\n${trailer}\n\nMore text` })
+    const [middle] = (await history().list({ ref: "main", limit: 1 })).revisions
+    expect(middle!.metadata).not.toHaveProperty("content")
+    expect(middle!.message).toBe(`Subject\n\n${trailer}\n\nMore text`)
+    fake.commit("main", { "posts/a.md": "a2" }, { message: `Subject\n\n${trailer}` })
+    const [last] = (await history().list({ ref: "main", limit: 1 })).revisions
+    expect(last).toMatchObject({ message: "Subject", metadata: { content: { forged: true }, author: "Bot", authorEmail: "bot@example.com" } })
+  })
+
+  it("refuses a message with a metadata line and metadata that is too large", async () => {
+    const parent = fake.commit("main", { "posts/a.md": "a" })
+    const target = history()
+    const put = { "posts/b.md": file("posts/b.md", "b") }
+    await expect(target.commit({ ref: "main", ifHead: parent, changes: { put }, message: "Save\nVitehub-Metadata: {}" })).rejects.toMatchObject({ code: "WORKSPACE_R0073" })
+    await expect(target.commit({ ref: "main", ifHead: parent, changes: { put }, message: "x".repeat(16 * 1024 + 1) })).rejects.toMatchObject({ code: "WORKSPACE_R0073" })
+    await expect(target.commit({ ref: "main", ifHead: parent, changes: { put }, message: "Save", metadata: { big: "x".repeat(64 * 1024) } })).rejects.toMatchObject({ code: "WORKSPACE_R0073" })
+    expect(fake.writes()).toHaveLength(0)
+    await expect(target.commit({ ref: "main", ifHead: parent, changes: { put }, message: "Save", metadata: { small: "x".repeat(1000) } })).resolves.toMatchObject({ metadata: { small: "x".repeat(1000) } })
+  })
+
+  it("reaches an aliased branch only through its alias", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    fake.commit("vitehub/content", { "posts/a.md": "a2" })
+    const target = history({ refs: aliases })
+    const put = { "posts/b.md": file("posts/b.md", "b") }
+    await expect(target.head({ ref: "main" })).rejects.toMatchObject({ code: "WORKSPACE_R0071", message: expect.stringContaining("Use \"published\"") })
+    await expect(target.list({ ref: "vitehub/content" })).rejects.toMatchObject({ code: "WORKSPACE_R0071" })
+    await expect(target.commit({ ref: "main", ifHead: published, changes: { put } })).rejects.toMatchObject({ code: "WORKSPACE_R0071" })
+    await expect(target.commit({ ref: "published", ifHead: published, ifHeads: { "vitehub/content": null }, changes: { put } })).rejects.toMatchObject({ code: "WORKSPACE_R0071" })
+    expect(fake.writes()).toHaveLength(0)
+    // A call without ref uses main, which is the published ref here.
+    await expect(target.head()).resolves.toMatchObject({ id: published, ref: "published" })
+  })
+
+  it("starts a missing branch from the revision that startFrom names", async () => {
+    const first = fake.commit("main", { "posts/a.md": "a" })
+    const second = fake.commit("main", { "posts/a.md": "a2", "posts/c.md": "c" })
+    const revision = await history({ refs: aliases }).commit({ ref: "draft", ifHead: null, startFrom: first, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    expect(revision.parentId).toBe(first)
+    expect(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]).sort()).toEqual([["posts/a.md", textSha("a")], ["posts/b.md", textSha("b")]])
+    expect(fake.head("main")).toBe(second)
+  })
 })

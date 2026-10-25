@@ -393,6 +393,8 @@ export async function readCurrentHead(repository: GitHubRepository, branch: stri
  */
 export async function readGitHubBranchState(input: {
   branch: string;
+  /** A commit sha to start a missing branch from, instead of `fork` or the default branch. */
+  from?: string;
   fork?: string;
   repository: GitHubRepository;
   root: string;
@@ -410,7 +412,7 @@ export async function readGitHubBranchState(input: {
   catch (error) {
     if (!isMissingRef(error)) throw error;
     branchExists = false;
-    const forked = input.fork ? await readCurrentHead(input.repository, input.fork) : null;
+    const forked = input.from ?? (input.fork ? await readCurrentHead(input.repository, input.fork) : null);
     if (forked) refSha = forked;
     else {
       const repository = await githubRequest(input.repository, async (provider, repo) => await provider.repos.get(repo), "repository");
