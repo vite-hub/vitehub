@@ -56,7 +56,7 @@ Prove enqueue, consumer execution, retry, and a poison or invalid payload. Inspe
     plugins: [
       // Jobs go to Cloudflare Queues
       vitehub({ preset: 'cloudflare', queue: true }),
-      nitro() as never,
+      nitro(),
     ],
   })
   ```

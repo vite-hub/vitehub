@@ -30,7 +30,7 @@ import { nitro } from 'nitro/vite'
 
 export default defineConfig({
   nitro: { preset: 'cloudflare_module' },
-  plugins: [hubQueue({ provider: 'cloudflare' }), nitro() as never],
+  plugins: [hubQueue({ provider: 'cloudflare' }), nitro()],
 })
 ```
 
