@@ -1,5 +1,6 @@
 import "../virtual-module.d.ts"
 
+import { normalizeKey } from "unstorage"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
 // The package import keeps the Nitro module graph on the storage that `hubKv()` selects, for example the generated
 // Cloudflare KV runtime. A relative import would bypass that selection.
@@ -58,6 +59,11 @@ export interface KVDevGetResult {
   found: boolean
   /** With `preview`: how `value` is written. */
   format?: "json" | "text"
+  /**
+   * Whether the key can expire. `none`: the store never expires keys (fs-lite ignores TTL). `unknown`: the store can
+   * expire keys, but its driver cannot report the time left, so a write that sets no TTL removes the expiry.
+   */
+  expiry?: "none" | "unknown"
   /** With `preview`: the value was cut at 256 KiB. */
   truncated?: true
   key: string
@@ -159,6 +165,12 @@ function selectStore(stores: readonly KVDevStore[], name = "default"): { driver:
   return { driver: store.driver, name, storage: name === "default" ? kv : kv.store(name) }
 }
 
+/** The keys under `vitehub:` belong to ViteHub, which keeps its own state there. */
+function requireWritableKey(operation: string, key: string): void {
+  if (!normalizeKey(key).toLowerCase().startsWith("vitehub:")) return
+  throw new KVOperationError(`The ${operation} operation cannot change ${key}. ViteHub owns the keys that start with \`vitehub:\`.`, 403, "KV_RESERVED_KEY", "Use another key. Read access (get, has, list) stays open.")
+}
+
 function requireKey(operation: string, input: KVOperationInput): string {
   if (input.key === undefined) throw new KVOperationError(`The ${operation} operation requires a key.`, 400, "KV_INVALID_INPUT")
   if (input.key.length > maximumKeyLength) throw new KVOperationError("The key is too long.", 400, "KV_INVALID_INPUT")
@@ -194,6 +206,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
       const value = unwrap(await selected.storage.get(key))
       const found = value !== null || unwrap(await selected.storage.has(key))
       const result: KVDevGetResult = { found, key, store: selected.name }
+      if (found) result.expiry = selected.driver === "fs-lite" ? "none" : "unknown"
       if (!found) return result
       if (input.preview) return { ...result, ...previewKVValue(value) } satisfies KVDevGetResult
       const inspected = inspectKVValue(value)
@@ -207,6 +220,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
     }
     case "set": {
       const key = requireKey(operation, input)
+      requireWritableKey(operation, key)
       if (input.value === undefined) throw new KVOperationError("The set operation requires a value.", 400, "KV_INVALID_INPUT")
       if (selected.driver === "upstash" && input.ttl !== undefined && input.ttl < 1) throw new KVOperationError("Upstash TTL must be at least 1 second.", 400, "KV_INVALID_INPUT")
       const existed = unwrap(await selected.storage.has(key))
@@ -225,6 +239,7 @@ export async function runKVOperation(operation: "list" | "get" | "has" | "set" |
     }
     case "del": {
       const key = requireKey(operation, input)
+      requireWritableKey(operation, key)
       const existed = unwrap(await selected.storage.has(key))
       unwrap(await selected.storage.del(key))
       const result: KVDevDeleteResult = { deleted: existed, key, store: selected.name }

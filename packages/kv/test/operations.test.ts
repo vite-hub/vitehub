@@ -141,7 +141,7 @@ describe("kv operations", () => {
       ttl: 30,
       type: "string",
     })
-    expect((await run({ key: "settings", operation: "get" })).body).toEqual({ found: true, key: "settings", store: "default", type: "string", value: "light" })
+    expect((await run({ key: "settings", operation: "get" })).body).toEqual({ expiry: "none", found: true, key: "settings", store: "default", type: "string", value: "light" })
     expect((await run({ key: "settings", operation: "has" })).body).toEqual({ exists: true, key: "settings", store: "default" })
 
     await run({ key: "users:1", operation: "set", value: "Ada" })
@@ -200,6 +200,27 @@ describe("kv operations", () => {
       expect(await response.json()).toMatchObject({ ttl: 2, notice: expect.stringContaining("2 seconds") })
     }
     finally { set.mockRestore() }
+  })
+
+  it("refuses to write or delete the keys that ViteHub owns, and still reads them", async () => {
+    await kv.set("vitehub:state", "x")
+    for (const key of ["vitehub:state", "VITEHUB:state", "vitehub/state", ":vitehub::state"]) {
+      await expect(run({ key, operation: "set", value: "y" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
+      await expect(run({ key, operation: "del" })).resolves.toMatchObject({ body: { error: { code: "KV_RESERVED_KEY" } }, status: 403 })
+    }
+    await expect(run({ key: "vitehub:state", operation: "get" })).resolves.toMatchObject({ body: { found: true, value: "x" }, status: 200 })
+    await expect(run({ key: "vitehubby", operation: "set", value: "ok" })).resolves.toMatchObject({ status: 200 })
+    expect((await kv.get("vitehub:state"))[1]).toBe("x")
+  })
+
+  it("says whether a key can expire, since no driver reports the time left", async () => {
+    await run({ key: "ephemeral", operation: "set", value: "x" })
+    expect((await run({ key: "ephemeral", operation: "get" })).body).toMatchObject({ expiry: "none" })
+    for (const driver of ["cloudflare-kv-binding", "upstash", "deno-kv"] as const) {
+      const response = await handle({ key: "ephemeral", operation: "get" }, [{ driver, name: "default" }])
+      expect(await response.json()).toMatchObject({ expiry: "unknown", found: true })
+    }
+    expect((await run({ key: "absent", operation: "get" })).body).not.toHaveProperty("expiry")
   })
 
   it("clamps Cloudflare TTL before calling storage", async () => {
