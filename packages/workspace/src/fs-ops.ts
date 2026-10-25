@@ -1,5 +1,6 @@
 import { posix } from "node:path"
 
+import { resolveWorkspaceStoreTarget } from "./storage/target.ts"
 import { isWorkspaceError, workspaceError } from "./core/errors.ts"
 
 import type { Workspace } from "./core/types.ts"
@@ -18,6 +19,10 @@ export async function copyWorkspacePath(workspace: Workspace, from: string, to: 
     throw workspaceError("[vitehub] Destination cannot be nested inside the source directory.")
   }
   if (from.startsWith(`${to}/`)) {
+    throw workspaceError("[vitehub] Destination cannot contain the source.")
+  }
+
+  if (overwrite && await (await resolveWorkspaceStoreTarget(workspace))?.containsPath?.(to, from)) {
     throw workspaceError("[vitehub] Destination cannot contain the source.")
   }
 
