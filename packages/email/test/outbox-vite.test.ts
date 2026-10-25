@@ -127,6 +127,18 @@ describe("Email development outbox output", () => {
     ])
   })
 
+  it("reads the generated outbox from the Console reader and the operations, which know no runtime id", async () => {
+    const root = await createTempProject()
+    const { definition } = await configure(hubEmail({ driver: "resend", outbox: { deliver: false } }), root, "serve")
+    const module: { definition: EmailDefinition, outboxRuntimeId: string } = await import(pathToFileURL(definition).href)
+    expect(module.outboxRuntimeId).not.toBe("default")
+    await createEmail(module.definition).send({ from: "hello@example.com", subject: "Seen by both", text: "Hi", to: "ada@example.com" })
+
+    // The Console calls its section reader with no arguments.
+    expect(readEmailOutboxConsoleRecords().map(record => record.cells.subject)).toEqual(["Seen by both"])
+    expect(listEmailOutboxMessages().messages.map(message => message.subject)).toEqual(["Seen by both"])
+  })
+
   it("gives separate applications and restarts fresh outbox identities", async () => {
     const firstRoot = await createTempProject()
     const secondRoot = await createTempProject()

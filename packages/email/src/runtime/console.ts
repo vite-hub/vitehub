@@ -1,4 +1,4 @@
-import { getEmailOutbox } from "./outbox.ts"
+import { getActiveEmailOutbox, getEmailOutbox } from "./outbox.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
 import type { ViteHubDefinitionField } from "@vite-hub/internal/inspect"
@@ -42,20 +42,28 @@ export function toEmailOutboxListItem(message: EmailOutboxMessage): EmailOutboxL
   }
 }
 
+/**
+ * The outbox of `runtimeId`. Without one, the newest installed outbox: the Console calls its reader with no arguments,
+ * and each app generates a random runtime id.
+ */
+function outboxOf(runtimeId?: string) {
+  return runtimeId === undefined ? getActiveEmailOutbox() : getEmailOutbox(runtimeId)
+}
+
 /** Lists the messages of the development outbox, newest first. */
 export function listEmailOutbox(runtimeId?: string): EmailOutboxList {
-  const outbox = getEmailOutbox(runtimeId)
+  const outbox = outboxOf(runtimeId)
   return { limit: outbox?.limit ?? null, messages: (outbox?.list() ?? []).map(toEmailOutboxListItem) }
 }
 
 /** Returns one captured message, or `undefined` when the outbox has no message with this id. */
 export function getEmailOutboxMessage(id: string, runtimeId?: string): EmailOutboxMessage | undefined {
-  return getEmailOutbox(runtimeId)?.get(id)
+  return outboxOf(runtimeId)?.get(id)
 }
 
 /** Removes every captured message. Returns the number of removed messages. */
 export function clearEmailOutbox(runtimeId?: string): number {
-  return getEmailOutbox(runtimeId)?.clear() ?? 0
+  return outboxOf(runtimeId)?.clear() ?? 0
 }
 
 /** Short text for a delivery state. */
@@ -130,5 +138,5 @@ function consoleRecord(message: EmailOutboxMessage): ViteHubConsoleRecord {
  * calls it on each request. Without an outbox, for example in build output, it returns no records.
  */
 export function readEmailOutboxConsoleRecords(runtimeId?: string): ViteHubConsoleRecord[] {
-  return (getEmailOutbox(runtimeId)?.list() ?? []).map(consoleRecord)
+  return (outboxOf(runtimeId)?.list() ?? []).map(consoleRecord)
 }
