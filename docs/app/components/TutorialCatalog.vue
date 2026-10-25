@@ -68,7 +68,22 @@ function resetFilters() {
     <section v-for="group in groups" :id="group.id" :key="group.id" :aria-labelledby="`${group.id}-title`" class="mb-12 scroll-mt-8">
       <h2 :id="`${group.id}-title`" class="text-balance text-xl font-semibold text-highlighted">{{ group.title }}</h2>
       <p class="mt-2 mb-5 max-w-2xl text-pretty text-sm leading-6 text-muted">{{ group.description }}</p>
-      <UBlogPosts class="gap-5 sm:grid-cols-2 lg:grid-cols-3">
+      <template v-if="group.tutorials.length === 1">
+        <NuxtLink
+          v-for="tutorial in group.tutorials"
+          :key="tutorial.to"
+          :to="tutorial.to"
+          class="group flex items-center gap-4 border-y border-default py-5 hover:bg-elevated/45 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-inverted"
+        >
+          <div class="min-w-0 flex-1">
+            <p class="text-xs text-muted">{{ tutorial.product }}</p>
+            <h3 class="mt-1 text-balance text-lg font-semibold text-highlighted group-hover:underline">{{ tutorial.title }}</h3>
+            <p class="mt-2 max-w-3xl text-pretty text-sm leading-6 text-muted">{{ tutorial.description }}</p>
+          </div>
+          <UIcon name="i-ph-arrow-right-light" class="size-5 shrink-0 text-muted group-hover:text-highlighted" aria-hidden="true" />
+        </NuxtLink>
+      </template>
+      <UBlogPosts v-else class="gap-5 sm:grid-cols-2 lg:grid-cols-3">
         <UBlogPost
           v-for="tutorial in group.tutorials"
           :key="tutorial.to"
