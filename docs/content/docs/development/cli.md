@@ -102,6 +102,8 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
+| `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with a signed dispatch. |
@@ -192,40 +194,6 @@ VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
 ```
 
 `secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
-
-## Inspect Definitions and Provider Output
-
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
-
-```bash [Terminal]
-pnpm vitehub inspect definitions
-pnpm vitehub inspect definitions --kind rate-limit
-pnpm vitehub inspect definitions --json
-```
-
-```txt [Output]
-Rate Limits (rate-limit): 1
-  checkout  server/api/checkout.post.ts  [require-rate-limit]
-    Limit: 10
-    Window: 1m
-    Enforcement: Strict
-    Provider failure: Deny
-    Source location: 4:9
-```
-
-`--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` relative to the project root, `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the available kinds.
-
-`inspect provider-output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
-
-```bash [Terminal]
-pnpm build
-pnpm vitehub inspect provider-output
-pnpm vitehub inspect provider-output --json
-```
-
-`--json` includes the parsed content of each JSON file. The CLI redacts values under keys that name secrets, such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with embedded credentials. Read [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
-
-Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it.
 
 ## Inspect Definitions and Provider Output
 
