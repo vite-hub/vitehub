@@ -300,7 +300,9 @@ const [error, keys] = await list(0)
 if (error) error.code // "KV_INVALID_LIMIT"
 ```
 
-A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`, so code can return it from a route or an Agent tool without the `cause` or the stack.
+A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Catalog definitions can also provide static or computed `data`. `defineErrors()` infers that data for each code; `ResultError<Code, Data>` can name its type explicitly. A bare `ResultError` or `ResultError<Code>` keeps data as `unknown` so it can accept any catalog error. Codes without data infer `undefined`.
+
+Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`. The code and name keep their literal types. Cause, stack, sources, and diagnostic data stay in memory and are absent from public JSON.
 
 ### Developer diagnostics
 
