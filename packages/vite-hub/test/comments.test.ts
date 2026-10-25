@@ -8,12 +8,14 @@ import { defineCommentSubject, defineComments } from "@vite-hub/comments"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { commentsOperations } from "@vite-hub/comments/operations"
+import { commentsConsoleSection } from "@vite-hub/comments/vite"
+import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 import { createRpcTransport } from "@vite-hub/comments/rpc"
 import { createCommentsStore, installComments } from "@vite-hub/comments/server"
-import { readCommentsConsoleRecords } from "@vite-hub/comments/runtime/console"
 import { runViteHubCli } from "@vite-hub/cli"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
+import { operationCell, operationLink } from "../src/console/runtime/client/operation-view.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
@@ -74,6 +76,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(pending.splice(0))
   installConsoleOperations([])
   installConsoleAccess({ mode: "open" })
@@ -260,16 +263,57 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
     expect(JSON.parse(output)).toEqual([thread])
   })
 
-  it("lists the threads in the Console section, with page links and the missing policy hint", async () => {
-    await setup()
-    const thread = await create("Make it bigger")
-    const [row] = await readCommentsConsoleRecords()
-    expect(row).toMatchObject({ cells: { comment: "Make it bigger", number: "1", status: "open", subject: "/pricing" }, id: `comments:${thread.id}` })
-    expect(row!.fields).toContainEqual({ label: "Link", value: "/pricing?comment=1" })
+  it("describes the Console section as a list of comments.list with filter chips and page links", () => {
+    const view = commentsConsoleSection.view
+    expect(view).toMatchObject({ kind: "operation-view", operation: "comments.list" })
+    if (view.kind !== "operation-view") throw new Error("expected an operation view")
+    expect(view.filters?.map(filter => [filter.id, filter.input])).toEqual([["all", {}], ["open", { status: "open" }], ["resolved", { status: "resolved" }], ["mine", { mine: true }], ["mentions", { mentions: true }]])
+    // Every chip is an input of the operation, so the server checks access for each thread.
+    const operation = commentsOperations.find(candidate => candidate.name === view.operation)!
+    expect(view.filters!.every(filter => Object.keys(filter.input).every(key => ["mentions", "mine", "status"].includes(key)))).toBe(true)
+    expect(operation.kind).toBe("read")
+    const thread = { author: { id: "ana" }, id: "t1", messages: [{ body: "Make it bigger" }], n: 3, status: "open", subject: { id: "/pricing", kind: "page" }, updatedAt: Date.UTC(2026, 9, 25, 10, 30) }
+    expect(view.columns.map(column => operationCell(thread, column))).toEqual(["3", "/pricing", "open", "ana", "Make it bigger", "2026-10-25 10:30"])
+    expect(operationLink(thread, view)).toBe("/pricing?comment=3")
+    expect(operationLink({ ...thread, subject: { id: "posts/hello", kind: "content" } }, view)).toBeUndefined()
+    expect(describeViteHubConsoleSection(commentsConsoleSection)).toMatchObject({ id: "comments", view: { kind: "operation-view" } })
+  })
+
+  it("shows the Console user only the threads that authorize lets that user read", async () => {
+    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id }))
+    await create("Ana's")
+    signedIn = ben
+    await create("Ben's")
+    // The view calls the operation of its filter over the RPC, as the signed-in Console user.
+    const view = commentsConsoleSection.view
+    if (view.kind !== "operation-view") throw new Error("expected an operation view")
+    const open = view.filters!.find(filter => filter.id === "open")!
+    expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ben"])
+    signedIn = ana
+    expect((await value<CommentThread[]>(view.operation, open.input)).map(thread => thread.author.id)).toEqual(["ana"])
+    // Without a policy the view gets the failure and its fix instead of a list.
     await setup(defineComments())
-    const [hint] = await readCommentsConsoleRecords()
-    expect(hint).toMatchObject({ id: "comments:no-policy", cells: { status: "No policy" } })
-    expect(hint!.fields.map(field => field.value).join(" ")).toContain("authorize")
+    expect(await failure(view.operation, {})).toMatchObject({ code: "COMMENTS_R0006", fix: expect.stringContaining("authorize") })
+  })
+
+  it("lets a development server without sign-in comment as the local developer", async () => {
+    await setup()
+    vi.stubEnv("NODE_ENV", "development")
+    for (const mode of ["local", "open"] as const) {
+      installConsoleAccess({ mode })
+      const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
+        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: `From ${mode}`, subject: page }, operation: "comments.create" }),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      }))
+      const body = await response.json() as { ok: boolean, value: CommentThread }
+      expect(body.ok).toBe(true)
+      expect(body.value.author).toEqual({ id: "local", name: "You" })
+    }
+    // Production never invents a user.
+    vi.stubEnv("NODE_ENV", "production")
+    installConsoleAccess({ mode: "open" })
+    expect(await failure("comments.create", { anchor: { kind: "page" }, body: "x", subject: page })).toMatchObject({ code: "COMMENTS_R0012", status: 401 })
   })
 
   it("runs the client transport against the RPC", async () => {
@@ -310,7 +354,7 @@ describe("the Console section", () => {
       const catalog = await discover()
       expect(catalog.extraSections).toEqual(["comments"])
       expect(withConsoleDocumentEditorSections(["env"], catalog)).toContain("comments")
-      expect(catalog.content.comments).toMatchObject({ kind: "record-table" })
+      expect(catalog.content.comments).toMatchObject({ kind: "operation-view" })
     }
     finally {
       await rm(root, { force: true, recursive: true })

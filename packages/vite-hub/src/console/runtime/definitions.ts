@@ -28,7 +28,30 @@ export interface ConsoleRecord {
   runnable?: boolean
 }
 
+export interface ConsoleOperationColumn {
+  format?: "datetime" | "excerpt"
+  key: string
+  label: string
+}
+
+export interface ConsoleOperationFilter {
+  id: string
+  input: Readonly<Record<string, unknown>>
+  label: string
+}
+
+/** Mirrors `ViteHubConsoleOperationView`. */
+export interface ConsoleOperationView {
+  columns: readonly ConsoleOperationColumn[]
+  filters?: readonly ConsoleOperationFilter[]
+  kind: "operation-view"
+  link?: { label?: string, template: string, when?: { equals: string, path: string } }
+  notice: string
+  operation: string
+}
+
 export type ConsoleSectionView =
+  | ConsoleOperationView
   | { kind: "definition-catalog", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
   | { kind: "document-editor", notice: string }
@@ -122,6 +145,7 @@ export interface ConsoleContributedSection {
 }
 
 export type ConsoleSectionContent =
+  | { kind: "operation-view" }
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
   | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
@@ -174,10 +198,36 @@ export function parseConsoleDefinitionFields(value: unknown): ConsoleDefinitionF
   })
 }
 
+function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperationView | undefined {
+  if (!text(view.operation) || !Array.isArray(view.columns) || !text(view.notice)) return undefined
+  const columns = view.columns.flatMap((entry): ConsoleOperationColumn[] => {
+    const column = record(entry)
+    if (!text(column?.key) || !text(column.label)) return []
+    return [{ key: column.key, label: column.label, ...(column.format === "datetime" || column.format === "excerpt" ? { format: column.format } : {}) }]
+  })
+  const filters = Array.isArray(view.filters)
+    ? view.filters.flatMap((entry): ConsoleOperationFilter[] => {
+        const filter = record(entry)
+        return text(filter?.id) && text(filter.label) && record(filter.input) ? [{ id: filter.id, input: { ...record(filter.input) }, label: filter.label }] : []
+      })
+    : []
+  const link = record(view.link)
+  const when = record(link?.when)
+  return {
+    columns,
+    kind: "operation-view",
+    notice: view.notice,
+    operation: view.operation,
+    ...(filters.length ? { filters } : {}),
+    ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
+  }
+}
+
 function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined {
   const view = record(value)
   if (!text(view?.notice)) return undefined
   if (view.kind === "definition-catalog" || view.kind === "document-editor") return { kind: view.kind, notice: view.notice }
+  if (view.kind === "operation-view") return parseConsoleOperationView(view)
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
     const column = record(entry)
@@ -309,6 +359,7 @@ export function parseConsoleSectionContent(value: unknown, section: string): Con
     const setup = parseConsoleDocumentSetup(source.setup)
     return setup ? { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor", setup } : { collections: parseConsoleDocumentCollections(source.collections), kind: "document-editor" }
   }
+  if (source.kind === "operation-view") return { kind: "operation-view" }
   if (source.kind === "record-table") {
     return Array.isArray(source.records) ? { kind: "record-table", records: parseConsoleRecords(source.records) } : undefined
   }

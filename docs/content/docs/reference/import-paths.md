@@ -173,7 +173,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
 | `@vite-hub/comments`, `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, `@vite-hub/comments/database`, and `@vite-hub/comments/database/postgres` | Comments Package | Comment policy and subjects, the client and anchors, the browser transport, the runtime, and the tables. |
-| `@vite-hub/comments/operations` and `@vite-hub/comments/runtime/console` | Comments Package | The `comments.*` operations and the Console inbox reader. The framework distribution imports them for you. |
+| `@vite-hub/comments/operations` | Comments Package | The `comments.*` operations. The framework distribution imports them for you. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
 | `@vite-hub/content/presets/cms` | Content Package | The `cms` preset that stores document collections on a contributed Workspace. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |

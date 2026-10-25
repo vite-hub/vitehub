@@ -9,7 +9,7 @@ export default defineConfig({
       neverBundle: ["nostics"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/database/postgres.ts", "src/operations.ts", "src/rpc.ts", "src/runtime/console.ts", "src/server.ts", "src/testing.ts", "src/vite.ts"],
+    entry: ["src/index.ts", "src/client.ts", "src/database.ts", "src/database/postgres.ts", "src/operations.ts", "src/rpc.ts", "src/server.ts", "src/testing.ts", "src/vite.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,

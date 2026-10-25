@@ -189,6 +189,7 @@ describe("Console Go to shortcuts", () => {
       env: "g e",
       connections: "g c",
       email: "g m",
+      comments: "g n",
       "rate-limits": "g r",
     })
   })

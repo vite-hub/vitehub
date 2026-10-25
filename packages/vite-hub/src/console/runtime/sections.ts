@@ -214,6 +214,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   env: "e",
   connections: "c",
   email: "m",
+  comments: "n",
   "rate-limits": "r",
 }
 

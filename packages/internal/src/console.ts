@@ -33,7 +33,38 @@ export interface ViteHubConsoleDocumentEditorView {
   notice: string
 }
 
-export type ViteHubConsoleSectionView = ViteHubConsoleDefinitionCatalogView | ViteHubConsoleRecordTableView | ViteHubConsoleDocumentEditorView
+export interface ViteHubConsoleOperationColumn {
+  /** Dot path into each item of the result, such as `author.name` or `messages.0.body`. */
+  key: string
+  label: string
+  /** `datetime` shows a time in milliseconds since the epoch as a date. `excerpt` cuts a long text. */
+  format?: "datetime" | "excerpt"
+}
+
+/** A chip above the list. Choosing it merges `input` into the operation input. The first chip is the default. */
+export interface ViteHubConsoleOperationFilter {
+  id: string
+  label: string
+  input: Readonly<Record<string, unknown>>
+}
+
+/**
+ * Lists the items that an operation returns, called over the Console RPC with the signed-in Console user. The operation
+ * checks the access of that user for each item, so the view shows only what the user may read. `operation` must return an
+ * array of objects with an `id`. A failure of the operation, with its `fix`, shows where the list would be.
+ */
+export interface ViteHubConsoleOperationView {
+  columns: readonly ViteHubConsoleOperationColumn[]
+  filters?: readonly ViteHubConsoleOperationFilter[]
+  kind: "operation-view"
+  /** Makes each row a link: `{path}` placeholders take values from the item. Rows where `when.path` is not `when.equals` get none. */
+  link?: { label?: string, template: string, when?: { equals: string, path: string } }
+  notice: string
+  /** Operation name, such as `comments.list`. */
+  operation: string
+}
+
+export type ViteHubConsoleSectionView = ViteHubConsoleDefinitionCatalogView | ViteHubConsoleRecordTableView | ViteHubConsoleDocumentEditorView | ViteHubConsoleOperationView
 
 /**
  * The overview of a document editor section: document counts by state, the changes that wait for a publish, recent
@@ -162,6 +193,9 @@ export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extend
   runtime: ViteHubConsoleRuntimeReader
 }
 
+/** A section whose list comes from an operation, called with the Console user on each visit. It has no build-time data. */
+export interface ViteHubConsoleOperationSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleOperationView> {}
+
 /**
  * A document editor section. The owner finds the application module that holds its runtime, such as `server/content.ts`,
  * and names the server export that turns that module into {@link ViteHubConsoleDocumentActions}. The host shows the
@@ -189,8 +223,10 @@ export type ViteHubConsoleSectionContribution<TOptions = void> =
   | ViteHubConsoleRecordTableSection<TOptions>
   | ViteHubConsoleRuntimeRecordTableSection<TOptions>
   | ViteHubConsoleDocumentEditorSection<TOptions>
+  | ViteHubConsoleOperationSection
 
 export type ViteHubConsoleSectionContent =
+  | { kind: "operation-view" }
   | { definitions: readonly ViteHubDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ViteHubConsoleRecord[] }
   | { collections: readonly ViteHubConsoleDocumentCollection[], kind: "document-editor", setup?: ViteHubConsoleDocumentSetup }
@@ -711,6 +747,13 @@ function isDefinitionCatalogSection<TOptions>(
   return section.view.kind === "definition-catalog"
 }
 
+/** Returns true for a section that lists the result of an operation. */
+export function isViteHubConsoleOperationSection<TOptions>(
+  section: ViteHubConsoleSectionContribution<TOptions>,
+): section is ViteHubConsoleOperationSection {
+  return section.view.kind === "operation-view"
+}
+
 /** Returns true for a document editor section. */
 export function isViteHubConsoleDocumentEditorSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
@@ -747,6 +790,15 @@ export function describeViteHubConsoleRuntimeReader<TOptions>(section: ViteHubCo
   return checkedServerExport(section, section.runtime, "runtime")
 }
 
+/** A checked copy of an operation view that only holds JSON. */
+export function describeOperationView(view: ViteHubConsoleOperationView): ViteHubConsoleOperationView {
+  if (String(view.operation) !== view.operation || !/^[a-z][a-z0-9-]*\.[a-z][a-z0-9-]*$/.test(view.operation)) {
+    throw new TypeError(`[vitehub] A Console operation view needs an operation name such as "comments.list"; received ${JSON.stringify(view.operation)}.`)
+  }
+  // SAFETY: The view holds strings, numbers, booleans, and plain objects, so a JSON round trip copies it.
+  return JSON.parse(JSON.stringify(view)) as ViteHubConsoleOperationView
+}
+
 /** Returns the serializable part of a contribution. */
 export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleSectionContribution<TOptions>): ViteHubConsoleSectionDescriptor {
   if (!isViteHubConsoleSectionId(section.id)) {
@@ -754,7 +806,9 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   }
   const view: ViteHubConsoleSectionView = section.view.kind === "record-table"
     ? { columns: section.view.columns.map(column => ({ key: column.key, label: column.label })), kind: "record-table", notice: section.view.notice }
-    : { kind: section.view.kind, notice: section.view.notice }
+    : section.view.kind === "operation-view"
+      ? describeOperationView(section.view)
+      : { kind: section.view.kind, notice: section.view.notice }
   const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   if (section.pages?.length) descriptor.pages = describePages(section)
   return descriptor
@@ -814,8 +868,9 @@ export async function readViteHubConsoleSection<TOptions>(
   if (isViteHubConsoleRuntimeSection(section)) {
     return { kind: "record-table", records: section.read ? [...await section.read(options)] : [] }
   }
+  if (isViteHubConsoleOperationSection(section)) return { kind: "operation-view" }
   if (isDefinitionCatalogSection(section)) {
     return { definitions: [...await section.read(options)], kind: "definition-catalog" }
   }
-  return { kind: "record-table", records: [...await section.read(options)] }
+  return { kind: "record-table", records: [...await (section as { read: (options: TOptions) => MaybePromise<readonly ViteHubConsoleRecord[]> }).read(options)] }
 }

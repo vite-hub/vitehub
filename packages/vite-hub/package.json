@@ -135,12 +135,6 @@
       "require": "./dist/_internal/comments/operations.js",
       "default": "./dist/_internal/comments/operations.js"
     },
-    "./_internal/comments/runtime/console": {
-      "types": "./dist/_internal/comments/runtime/console.d.ts",
-      "import": "./dist/_internal/comments/runtime/console.js",
-      "require": "./dist/_internal/comments/runtime/console.js",
-      "default": "./dist/_internal/comments/runtime/console.js"
-    },
     "./_internal/content/operations": {
       "types": "./dist/_internal/content/operations.d.ts",
       "import": "./dist/_internal/content/operations.js",
