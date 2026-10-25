@@ -33,7 +33,7 @@ export default defineConfig({
     driver: 'fs',
     base: '.vitehub/data/blob',
   },
-  plugins: [hubBlob(), nitro() as never],
+  plugins: [hubBlob(), nitro()],
 })
 ```
 

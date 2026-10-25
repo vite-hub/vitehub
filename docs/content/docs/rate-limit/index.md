@@ -17,7 +17,7 @@ icon: i-lucide-gauge
     plugins: [
       // On Node, counts stay in memory
       vitehub({ preset: 'node', rateLimit: true }),
-      nitro() as never,
+      nitro(),
     ],
   })
   ```
