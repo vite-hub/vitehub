@@ -200,12 +200,12 @@ function matches(item: unknown, query: NormalizedQuery, searchFields: readonly s
 function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined): TItem[] {
   if (!sort) return items
   const direction = sort.direction === "desc" ? -1 : 1
-  return items.sort((left, right) => {
-    const leftValue = firstScalar(collectionValueAt(left, sort.field))
-    const rightValue = firstScalar(collectionValueAt(right, sort.field))
-    if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
-    return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
-  })
+  return items.map(item => ({ item, value: firstScalar(collectionValueAt(item, sort.field)) }))
+    .sort(({ value: leftValue }, { value: rightValue }) => {
+      if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
+      return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
+    })
+    .map(({ item }) => item)
 }
 
 function buildFacets(items: readonly unknown[], fields: readonly string[], maxValues: number): CollectionFacets {
