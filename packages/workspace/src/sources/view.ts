@@ -2,7 +2,7 @@ import { workspaceError } from "../core/errors.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
-import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
@@ -762,9 +762,11 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           for (const entry of previous ? await previous.list("", { recursive: true }) : []) {
             if (entry.type === "file") entries.set(entry.path, entry)
           }
-          const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await sha256(await previous!.readFile(path, { encoding: "binary" }))
-          const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">) =>
-            digest === await sha256(file.content) &&
+          // Digests of a revision view are the digests of the Store's history. The working tree lists SHA-256 digests.
+          const historyDigest = async (content: string | Uint8Array) => history.digest ? await history.digest(contentToBytes(content)) : await sha256(content)
+          const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await historyDigest(await previous!.readFile(path, { encoding: "binary" }))
+          const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">, compute: (content: string | Uint8Array) => Promise<string> = historyDigest) =>
+            digest === await compute(file.content) &&
             (file.mediaType === undefined || entry.mediaType === file.mediaType) &&
             (file.metadata === undefined || JSON.stringify(entry.metadata) === JSON.stringify(file.metadata))
           // The next state of one path: a put file, a deletion, or the unchanged head entry.
@@ -795,7 +797,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               const file = next(entry.path)
               const digest = entry.digest ?? await sha256((await store.readFile(entry.path))!.content)
               const unchanged = file && ("content" in file
-                ? await sameFile(file, digest, entry)
+                ? await sameFile(file, digest, entry, sha256)
                 : await digestOf(entry.path, file) === digest && file.mediaType === entry.mediaType && JSON.stringify(file.metadata) === JSON.stringify(entry.metadata))
               if (!unchanged) await assertWritableCurrentPath(entry.path)
             }
