@@ -4,6 +4,7 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
 import type { MaybePromise } from "./index.ts"
+import type { ResultError } from "./result.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type RuntimeDiagnosticLevel = "debug" | "error" | "info" | "warn"
@@ -67,6 +68,35 @@ export interface RuntimeDiagnosticErrorOptions {
   maxDepth?: number
   maxErrors?: number
   maxStringLength?: number
+}
+
+/** Recognizes a live Nostics error across bundled copies. This does not make its fields safe for public responses. */
+export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown> | ResultError {
+  if (!isRuntimeObject(error)) return false
+  try {
+    const nativeIsError: unknown = Reflect.get(Error, "isError")
+    const isError = hasRuntimeType(nativeIsError, "function")
+      ? nativeIsError(error) === true
+      : error instanceof Error || (!(Symbol.toStringTag in error) && Object.prototype.toString.call(error) === "[object Error]")
+    if (!isError) return false
+    const message: unknown = Reflect.get(error, "message")
+    const code: unknown = Reflect.get(error, "code")
+    const name: unknown = Reflect.get(error, "name")
+    const why: unknown = Reflect.get(error, "why")
+    const fix: unknown = Reflect.get(error, "fix")
+    const docs: unknown = Reflect.get(error, "docs")
+    const sources: unknown = Reflect.get(error, "sources")
+    return hasRuntimeType(code, "string") && code.length > 0
+      && hasRuntimeType(name, "string")
+      && hasRuntimeType(message, "string") && why === message
+      && (fix === undefined || hasRuntimeType(fix, "string"))
+      && (docs === undefined || hasRuntimeType(docs, "string"))
+      && (sources === undefined || Array.isArray(sources) && sources.every(source => hasRuntimeType(source, "string")))
+      && hasRuntimeType(Reflect.get(error, "toJSON"), "function")
+  }
+  catch {
+    return false
+  }
 }
 
 interface ErrorNormalizationState {

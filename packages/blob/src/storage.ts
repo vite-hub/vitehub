@@ -352,6 +352,16 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
           }
         }
 
+        if (event.req.method === "HEAD" && !options.transform && meta.contentType
+          && meta.size !== undefined && Number.isSafeInteger(meta.size) && meta.size >= 0) {
+          headers.set("Accept-Ranges", "bytes")
+          headers.set("Content-Length", String(meta.size))
+          headers.set("Content-Type", meta.contentType)
+          headers.set("X-Content-Type-Options", "nosniff")
+          for (const [name, value] of headers) event.res.headers.set(name, value)
+          return new Blob([]).stream()
+        }
+
         const cached = cachePath
           ? await driver.get(cachePath).catch((error) => {
             console.error("[vitehub/blob] Transform cache read failed", error)
