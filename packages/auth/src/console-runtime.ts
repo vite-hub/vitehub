@@ -66,7 +66,7 @@ const policyReason = (policy: AuthConsolePolicy | undefined): string | undefined
   policy === false
     ? "Read-only in the Auth Definition."
     : typeof policy === "object"
-      ? policy.reason
+      ? policy.reason || "Read-only in the Auth Definition."
       : undefined;
 const userSummary = (user: Row) => ({
   id: string(user.id),
@@ -131,7 +131,12 @@ const errors = defineErrors({
     },
   },
 });
-export type AuthConsoleErrorCode = "AUTH_CONSOLE_INVALID_REQUEST" | "AUTH_CONSOLE_FORBIDDEN" | "AUTH_CONSOLE_NOT_FOUND" | "AUTH_CONSOLE_UNAVAILABLE" | "AUTH_CONSOLE_PROVIDER_FAILED";
+export type AuthConsoleErrorCode =
+  | "AUTH_CONSOLE_INVALID_REQUEST"
+  | "AUTH_CONSOLE_FORBIDDEN"
+  | "AUTH_CONSOLE_NOT_FOUND"
+  | "AUTH_CONSOLE_UNAVAILABLE"
+  | "AUTH_CONSOLE_PROVIDER_FAILED";
 async function result<T>(run: () => Promise<T>): Promise<Result<T, AuthConsoleErrorCode>> {
   try {
     return [undefined, await run()];

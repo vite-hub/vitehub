@@ -1,1 +1,1 @@
-export * from "@vite-hub/auth/console-runtime";
+export * from "@vite-hub/auth/console-runtime"

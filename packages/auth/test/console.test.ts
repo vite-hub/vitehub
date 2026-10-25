@@ -151,6 +151,10 @@ describe("Auth Console with real Better Auth plugins", () => {
     await expect(
       data(readOnly.execute({ action: "ban", userId: member.id }, operator.request)),
     ).rejects.toMatchObject({ code: "AUTH_CONSOLE_FORBIDDEN" });
+    const emptyReason = createAuthConsole(auth, { roles: { editable: false, reason: "" } });
+    expect((await data(emptyReason.describe(operator.request))).actions.setRole.enabled).toBe(
+      false,
+    );
     const withoutAdmin = await fixture({ admin: false });
     expect(
       (await data(withoutAdmin.api.describe(withoutAdmin.operator.request))).actions.ban,
@@ -160,8 +164,16 @@ describe("Auth Console with real Better Auth plugins", () => {
 
   it("edits numeric, boolean, date and array fields through Better Auth", async () => {
     const { api, member, operator } = await fixture();
-    const values = { quota: 12, enabled: true, joined: "2026-10-25T10:00:00.000Z", tags: ["member", "early"] };
-    for (const [field, value] of Object.entries(values)) await data(api.execute({ action: "editField", userId: member.id, field, value }, operator.request));
+    const values = {
+      quota: 12,
+      enabled: true,
+      joined: "2026-10-25T10:00:00.000Z",
+      tags: ["member", "early"],
+    };
+    for (const [field, value] of Object.entries(values))
+      await data(
+        api.execute({ action: "editField", userId: member.id, field, value }, operator.request),
+      );
     const detail = await data(api.user(member.id));
     expect(detail.user.fields).toMatchObject(values);
   });
