@@ -128,7 +128,7 @@ describe("Console document editor route", () => {
     await expect(documents("list", { collection: "posts" })).resolves.toMatchObject({ status: 200 })
     // `scoped` tells the Overview that other sections may exist but are hidden from this user.
     await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { scoped: true, sections: ["content"] } } })
-    for (const method of ["kv.list", "agents.list", "env.get"]) {
+    for (const method of ["agents.list", "env.get"]) {
       await expect(call(method, {}), method).resolves.toMatchObject({ status: 403 })
     }
     await expect(call("definitions.list", { section: "kv" })).resolves.toMatchObject({ status: 403 })
@@ -239,7 +239,7 @@ describe("Console document editor route", () => {
     install(fakeActions({ save: save as never }))
     const body = "x".repeat(200 * 1024)
     await expect(documents("save", { body })).resolves.toEqual({ body: { ok: true, value: { length: body.length } }, status: 200 })
-    await expect(call("kv.list", { prefix: "x".repeat(200 * 1024) })).resolves.toMatchObject({ status: 413 })
+    await expect(call("env.get", { search: "x".repeat(200 * 1024) })).resolves.toMatchObject({ status: 413 })
   })
 })
 

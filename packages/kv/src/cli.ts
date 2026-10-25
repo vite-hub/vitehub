@@ -10,7 +10,8 @@ import { kvErrorDiagnostics } from "./error-diagnostics.ts"
 import { kvDevDefaultListLimit, kvDevMaximumListLimit } from "./results.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
-import type { KVDevOperation, KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./results.ts"
+import type { KVDevOperation } from "./results.ts"
+import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult } from "./runtime/operations.ts"
 
 export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 

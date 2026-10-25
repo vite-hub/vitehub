@@ -177,7 +177,7 @@ describe("blob operations", () => {
 
   it("refuses to return a blob over the limit", async () => {
     await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "big.bin" })
-    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { contentType: "application/octet-stream", customMetadata: {}, httpMetadata: {}, pathname: "big.bin", size: blobDevMaximumUploadBytes + 1, uploadedAt: new Date() }])
+    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { contentType: "application/octet-stream", customMetadata: {}, httpEtag: "\"etag\"", httpMetadata: {}, pathname: "big.bin", size: blobDevMaximumUploadBytes + 1, uploadedAt: new Date() }])
     try {
       await expect(run({ operation: "get", pathname: "big.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
     }
