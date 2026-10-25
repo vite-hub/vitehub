@@ -75,15 +75,16 @@ describe("operations capability", () => {
     expect(seen.at(-1)).toEqual({ actor: "user_1", surface: "agent", user: "user_1" })
   })
 
-  it("asks for approval of destructive operations by default, and as approve says", async () => {
+  it("asks for approval of write and destructive operations by default, and as approve says", async () => {
     const decide = async (capability: AgentCapabilityDefinition, name: string, input: unknown = {}) => {
       const policy = (await tools(capability))[name]!.policy
       return policy instanceof Function ? await policy({ input, name }) : policy
     }
     expect(await decide(operations({ include: ["demo.*"], registry }), "demo_remove")).toBe("require-approval")
-    expect(await decide(operations({ include: ["demo.*"], registry }), "demo_rename")).toBe("allow")
-    expect(await decide(operations({ approve: "write", include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
-    expect(await decide(operations({ approve: "write", include: ["demo.*"], registry }), "demo_whoami")).toBe("allow")
+    expect(await decide(operations({ include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
+    expect(await decide(operations({ include: ["demo.*"], registry }), "demo_whoami")).toBe("allow")
+    expect(await decide(operations({ approve: "destructive", include: ["demo.*"], registry }), "demo_rename")).toBe("allow")
+    expect(await decide(operations({ approve: "destructive", include: ["demo.*"], registry }), "demo_remove")).toBe("require-approval")
     expect(await decide(operations({ approve: "never", include: ["demo.*"], registry }), "demo_remove")).toBe("allow")
     expect(await decide(operations({ approve: ["demo.rename"], include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
   })
@@ -107,6 +108,16 @@ describe("operations capability", () => {
     // The operation sees the allowed sections and the user, not "all".
     expect(await resolved.demo_lease!.execute!({} as never, {})).toMatchObject({ sections: ["demo"], surface: "agent" })
     expect(await resolved.demo_whoami!.execute!({} as never, {})).toMatchObject({ user: "user_1" })
+  })
+
+  it("offers a read-only section only its reads and dry runs, and refuses a write that gets through", async () => {
+    installOperationSectionResolver(async () => ["demo:read"])
+    const resolved = await tools(operations({ include: ["demo.*"], registry }))
+    // `demo_remove` has a `readOnlyWhen` dry run, so it stays; a plain write does not.
+    expect(Object.keys(resolved)).toEqual(["demo_remove", "demo_whoami"])
+    expect(await resolved.demo_whoami!.execute!({} as never, {})).toMatchObject({ user: "user_1" })
+    expect(await resolved.demo_remove!.execute!({ dryRun: true, id: "a" } as never, {})).toEqual({ id: "a" })
+    expect(await resolved.demo_remove!.execute!({ id: "a" } as never, {})).toMatchObject({ error: { code: "INTERNAL_R0023" }, ok: false })
   })
 
   it("offers nothing when the user may use no section, and everything without console.authorize", async () => {

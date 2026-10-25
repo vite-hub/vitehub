@@ -1,4 +1,4 @@
-import { installOperationSectionResolver } from "@vite-hub/internal/operations"
+import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
@@ -25,8 +25,11 @@ export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  /** The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. */
-  readonly sections: "all" | readonly ConsoleSectionId[]
+  /**
+   * The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. An entry is a
+   * section id, or `"<section>:read"` for a section that the request may only read.
+   */
+  readonly sections: "all" | readonly string[]
   readonly user?: ConsoleUser
 }
 
@@ -35,9 +38,10 @@ export interface ConsoleAccess {
  * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
  * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
  * - `user: true`: read the signed-in user before the handler runs, so `access.user` is set.
+ * - `write: true`: the route changes state, so a read-only grant (`"<section>:read"`) is refused.
  */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean, write?: boolean }
   | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
@@ -248,9 +252,16 @@ export async function readConsoleOperationUser(access: ConsoleAccess): Promise<C
   return (access.mode === "local" || access.mode === "open") && developmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
 }
 
+/** Whether the access includes the section, with a read-only grant (`"<section>:read"`) too. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return operationAccessAllows(access, section)
+}
+
+/** Whether the access may change the section: it has the full grant, not `"<section>:read"`. */
+export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
+  if (!consoleAccessGrant.isValid(access)) return false
+  return operationAccessAllows(access, section, { kind: "write" })
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -388,6 +399,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       const section = typeof declared.section === "function" ? declared.section(event) : declared.section
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
     return handler(event, access)
   }

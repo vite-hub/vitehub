@@ -50,7 +50,10 @@ export interface OperationActor {
 /** The checked Console access of a call. `vite-hub` issues it. `ConsoleAccess` has this shape. */
 export interface OperationAccess {
   readonly mode: string
-  /** The sections that the call may use. `"all"` when no section filter applies. */
+  /**
+   * The sections that the call may use. `"all"` when no section filter applies. An entry is a section id (`"kv"`, every
+   * operation of the section) or `"<section>:read"` (only the operations that read).
+   */
   readonly sections: "all" | readonly string[]
   readonly user?: OperationUser
 }
@@ -370,10 +373,33 @@ export function operationSection(operation: AnyOperation, input: unknown): strin
   return section instanceof Function ? (section as (value: unknown) => string | undefined)(input) : section
 }
 
-/** Whether the checked access covers the section. */
-export function operationAccessAllows(access: OperationAccess, section: string | false | undefined): boolean {
-  if (section === false) return true
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+/** The suffix of a section grant that allows only reads, such as `"kv:read"`. */
+export const readOnlySectionSuffix = ":read"
+
+/** What one call does, for the read-only check of a section grant. */
+export interface OperationCallKind {
+  kind: OperationKind
+  /** The call only reads, such as a dry run (`readOnlyWhen`). */
+  readOnly?: boolean
+}
+
+/**
+ * Whether the checked access covers the section. Without `call`, a read-only grant (`"kv:read"`) counts, so the answer
+ * is whether the section is visible. With `call`, a read-only grant allows only a `read` operation or a call that only
+ * reads. Every surface (RPC, CLI, agents, MCP) checks access here.
+ */
+export function operationAccessAllows(access: OperationAccess, section: string | false | undefined, call?: OperationCallKind): boolean {
+  if (section === false || access.sections === "all") return true
+  if (section === undefined) return false
+  if (access.sections.includes(section)) return true
+  if (!access.sections.includes(`${section}${readOnlySectionSuffix}`)) return false
+  return call === undefined || call.kind === "read" || call.readOnly === true
+}
+
+/** The kind of one call of an operation: a `readOnlyWhen` match makes a write operation a read. */
+export function operationCall(operation: Pick<AnyOperation, "kind" | "readOnlyWhen">, input: unknown): OperationCallKind {
+  // SAFETY: Callers pass input that the operation schema accepted.
+  return { kind: operation.kind, readOnly: operation.readOnlyWhen?.(input as never) === true }
 }
 
 function text(value: unknown): string | undefined {
@@ -414,6 +440,9 @@ export async function runOperation(registry: OperationRegistry, name: string, in
     const section = operationSection(operation, parsed)
     if (!operationAccessAllows(context.access, section)) {
       throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${name} needs.` }), { status: 403 })
+    }
+    if (!operationAccessAllows(context.access, section, operationCall(operation, parsed))) {
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
     }
     // SAFETY: The schema of the operation produced `parsed`.
     return { ok: true, value: await (operation.run as (value: unknown, context: OperationContext) => unknown)(parsed, context) }
