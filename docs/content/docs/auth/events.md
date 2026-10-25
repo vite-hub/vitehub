@@ -89,7 +89,7 @@ const events: AuthEventsConfiguration = {
 }
 ```
 
-Without `authorize`, no event HTTP endpoint is registered. When enabled, `GET <auth-base-path>/vitehub/events` requires a session read from the authoritative store and an explicit `true` result. A normal user's session is not sufficient unless your policy permits it. Responses use `Cache-Control: no-store`.
+Without `authorize`, no event HTTP endpoint is registered. When enabled, `GET <auth-base-path>/vitehub/events` requires a session read from the authoritative store and an explicit `true` result. A normal user's session is not sufficient unless your policy permits it. Successful reads use `Cache-Control: no-store`. The policy can return a `Response` to reject access with its own status, headers, and body.
 
 Set `VITEHUB_AUTH_COOKIE` to an authorized session cookie in the shell environment. Do not put it in a command argument or shared log. Set `VITEHUB_AUTH_URL`, or pass the full Auth base URL with `--url`:
 

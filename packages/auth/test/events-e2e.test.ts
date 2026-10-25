@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { getMigrations } from "better-auth/db/migration"
 import { APIError } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
-import { admin, organization, twoFactor } from "better-auth/plugins"
+import { admin, organization, siwe, twoFactor } from "better-auth/plugins"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
 import { aggregateAuthEvents, createBetterAuthOptions, getAuthForDefinition, handleAuthRequest, listAuthEvents } from "../src/server.ts"
 import { hubAuth } from "../src/vite.ts"
@@ -256,6 +256,27 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect(response.status).toBe(429)
     expect(response.headers.get("retry-after")).toBe("60")
     expect(await response.text()).toBe("Try later")
+  })
+
+  it("records failed SIWE nonce and signature verification", async () => {
+    const verifyMessage = vi.fn(async () => false)
+    const nonce = "authEventsNonce123"
+    const app = await setup({ plugins: [siwe({ domain: "localhost:3000", getNonce: async () => nonce, verifyMessage })] })
+    const message = [
+      "localhost:3000 wants you to sign in with your Ethereum account:",
+      "0x0000000000000000000000000000000000000001", "", "Sign in", "",
+      `URI: ${origin}`, "Version: 1", "Chain ID: 1", `Nonce: ${nonce}`, `Issued At: ${new Date().toISOString()}`,
+    ].join("\n")
+    const verify = () => app.request("siwe/verify", { message, signature: "invalid-signature" })
+    expect((await verify()).status).toBe(401)
+    expect(verifyMessage).not.toHaveBeenCalled()
+    expect((await app.request("siwe/nonce", {})).status).toBe(200)
+    expect((await verify()).status).toBe(401)
+    expect(verifyMessage).toHaveBeenCalledTimes(1)
+    const failures = (await app.store.list({ type: "sign_in.failed" })).events
+    expect(failures).toHaveLength(2)
+    expect(failures.every(event => event.metadata.method === "siwe" && event.userId === null)).toBe(true)
+    expect((await app.store.list({ type: "user.signed_in" })).events).toEqual([])
   })
 
   it("keeps database-free auth and existing hooks usable when events are disabled", async () => {

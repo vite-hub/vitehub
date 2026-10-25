@@ -111,6 +111,12 @@
       "require": "./dist/_internal/agent/state/sqlite.js",
       "default": "./dist/_internal/agent/state/sqlite.js"
     },
+    "./_internal/auth/runtime/console": {
+      "types": "./dist/_internal/auth/runtime/console.d.ts",
+      "import": "./dist/_internal/auth/runtime/console.js",
+      "require": "./dist/_internal/auth/runtime/console.js",
+      "default": "./dist/_internal/auth/runtime/console.js"
+    },
     "./_internal/blob": {
       "types": "./dist/_internal/blob.d.ts",
       "import": "./dist/_internal/blob.js",

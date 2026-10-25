@@ -66,7 +66,7 @@ export interface AuthEventStore {
 }
 export interface AuthEventsConfiguration {
   store: AuthEventStore
-  /** Enable the CLI read endpoint. A session and an explicit true result are required. */
+  /** Enable the CLI read endpoint. A session and an explicit true result are required. A Response is sent as the rejection. */
   authorize?: AuthAccessAuthorize
 }
 

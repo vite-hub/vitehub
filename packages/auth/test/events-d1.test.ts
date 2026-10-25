@@ -23,3 +23,25 @@ it("records, filters, paginates, aggregates and prunes on real local D1", async 
   const restarted = createDatabaseAuthEventStore({ db: drizzle(await worker.getD1Database("DB")) })
   expect((await restarted.list()).events).toHaveLength(3)
 })
+
+it("keeps D1 aggregates consistent when a write follows the first read", async () => {
+  const db = drizzle(await worker.getD1Database("DB"))
+  const all = db.all.bind(db)
+  let reads = 0
+  const concurrent: AuthEventStore = createDatabaseAuthEventStore({ db: {
+    run: query => db.run(query),
+    async all(query) {
+      const rows = await all(query)
+      if (++reads === 1) await concurrent.append({ ...event, id: "during", userId: "u2" })
+      return rows
+    },
+  }, retention: false })
+  const event = { id: "before", time: "2025-01-01T12:00:00.000Z", type: "user.signed_in" as const, actor: "user:u1" as const, userId: "u1", metadata: { method: "email-password" } }
+  await concurrent.append(event)
+  const window = { from: "2025-01-01T00:00:00.000Z", to: "2025-01-02T00:00:00.000Z" }
+  const result = await concurrent.aggregate(window)
+  expect(result.totals).toEqual({ signUps: 0, signIns: 1, activeUsers: 1, methods: { "email-password": 1 } })
+  expect(result.days[0]?.methods).toEqual(result.totals.methods)
+  expect(reads).toBe(1)
+  expect((await concurrent.aggregate(window)).totals.signIns).toBe(2)
+})

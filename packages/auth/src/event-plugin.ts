@@ -191,7 +191,7 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             recordedSessions.add(signedIn.session)
             await append("user.signed_in", signedIn.user.id, ctx, { method: method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
           }
-          if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || challenges.has(ctx.context))) {
+          if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || path === "/siwe/verify" || challenges.has(ctx.context))) {
             await append("sign_in.failed", null, ctx, { method: method(ctx) })
           }
           if (outcome instanceof APIError) return
