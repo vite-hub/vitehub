@@ -270,6 +270,64 @@ describe("vitehub", () => {
     expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
   })
 
+  it.each([
+    ["default", "export default {}", "server"],
+    ["custom", 'export default { serverDir: "custom-server" }', "custom-server"],
+    ["disabled", "export default { serverDir: false }", false],
+    ["legacy srcDir", 'export default { srcDir: "custom-server" }', false],
+    ["dotenv", "export default { serverDir: process.env.VITEHUB_TEST_SERVER_DIR }", "custom-server"],
+    ["dotenv opt-out", 'export default { serverDir: process.env.VITEHUB_TEST_SERVER_DIR ? false : undefined }', false],
+  ] as const)("resolves Nitro routes once with %s configuration", async (_name, source, serverDir) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-server-dir-"))
+    const { createNitro } = await import("nitro/builder")
+    try {
+      await mkdir(join(root, "server/api"), { recursive: true })
+      await mkdir(join(root, "custom-server/api"), { recursive: true })
+      for (const directory of ["server", "custom-server"]) {
+        for (const feature of ["plugins", "modules", "tasks"]) {
+          await mkdir(join(root, directory, feature), { recursive: true })
+        }
+        await writeFile(join(root, directory, "plugins/example.ts"), "export default () => {}")
+        await writeFile(join(root, directory, "modules/example.ts"), `export default { setup(nitro) { nitro.options.runtimeConfig.scannedModule = ${JSON.stringify(directory)} } }`)
+        await writeFile(join(root, directory, "tasks/example.ts"), "export default { run() { return {} } }")
+      }
+      await writeFile(join(root, "server/api/default.ts"), "export default () => 'default'")
+      await writeFile(join(root, "custom-server/api/custom.ts"), "export default () => 'custom'")
+      await writeFile(join(root, ".env.production"), "VITEHUB_TEST_SERVER_DIR=custom-server")
+      await writeFile(join(root, "nitro.config.ts"), `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(join(root, "loads"))}, "load\\n"); ${source}`)
+      const preset = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-preset")
+      const config = { root, nitro: {} }
+      await callHook(preset.config, [config, { command: "build", mode: "production" }])
+      await expect(readFile(join(root, "loads"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      expect(preset.nitro).toBeDefined()
+      const nitro = await createNitro({ ...config.nitro, rootDir: root, builder: "vite", experimental: { tasks: true }, modules: [preset.nitro!] }, {
+        dotenv: { fileName: [".env", ".env.local", ".env.production", ".env.production.local"] },
+      })
+      try {
+        expect(nitro.options.serverDir).toBe(serverDir === false ? false : `${join(root, serverDir)}/`)
+        expect(nitro.scannedHandlers.map(handler => handler.route)).toEqual(serverDir === false ? [] : [serverDir === "server" ? "/api/default" : "/api/custom"])
+        if (serverDir !== false) {
+          expect(nitro.options.plugins).toContain(join(root, serverDir, "plugins/example.ts"))
+          expect(nitro.options.tasks.example?.handler).toBe(join(root, serverDir, "tasks/example.ts"))
+          expect(nitro.options.runtimeConfig.scannedModule).toBe(serverDir)
+        }
+        else {
+          expect(nitro.options.plugins.some(plugin => plugin.endsWith("plugins/example.ts"))).toBe(false)
+          expect(nitro.options.tasks.example).toBeUndefined()
+          expect(nitro.options.runtimeConfig.scannedModule).toBeUndefined()
+        }
+        expect(await readFile(join(root, "loads"), "utf8")).toBe("load\n")
+      }
+      finally {
+        await nitro.close()
+      }
+    }
+    finally {
+      delete process.env.VITEHUB_TEST_SERVER_DIR
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it("serializes the built-in Provider Output finalizer", () => {
     const output = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-output")
 
