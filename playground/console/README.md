@@ -26,6 +26,16 @@ Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
+To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
+`/api/_vitehub/console/`, and it also matches the paths under it:
+
+```js
+document.cookie = "playground-fail=agents=401,invocations=401" // Sign-in on the Agents page
+document.cookie = "playground-fail=sections=503"                // The Overview cannot load
+document.cookie = "playground-fail=invocation-capabilities=500" // The session filter cannot load
+document.cookie = "playground-fail=; max-age=0"                 // Back to the fixtures
+```
+
 To share the running playground temporarily, expose the same local server:
 
 ```bash
