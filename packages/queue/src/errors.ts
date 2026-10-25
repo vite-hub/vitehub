@@ -1,4 +1,4 @@
-import { Diagnostic } from "nostics"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
@@ -13,7 +13,7 @@ type QueueCatalogCode = keyof typeof queueErrorDiagnostics
 
 /** Returns `true` for an error from the Queue catalog. Pass `codes` to accept only some codes. */
 export function isQueueError<TCode extends QueueCatalogCode = QueueCatalogCode>(error: unknown, codes?: readonly TCode[]): error is ResultError<TCode> {
-  if (!(error instanceof Diagnostic) || !Object.hasOwn(queueErrorDiagnostics, error.code)) return false
+  if (!isRuntimeDiagnostic(error) || !Object.hasOwn(queueErrorDiagnostics, error.code)) return false
   return !codes || codes.some(code => code === error.code)
 }
 

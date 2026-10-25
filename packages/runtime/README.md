@@ -319,6 +319,8 @@ text. It prints the code, message, fix, source locations, and documentation link
 with Nostics formatting. It omits causes and stacks. Plain errors return their
 message. Both helpers accept `unknown` and handle failed property reads.
 
+Use `isRuntimeDiagnostic(error)` to recognize a live Nostics error from another bundled copy. It checks the native Error and diagnostic fields without requiring the same `Diagnostic` constructor. It rejects serialized records; use `normalizeRuntimeDiagnosticError()` to inspect those. Recognition does not make diagnostic text safe for a public response. Keep the owning package's code allowlist and public error mapping.
+
 These helpers produce developer diagnostics. They do not make arbitrary errors
 safe for public responses. Use the `ViteHubError` public contract at that boundary.
 
