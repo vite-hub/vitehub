@@ -712,6 +712,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/console",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox-task/vite",
       "vite-hub/agent-invocations",

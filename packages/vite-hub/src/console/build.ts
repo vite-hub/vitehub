@@ -1,10 +1,13 @@
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
+import { flattenPluginOptions } from "@vite-hub/internal/contributions"
+import { collectOperationContributions, createOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
 import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
 import { collectScheduleContributions, discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
 
 import { consoleContributedSections, consoleDocumentEditorSectionIds } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
 
+import type { CollectedOperationContribution } from "@vite-hub/internal/operations"
 import type { ConsoleSectionDiscoveryContext } from "./contributions.ts"
 import type { ConsoleSectionContent } from "./runtime/definitions.ts"
 import type { ConsoleSectionId } from "./runtime/sections.ts"
@@ -20,6 +23,8 @@ export interface ConsoleBuildCatalog {
   content: Record<ConsoleSectionId, ConsoleSectionContent>
   /** Application module of each document editor section that discovery found, such as `server/content.ts`. */
   documents?: Record<ConsoleSectionId, string>
+  /** The operations that Vite plugins contribute through `vitehub.operations`. */
+  operations?: readonly CollectedOperationContribution[]
 }
 
 /**
@@ -32,6 +37,25 @@ export function withConsoleDocumentEditorSections(sections: readonly ConsoleSect
     if (catalog.documents && Object.hasOwn(catalog.documents, section)) result = insertConsoleSection(result, section)
   }
   return result
+}
+
+/**
+ * Fails the build when two operations share a name. A contribution that the build cannot import by name is skipped here
+ * and checked again when the app starts.
+ */
+export async function assertUniqueOperationNames(contributions: readonly CollectedOperationContribution[]): Promise<void> {
+  const { consoleOperations } = await import("./runtime/server/operations.ts")
+  const sources: Array<{ operations: ReturnType<typeof operationsOf>, plugin: string }> = [{ operations: [...consoleOperations], plugin: "vite-hub" }]
+  for (const contribution of contributions) {
+    try {
+      const exported = contribution.load ? await contribution.load() : Reflect.get(Object(await import(/* @vite-ignore */ contribution.module)), contribution.export)
+      sources.push({ operations: operationsOf(exported), plugin: contribution.plugin })
+    }
+    catch {
+      // The app resolves its own modules. The generated plugin imports them and checks again at start.
+    }
+  }
+  createOperationRegistry(sources)
 }
 
 /**
@@ -92,5 +116,8 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
-  return { agents, content, documents, manualSchedules }
+  const contributed = collectOperationContributions(await flattenPluginOptions(options.plugins))
+  await assertUniqueOperationNames(contributed)
+  const operations = contributed.filter(contribution => contribution.runtime !== false)
+  return { agents, content, documents, manualSchedules, operations }
 }

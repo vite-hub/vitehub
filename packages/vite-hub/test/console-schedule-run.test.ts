@@ -13,14 +13,13 @@ import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/intern
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
 import scheduleRunRoute, { handleConsoleScheduleRunRequest, handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import type { ConsoleRpcInput, ConsoleRpcMethod } from "../src/console/runtime/rpc.ts"
 import { allowed } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
@@ -150,18 +149,18 @@ describe("Console Schedule runs", () => {
   it("runs a Schedule through the Console RPC operation", async () => {
     let calls = 0
     installSchedules(() => { calls++ })
-    async function call(method: ConsoleRpcMethod, input: ConsoleRpcInput) {
+    async function call(operation: string, input: Record<string, unknown>) {
       const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input, method }),
+        body: JSON.stringify({ input, operation }),
         headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
         method: "POST",
       }))
       return response.json()
     }
 
-    const run = await call(consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST" })
-    const unavailable = await call(consoleRpcMethods.scheduleRun, { body: { name: "nightly" }, method: "POST" })
-    const read = await call(consoleRpcMethods.scheduleRun, { method: "GET" })
+    const run = await call("schedules.run", { name: "sync" })
+    const unavailable = await call("schedules.run", { name: "nightly" })
+    const read = await call("schedules.run", {})
 
     expect(run).toEqual({
       ok: true,
@@ -180,7 +179,7 @@ describe("Console Schedule runs", () => {
       ok: false,
       status: 404,
     })
-    expect(read).toMatchObject({ ok: false, status: 405 })
+    expect(read).toMatchObject({ code: "INTERNAL_R0016", ok: false, status: 400 })
     expect(calls).toBe(1)
   })
 

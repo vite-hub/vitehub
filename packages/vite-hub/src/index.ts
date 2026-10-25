@@ -1035,12 +1035,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 
-  if (options.console) {
+  // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
+  const devOperationsOnly = options.console === undefined
+  if (options.console || devOperationsOnly) {
     const invocationRootState = {}
-    plugins.push(consoleVitePlugin({
+    const consolePlugin = consoleVitePlugin({
       contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
-      console: options.console,
+      console: options.console || undefined,
+      rpcOnly: devOperationsOnly,
       connections: options.connections,
       runtimeCapabilityImports,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
@@ -1080,9 +1083,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
-      sections: consoleSections,
-    }))
-    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
+      // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
+      sections: devOperationsOnly ? [] : consoleSections,
+    })
+    if (devOperationsOnly) consolePlugin.apply = "serve"
+    plugins.push(consolePlugin)
+    if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
   if (options.auth || consoleAuthConfig(options.console)) {
@@ -1228,9 +1234,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset. It also adds the `vitehub content` commands and their dev endpoint.
+  // default Database. Inert without the preset. It also adds the `vitehub content` commands and the Content operations.
   plugins.push(hubContent({
-    importBase: `${generatedImportBase}/content`,
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",

@@ -237,7 +237,7 @@ describe("independent Console Auth", () => {
 
       // Every stateless Console call carries the session cookie and is authorized on its own.
       const rpcCall = (headers: Record<string, string>) => new Request("https://example.com/portal/_vitehub/rpc/__call", {
-        body: JSON.stringify({ method: "vitehub:console:sections" }),
+        body: JSON.stringify({ operation: "sections.list" }),
         headers: { "content-type": "application/json", ...headers },
         method: "POST",
       })

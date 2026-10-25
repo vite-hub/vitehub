@@ -14,7 +14,7 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
-import { describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
+import { consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
 import { consoleD1MaxSizeError } from "./retention.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
@@ -181,6 +181,7 @@ function renderConsoleNitroPlugin(
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
+  const operations = (catalog.operations ?? []).map(contribution => ({ ...contribution, module: consoleRuntimeReaderModule(contribution.module) }))
   const sections = withConsoleDocumentEditorSections(configuredSections, catalog)
   const documentEditors = describeConsoleDocumentEditors(sections, catalog.documents ?? {})
   const runtimeCapabilities = renderConsoleRuntimeCapabilities(runtimeCapabilityImports)
@@ -207,7 +208,8 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, ${operations.length ? "installConsoleOperations, " : ""}installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
@@ -245,6 +247,7 @@ function renderConsoleNitroPlugin(
       ? [`installConsoleBlob(${JSON.stringify(projectRoot)}, vitehubConsoleBlob, ${JSON.stringify(blobStores)})`]
       : []),
     ...(sections.includes("env") ? [`installConsoleEnv(${JSON.stringify(projectRoot)}, describeServerEnv(), async request => { try { return await (await import("#vitehub/env/server")).manageServerEnv(request) } catch { return Response.json({ message: "Env management is unavailable." }, { status: 503, headers: { "cache-control": "no-store" } }) } }, async event => (await import("#vitehub/env/server")).inspectServerEnv(event))`] : []),
+    ...(operations.length ? [`installConsoleOperations([${operations.map((operation, index) => `{ operations: vitehubConsoleOperations${index}, plugin: ${JSON.stringify(operation.plugin)} }`).join(", ")}])`] : []),
     `installConsoleProjectName(${JSON.stringify(projectRoot)}, ${JSON.stringify(resolveConsoleProjectNameFromRoot(projectRoot))})`,
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length

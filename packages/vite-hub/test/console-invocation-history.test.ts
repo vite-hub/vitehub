@@ -2,7 +2,7 @@ import { createMessage, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { describe, expect, it, vi } from "vitest"
 
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
@@ -23,15 +23,15 @@ function setup() {
     projectRoot: root,
   })
   const waitUntil = vi.fn((_task: Promise<unknown>) => undefined)
-  const send = (body: unknown, method: "GET" | "POST" = "POST") => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-    body: JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { agent: "history-fixture", body, method } }),
+  const send = (body: Record<string, unknown>) => handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+    body: JSON.stringify({ operation: "agents.invoke", input: { agent: "history-fixture", ...body } }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",
   }), { waitUntil })
   return {
     invocations,
-    async request(body: unknown, method: "GET" | "POST" = "POST"): Promise<unknown> {
-      return (await send(body, method)).json()
+    async request(body: Record<string, unknown>): Promise<unknown> {
+      return (await send(body)).json()
     },
     send,
     run,
@@ -149,9 +149,9 @@ describe("Console invocation history", () => {
     expect(fixture.run).not.toHaveBeenCalled()
   })
 
-  it("rejects non-POST invocation requests", async () => {
+  it("rejects an invocation without a prompt before it starts the Agent", async () => {
     const fixture = setup()
-    expect(await fixture.request({ prompt: "Follow up." }, "GET")).toMatchObject({ ok: false, status: 405 })
+    expect(await fixture.request({})).toMatchObject({ code: "INTERNAL_R0016", ok: false, status: 400 })
     expect(fixture.run).not.toHaveBeenCalled()
   })
 })

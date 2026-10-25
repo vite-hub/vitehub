@@ -11,7 +11,7 @@ import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { createConnectionsHandler } from "@vite-hub/connections/http"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
@@ -271,7 +271,7 @@ describe("Console access grants", () => {
     installConsoleSections("/console-access", ["agents"])
     const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
     const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: {}, method: consoleRpcMethods.sections }),
+      body: JSON.stringify({ input: {}, operation: "sections.list" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { access: forged })
