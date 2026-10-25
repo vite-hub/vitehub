@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { inlineChannelArchiveMedia } from "@vite-hub/internal/channel-archive";
 import { ChatMessage } from "@vite-hub/ui";
 import type { UIMessage } from "ai";
 import type { LocationQueryValue } from "vue-router";
@@ -11,6 +12,7 @@ import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleStatus from "./console-status.vue";
+import { isSafeExternalUrl } from "./invocation/internal/url";
 
 interface Retention {
   durable: boolean;
@@ -30,7 +32,6 @@ interface ChannelRow {
 interface ThreadRow {
   invocationCount: number;
   lastMessageAt?: string;
-  messageCount?: number;
   participants: string[];
   thread: string;
   title?: string;
@@ -163,8 +164,6 @@ async function loadThreads(append = false): Promise<void> {
     const page = list(value.threads).map((thread): ThreadRow => ({
       invocationCount: Number(thread.invocationCount) || 0,
       ...(text(thread.lastMessageAt) ? { lastMessageAt: text(thread.lastMessageAt)! } : {}),
-      // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-      ...(typeof thread.messageCount === "number" ? { messageCount: thread.messageCount } : {}),
       participants: Array.isArray(thread.participants) ? thread.participants.filter((name): name is string => !!text(name)) : [],
       thread: text(thread.thread) ?? "",
       ...(text(thread.title) ? { title: text(thread.title)! } : {}),
@@ -252,25 +251,6 @@ function save(name: string, type: string, parts: BlobPart[]): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-// The JSON archive keeps its attachments in media/ files. A single download carries their data instead.
-function inlineMedia(archive: unknown, media: Record<string, unknown>[]): unknown {
-  const files = new Map(media.map(file => [text(file.path), text(file.base64)]));
-  const source = record(archive);
-  return {
-    ...source,
-    messages: list(source.messages).map(message => ({
-      ...message,
-      attachments: list(message.attachments).map((attachment) => {
-        const file = text(attachment.file);
-        const data = file ? files.get(file) : undefined;
-        if (!data) return attachment;
-        const { file: _file, ...rest } = attachment;
-        return { ...rest, data };
-      }),
-    })),
-  };
-}
-
 async function download(format: "json" | "markdown"): Promise<void> {
   const entry = selected.value;
   const thread = selectedThread.value;
@@ -282,7 +262,8 @@ async function download(format: "json" | "markdown"): Promise<void> {
     }));
     const name = text(value.filename) ?? (format === "json" ? "history.json" : "conversation.md");
     if (format === "json") {
-      const archive = inlineMedia(JSON.parse(text(value.text) ?? "{}"), list(value.media));
+      // The archive keeps its attachments in media/ files. One download carries their data instead.
+      const archive = inlineChannelArchiveMedia(record(JSON.parse(text(value.text) ?? "{}")) as { messages: Record<string, unknown>[] }, list(value.media).map(file => ({ base64: text(file.base64) ?? "", path: text(file.path) ?? "" })));
       save(name, "application/json", [`${JSON.stringify(archive, null, 2)}\n`]);
     } else save(name, "text/markdown", [text(value.text) ?? ""]);
   } catch (failure) {
@@ -385,7 +366,7 @@ onBeforeUnmount(() => {
                 <span class="min-w-0 flex-1">
                   <span class="block truncate text-sm">{{ thread.title || thread.participants.join(", ") || thread.thread }}</span>
                   <span class="block truncate text-xs text-muted">
-                    {{ thread.messageCount !== undefined ? `${thread.messageCount} messages` : `${thread.invocationCount} runs` }}<template v-if="thread.lastMessageAt"> · {{ when(thread.lastMessageAt) }}</template>
+                    {{ thread.invocationCount }} {{ thread.invocationCount === 1 ? "run" : "runs" }}<template v-if="thread.lastMessageAt"> · {{ when(thread.lastMessageAt) }}</template>
                   </span>
                 </span>
               </button>
@@ -428,7 +409,7 @@ onBeforeUnmount(() => {
                   <ul v-if="message.attachments.length" class="flex flex-wrap gap-2 text-xs">
                     <li v-for="(attachment, index) in message.attachments" :key="index" class="flex items-center gap-1 text-muted">
                       <UIcon name="i-lucide-paperclip" class="size-3" />
-                      <a v-if="attachment.url" :href="attachment.url" target="_blank" rel="noreferrer" class="underline">{{ attachment.name || attachment.type || "attachment" }}</a>
+                      <a v-if="attachment.url && isSafeExternalUrl(attachment.url)" :href="attachment.url" target="_blank" rel="noreferrer noopener" class="underline">{{ attachment.name || attachment.type || "attachment" }}</a>
                       <span v-else>{{ attachment.name || attachment.type || "attachment" }}</span>
                     </li>
                   </ul>

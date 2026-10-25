@@ -12,11 +12,13 @@ import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 
 const retention = { durable: false, maxMessages: 100, transcripts: false, ttlMs: 604_800_000 }
 const message = { attachments: [], author: { fullName: "Maxi", isMe: false, userId: "1" }, id: "1", metadata: { dateSent: "2026-06-10T12:00:00.000Z" }, role: "user", source: "provider", text: "hello", threadId: "telegram:1" }
+const thread = { invocationCount: 2, invokerIds: [], labels: ["Maxi"], lastActivity: "2026-06-10T12:00:00.000Z", thread: "telegram:1" }
 
 // A handler that answers like the webhook handler of one Agent with one Telegram Channel.
 const handler = {
   channels: async () => [{ conversations: true, id: "telegram", origin: "telegram", provider: "telegram", retention }],
-  conversation: async () => ({ agent: "support", channel: "telegram", messages: [message], provider: "telegram", retention, threadId: "telegram:1" }),
+  conversation: async () => ({ agent: "support", channel: "telegram", messages: [message], participants: ["1"], provider: "telegram", retention, threadId: "telegram:1", truncated: false }),
+  threads: async () => [thread],
 }
 
 function install() {
@@ -61,6 +63,8 @@ describe("Channels section", () => {
     const list = await rpc("channels.list")
     expect(list.status).toBe(200)
     await expect(list.json()).resolves.toMatchObject({ ok: true, value: { channels: [{ agent: "support", channel: "telegram", provider: "telegram", retention: { mode: "provider-window", warning: expect.stringContaining("not durable") } }] } })
+    const threads = await rpc("channels.threads", { agent: "support", channel: "telegram" })
+    await expect(threads.json()).resolves.toMatchObject({ ok: true, value: { threads: [{ invocationCount: 2, participants: ["Maxi"], thread: "telegram:1" }] } })
     const conversation = await rpc("channels.conversation", { agent: "support", channel: "telegram", thread: "telegram:1" })
     await expect(conversation.json()).resolves.toMatchObject({ ok: true, value: { messageCount: 1, messages: [{ at: "2026-06-10T12:00:00.000Z", author: { id: "1", name: "Maxi" }, text: "hello" }] } })
     const exported = await rpc("conversations.export", { agent: "support", channel: "telegram", format: "markdown", thread: "telegram:1" })
