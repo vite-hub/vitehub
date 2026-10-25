@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { build } from "vite-plus"
+import type { DiagnosticInit } from "nostics"
 
 interface DiagnosticCopy {
-  create(init: { code: string, why: string, fix?: string, docs?: string, cause?: unknown }): unknown
+  create<TData = undefined>(init: DiagnosticInit<TData>): unknown
 }
 
 /** Bundles the installed Nostics dependency so its Diagnostic constructor differs from the test's copy. */

@@ -68,6 +68,7 @@ export {
 
 export {
   defineErrors,
+  toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
   type Result,
