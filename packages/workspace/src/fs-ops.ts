@@ -17,6 +17,9 @@ export async function copyWorkspacePath(workspace: Workspace, from: string, to: 
   if (source.type === "directory" && to.startsWith(`${from}/`)) {
     throw workspaceError("[vitehub] Destination cannot be nested inside the source directory.")
   }
+  if (from.startsWith(`${to}/`)) {
+    throw workspaceError("[vitehub] Destination cannot contain the source.")
+  }
 
   await ensureMissingOrReplaceable(workspace, to, overwrite)
 
