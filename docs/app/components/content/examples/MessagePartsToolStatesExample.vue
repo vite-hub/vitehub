@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { UIMessage } from "ai";
 
-// SAFETY: Every fixture entry below is a concrete AI SDK dynamic tool part in a different state.
-const parts = [
+const parts: UIMessage["parts"] = [
   {
     type: "dynamic-tool",
     toolCallId: "tool-running",
@@ -29,7 +28,7 @@ const parts = [
     input: { branch: "fix/overflow" },
     errorText: "The preview environment quota is exhausted.",
   },
-] as UIMessage["parts"];
+];
 </script>
 
 <template>

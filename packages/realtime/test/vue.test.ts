@@ -8,6 +8,7 @@ import * as Y from "yjs"
 import { Node as TiptapNode } from "@tiptap/core"
 import { encodeRealtimeControl, messageRealtimeControl } from "../src/protocol.ts"
 import { RealtimeCaret, useRealtimeTiptap } from "../src/vue.ts"
+import type { RealtimeCaretOptions, RealtimeCaretUser } from "../src/vue.ts"
 import { parseHTML } from "linkedom"
 
 const providers = vi.hoisted(() => [] as Array<{
@@ -388,6 +389,56 @@ describe("useRealtimeTiptap", () => {
 
     expect(withCarets.extensions.value.map(extension => extension.name)).toContain("collaborationCaret")
     expect(withoutCarets.extensions.value.map(extension => extension.name)).not.toContain("collaborationCaret")
+    scope.stop()
+  })
+
+  it("draws carets with the caret options and keeps the default for the option left out", () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const { document } = parseHTML("<!doctype html><html><body></body></html>")
+    vi.stubGlobal("document", document)
+    const render = (user: RealtimeCaretUser) => {
+      const caret = document.createElement("mark")
+      caret.textContent = user.name
+      return caret
+    }
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { carets: { render } }))!
+
+    const carets = realtime.extensions.value.filter(extension => extension.name === "collaborationCaret")
+    expect(carets).toHaveLength(1)
+    const options = carets[0]!.options as RealtimeCaretOptions
+    expect(options.awareness).toBe(providers[1]!.awareness)
+    expect(options.render({ color: "#2563EB", name: "Ana" }).outerHTML).toBe("<mark>Ana</mark>")
+    expect(options.selectionRender({ color: "#2563EB", name: "Ana" })).toEqual({ class: "ProseMirror-yjs-selection", style: "background-color: #2563EB70" })
+    scope.stop()
+  })
+
+  it("accepts caret options during SSR and without a document", () => {
+    const selectionRender = () => ({ class: "selection" })
+    const scope = effectScope()
+    const server = scope.run(() => useRealtimeTiptap("docs", ref("page.md"), { carets: { selectionRender } }))!
+    expect(server.extensions.value).toEqual([])
+
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const empty = scope.run(() => useRealtimeTiptap("docs", ref(""), { carets: { selectionRender } }))!
+    expect(empty.extensions.value).toEqual([])
+    scope.stop()
+  })
+
+  it("binds the caret options to the awareness of the current document", async () => {
+    vi.stubGlobal("window", { location: { host: "example.com", protocol: "https:" } })
+    const selectionRender = () => ({ class: "selection" })
+    const documentId = ref("first.md")
+    const scope = effectScope()
+    const realtime = scope.run(() => useRealtimeTiptap("docs", documentId, { carets: { selectionRender } }))!
+    const caretOptions = () => realtime.extensions.value.find(extension => extension.name === "collaborationCaret")!.options as RealtimeCaretOptions
+
+    expect(caretOptions().awareness).toBe(providers[1]!.awareness)
+    documentId.value = "second.md"
+    await nextTick()
+    expect(providers[2]!.room).toBe("second.md")
+    expect(caretOptions().awareness).toBe(providers[2]!.awareness)
+    expect(caretOptions().selectionRender).toBe(selectionRender)
     scope.stop()
   })
 

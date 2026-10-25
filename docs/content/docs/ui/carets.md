@@ -57,5 +57,5 @@ The class of a remote selection. The extension sets its tinted background.
 ## Related
 
 - [Avatar Stack](/docs/ui/avatar-stack) shows the same people.
-- [Realtime](/docs/realtime/server-api) explains `carets` and `RealtimeCaret`.
+- [Realtime](/docs/realtime/server-api#carets) explains the `carets` option, which changes the caret markup.
 - [Collaborative Editor](/docs/ui/blocks/collaborative-editor) puts every collaboration part together, wired to Realtime.
