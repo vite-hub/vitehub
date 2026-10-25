@@ -115,6 +115,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-workflow-actions.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-frame.vue",
         to: "dist/console/runtime/components",
       },
@@ -341,6 +345,7 @@ export default defineConfig({
       "src/console/runtime/client/schema-form.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
+      "src/console/runtime/client/workflow.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",

@@ -1253,6 +1253,12 @@
       "import": "./dist/auth/console-runtime.js",
       "require": "./dist/auth/console-runtime.js",
       "default": "./dist/auth/console-runtime.js"
+    },
+    "./console/runtime/client/workflow": {
+      "types": "./dist/console/runtime/client/workflow.d.ts",
+      "import": "./dist/console/runtime/client/workflow.js",
+      "require": "./dist/console/runtime/client/workflow.js",
+      "default": "./dist/console/runtime/client/workflow.js"
     }
   },
   "scripts": {
