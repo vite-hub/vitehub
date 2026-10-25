@@ -74,11 +74,22 @@ async function readConversation(context: OperationContext, input: { agent: strin
   }
 }
 
-function retentionOf(retention: AgentChannelRetention) {
+/** How long a Channel keeps its history, as the operations report it. */
+export interface ChannelRetentionView {
+  durable: boolean
+  maxMessages: number
+  mode: "durable-transcripts" | "provider-window"
+  transcripts: boolean
+  ttlMs: number
+  /** Present when older messages may be missing. */
+  warning?: string
+}
+
+function retentionOf(retention: AgentChannelRetention): ChannelRetentionView {
   return {
     durable: retention.durable,
     maxMessages: retention.maxMessages,
-    mode: retention.durable ? "durable-transcripts" as const : "provider-window" as const,
+    mode: retention.durable ? "durable-transcripts" : "provider-window",
     transcripts: retention.transcripts,
     ttlMs: retention.ttlMs,
     ...(retention.durable
@@ -249,7 +260,7 @@ export interface ConversationExport {
   media: ChannelArchiveMedia[]
   messageCount: number
   mimeType: string
-  retention: ReturnType<typeof retentionOf>
+  retention: ChannelRetentionView
   text: string
 }
 

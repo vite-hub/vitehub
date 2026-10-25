@@ -2933,7 +2933,7 @@ export default defineAgent({
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")
         expect(queuePlugin).toContain("startWebhookQueues(startedAt)")
-        expect(webhookRoute).toContain('import { createAgentWebhookWarmup } from "@vite-hub/agent/server/internal"')
+        expect(webhookRoute).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
         expect(webhookRoute).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
         const resumeWebhookQueues = vi.fn((_waitUntil: unknown, _before: number) => vi.fn())
         const warmWebhookRoutes = vi.fn(async () => undefined)

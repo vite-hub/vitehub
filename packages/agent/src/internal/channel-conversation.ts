@@ -343,7 +343,7 @@ export function channelConversationArchive(conversation: {
   provider: string
   retention: { durable: boolean, maxMessages: number, ttlMs: number }
   threadId: string
-}, exportedAt = new Date().toISOString()): Record<string, unknown> & { messages: readonly ChannelConversationMessage[] } {
+}, exportedAt: string = new Date().toISOString()): Record<string, unknown> & { messages: readonly ChannelConversationMessage[] } {
   return {
     agent: conversation.agent,
     channel: conversation.channel,
