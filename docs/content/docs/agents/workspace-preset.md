@@ -1,9 +1,10 @@
 ---
 title: Workspace preset
 description: Read mounted Sources and cite files at their resolved GitHub revision.
-navigation.order: 93
+navigation.order: 92
 navigation.group: Presets
 icon: i-lucide-folder-search
+navigation.kind: Guides
 ---
 
 The Workspace preset supplies a read-only Codex Agent and instructions for citing mounted Sources. It uses Source provenance to build GitHub links to the exact revision read by the Agent.

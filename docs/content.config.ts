@@ -21,6 +21,8 @@ const pageSchema = z.object({
   icon: z.string().optional(),
   image: z.string().optional(),
   layout: z.enum(["article", "tutorial"]).optional(),
+  /** Complete applications appear before the shorter product quickstarts. */
+  tutorial: z.enum(["project", "quickstart"]).optional(),
   /** Shows the file tree and code of the current step in a sticky panel beside the prose. */
   codePanel: z.boolean().optional(),
   links: z.array(z.object({

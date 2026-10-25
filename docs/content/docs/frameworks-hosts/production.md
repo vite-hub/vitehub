@@ -34,7 +34,7 @@ List the data that must survive a process restart, a replacement container, and 
 
 Memory stores lose their contents when the process exits. Filesystem and file-backed SQLite stores require a persistent volume on a host that supports them. Hosted SQLite stores, such as `libsql://…` and Cloudflare D1, persist through their provider and do not use a local volume. Giving two replicas the same configuration does not make their local files or memory shared. A remote store supplies only the concurrency guarantees documented by its provider and ViteHub adapter.
 
-For Agents, [Chat History and sessions](/docs/agents/chat-history-sessions#partition-transcripts) explains Agent State selection, and [Invocations](/docs/agents/invocations#observe-the-outcome) explains journals. Configuring one does not replace the other. Retaining a transcript also does not make a running model call resumable after a crash.
+For Agents, [Chat History and sessions](/docs/agents/chat-history-sessions#partition-transcripts) explains Agent State selection, and [Invocation storage](/docs/agents/invocation-storage#store-invocation-history) explains journals. Configuring one does not replace the other. Retaining a transcript also does not make a running model call resumable after a crash.
 
 [Schedule stores](/docs/schedule/configure#storage) persist records and run history. A KV store does not elect one Process Runtime or make its deduplication work across replicas. Run one scheduler for that store, or supply coordination in the host and make target side effects safe to repeat.
 
