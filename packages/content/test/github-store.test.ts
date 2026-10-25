@@ -40,8 +40,8 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { database?: boolean, publish?: "commit" | "pr", root?: string } = {}) {
-  fake.commit("main", {
+async function setup(options: { database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string } = {}) {
+  fake.commit("main", options.files ?? {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
     "content/posts/a.md": page("A"),
@@ -70,7 +70,7 @@ async function setup(options: { database?: boolean, publish?: "commit" | "pr", r
   })
   const content = defineContent({
     ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
-    collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() } }) },
+    collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.route ? { route: options.route } : {}) }) },
     logger: false,
   })
   cleanup.push(() => content.dispose())
@@ -470,5 +470,57 @@ describe("Content on the GitHub store", () => {
       expect(warn.mock.calls[0]![0]).toContain("could not bring")
       warn.mockRestore()
     })
+  })
+
+  it("keeps a collection of several globs at the repository root: save, publish, and resolve", async () => {
+    const { content, posts, workspace } = await setup({
+      path: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"],
+      files: {
+        "README.md": "# Repo\n",
+        "package.json": "{}\n",
+        "docs/pages/index.md": page("Home"),
+        "docs/other/z.md": page("Not a page"),
+        "packages/core/docs/guide/start.md": page("Start"),
+        "packages/core/src/notes.md": page("Not a doc"),
+      },
+      route: id => id.replace(/^docs\/pages\//, "/").replace(/^packages\/([^/]+)\/docs\//, "/$1/").replace(/\/index$/, "") || "/",
+    })
+    // Only the files under the globs are documents. Their ids are the whole path, since the globs share no folder.
+    expect((await posts.list()).items.map(item => item.id).sort()).toEqual(["docs/pages/index", "packages/core/docs/guide/start"])
+    await expect(content.resolve("/")).resolves.toEqual({ collection: "posts", id: "docs/pages/index" })
+    await expect(content.resolve("/core/guide/start/")).resolves.toEqual({ collection: "posts", id: "packages/core/docs/guide/start" })
+    await expect(content.resolve("/other/z")).resolves.toBeNull()
+
+    // A save in each glob lands on the draft branch at the repository path.
+    const intro = await posts.save("docs/pages/intro", { data: { title: "Intro" }, body: "Hi\n" })
+    expect(intro.path).toBe("docs/pages/intro.md")
+    expect((await posts.save("packages/ui/docs/readme", { data: { title: "UI" }, body: "" })).path).toBe("packages/ui/docs/readme.md")
+    await expect(posts.save("docs/other/new", { data: { title: "No" }, body: "" })).rejects.toMatchObject({ code: "CONTENT_R0008", message: expect.stringContaining("outside collection") })
+    await expect(content.resolve("/intro")).resolves.toBeNull()
+    await expect(content.resolve("/intro", { ref: "draft" })).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
+
+    // Everything else in the repository stays closed to writers.
+    const { useWorkspace } = await import("@vite-hub/workspace")
+    const history = useWorkspace(workspace as never, { mode: "write" }).history
+    const draft = (await history.head({ ref: "draft" }))!.id
+    await expect(history.commit({ ref: "draft", ifHead: draft, changes: { put: { "packages/core/src/notes.md": { content: "x" } } } })).rejects.toThrow("does not allow writeFile")
+    await expect(history.commit({ ref: "draft", ifHead: draft, changes: { put: { "README.md": { content: "x" } } } })).rejects.toThrow("does not allow writeFile")
+
+    // Publish in commit mode copies the new documents and leaves the other files alone.
+    const result = await content.publish()
+    expect(result.documents).toEqual([
+      { collection: "posts", id: "docs/pages/intro", change: "add" },
+      { collection: "posts", id: "packages/ui/docs/readme", change: "add" },
+    ])
+    const tree = new Map(fake.tree("main").map(entry => [entry.path, entry.sha]))
+    expect([...tree.keys()].sort()).toEqual([
+      "README.md", "docs/other/z.md", "docs/pages/index.md", "docs/pages/intro.md", "package.json",
+      "packages/core/docs/guide/start.md", "packages/core/src/notes.md", "packages/ui/docs/readme.md",
+    ])
+    expect(tree.get("README.md")).toBe(textSha("# Repo\n"))
+    expect(tree.get("packages/core/src/notes.md")).toBe(textSha(page("Not a doc")))
+    await expect(content.resolve("/intro")).resolves.toEqual({ collection: "posts", id: "docs/pages/intro" })
+    await expect(content.resolve("/ui/readme")).resolves.toEqual({ collection: "posts", id: "packages/ui/docs/readme" })
+    expect(await posts.status("docs/pages/intro")).toMatchObject({ state: "published" })
   })
 })
