@@ -1,3 +1,5 @@
+import { isVitehubOwnedPath } from "@vite-hub/internal/owned-paths"
+
 import { ConsoleRequestError, requestConsole } from "./request"
 import { consoleMediaType } from "./media-library"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -205,12 +207,17 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
     object: pathname => objects.get(pathname),
     usage: async () => ({}),
     createFolder: unsupportedError,
+    isProtected: isVitehubOwnedPath,
     move: unsupportedError,
     moveFolder: unsupportedError,
     async remove(pathnames) {
       const removed: string[] = []
       const failed: Array<{ message: string, pathname: string }> = []
       for (const pathname of pathnames) {
+        if (isVitehubOwnedPath(pathname)) {
+          failed.push({ message: "ViteHub keeps this file for itself, so it cannot be deleted here.", pathname })
+          continue
+        }
         try {
           await requestConsole(base, { body: { action: "del", pathname, store: options.store }, method: "POST" })
           objects.delete(pathname)
@@ -228,6 +235,7 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
     async upload(file, uploadOptions = {}) {
       if (file.size > maximumUploadBytes) throw new ConsoleRequestError(413, `${file.name} is larger than 8 MiB. Upload larger files from the application or with the tools of your provider.`)
       const pathname = `${uploadOptions.folder ? `${uploadOptions.folder}/` : ""}${file.name}`
+      if (isVitehubOwnedPath(pathname)) throw new ConsoleRequestError(403, "ViteHub keeps the paths under _vitehub/ for itself. Upload to another folder.")
       const data = base64(new Uint8Array(await file.arrayBuffer()))
       const request: Parameters<typeof requestConsole>[1] = {
         body: { action: "put", contentType: file.type || undefined, data, pathname, store: options.store },

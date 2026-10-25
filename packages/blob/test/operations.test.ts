@@ -184,9 +184,30 @@ describe("blob operations", () => {
     finally { head.mockRestore() }
   })
 
+  it("returns at most the limit even when the head reports a smaller size", async () => {
+    await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "grown.bin" })
+    const get = vi.spyOn(blob, "get").mockResolvedValue([null, new File([new Uint8Array(blobDevMaximumUploadBytes + 1)], "grown.bin")])
+    try {
+      await expect(run({ operation: "get", pathname: "grown.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
+    }
+    finally { get.mockRestore() }
+  })
+
+  it("refuses to write or delete the paths that ViteHub owns, and still reads them", async () => {
+    const [putError] = await blob.put("_vitehub/internal.json", "{}")
+    expect(putError).toBeNull()
+    for (const pathname of ["_vitehub/internal.json", "./_vitehub/x.json", "docs/../_vitehub/x.json", "_VITEHUB/x.json"]) {
+      await expect(run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
+      await expect(run({ operation: "del", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
+    }
+    await expect(run({ operation: "head", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
+    await expect(run({ operation: "get", pathname: "_vitehub/internal.json" })).resolves.toMatchObject({ status: 200 })
+    expect((await blob.head("_vitehub/internal.json"))[0]).toBeNull()
+  })
+
   it("hides the objects of ViteHub unless asked, and folds a listing into folders", async () => {
     await run({ data: Buffer.from("a").toString("base64"), operation: "put", pathname: "docs/a.txt" })
-    await run({ data: Buffer.from("b").toString("base64"), operation: "put", pathname: "_vitehub/internal.json" })
+    await blob.put("_vitehub/internal.json", "b")
     expect((await run({ operation: "list" })).body.blobs).toEqual([expect.objectContaining({ pathname: "docs/a.txt" })])
     expect((await run({ operation: "list", showVitehub: true })).body.blobs).toHaveLength(2)
     const folded = await run({ folded: true, operation: "list" })

@@ -193,6 +193,12 @@ function requirePathname(operation: string, input: BlobOperationInput): string {
   return input.pathname
 }
 
+/** The objects that ViteHub writes for itself, such as media records and Console attachments, are read-only here. */
+function requireWritablePath(operation: string, pathname: string): void {
+  if (!isVitehubOwnedPath(pathname)) return
+  throw new BlobOperationError(`The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`, 403, "BLOB_RESERVED_PATH", "Use another pathname. Read access (get, head) stays open.")
+}
+
 function decodeUpload(data: string | undefined): Uint8Array {
   if (data === undefined) throw new BlobOperationError("The put operation requires file data.", 400, "BLOB_INVALID_INPUT")
   if (data.length % 4 !== 0 || !base64Pattern.test(data)) throw new BlobOperationError("The file data is not valid base64.", 400, "BLOB_INVALID_INPUT")
@@ -264,12 +270,17 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       const file = unwrap(await selected.storage.get(pathname))
       if (!file) throw notFound(pathname, selected.name)
       const bytes = new Uint8Array(await file.arrayBuffer())
+      // The head size can be missing or stale, so the bytes that were read have the last word.
+      if (bytes.byteLength > blobDevMaximumUploadBytes) {
+        throw new BlobOperationError(`Blob ${pathname} is ${bytes.byteLength} bytes. The blob operations return at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_DOWNLOAD_TOO_LARGE", "Download larger files with the tools of the provider.")
+      }
       const result: BlobDevGetResult = { data: encodeBase64(bytes), pathname, size: bytes.byteLength, store: selected.name }
       if (file.type) result.contentType = file.type
       return result
     }
     case "put": {
       const pathname = requirePathname(operation, input)
+      requireWritablePath(operation, pathname)
       const bytes = decodeUpload(input.data)
       const existed = await headOrUndefined(selected.storage, pathname)
       const object = unwrap(await selected.storage.put(pathname, bytes, input.contentType ? { contentType: input.contentType } : {}))
@@ -291,6 +302,7 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
     }
     case "del": {
       const pathname = requirePathname(operation, input)
+      requireWritablePath(operation, pathname)
       const existed = await headOrUndefined(selected.storage, pathname)
       unwrap(await selected.storage.del(pathname))
       const result: BlobDevDeleteResult = { deleted: Boolean(existed), pathname, store: selected.name }

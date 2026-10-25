@@ -108,6 +108,8 @@ export interface ConsoleMediaUploadOptions {
 /** The media library actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleMediaClient {
   createFolder(parent: string, name: string): Promise<{ path: string }>
+  /** Paths that the library shows but never changes, such as the files that ViteHub keeps for itself. */
+  isProtected?(pathname: string): boolean
   get(pathname: string): Promise<ConsoleMediaFile>
   /** The access of the signed-in user and the served URL of the store. */
   info(): Promise<ConsoleMediaInfo>

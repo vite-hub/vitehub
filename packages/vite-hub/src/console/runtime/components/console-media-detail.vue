@@ -159,7 +159,7 @@ const facts = computed(() => [
             { label: 'Copy pathname', icon: 'i-lucide-copy', onSelect: () => copy(file.pathname, 'Pathname') },
             ...(url ? [{ label: 'Open original', icon: 'i-lucide-arrow-up-right', to: url, target: '_blank' }] : []),
           ],
-          ...(access.manage ? [[
+          ...(access.manage && !client.isProtected?.(file.pathname) ? [[
             { label: 'Rename or move…', icon: 'i-lucide-pencil', onSelect: () => emit('rename', file) },
             { label: 'Delete', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => emit('remove', file) },
           ]] : []),
