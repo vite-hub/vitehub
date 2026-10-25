@@ -54,8 +54,11 @@ The layer loads the threads of the subject, draws a pin for each one, and shows 
 - `?comment=<n>` in the URL opens thread `n` when the page loads.
 - Type `@` in a composer to mention a person. The client's `users` call finds people.
 - Select text, then press `C`: the comment is about that text.
+- A pin drops when the pointer goes up, and only if it stayed in place. A touch that scrolls the page drops nothing.
+- Keyboard: in comment mode, `Enter` on the focused element starts a comment on it. The toolbar button "Comment on page" starts a comment on the whole page.
+- A draft pin has no number. The server assigns it when the comment is sent.
 
-An anchor stays on its element when the layout changes. When the element is gone, the thread is detached: it stays in the list and has no pin. [Anchors](#anchors) explains how a pin finds its spot.
+An anchor stays on its element when the layout changes. When the element is gone, ambiguous, or no longer holds the quoted text, the thread is detached: it stays in the list and has no pin. A pin is also hidden while a scroll container clips its element. [Anchors](#anchors) explains how a pin finds its spot.
 
 ## Composition
 
@@ -109,6 +112,8 @@ comments.startDraft({ x: 120, y: 80 }); // Start a comment on a point.
 | `param` | The query parameter of the deep link. Default `"comment"`. |
 | `hotkey` | The key of comment mode. Default `"c"`. `false` turns it off. |
 | `ignore` | Elements that anchors skip. Defaults to the comment UI. |
+| `uiRoot` | The document or the shadow root that holds the comment UI. Composers with text are looked up there. Defaults to the document. |
+| `subjectUrl` | The URL of the page that a subject lives on, for the link of a thread. Page subjects use their id as the path. Give it for other subjects, or their link is the current page. |
 | `autoStart` | Load the threads and listen for keys on mount. Default `true`. Call `start()` yourself when `false`. |
 
 ## Anchors
@@ -121,9 +126,10 @@ Read more in the [`@vite-hub/comments` README](https://github.com/vite-hub/viteh
 
 ## Accessibility
 
-- A pin is a button. Its label is "Comment 3", and it says when the thread is resolved. `aria-expanded` shows whether its thread is open.
-- An open thread is a `dialog` that is named "Comment 3".
-- The composer has a label, and the mention menu is a `listbox`.
+- A pin is a button. Its label has the number, the author, and the start of the comment, for example "Comment 3 by Ana Ruiz: Make this bigger", and it says when the thread is resolved. `aria-expanded` shows whether its thread is open.
+- An open thread is a `dialog` that is named "Comment 3". Opening it moves the focus into it. Closing it gives the focus back to its pin, unless the reader already moved the focus elsewhere.
+- The composer has a label. While the mention menu is open, the box is a `combobox` with `aria-controls` and `aria-activedescendant`, and the menu is a `listbox`.
+- Deleting the first message of a thread asks first, because it deletes the thread.
 - The toolbar is a `toolbar`. The comment button has `aria-pressed` and `aria-keyshortcuts="C"`.
 - Under `prefers-reduced-motion` the composer does not shake. Its border flashes.
 
@@ -143,6 +149,7 @@ The overlay of a page. Renders a `div` with `data-slot="comment-layer"`. Give it
 | `comments` | `CommentsState` | None | A state from `useComments()`, instead of `client` and `subject`. |
 | `people` | `AvatarStackPerson[]` | `[]` | The people on the page. The toolbar shows them in an [Avatar Stack](/docs/ui/avatar-stack). |
 | `hotkey` | `string \| false` | `"c"` | The key of comment mode. |
+| `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | None | The URL of the page of a subject, for the links of threads that are not page threads. |
 | `navigate` | `(href: string) => void` | `location.assign` | Goes to the page of a thread that the list shows. |
 
 ### CommentPin
@@ -153,8 +160,9 @@ The pin. Renders a `button` with `data-slot="comment-pin"`. The pin has the auth
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
-| `n` | `number` | Required | The thread number. |
+| `n` | `number` | None | The thread number. A draft has none. |
 | `author` | `CommentUser` | None | Whose avatar shows. |
+| `excerpt` | `string` | None | The start of the comment. It is part of the label. |
 | `status` | `"open" \| "resolved"` | `"open"` | A resolved pin is gray. |
 | `active` | `boolean` | `false` | The thread of this pin is open. |
 | `draft` | `boolean` | `false` | The comment is still being written. |
@@ -171,6 +179,8 @@ The pin. Renders a `button` with `data-slot="comment-pin"`. The pin has the auth
 
 The thread of one pin, as a card. With `preview` it is the read-only hover card. Renders a `section` with `data-slot="comment-thread"`.
 
+The handlers may return a promise. The thread waits for it. A reply clears its box only after `onReply` has succeeded. On a failure the text stays and the error shows. While a reply is on its way, the box cannot send again.
+
 #### Props
 
 | Prop | Type | Default | Description |
@@ -178,25 +188,25 @@ The thread of one pin, as a card. With `preview` it is the read-only hover card.
 | `thread` | `CommentThread` | Required | The thread. |
 | `user` | `CommentUser` | None | The signed-in user. Their messages can be edited and deleted. |
 | `preview` | `boolean` | `false` | A read-only card with the comment and the reply count. |
-| `busy` | `boolean` | `false` | A reply is being sent. |
-| `error` | `string` | None | Why the last action failed. |
+| `busy` | `boolean` | `false` | Show a reply as being sent, on top of the thread's own tracking. |
+| `error` | `string` | None | An error to show, on top of the ones from the handlers. |
 | `detached` | `boolean` | `false` | The place of the thread is no longer on the page. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions`. |
+| `onReply` | `(body: string, mentions: string[]) => void \| Promise<unknown>` | None | Sends a reply. |
+| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | None | Saves an edited message. |
+| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | None | Deletes a message. Deleting the first message deletes the thread, and the thread asks first. |
+| `onResolve` | `() => void \| Promise<unknown>` | None | Resolve was pressed. |
+| `onReopen` | `() => void \| Promise<unknown>` | None | Reopen was pressed. |
 
 #### Events
 
 | Event | Description |
 | --- | --- |
-| `reply` | A reply was sent. Gets `(body, mentions)`. |
-| `edit` | A message was edited. Gets `(messageId, body, mentions)`. |
-| `delete` | A message was deleted. Gets `(messageId)`. Deleting the first message deletes the thread. |
-| `resolve` | Resolve was pressed. |
-| `reopen` | Reopen was pressed. |
 | `close` | Close was pressed, or the reader clicked outside. |
 
 ### CommentReply
 
-One message of a thread. The first message is the comment, and the rest are replies. Its author can edit it in place and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown).
+One message of a thread. The first message is the comment, and the rest are replies. Its author can edit it in place and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown). The edit box closes after `onEdit` has succeeded. On a failure it stays open with the text and the error.
 
 #### Props
 
@@ -205,14 +215,11 @@ One message of a thread. The first message is the comment, and the rest are repl
 | `message` | `CommentMessage` | Required | The message. |
 | `editable` | `boolean` | `false` | Show Edit and Delete. |
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
+| `confirmDelete` | `boolean` | `false` | Ask before Delete. A thread sets it on the first message. |
+| `people` | `CommentUser[]` | `[]` | People whose `@name` the message may hold, so an edit keeps their mentions. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions` while editing. |
-
-#### Events
-
-| Event | Description |
-| --- | --- |
-| `edit` | The edit was saved. Gets `(messageId, body, mentions)`. |
-| `delete` | Delete was pressed. Gets `(messageId)`. |
+| `onEdit` | `(messageId: string, body: string, mentions: string[]) => void \| Promise<unknown>` | None | Saves the edit. |
+| `onDelete` | `(messageId: string) => void \| Promise<unknown>` | None | Deletes the message. |
 
 ### CommentComposer
 
@@ -231,6 +238,7 @@ The box for a new comment, a reply, or an edit. It wraps [Prompt Input](/docs/ui
 | `error` | `string` | None | Why the last send failed. |
 | `autofocus` | `boolean` | `true` | Focus the box when it appears. |
 | `guard` | `boolean` | `true` | A click outside closes an empty box, and shakes a box with text. Turn it off when the parent decides. |
+| `people` | `CommentUser[]` | `[]` | People whose `@name` the text may hold. A mention is sent only when its `@name` is still in the text, so deleting the name drops the mention. |
 | `users` | `(query: string) => Promise<CommentUser[]>` | None | Finds people for `@mentions`. Without it there is no mention menu. |
 
 #### Events
@@ -244,7 +252,7 @@ The component exposes `focus()` and `shake()`.
 
 ### CommentToolbar
 
-The comment button, the list button, and the people on the page. Renders a `div` with `data-slot="comment-toolbar"`.
+The comment button, the "Comment on page" button, the list button, and the people on the page. Renders a `div` with `data-slot="comment-toolbar"`.
 
 #### Props
 
