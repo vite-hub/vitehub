@@ -105,6 +105,8 @@ export interface BlobOperationInput {
   /** `list`: group the pathnames under `prefix` into folders. */
   folded?: boolean
   limit?: number
+  /** `put`: `false` refuses to replace a blob that exists. Default: replace. */
+  overwrite?: boolean
   pathname?: string
   prefix?: string
   /** `list`: also show the objects that ViteHub keeps for itself. */
@@ -283,6 +285,7 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       requireWritablePath(operation, pathname)
       const bytes = decodeUpload(input.data)
       const existed = await headOrUndefined(selected.storage, pathname)
+      if (existed && input.overwrite === false) throw new BlobOperationError(`Blob ${pathname} already exists in store ${selected.name}.`, 409, "BLOB_EXISTS", "Pass overwrite: true to replace it.")
       const object = unwrap(await selected.storage.put(pathname, bytes, input.contentType ? { contentType: input.contentType } : {}))
       const result: BlobDevPutResult = { created: !existed, object: serializeBlobDevObject(object), store: selected.name }
       return result

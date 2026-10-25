@@ -51,10 +51,10 @@ const get = defineBlobOperation<{ pathname: string, store?: string }, BlobDevGet
   run: async input => await (await runtime()).runBlobOperation("get", input) as BlobDevGetResult,
 })
 
-const put = defineBlobOperation<{ contentType?: string, data: string, pathname: string, store?: string }, BlobDevPutResult>({
+const put = defineBlobOperation<{ contentType?: string, data: string, overwrite?: boolean, pathname: string, store?: string }, BlobDevPutResult>({
   cli: { positional: ["pathname"] },
-  description: "Upload one file, given as base64, as a blob. A file over 8 MiB is refused.",
-  input: v.object({ contentType: v.optional(v.string()), data: v.string(), pathname, store }),
+  description: "Upload one file, given as base64, as a blob. A file over 8 MiB is refused. `overwrite: false` refuses to replace a blob that exists.",
+  input: v.object({ contentType: v.optional(v.string()), data: v.string(), overwrite: v.optional(v.boolean()), pathname, store }),
   kind: "write",
   maxRequestBytes: blobPutRequestBytes,
   name: "blob.put",

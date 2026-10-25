@@ -100,6 +100,8 @@ export interface ConsoleMediaUploadResult {
 export interface ConsoleMediaUploadOptions {
   /** Upload the replacement image of this crop of `pathname` instead of a new file. */
   crop?: { name: string, pathname: string }
+  /** Asked when the pathname exists. Without it, an upload never replaces a file. */
+  confirmReplace?: (pathname: string) => boolean | Promise<boolean>
   folder?: string
   onProgress?: (fraction: number) => void
   signal?: AbortSignal

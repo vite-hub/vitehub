@@ -67,7 +67,7 @@ export function useConsoleMediaUploads(client: () => ConsoleMediaClient, onUploa
     await slot()
     patch(entry.id, { error: undefined, progress: 0, state: "uploading" })
     try {
-      const result = await client().upload(entry.file, { folder: entry.folder, onProgress: progress => patch(entry.id, { progress }) })
+      const result = await client().upload(entry.file, { confirmReplace: pathname => globalThis.confirm?.(`${pathname} already exists. Replace it?`) ?? false, folder: entry.folder, onProgress: progress => patch(entry.id, { progress }) })
       patch(entry.id, { progress: 1, result, state: "done" })
       onUploaded?.(result)
       return result

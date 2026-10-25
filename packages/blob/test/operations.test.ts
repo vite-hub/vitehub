@@ -184,6 +184,14 @@ describe("blob operations", () => {
     finally { head.mockRestore() }
   })
 
+  it("replaces a blob by default and refuses to when overwrite is false", async () => {
+    const data = Buffer.from("one").toString("base64")
+    await expect(run({ data, operation: "put", pathname: "twice.txt" })).resolves.toMatchObject({ body: { created: true } })
+    await expect(run({ data, operation: "put", overwrite: false, pathname: "twice.txt" })).resolves.toMatchObject({ body: { error: { code: "BLOB_EXISTS" } }, status: 409 })
+    await expect(run({ data, operation: "put", pathname: "twice.txt" })).resolves.toMatchObject({ body: { created: false } })
+    await expect(run({ data, operation: "put", overwrite: false, pathname: "fresh.txt" })).resolves.toMatchObject({ body: { created: true } })
+  })
+
   it("returns at most the limit even when the head reports a smaller size", async () => {
     await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "grown.bin" })
     const get = vi.spyOn(blob, "get").mockResolvedValue([null, new File([new Uint8Array(blobDevMaximumUploadBytes + 1)], "grown.bin")])

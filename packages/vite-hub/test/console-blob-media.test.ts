@@ -6,6 +6,7 @@ vi.mock("../src/console/runtime/client/request", async (original) => ({
   requestConsole: mocks.request,
 }))
 
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { consoleBlobMediaFile, createConsoleBlobMediaClient, parseConsoleBlobPage } from "../src/console/runtime/client/blob-media"
 
 function object(pathname: string, extra: Record<string, unknown> = {}) {
@@ -65,9 +66,24 @@ describe("Console Blob media client", () => {
     mocks.request.mockResolvedValueOnce({ object: object("docs/hi.txt", { contentType: "text/plain", size: 2 }) })
     const client = createConsoleBlobMediaClient("/blob", { store: "default" })
     const uploaded = await client.upload(new File(["hi"], "hi.txt", { type: "text/plain" }), { folder: "docs" })
-    expect(mocks.request).toHaveBeenCalledWith("/blob", { body: { action: "put", contentType: "text/plain", data: "aGk=", pathname: "docs/hi.txt", store: "default" }, method: "POST" })
+    expect(mocks.request).toHaveBeenCalledWith("/blob", { body: { action: "put", contentType: "text/plain", data: "aGk=", overwrite: false, pathname: "docs/hi.txt", store: "default" }, method: "POST" })
     expect(uploaded.file).toMatchObject({ name: "hi.txt", pathname: "docs/hi.txt" })
     expect(client.object("docs/hi.txt")).toBeDefined()
+  })
+
+  it("asks before it replaces a blob that exists", async () => {
+    const exists = new ConsoleRequestError(409, "exists", { code: "BLOB_EXISTS" })
+    const client = createConsoleBlobMediaClient("/blob", { store: "default" })
+    mocks.request.mockRejectedValueOnce(exists)
+    await expect(client.upload(new File(["hi"], "hi.txt"))).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not replaced") })
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+
+    mocks.request.mockReset()
+    mocks.request.mockRejectedValueOnce(exists).mockResolvedValueOnce({ object: object("hi.txt", { size: 2 }) })
+    const confirmReplace = vi.fn(() => true)
+    await expect(client.upload(new File(["hi"], "hi.txt"), { confirmReplace })).resolves.toMatchObject({ file: { pathname: "hi.txt" } })
+    expect(confirmReplace).toHaveBeenCalledWith("hi.txt")
+    expect(mocks.request.mock.calls.map(call => call[1].body.overwrite)).toEqual([false, true])
   })
 
   it("refuses a file above 8 MiB before it sends it", async () => {

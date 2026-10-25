@@ -237,12 +237,25 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
       const pathname = `${uploadOptions.folder ? `${uploadOptions.folder}/` : ""}${file.name}`
       if (isVitehubOwnedPath(pathname)) throw new ConsoleRequestError(403, "ViteHub keeps the paths under _vitehub/ for itself. Upload to another folder.")
       const data = base64(new Uint8Array(await file.arrayBuffer()))
-      const request: Parameters<typeof requestConsole>[1] = {
-        body: { action: "put", contentType: file.type || undefined, data, pathname, store: options.store },
-        method: "POST",
+      const send = (overwrite: boolean) => {
+        const request: Parameters<typeof requestConsole>[1] = {
+          body: { action: "put", contentType: file.type || undefined, data, overwrite, pathname, store: options.store },
+          method: "POST",
+        }
+        if (uploadOptions.signal) request.signal = uploadOptions.signal
+        return requestConsole(base, request)
       }
-      if (uploadOptions.signal) request.signal = uploadOptions.signal
-      const result = record(await requestConsole(base, request))
+      let response: unknown
+      try {
+        // The first try never replaces a blob. A taken pathname asks the person before the second try does.
+        response = await send(false)
+      }
+      catch (error) {
+        if (!(error instanceof ConsoleRequestError) || error.failureCode !== "BLOB_EXISTS") throw error
+        if (!await uploadOptions.confirmReplace?.(pathname)) throw new ConsoleRequestError(409, `${pathname} already exists, so it was not replaced.`)
+        response = await send(true)
+      }
+      const result = record(response)
       const object = parseBlob(record(result?.object))
       objects.set(object.pathname, object)
       uploadOptions.onProgress?.(1)
