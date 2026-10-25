@@ -13,6 +13,8 @@ const props = defineProps<{
   base: string;
   /** The stable ID of `requireRateLimit()`. */
   name: string;
+  /** The access may only read Rate Limits (`"rate-limits:read"`), so the page offers no reset. */
+  readOnly?: boolean;
 }>();
 
 const toast = useConsoleToast();
@@ -24,7 +26,7 @@ const resetOpen = ref(false);
 const resetting = ref(false);
 let request: AbortController | undefined;
 
-const canReset = computed(() => peeked.value !== undefined && peeked.value.status !== "unsupported");
+const canReset = computed(() => !props.readOnly && peeked.value !== undefined && peeked.value.status !== "unsupported");
 
 function message(failure: unknown, fallback: string): string {
   return failure instanceof Error && failure.message ? failure.message : fallback;

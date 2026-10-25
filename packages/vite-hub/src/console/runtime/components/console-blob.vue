@@ -3,6 +3,7 @@ import { computed, onMounted, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { createConsoleBlobMediaClient } from "../client/blob-media";
+import { isConsoleSectionReadOnly } from "../client/read-only";
 import { consoleFolderName, consoleFolderTrail } from "../client/media-library";
 import { rememberConsoleSection } from "../sections";
 import ConsoleBlobDetail from "./console-blob-detail.vue";
@@ -55,7 +56,10 @@ const folder = computed({
 });
 
 // A new client per store and per ViteHub file switch remounts the browser, so it lists from the start.
+const readOnly = ref(false);
+// The client changes with the grant, so the browser remounts without upload and delete.
 const client = computed(() => createConsoleBlobMediaClient(props.blobBase, {
+  readOnly: readOnly.value,
   onPage: (page) => {
     stores.value = page.stores;
   },
@@ -90,7 +94,10 @@ function open(file: ConsoleMediaFile | undefined): void {
   setQuery({ file: file?.pathname });
 }
 
-onMounted(() => rememberConsoleSection("blob"));
+onMounted(async () => {
+  rememberConsoleSection("blob");
+  readOnly.value = await isConsoleSectionReadOnly(props.sectionsBase, "blob");
+});
 </script>
 
 <template>

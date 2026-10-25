@@ -134,6 +134,13 @@ describe("Console document editor route", () => {
     await expect(call("definitions.list", { section: "kv" })).resolves.toMatchObject({ status: 403 })
   })
 
+  it("tells the client which visible sections it may only read", async () => {
+    installConsoleAccess({ authorize: () => ({ sections: ["content", "kv:read", "blob:read", "blob"] }), mode: "open" })
+    await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { readOnly: ["kv"], scoped: true } } })
+    installConsoleAccess({ authorize: () => true, mode: "open" })
+    expect((await call("sections.list", {})).body.value).not.toHaveProperty("readOnly")
+  })
+
   it("serves the dashboard and search actions of every section page with the section access", async () => {
     // Pages have no access scope of their own: `{ sections: ['content'] }` reaches the dashboard, search, and Media.
     installConsoleAccess({ authorize: () => ({ sections: ["content"] }), mode: "open" })

@@ -1,4 +1,4 @@
-import { allowedConsoleSections, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
+import { allowedConsoleSections, consoleAccessWrites, withConsoleAccess, type ConsoleAccess, type ConsoleAccessRoute } from "./access.ts"
 import { assertConsoleRequest } from "./request.ts"
 import { getConsoleContributedSections } from "./definitions.ts"
 import { getConsoleAuth, getConsoleBuild, getConsoleProjectName, getConsoleSections } from "./sections.ts"
@@ -13,6 +13,8 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   build?: string
   contributions?: readonly ConsoleContributedSection[]
   projectName?: string
+  /** Sections that the access may only read (`"<section>:read"`). The client hides their write actions. */
+  readOnly?: readonly string[]
   /** `console.authorize` limited this request to some sections, so the others may be installed but hidden. */
   scoped?: true
   sections: readonly string[]
@@ -22,7 +24,9 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   const sections = allowedConsoleSections(access, getConsoleSections())
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
   const build = getConsoleBuild()
-  const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], projectName?: string, scoped?: true, sections: readonly string[] } = { sections }
+  const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
+  const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
+  if (readOnly.length) result.readOnly = readOnly
   if (getConsoleAuth()) result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions

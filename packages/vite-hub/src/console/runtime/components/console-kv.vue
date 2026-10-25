@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import { appendUniqueConsoleKeys, requestConsole } from "../client/request";
 import { useConsoleToast } from "../client/toast";
+import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleBytes } from "../client/format";
 import ConsoleFrame from "./console-frame.vue";
@@ -57,6 +58,8 @@ const listError = ref<unknown>();
 const valueError = ref<unknown>();
 const loadedStore = ref<string>();
 const toast = useConsoleToast();
+/** The access may only read KV (`"kv:read"`), so the page offers no edit or delete. */
+const readOnly = ref(false);
 const editing = ref(false);
 const editText = ref("");
 /** Seconds until the edited key expires. Empty: no expiry. */
@@ -139,7 +142,7 @@ const reserved = computed(() => (selectedValue.value?.key ?? "").replaceAll(/[/\
 /** A value can be edited when the page shows all of it as text. Bytes, cut values, and the keys of ViteHub are read only. */
 const editable = computed(() => {
   const value = selectedValue.value;
-  return Boolean(value?.found) && !value?.truncated && value?.type !== "bytes" && !reserved.value;
+  return Boolean(value?.found) && !value?.truncated && value?.type !== "bytes" && !reserved.value && !readOnly.value;
 });
 
 function startEdit(): void {
@@ -377,6 +380,7 @@ async function applyRouteSelection(): Promise<void> {
 }
 
 onMounted(() => {
+  void isConsoleSectionReadOnly(props.sectionsBase, "kv").then((value) => { readOnly.value = value; });
   rememberConsoleSection("kv");
   if (queryString(route.query.store) !== undefined) {
     void applyRouteSelection();
@@ -483,11 +487,11 @@ onBeforeUnmount(() => {
               <ConsoleStatus v-if="selectedValue.truncated" tone="warning" :label="`Truncated at ${consoleBytes(valueLimit)}`" />
               <span v-if="valueFormat" class="text-xs text-muted">{{ valueFormat }}</span>
               <template v-if="!editing">
-                <UTooltip :text="editable ? 'Edit value' : reserved ? 'ViteHub keeps this key for itself' : 'Bytes and cut values are read only'">
+                <UTooltip :text="editable ? 'Edit value' : readOnly ? 'This access can only read KV' : reserved ? 'ViteHub keeps this key for itself' : 'Bytes and cut values are read only'">
                   <UButton aria-label="Edit value" icon="i-lucide-pencil" size="sm" variant="ghost" :disabled="!editable" @click="startEdit" />
                 </UTooltip>
                 <UTooltip text="Delete key">
-                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" size="sm" variant="ghost" :disabled="reserved" @click="removeOpen = true" />
+                  <UButton aria-label="Delete key" color="error" icon="i-lucide-trash-2" size="sm" variant="ghost" :disabled="reserved || readOnly" @click="removeOpen = true" />
                 </UTooltip>
               </template>
             </header>

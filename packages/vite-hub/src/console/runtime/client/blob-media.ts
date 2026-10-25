@@ -118,8 +118,9 @@ export function consoleBlobMediaFile(object: ConsoleBlobObject): ConsoleMediaFil
   }
 }
 
-/** Upload needs write, and delete needs manage. */
-const blobAccess: ConsoleMediaAccess = { manage: true, read: true, write: true }
+/** Upload needs write, and delete needs manage. A read-only grant (`"blob:read"`) has neither. */
+const writableAccess: ConsoleMediaAccess = { manage: true, read: true, write: true }
+const readOnlyAccess: ConsoleMediaAccess = { manage: false, read: true, write: false }
 
 /** Largest file that `blob.put` takes. The base64 text of the file travels in one JSON call. */
 const maximumUploadBytes = 8 * 1024 * 1024
@@ -135,6 +136,8 @@ function base64(bytes: Uint8Array): string {
 }
 
 export interface ConsoleBlobMediaOptions {
+  /** The access may only read the Blob section, so the page offers no upload or delete. */
+  readOnly?: boolean
   /** Called with every page, for the store list. */
   onPage?: (page: ConsoleBlobPage) => void
   /** List objects under `_vitehub/`, which ViteHub writes for itself. */
@@ -153,6 +156,7 @@ export interface ConsoleBlobMediaClient extends ConsoleMediaClient {
  */
 export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobMediaOptions): ConsoleBlobMediaClient {
   const objects = new Map<string, ConsoleBlobObject>()
+  const blobAccess = options.readOnly ? readOnlyAccess : writableAccess
 
   async function page(query: { cursor?: string, folded: boolean, limit?: number, prefix: string }, signal?: AbortSignal): Promise<ConsoleBlobPage> {
     const request: Parameters<typeof requestConsole>[1] = {

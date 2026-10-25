@@ -7,6 +7,7 @@ import { requestConsole } from "../client/request";
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
+import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
 import ConsoleFrame from "./console-frame.vue";
@@ -50,6 +51,7 @@ const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
 const section = computed(() => props.details.id);
+const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
 const catalogView = computed(() => props.details.view.kind === "definition-catalog");
 const recordColumns = computed(() => props.details.view.kind === "record-table" ? props.details.view.columns : []);
@@ -184,12 +186,14 @@ function selectDefinition(name: string): void {
 }
 
 onMounted(() => {
+  void isConsoleSectionReadOnly(props.sectionsBase, section.value).then((value) => { sectionReadOnly.value = value; });
   rememberConsoleSection(section.value);
   selectedName.value = queryValue() ?? selectedName.value;
   void loadDefinitions();
 });
 
 watch(section, (current) => {
+  void isConsoleSectionReadOnly(props.sectionsBase, current).then((value) => { sectionReadOnly.value = value; });
   rememberConsoleSection(current);
   scheduleRuns.value.clear();
   content.value = undefined;
@@ -323,7 +327,7 @@ onBeforeUnmount(() => request?.abort());
             <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
           </div>
           <ConsolePropertyList title="Definition" :items="definitionFields" />
-          <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" />
+          <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
           <p class="flex gap-2 text-xs leading-relaxed text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />

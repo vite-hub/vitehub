@@ -12,6 +12,8 @@ export interface ConsoleNavigation {
   /** Descriptors of the installed sections that owner packages contribute, keyed by section id. */
   contributions: Readonly<Record<ConsoleSectionId, ConsoleContributedSection>>
   projectName?: string
+  /** Installed sections that the access may only read. Their write actions are hidden. */
+  readOnly: ConsoleSectionId[]
   /** The access may use only some installed sections. The Console then does not call other sections "not enabled". */
   scoped: boolean
   sections: ConsoleSectionId[]
@@ -23,7 +25,7 @@ const navigationErrors = new Map<string, unknown>()
 
 function parseConsoleNavigation(value: unknown): ConsoleNavigation {
   // SAFETY: Reading an optional property is safe for every non-null JavaScript value; the property remains unknown until validated below.
-  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, projectName?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
+  const response = value as { auth?: unknown, build?: unknown, contributions?: unknown, projectName?: unknown, readOnly?: unknown, scoped?: unknown, sections?: unknown } | null | undefined
   const contributions: Record<ConsoleSectionId, ConsoleContributedSection> = {}
   for (const entry of Array.isArray(response?.contributions) ? response.contributions : []) {
     const section = parseConsoleContributedSection(entry)
@@ -40,6 +42,7 @@ function parseConsoleNavigation(value: unknown): ConsoleNavigation {
     ...(typeof response?.projectName === "string" && response.projectName.trim()
       ? { projectName: response.projectName.trim() }
       : {}),
+    readOnly: Array.isArray(response?.readOnly) ? response.readOnly.filter((section): section is ConsoleSectionId => isConsoleSectionId(section)) : [],
     scoped: response?.scoped === true,
     sections,
   }

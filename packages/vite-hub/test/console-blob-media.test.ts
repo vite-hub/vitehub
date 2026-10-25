@@ -92,6 +92,15 @@ describe("Console Blob media client", () => {
     expect(mocks.request).not.toHaveBeenCalled()
   })
 
+  it("offers no upload or delete to a read-only grant", async () => {
+    mocks.request.mockResolvedValueOnce(page([object("a.png")]))
+    const client = createConsoleBlobMediaClient("/blob", { readOnly: true, store: "default" })
+    expect((await client.info()).access).toEqual({ manage: false, read: true, write: false })
+    expect((await client.list()).access).toEqual({ manage: false, read: true, write: false })
+    expect(client.isProtected?.("_vitehub/a.json")).toBe(true)
+    expect(client.isProtected?.("docs/a.json")).toBe(false)
+  })
+
   it("has no folders to create or move", async () => {
     const client = createConsoleBlobMediaClient("/blob", { store: "default" })
     await expect(client.createFolder("", "new")).rejects.toMatchObject({ status: 405 })
