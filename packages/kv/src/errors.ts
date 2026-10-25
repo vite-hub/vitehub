@@ -1,11 +1,12 @@
-import { Diagnostic } from "nostics"
+import type { Diagnostic } from "nostics"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 
 import type { KVErrorCode, KVOperation } from "./types.ts"
 import { kvConfigErrorCodes, kvErrorDiagnostics } from "./error-diagnostics.ts"
 
-function hasCode<TCode extends KVErrorCode>(error: Diagnostic, codes: readonly TCode[]): error is ResultError<TCode> {
+function hasCode<TCode extends KVErrorCode>(error: Diagnostic<unknown>, codes: readonly TCode[]): error is ResultError<TCode> {
   return codes.some(code => code === error.code)
 }
 
@@ -24,8 +25,8 @@ export async function kvResult<TData, TCode extends KVErrorCode = never>(
     return [undefined, await run()]
   }
   catch (cause) {
-    if (cause instanceof Diagnostic && kvConfigErrorCodes.has(cause.code)) throw cause
-    if (cause instanceof Diagnostic && hasCode(cause, codes)) return [cause, undefined]
+    if (isRuntimeDiagnostic(cause) && kvConfigErrorCodes.has(cause.code)) throw cause
+    if (isRuntimeDiagnostic(cause) && hasCode(cause, codes)) return [cause, undefined]
     return [kvErrorDiagnostics.KV_OPERATION_FAILED({ cause, operation, store }), undefined]
   }
 }
