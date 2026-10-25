@@ -65,7 +65,7 @@ const UTable = defineComponent({
     })))))
   },
 })
-const UDashboardPanel = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) })
+const UDashboardPanel = defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.(), slots.default?.()]) })
 const USlideover = defineComponent({
   props: { open: Boolean },
   setup: (props, { slots }) => () => props.open ? h("aside", slots.body?.()) : null,
