@@ -685,6 +685,8 @@ describe("vitehub", () => {
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
+      "vite-hub/nitro-order",
+      "vite-hub/nitro-order/run",
     ])
 
     expect(pluginNames(vitehub({
@@ -731,6 +733,8 @@ describe("vitehub", () => {
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
+      "vite-hub/nitro-order",
+      "vite-hub/nitro-order/run",
     ])
     expect((vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
     expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox-task/vite")
