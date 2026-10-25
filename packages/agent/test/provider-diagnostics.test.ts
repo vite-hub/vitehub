@@ -100,7 +100,7 @@ describe("provider diagnostics", () => {
     const sources = ["server/agents/support/agent.ts:12:3"]
     for (const input of [message, JSON.stringify({ error: { message } })]) {
       const error = agentDiagnostics.AGENT_R0726({ message: input, cause, sources })
-      const docs = "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors"
+      const docs = "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics"
       expect(error).toBeInstanceOf(Diagnostic)
       expect(error).toMatchObject({ name: "AGENT_R0726", code: "AGENT_R0726", message, docs, fix })
       expect(error.cause).toBe(cause)
