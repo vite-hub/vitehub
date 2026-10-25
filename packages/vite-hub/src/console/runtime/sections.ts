@@ -75,6 +75,7 @@ const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupI
   "sandbox-tasks": "runtime",
   env: "platform",
   connections: "platform",
+  auth: "platform",
   email: "platform",
   "rate-limits": "platform",
 }
@@ -138,6 +139,7 @@ const primitive = (id: ConsoleSectionId, label: string, icon: string, slug: stri
  * of their owner descriptor because the Console only receives descriptors for enabled sections.
  */
 export const consolePrimitives: readonly ConsolePrimitive[] = [
+  primitive("auth", "Auth", "i-lucide-users-round", "auth", "Manage users, sessions, organizations, and approved OAuth clients."),
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
@@ -199,6 +201,7 @@ export const consoleOverviewShortcut: readonly [typeof consoleGoToKey, "o"] = [c
 
 /** Second key of the "Go to" chord of each known section. Each key is unique and is not `o`. */
 export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
+  auth: "h",
   agents: "a",
   content: "t",
   usage: "u",
@@ -299,10 +302,27 @@ export function describeConsoleSectionRoutes(section: { id: ConsoleSectionId, pa
  * Returns the enabled section ids in navigation order. Owner packages contribute `rate-limits`, `sandbox-tasks`,
  * `workspaces`, `workflows`, `queues`, and `schedules`. `console/contributions.ts` maps each id to its owner.
  */
-export function resolveConsoleSectionIds(options: { env?: unknown; connections?: unknown; agent?: unknown; blob?: unknown; database?: unknown; email?: unknown; kv?: unknown; preset?: unknown; queue?: unknown; rateLimit?: unknown; sandboxTask?: unknown; schedule?: unknown; workflow?: unknown; workspace?: unknown }): ConsoleSectionId[] {
+export function resolveConsoleSectionIds(options: {
+  auth?: unknown;
+  env?: unknown;
+  connections?: unknown
+  agent?: unknown;
+  blob?: unknown;
+  database?: unknown;
+  email?: unknown;
+  kv?: unknown;
+  preset?: unknown;
+  queue?: unknown;
+  rateLimit?: unknown;
+  sandboxTask?: unknown;
+  schedule?: unknown;
+  workflow?: unknown;
+  workspace?: unknown
+}): ConsoleSectionId[] {
   const workflowEnabled = options.workflow !== false
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
+    ...(options.auth ? ["auth"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
     ...(options.agent ? ["agents", "usage"] : []),

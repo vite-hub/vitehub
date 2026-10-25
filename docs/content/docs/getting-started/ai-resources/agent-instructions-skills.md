@@ -1,6 +1,6 @@
 ---
 title: Add the ViteHub skill
-navigation.group: AI resources
+navigation.group: Coding agents
 description: Install the ViteHub coding-agent skill in Claude Code, Cursor, VS Code, Windsurf, or Codex.
 navigation.title: ViteHub skill
 navigation.order: 261

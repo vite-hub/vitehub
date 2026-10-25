@@ -97,7 +97,7 @@ export default defineAgent({
 
 ## Extend the parent's servers
 
-In an Agent that [`extends`](/docs/agents/agent-definitions#extend-an-agent) another, a child `mcp()` extends the parent's `mcp()` Capability. `servers`, `integrity`, and `toolOverrides` merge by server name, and the child's entry for a server wins as a whole. Per-server options such as `optional` stay with their entry. Options that the child leaves unset, such as `unavailableNotice`, are inherited.
+In an Agent that [`extends`](/docs/agents/agent-presets#extend-an-agent) another, a child `mcp()` extends the parent's `mcp()` Capability. `servers`, `integrity`, and `toolOverrides` merge by server name, and the child's entry for a server wins as a whole. Per-server options such as `optional` stay with their entry. Options that the child leaves unset, such as `unavailableNotice`, are inherited.
 
 ```ts [server/agents/bot-dev/agent.ts]
 export default defineAgent({

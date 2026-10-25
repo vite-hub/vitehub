@@ -75,6 +75,15 @@ describe("Console state", () => {
     }
   })
 
+  it("keeps the compact actions short enough for one sidebar row", () => {
+    const { app, buttons, root } = render({ compact: true, error: new ConsoleRequestError(500), retry: vi.fn(), title: "Could not load Agents" })
+    try {
+      expect(buttons).toEqual(["Try again", "Docs"])
+      expect(root.textContent).toContain("· 500")
+    }
+    finally { app.unmount() }
+  })
+
   it("links the setup guide of the section in an empty state", () => {
     const { app, buttons, root } = render({ description: "Add a Connection Definition.", section: "connections", title: "No Connections yet" })
     try {

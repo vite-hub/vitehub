@@ -1,9 +1,10 @@
 ---
 title: Evals
 description: Run repeatable scenarios against an Agent Definition and score its behavior.
-navigation.order: 60
-navigation.group: Verify
+navigation.order: 52
+navigation.group: Inspect and evaluate
 icon: i-lucide-clipboard-check
+navigation.kind: Guides
 ---
 
 An Agent Eval sends repeatable input to a real Agent Definition and scores
@@ -185,3 +186,7 @@ An inline Workspace uses the Eval file directory as its Source root, also when
 directory contains a `workspace/` directory, ViteHub uses that directory. Set
 `workspace.sourceRootDir` when an imported Agent needs Sources from another
 directory. A named Workspace keeps its registered configuration.
+
+## Next steps
+
+Use [Test an Agent](/docs/agents/testing) for input validation and custom Driver logic. Share tested configuration through [Agent presets and inheritance](/docs/agents/agent-presets), and configure [Invocation storage](/docs/agents/invocation-storage) when evaluations need retained run evidence.

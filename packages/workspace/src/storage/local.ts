@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto"
 import { constants, createReadStream, createWriteStream } from "node:fs"
 import { chmod, chown, copyFile, link, lstat, mkdir, open, readFile, readdir, rename, rm, rmdir, stat, utimes, writeFile } from "node:fs/promises"
 import { Readable, Transform } from "node:stream"
-import { join, relative, resolve, sep } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { setTimeout as delay } from "node:timers/promises"
 
@@ -773,7 +773,26 @@ async function fileDigest(path: string): Promise<string> {
 
 class LocalWorkspaceStore implements WorkspaceStore {
   [workspaceStoreTarget]() {
-    return { provider: "local" }
+    return {
+      provider: "local",
+      containsPath: async (ancestor: string, path: string) => {
+        const readIdentity = async (value: string) => await stat(value, { bigint: true }).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT" || error.code === "ENOTDIR") return undefined
+          throw error
+        })
+        const destination = await readIdentity(resolveInside(this.root, ancestor))
+        if (!destination) return false
+        // Compare filesystem identities, since path spelling need not be unique.
+        const root = resolve(this.root)
+        let current = resolveInside(root, path)
+        while (current !== root) {
+          const source = await readIdentity(current)
+          if (source && source.dev === destination.dev && source.ino === destination.ino) return true
+          current = dirname(current)
+        }
+        return false
+      },
+    }
   }
 
   #baseline: WorkspaceSnapshot | undefined

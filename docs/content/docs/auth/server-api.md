@@ -10,6 +10,8 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
+| `createDatabaseAuthEventStore` from `@vite-hub/auth` | Create the opt-in SQLite or D1 [event log](/docs/auth/events). |
+| `getAuthEvents`, `listAuthEvents`, `aggregateAuthEvents` from `@vite-hub/auth/server` | Read events and daily counts from server code. |
 | `defineAuth` from `@vite-hub/auth` | Declare the Primary Auth Definition. |
 | `stateless` from `@vite-hub/auth/presets` | Keep sessions in encrypted cookies, with no database. See [Sessions without a database](/docs/auth/configure#sessions-without-a-database). |
 | `hubAuth` from `@vite-hub/auth/vite` | Register Auth discovery, route exposure, and generated server aliases. |

@@ -22,6 +22,8 @@ defineProps<{
 
 <style>
 .vitehub-console {
+  /* Chat bubbles, code blocks, and traces from @vite-hub/ui keep their radius; the Nuxt UI base is 0.25rem. */
+  --vh-ui-radius: 0.5rem;
   height: 100dvh;
   min-height: 0;
   overflow: hidden;

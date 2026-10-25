@@ -371,8 +371,8 @@ function pagePath(sectionId: string, pageId: string) {
     : `/docs/${sectionId}/${pageId}`;
 }
 
-function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>) {
-  if (pageId === "get-started") return "Get started";
+function pageTitleFromMeta(pageId: string, meta: Record<string, unknown>, sectionId?: string) {
+  if (pageId === "get-started" && sectionId !== "agents") return "Get started";
   return String(meta["navigation.title"] || meta.title || titleCase(pageId === "index" ? "overview" : pageId));
 }
 
@@ -411,11 +411,12 @@ function collectPages(rootDir: string, sectionId: string) {
     return {
       id: pageId,
       path: pagePath(sectionId, pageId),
-      title: pageTitleFromMeta(pageId, meta),
+      title: pageTitleFromMeta(pageId, meta, sectionId),
       sourceTitle: optionalString(meta.title),
       description: optionalString(meta.description),
       icon: optionalString(meta.icon),
       layout: pageLayout(meta.layout),
+      ...(meta.tutorial === "project" ? { tutorial: "project" as const } : {}),
       ...(meta.codePanel === true ? { codePanel: true } : {}),
       kind: optionalString(meta["navigation.kind"]),
       group: optionalString(meta["navigation.group"]),

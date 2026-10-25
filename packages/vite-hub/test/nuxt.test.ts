@@ -437,6 +437,24 @@ describe("ViteHub Nuxt integration", () => {
     expect(result.outputFiles?.[0]?.text).toContain("installConsoleDefinitions")
   })
 
+  it.each([false, true])("bundles facade and owner imports through Nitro runtime aliases (dev: %s)", async (dev) => {
+    const { nuxt, runNitroConfigHook } = createNuxt(dev)
+    const inline = ["existing-inline"]
+    const external = ["existing-external"]
+    const nitroConfig = { externals: { inline, external, trace: false } }
+
+    await viteHubNuxtModule({ preset: "node", blob: true, kv: true, database: true }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.externals).toEqual({
+      inline: ["existing-inline", "vite-hub", "@vite-hub/"],
+      external,
+      trace: false,
+    })
+    expect(inline).toEqual(["existing-inline"])
+  })
+
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
     let resolvedKv: unknown
     let resolvedBlob: unknown
@@ -711,16 +729,13 @@ describe("ViteHub Nuxt integration", () => {
     await application.runCloseHook()
   })
 
-  it.each([
-    { content: true, dialect: "" },
-    { content: false, dialect: 'dialect: "postgresql",' },
-  ])("adds the default Cloudflare D1 host resource only for SQLite Definitions: $dialect", async ({ content, dialect }) => {
+  it.each(["", 'dialect: "postgresql",'])("does not invent a separate Nuxt Content resource for discovered Definitions: %s", async (dialect) => {
     await mkdir("/tmp/vitehub-nuxt/custom-server/databases", { recursive: true })
     await writeFile("/tmp/vitehub-nuxt/custom-server/databases/config.ts", `export default defineDatabase({ ${dialect} schema: {} })\n`)
     const application = createNuxt(true)
     await viteHubNuxtModule({ preset: "cloudflare", database: true }, application.nuxt)
 
-    expect(Boolean((application.nuxt.options as { content?: { database?: unknown } }).content?.database)).toBe(content)
+    expect((application.nuxt.options as { content?: { database?: unknown } }).content?.database).toBeUndefined()
     await application.runCloseHook()
   })
 
@@ -1912,6 +1927,10 @@ describe("ViteHub Nuxt integration", () => {
       }, production.nuxt)).resolves.toBeUndefined()
 
       expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]))
+      expect(nitroOptions(production.nuxt).handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" })]))
+      const replayed: Record<string, unknown> = {}
+      for (const hook of production.nitroConfigHooks) await hook(replayed)
+      expect(replayed.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/auth/manage" })]))
     } finally {
       await rm(authDefinition, { force: true })
     }
@@ -2275,6 +2294,17 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroOptions(nuxt)).toMatchObject({ wasm: { lazy: true } })
   })
 
+  it.each([undefined, false, true])("defaults Cloudflare deployment output while preserving an explicit %s setting", async (deployConfig) => {
+    const { nuxt } = createNuxt()
+    Object.assign(nuxt.options, { nitro: { cloudflare: { deployConfig, wrangler: { name: "existing-worker" } } } })
+
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+
+    expect(nitroOptions(nuxt)).toMatchObject({
+      cloudflare: { deployConfig: deployConfig ?? true, wrangler: { name: "existing-worker" } },
+    })
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
@@ -2449,6 +2479,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
+      externals: { inline: ["vite-hub", "@vite-hub/"] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3400,10 +3431,11 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig.alias["@vite-hub/database/runtime/state"]).toBe("./custom-database-state.ts")
   })
 
-  it("installs the Auth Vue and server runtime integration through the framework module", async () => {
+  it.each(["module", "vite"])("installs the Auth Vue and server runtime integration through %s options", async (source) => {
     const { nitroConfigHooks, nuxt } = createNuxt()
 
-    await viteHubNuxtModule({ auth: true, preset: "cloudflare" }, nuxt)
+    if (source === "vite") Object.assign(nuxt.options.vite, { auth: {} })
+    await viteHubNuxtModule({ ...(source === "module" ? { auth: true as const } : {}), preset: "cloudflare" }, nuxt)
 
     // SAFETY: The Auth integration initializes imports and Nitro runtime configuration.
     const options = nuxt.options as typeof nuxt.options & {
@@ -3644,6 +3676,84 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroConfig).toMatchObject({
       modules: ["first", "second"],
     })
+  })
+
+  it.each([
+    { incomingNoExternals: undefined, inPlace: false },
+    { incomingNoExternals: false, inPlace: false },
+    { incomingNoExternals: true, inPlace: false },
+    { incomingNoExternals: ["effect"], inPlace: false },
+    { incomingNoExternals: false, inPlace: true },
+    { incomingNoExternals: true, inPlace: true },
+  ])("translates package inlining lists without replacing incoming Nitro 2 policy ($incomingNoExternals, inPlace: $inPlace)", async ({ incomingNoExternals, inPlace }) => {
+    const matcher = /consumer-package/
+    const configuredInline = ["consumer-package", matcher, "effect"]
+    const noExternals = ["effect", "@effect/platform-node", matcher]
+    mocks.vitehub.mockReturnValue([{
+      name: "vite-hub/nitro-inlining",
+      config: (config: { nitro?: Record<string, unknown> }) => {
+        if (inPlace) {
+          config.nitro ??= {}
+          config.nitro.noExternals = noExternals
+          return
+        }
+        return { nitro: { ...config.nitro, noExternals } }
+      },
+    }])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig: Record<string, unknown> = {
+      externals: { inline: configuredInline, external: ["external-package"], trace: false },
+      ...(incomingNoExternals === undefined ? {} : { noExternals: incomingNoExternals }),
+    }
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    const expectedExternals = {
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/"],
+      external: ["external-package"],
+      trace: false,
+    }
+    if (typeof incomingNoExternals === "boolean") expect(nitroConfig.noExternals).toBe(incomingNoExternals)
+    else expect(nitroConfig).not.toHaveProperty("noExternals")
+    expect(nitroConfig.externals).toEqual(expectedExternals)
+    await runNitroConfigHook(nitroConfig)
+    if (typeof incomingNoExternals === "boolean") expect(nitroConfig.noExternals).toBe(incomingNoExternals)
+    else expect(nitroConfig).not.toHaveProperty("noExternals")
+    expect(nitroConfig.externals).toEqual(expectedExternals)
+    expect(configuredInline).toEqual(["consumer-package", matcher, "effect"])
+  })
+
+  it.each([
+    { noExternals: true },
+    { noExternals: false },
+    { noExternals: undefined },
+    { noExternals: [] },
+  ])("preserves Nitro 2 externalization policy for $noExternals", async ({ noExternals }) => {
+    mocks.vitehub.mockReturnValue([])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const externals = { inline: ["consumer-package"], trace: false }
+    const nitroConfig: Record<string, unknown> = {
+      externals,
+      ...(noExternals === undefined ? {} : { noExternals }),
+    }
+
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/"] })
+    expect(externals.inline).toEqual(["consumer-package"])
+    if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
+    else expect(nitroConfig.noExternals).toBe(noExternals)
+  })
+
+  it("preserves Nitro inline-all policy", async () => {
+    mocks.vitehub.mockReturnValue([])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = { externals: { inline: true, trace: false } }
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+    expect(nitroConfig.externals).toEqual({ inline: true, trace: false })
   })
 
   it("does nothing when Nuxt has not initialized", async () => {

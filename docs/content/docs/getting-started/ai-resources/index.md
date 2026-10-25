@@ -1,6 +1,6 @@
 ---
 title: Give your coding agent ViteHub context
-navigation.group: AI resources
+navigation.group: Coding agents
 description: Choose the skill, MCP server, page action, or index that gives a coding agent current ViteHub documentation.
 navigation.title: Overview
 navigation.order: 201

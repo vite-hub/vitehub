@@ -10,7 +10,11 @@ import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/ag
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { Environment, Plugin, ResolvedConfig } from "vite"
-import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
+import {
+  insertConsoleSection,
+  isConsoleConnectionsEnabled,
+  type ConsoleSectionId,
+} from "./runtime/sections.ts";
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
@@ -252,7 +256,7 @@ function configureConsoleNitroRoutes(
   })
   if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: consoleMountPath(baseURL, "/api/_vitehub/console/auth/**") })
   if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
-  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL)
+  addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL, sections);
   const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
   const userPublicAssets = Array.isArray(nitro.publicAssets)
     ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot)
@@ -523,9 +527,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       workspaceDiscoveryRoot = configuredProjectRoot(viteConfig.workspace) ?? configuredProjectRoot({ projectRoot: options.workspaceDiscoveryRoot })
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]
       cliDiscovery = viteConfig.vitehubCliDiscovery === true
-      const appAuth = configured.auth === "app"
-        ? options.resolveAuthConfig?.(root, viteConfig[VITEHUB_SERVER_DIRS], viteConfig.auth)
-        : undefined
+      const appAuth = options.resolveAuthConfig?.(
+        root,
+        viteConfig[VITEHUB_SERVER_DIRS],
+        viteConfig.auth,
+      );
+      sections = sections.filter((section) => section !== "auth");
+      if (appAuth) sections = insertConsoleSection(sections, "auth");
       resolvedAppAuth = appAuth
       baseURL = config.base ?? "/"
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
