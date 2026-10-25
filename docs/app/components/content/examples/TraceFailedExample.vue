@@ -1,9 +1,7 @@
 <script setup lang="ts">
-import type { TraceRun as TraceRunComponent } from "@vite-hub/ui";
+import type { TraceRunView } from "@vite-hub/ui";
 
-type Run = InstanceType<typeof TraceRunComponent>["$props"]["run"];
-
-const run: Run = {
+const run: TraceRunView = {
   durationMs: 12_400,
   endTime: "2026-08-30T15:19:31.000Z",
   events: [],

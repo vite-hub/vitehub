@@ -1,12 +1,6 @@
 <script setup lang="ts">
-import {
-  type TraceRun as TraceRunComponent,
-  useFileTree,
-  useFileTreeSelection,
-} from "@vite-hub/ui";
+import { type TraceRunView, useFileTree, useFileTreeSelection } from "@vite-hub/ui";
 import { computed } from "vue";
-
-type Run = InstanceType<typeof TraceRunComponent>["$props"]["run"];
 
 // Synthetic review data. In an application, read patches from the Agent's change activity or Git.
 const patches: Record<string, string> = {
@@ -59,7 +53,7 @@ const tree = useFileTree({
 const selectedPaths = useFileTreeSelection(tree);
 const selectedPath = computed(() => selectedPaths.value.find((path) => path in patches));
 
-const verification: Run = {
+const verification: TraceRunView = {
   durationMs: 2_840,
   endTime: "2026-08-23T09:04:12.840Z",
   events: [],
