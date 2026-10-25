@@ -53,7 +53,8 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
   await nitroConfigHook(nitroConfig)
 
   expect(nitroConfig).toMatchObject({
-    handlers: [
+    // Other plugins, including the development RPC, can register handlers too.
+    handlers: expect.arrayContaining([
       {
         handler: join(buildDir, "vitehub/agent/ready-route.ts"),
         route: "/api/_vitehub/ready",
@@ -71,7 +72,7 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
         middleware: true,
         route: "/**",
       },
-    ],
+    ].map(handler => expect.objectContaining(handler))),
   })
 })
 
