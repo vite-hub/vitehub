@@ -1,3 +1,5 @@
+import { createInterface } from "node:readline/promises"
+
 import * as v from "valibot"
 
 import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
@@ -13,6 +15,8 @@ import type { RateLimitWindow } from "./types.ts"
 export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface RateLimitCliOptions {
+  /** Asks whether `reset` may delete a counter. Defaults to a prompt on a terminal, and refuses without one. */
+  confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
 
@@ -23,6 +27,7 @@ interface RateLimitCommand {
 
 interface ParsedRateLimitArgs {
   help: boolean
+  yes: boolean
   json: boolean
   key?: string
   name?: string
@@ -42,7 +47,7 @@ const rateLimitCommands: readonly RateLimitCommand[] = [
 ]
 
 function commandUsage(command: RateLimitCommand): string {
-  return `vitehub rate-limit ${command.name} <id> <key> [--json] [--url <url>]`
+  return `vitehub rate-limit ${command.name} <id> <key> [--json]${command.name === "reset" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -56,6 +61,7 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
     "Use -- before a key that starts with a dash.",
     "",
     "Options:",
+    ...(command.name === "reset" ? ["  --yes, -y         Reset without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --json            Print JSON.",
     "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
@@ -65,13 +71,17 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
 }
 
 function parseArgs(args: readonly string[]): ParsedRateLimitArgs {
-  const parsed: ParsedRateLimitArgs = { help: false, json: false }
+  const parsed: ParsedRateLimitArgs = { help: false, json: false, yes: false }
   let positionalOnly = false
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
     if (!positionalOnly && arg === "--") { positionalOnly = true; continue }
     if (!positionalOnly && (arg === "-h" || arg === "--help")) {
       parsed.help = true
+      continue
+    }
+    if (!positionalOnly && (arg === "--yes" || arg === "-y")) {
+      parsed.yes = true
       continue
     }
     if (!positionalOnly && arg === "--json") {
@@ -164,6 +174,16 @@ function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLi
   return 1
 }
 
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
 async function runRateLimitCommand(
   command: RateLimitCommand,
   args: string[],
@@ -184,6 +204,14 @@ async function runRateLimitCommand(
   if (parsed.help) {
     writeUsage(command, context.stdout)
     return 0
+  }
+  // A reset deletes the counter, which lets a limited client through again.
+  if (command.name === "reset" && !parsed.yes) {
+    const question = `Reset the Rate Limit ${parsed.name} for key ${redactInspectionText(parsed.key!)}? The next request starts a new window. [y/N] `
+    const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+    if (!confirmed) {
+      return writeFailure(parsed, context, { code: "RATE_LIMIT_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "rate-limit reset deletes a counter and was not confirmed." })
+    }
   }
   const called = await callOperationFromCli({
     env: context.env,

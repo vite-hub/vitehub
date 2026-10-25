@@ -31,7 +31,7 @@ const reset = defineRateLimitOperation<{ key: string, name: string }, RateLimitR
   cli: { positional: ["name", "key"] },
   description: "Delete the counter of one key, where the provider supports it.",
   input: target,
-  kind: "write",
+  kind: "destructive",
   name: "rate-limit.reset",
   run: async input => await (await runtime()).resetRateLimitOperation(input.name, input.key),
 })

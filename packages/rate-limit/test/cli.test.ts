@@ -118,6 +118,32 @@ describe("Rate Limit review regressions", () => {
     expect(fetch).toHaveBeenCalledOnce()
   })
 
+  it("asks before it resets a counter, and refuses without an answer", async () => {
+    const reset = { key: "192.0.2.1", name: "login", provider: "memory", scope: "process", status: "reset" }
+    const refused = context()
+    const fetch = devServer(reset)
+    // Tests run without a terminal, so nobody can answer.
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], refused.context, { fetch })).resolves.toBe(1)
+    expect(refused.stderr.output()).toContain("was not confirmed")
+    expect(refused.stderr.output()).toContain("--yes")
+    expect(fetch).not.toHaveBeenCalled()
+
+    const no = context()
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1", "--json"], no.context, { confirm: () => false, fetch })).resolves.toBe(1)
+    expect(JSON.parse(no.stdout.output())).toMatchObject({ error: { code: "RATE_LIMIT_NOT_CONFIRMED" } })
+    expect(fetch).not.toHaveBeenCalled()
+
+    const question = vi.fn(() => true)
+    const yes = context()
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], yes.context, { confirm: question, fetch })).resolves.toBe(0)
+    expect(question).toHaveBeenCalledWith(expect.stringContaining("login"))
+    expect(sentCall(fetch).body.operation).toBe("rate-limit.reset")
+
+    // A peek never asks.
+    const peek = context()
+    await expect(runRateLimitCli(["peek", "login", "192.0.2.1"], peek.context, { confirm: () => { throw new Error("must not ask") }, fetch: devServer(known) })).resolves.toBe(0)
+  })
+
   it("says to start the dev server when none runs", async () => {
     const output = context()
     output.context.env = {}
@@ -162,7 +188,7 @@ describe("vitehub rate-limit", () => {
 
     const reset = context()
     const fetch = devServer({ key: "192.0.2.1", name: "login", provider: "memory", scope: "process", status: "reset" })
-    await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], reset.context, { fetch })).resolves.toBe(0)
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1", "--yes"], reset.context, { fetch })).resolves.toBe(0)
     expect(sentCall(fetch).body).toEqual({ input: { key: "192.0.2.1", name: "login" }, operation: "rate-limit.reset" })
     expect(reset.stdout.output()).toBe([
       "Reset Rate Limit login for key 192.0.2.1.",
@@ -179,11 +205,11 @@ describe("vitehub rate-limit", () => {
     expect(peek.stdout.output()).toBe(`Rate Limit login, key 192.0.2.1\nProvider: cloudflare\nCounter unknown: ${cloudflareReason}\n`)
 
     const reset = context()
-    await expect(runRateLimitCli(["reset", "login", "192.0.2.1"], reset.context, { fetch: devServer(unsupported) })).resolves.toBe(1)
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1", "-y"], reset.context, { fetch: devServer(unsupported) })).resolves.toBe(1)
     expect(reset.stdout.output()).toBe(`Rate Limit login, key 192.0.2.1\nProvider: cloudflare\nNot reset: ${cloudflareReason}\n`)
 
     const json = context()
-    await expect(runRateLimitCli(["reset", "login", "192.0.2.1", "--json"], json.context, { fetch: devServer(unsupported) })).resolves.toBe(1)
+    await expect(runRateLimitCli(["reset", "login", "192.0.2.1", "--json", "--yes"], json.context, { fetch: devServer(unsupported) })).resolves.toBe(1)
     expect(JSON.parse(json.stdout.output())).toEqual(unsupported)
   })
 

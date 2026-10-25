@@ -119,7 +119,7 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 | memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Deletes the counter.  |
 | cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`.        |
 
-For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
+For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` (which asks on a terminal, or needs `--yes`) run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
 
 ## Public imports
 

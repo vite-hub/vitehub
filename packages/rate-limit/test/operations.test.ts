@@ -78,10 +78,10 @@ describe("rate-limit operations", () => {
     expect(await call("rate-limit.reset", input, ["rate-limits"])).toMatchObject({ ok: true })
   })
 
-  it("marks peek as a read and reset as a write, in the rate-limit CLI namespace", () => {
+  it("marks peek as a read and reset as destructive, in the rate-limit CLI namespace", () => {
     expect(registry.list().map(operation => [operation.name, operation.kind, operation.cli?.namespace])).toEqual([
       ["rate-limit.peek", "read", "rate-limit"],
-      ["rate-limit.reset", "write", "rate-limit"],
+      ["rate-limit.reset", "destructive", "rate-limit"],
     ])
   })
 })
