@@ -17,7 +17,7 @@ icon: i-lucide-files
     plugins: [
       // On Node, files are saved in .vitehub/data/blob
       vitehub({ preset: 'node', blob: true }),
-      nitro() as never,
+      nitro(),
     ],
   })
   ```

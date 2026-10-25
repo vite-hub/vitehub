@@ -30,7 +30,7 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubDb(), nitro() as never],
+  plugins: [hubDb(), nitro()],
 })
 ```
 

@@ -48,7 +48,7 @@ export default defineConfig({
   plugins: [
     vitehub({ preset: "cloudflare", browser: true }),
     // Nitro is runtime-compatible with Vite despite its prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
 })`,
         },

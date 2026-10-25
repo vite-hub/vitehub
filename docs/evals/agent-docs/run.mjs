@@ -66,7 +66,7 @@ function writeProject(root) {
     "import { nitro } from 'nitro/vite'",
     "",
     "export default defineConfig({",
-    "  plugins: [nitro() as never],",
+    "  plugins: [nitro()],",
     "})",
     "",
   ].join("\n"));

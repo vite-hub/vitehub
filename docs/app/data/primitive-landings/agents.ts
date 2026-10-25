@@ -26,7 +26,7 @@ export default defineConfig({
   plugins: [
     vitehub({ preset: "node", agent: true }),
     // Nitro's Vite plugin has a prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
 })`,
 };
