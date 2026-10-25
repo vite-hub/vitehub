@@ -189,7 +189,6 @@
   },
   "dependencies": {
     "@comark/vue": "0.7.0",
-    "@iconify-json/ph": "catalog:ui",
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
     "@types/node": "catalog:tooling",
@@ -199,6 +198,7 @@
     "shiki": "^4.5.0"
   },
   "devDependencies": {
+    "@iconify-json/ph": "catalog:ui",
     "@nuxt/ui": "catalog:nuxt",
     "@pierre/diffs": "1.5.2",
     "@pierre/theme": "2.0.0",
@@ -220,12 +220,16 @@
     "@vite-hub/agent": "workspace:*"
   },
   "peerDependencies": {
+    "@iconify-json/ph": "catalog:ui",
     "@nuxt/ui": "^4.11.0",
     "ai": "catalog:ai-compat",
     "vite": "catalog:vite-compat",
     "vue": "catalog:ui"
   },
   "peerDependenciesMeta": {
+    "@iconify-json/ph": {
+      "optional": true
+    },
     "@nuxt/ui": {
       "optional": true
     },

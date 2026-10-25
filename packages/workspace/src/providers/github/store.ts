@@ -63,6 +63,58 @@ interface GitHubWorkspaceStoreFile {
   size?: number;
 }
 
+const fileMetadataPrefix = ".vitehub/file-metadata/";
+
+function isFileMetadataPath(path: string): boolean {
+  return path.startsWith(fileMetadataPrefix) && path.endsWith(".json");
+}
+
+function fileMetadataPath(path: string): string {
+  return `${fileMetadataPrefix}${encodeURIComponent(path)}.json`;
+}
+
+function filePathFromMetadataPath(path: string): string {
+  try {
+    return decodeURIComponent(path.slice(fileMetadataPrefix.length, -5));
+  }
+  catch {
+    return "";
+  }
+}
+
+function portableMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== "gitMode" && key !== "symlinkTarget"));
+}
+
+function fileAttributesBytes(file: Pick<GitHubWorkspaceStoreFile, "mediaType" | "metadata">): Uint8Array | undefined {
+  const metadata = file.metadata && portableMetadata(file.metadata);
+  if (file.mediaType === undefined && (!metadata || Object.keys(metadata).length === 0)) return undefined;
+  return contentToBytes(JSON.stringify({
+    ...(file.mediaType === undefined ? {} : { mediaType: file.mediaType }),
+    ...(metadata && Object.keys(metadata).length > 0 ? { metadata } : {}),
+  }));
+}
+
+function parseFileAttributes(bytes: Uint8Array): { mediaType?: string; metadata?: Record<string, unknown> } {
+  try {
+    const value: unknown = JSON.parse(new TextDecoder().decode(bytes));
+    if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+    const record = value as Record<string, unknown>;
+    const metadata = record.metadata;
+    return {
+      ...(typeof record.mediaType === "string" ? { mediaType: record.mediaType } : {}),
+      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { metadata: portableMetadata(metadata as Record<string, unknown>) } : {}),
+    };
+  }
+  catch {
+    return {};
+  }
+}
+
+function sameFileAttributes(left: Pick<GitHubWorkspaceStoreFile, "mediaType" | "metadata"> | undefined, right: Pick<GitHubWorkspaceStoreFile, "mediaType" | "metadata">): boolean {
+  return left?.mediaType === right.mediaType && JSON.stringify(left?.metadata) === JSON.stringify(right.metadata);
+}
+
 function sameGitHubTreeEntry(
   left: GitHubTreeEntry | undefined,
   right: GitHubTreeEntry | undefined,
@@ -79,10 +131,19 @@ function matchesGitHubRemote(
   );
 }
 
-function githubRemoteFile(path: string, entry: GitHubTreeEntry): GitHubWorkspaceStoreFile {
+function githubRemoteFile(
+  path: string,
+  entry: GitHubTreeEntry,
+  attributes?: { mediaType?: string; metadata?: Record<string, unknown> },
+): GitHubWorkspaceStoreFile {
+  const treeMetadata = gitHubFileMetadata(entry);
+  const metadata = treeMetadata || attributes?.metadata
+    ? { ...treeMetadata, ...attributes?.metadata }
+    : undefined;
   return {
     gitSha: entry.sha,
-    metadata: gitHubFileMetadata(entry),
+    ...(attributes?.mediaType === undefined ? {} : { mediaType: attributes.mediaType }),
+    ...(metadata ? { metadata } : {}),
     path,
     size: entry.size,
   };
@@ -156,6 +217,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #mutationQueue: Promise<void> = Promise.resolve();
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
+  #remoteMetadataFiles = new Map<string, GitHubTreeEntry>();
   #repository: string;
   #client: GitHubRepository;
   #root: string;
@@ -263,7 +325,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     const bytes = contentToBytes(content);
     const gitSha = await gitBlobSha(bytes);
     if (current?.gitSha === gitSha) {
-      if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata)) this.#dirty = true;
+      if (gitHubFileMode(current.metadata) !== gitHubFileMode(metadata) || !sameFileAttributes(current, { mediaType: file.mediaType, metadata })) this.#dirty = true;
       this.#files.set(normalized, {
         ...current,
         bytes,
@@ -378,37 +440,49 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         repository: this.#client,
         root: this.#root,
       });
+      const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
+      const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
+      const remoteAttributes = new Map<string, { mediaType?: string; metadata?: Record<string, unknown> }>();
+      await Promise.all([...remoteMetadataFiles].map(async ([path, entry]) => {
+        const bytes = await readGitHubFile(this.#client, entry, remote.refSha);
+        remoteAttributes.set(filePathFromMetadataPath(path), parseFileAttributes(bytes));
+      }));
       const takeRemote = options.takeRemote || [];
       const shouldTakeRemote = (path: string) => takeRemote.some(
         root => path === root || path.startsWith(`${root}/`),
       );
       const local = new Map(this.#files);
       const previousRemoteFiles = this.#remoteFiles;
+      const previousRemoteMetadataFiles = this.#remoteMetadataFiles;
       const changed = new Set([...previousRemoteFiles.keys(), ...local.keys()]);
       if (remote.refSha === this.#baselineRefSha) {
         for (const path of changed) {
           if (!shouldTakeRemote(path)) continue;
-          const file = remote.files.get(path);
-          if (file) this.#files.set(path, githubRemoteFile(path, file));
+          const file = remoteFiles.get(path);
+          if (file) this.#files.set(path, githubRemoteFile(path, file, remoteAttributes.get(path)));
           else this.#files.delete(path);
         }
-        this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
-          path => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
-        );
+        this.#dirty = await this.#hasRemoteChanges();
         return;
       }
 
       for (const path of changed) {
-        if (matchesGitHubRemote(local.get(path), previousRemoteFiles.get(path))) {
+        if (await this.#matchesRemote(
+          local.get(path),
+          previousRemoteFiles.get(path),
+          previousRemoteMetadataFiles.get(fileMetadataPath(path)),
+        )) {
           changed.delete(path);
           continue;
         }
         const previous = previousRemoteFiles.get(path);
-        const current = remote.files.get(path);
+        const current = remoteFiles.get(path);
+        const previousMetadata = previousRemoteMetadataFiles.get(fileMetadataPath(path));
+        const currentMetadata = remoteMetadataFiles.get(fileMetadataPath(path));
         if (
-          !sameGitHubTreeEntry(previous, current) &&
+          (!sameGitHubTreeEntry(previous, current) || !sameGitHubTreeEntry(previousMetadata, currentMetadata)) &&
           !shouldTakeRemote(path) &&
-          !matchesGitHubRemote(local.get(path), current)
+          !await this.#matchesRemote(local.get(path), current, currentMetadata)
         ) {
           throw workspaceConflict(
             `[vitehub] GitHub Workspace Store rebase conflict for ${this.#repository}@${this.#branch}: ${path} changed locally and remotely.`,
@@ -417,9 +491,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       }
 
       this.#baselineRefSha = remote.refSha;
-      this.#remoteFiles = remote.files;
+      this.#remoteFiles = remoteFiles;
+      this.#remoteMetadataFiles = remoteMetadataFiles;
       this.#files = new Map(
-        [...remote.files].map(([path, entry]) => [path, githubRemoteFile(path, entry)]),
+        [...remoteFiles].map(([path, entry]) => [path, githubRemoteFile(path, entry, remoteAttributes.get(path))]),
       );
       this.#baseline = await createSnapshotFromEntries(
         await this.#listEntries("", { recursive: true }, false),
@@ -432,9 +507,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         if (file) this.#files.set(path, file);
         else this.#files.delete(path);
       }
-      this.#dirty = [...new Set([...this.#remoteFiles.keys(), ...this.#files.keys()])].some(
-        (path) => !matchesGitHubRemote(this.#files.get(path), this.#remoteFiles.get(path)),
-      );
+      this.#dirty = await this.#hasRemoteChanges();
     });
   }
 
@@ -463,17 +536,29 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         repository: this.#repository,
       });
     }
-    this.#remoteFiles = remote.files;
+    const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
+    const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
+    this.#remoteFiles = remoteFiles;
+    this.#remoteMetadataFiles = remoteMetadataFiles;
     this.#baselineRefSha = remote.refSha;
 
     const changedFiles = [...this.#files.values()].filter(
       (file) => !matchesGitHubRemote(file, this.#remoteFiles.get(file.path)),
     );
+    const changedMetadataFiles = (await Promise.all([...this.#files.values()].map(async file => {
+      const bytes = fileAttributesBytes(file);
+      const remote = this.#remoteMetadataFiles.get(fileMetadataPath(file.path));
+      if (!bytes) return undefined;
+      return remote?.sha === await gitBlobSha(bytes) ? undefined : file;
+    }))).filter((file): file is GitHubWorkspaceStoreFile => Boolean(file));
     const deletePaths = [...this.#remoteFiles]
       .filter(([path]) => !this.#files.has(path))
-      .map(([, entry]) => entry.path);
+      .map(([, entry]) => entry.path)
+      .concat([...this.#remoteMetadataFiles]
+        .filter(([path]) => !this.#files.has(filePathFromMetadataPath(path)) || !fileAttributesBytes(this.#files.get(filePathFromMetadataPath(path))!))
+        .map(([, entry]) => entry.path));
 
-    if (!changedFiles.length && !deletePaths.length) {
+    if (!changedFiles.length && !changedMetadataFiles.length && !deletePaths.length) {
       this.#dirty = false;
       this.#baseline = snapshot;
       return snapshot;
@@ -484,6 +569,10 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       fullPath: joinGitPath(this.#root, file.path),
       mode: gitHubFileMode(file.metadata),
     })));
+    for (const file of changedMetadataFiles) {
+      const bytes = fileAttributesBytes(file);
+      if (bytes) files.push({ bytes, fullPath: joinGitPath(this.#root, fileMetadataPath(file.path)), mode: "100644" });
+    }
     const commitSha = await commitGitHubChanges({
       branch: this.#branch,
       branchExists: remote.branchExists,
@@ -498,6 +587,7 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     this.#dirty = false;
     this.#baselineRefSha = commitSha;
     this.#remoteFiles = this.#toRemoteFiles();
+    this.#remoteMetadataFiles = await this.#toRemoteMetadataFiles();
     this.#baseline = { ...snapshot, id: commitSha };
     return this.#baseline;
   }
@@ -552,6 +642,29 @@ class GitHubWorkspaceStore implements WorkspaceStore {
     if (wasReady && options.refresh && !this.#dirty) await this.#load();
   }
 
+  async #matchesRemote(
+    file: GitHubWorkspaceStoreFile | undefined,
+    remote: GitHubTreeEntry | undefined,
+    remoteMetadata: GitHubTreeEntry | undefined,
+  ): Promise<boolean> {
+    if (!matchesGitHubRemote(file, remote)) return false;
+    const attributes = file && fileAttributesBytes(file);
+    if (!attributes) return !remoteMetadata;
+    return remoteMetadata?.sha === await gitBlobSha(attributes);
+  }
+
+  async #hasRemoteChanges(): Promise<boolean> {
+    const paths = new Set([...this.#remoteFiles.keys(), ...this.#files.keys()]);
+    for (const path of paths) {
+      if (!await this.#matchesRemote(
+        this.#files.get(path),
+        this.#remoteFiles.get(path),
+        this.#remoteMetadataFiles.get(fileMetadataPath(path)),
+      )) return true;
+    }
+    return false;
+  }
+
   async #load(): Promise<void> {
     const previousFiles = this.#files;
     const remote = await readGitHubBranchState({
@@ -560,19 +673,25 @@ class GitHubWorkspaceStore implements WorkspaceStore {
       root: this.#root,
     });
     this.#baselineRefSha = remote.refSha;
-    this.#remoteFiles = remote.files;
+    const remoteFiles = new Map([...remote.files].filter(([path]) => !isFileMetadataPath(path)));
+    const remoteMetadataFiles = new Map([...remote.files].filter(([path]) => isFileMetadataPath(path)));
+    const attributes = new Map<string, { mediaType?: string; metadata?: Record<string, unknown> }>();
+    await Promise.all([...remoteMetadataFiles].map(async ([path, entry]) => {
+      const bytes = await readGitHubFile(this.#client, entry, remote.refSha);
+      attributes.set(filePathFromMetadataPath(path), parseFileAttributes(bytes));
+    }));
+    this.#remoteFiles = remoteFiles;
+    this.#remoteMetadataFiles = remoteMetadataFiles;
     if (!this.#dirty) {
       this.#files = new Map(
-        [...remote.files].map(([path, entry]) => {
+        [...remoteFiles].map(([path, entry]) => {
           const previous = previousFiles.get(path);
+          const fileAttributes = attributes.get(path);
           return [path, {
+            ...githubRemoteFile(path, entry, fileAttributes),
             ...(previous && previous.gitSha === entry.sha && gitHubFileMode(previous.metadata) === entry.mode
               ? { bytes: previous.bytes }
               : {}),
-            gitSha: entry.sha,
-            metadata: gitHubFileMetadata(entry),
-            path,
-            size: entry.size,
           }];
         }),
       );
@@ -696,6 +815,20 @@ class GitHubWorkspaceStore implements WorkspaceStore {
         },
       ]),
     );
+  }
+
+  async #toRemoteMetadataFiles(): Promise<Map<string, GitHubTreeEntry>> {
+    const entries: Array<readonly [string, GitHubTreeEntry] | undefined> = await Promise.all([...this.#files.values()].map(async file => {
+        const bytes = fileAttributesBytes(file);
+        if (!bytes) return undefined;
+        return [fileMetadataPath(file.path), {
+          mode: "100644",
+          path: joinGitPath(this.#root, fileMetadataPath(file.path)),
+          sha: await gitBlobSha(bytes),
+          size: bytes.byteLength,
+        }] as const;
+      }));
+    return new Map(entries.filter((entry): entry is readonly [string, GitHubTreeEntry] => entry !== undefined));
   }
 }
 
