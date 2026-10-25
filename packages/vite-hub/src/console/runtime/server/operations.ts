@@ -10,6 +10,11 @@ import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-
 import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
+/** Document actions that only read. A read-only section grant keeps them. */
+const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "revisions", "search", "session", "sessions"])
+/** Media actions that only read. */
+const consoleMediaReadActions: ReadonlySet<string> = new Set(["get", "info", "list", "usage"])
+
 type QueryValue = string | number | boolean | readonly string[] | undefined
 
 /** The pieces of the former route request that a legacy Console handler reads. */
@@ -142,6 +147,8 @@ const documentsAction = defineConsoleOperation({
   input: v.strictObject({ action: v.picklist(consoleDocumentActionNames), body: v.optional(v.unknown()), section: text }),
   kind: "write",
   maxRequestBytes: consoleOperationRequestBytes["documents.action"],
+  // A read-only grant still opens, lists, and searches documents.
+  readOnlyWhen: ({ action }) => consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
     const result = actionResult(await (await import("./documents.ts")).default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
@@ -243,6 +250,8 @@ const mediaAction = defineConsoleOperation({
   input: v.strictObject({ action: text, body: v.optional(v.unknown()), section: text }),
   kind: "write",
   maxRequestBytes: consoleOperationRequestBytes["media.action"],
+  // A read-only grant still browses the library.
+  readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
   run: async ({ action, body, section }, context) => (await import("./media.ts")).runConsoleMediaAction(section, action, body, context.access as ConsoleAccess),
   section: input => input.section,

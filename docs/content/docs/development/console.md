@@ -343,7 +343,8 @@ export default defineConsoleAuthorize(async ({ request }) => {
 | Result | Effect |
 | --- | --- |
 | `true` | Allows every Console section. |
-| `{ sections: ['content'] }` | Allows only these section ids. An empty list returns `403`. |
+| `{ sections: ['content'] }` | Allows only these section ids, with every action of the section. An empty list returns `403`. |
+| `{ sections: ['kv:read'] }` | Allows the section `kv` for reads only. Operations of kind `write` or `destructive` return `403`, unless the call only reads (`readOnlyWhen`). |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401` or a redirect. |
 
@@ -358,6 +359,8 @@ export default defineConsoleAuthorize(({ user }) => {
   return false
 })
 ```
+
+A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins.
 
 Section ids are the ids in the Console URL, such as `env`, `connections`, `agents`, `usage`, `content`, `blob`, `databases`, `kv`, `workspaces`, `workflows`, `queues`, and `schedules`. Each Console route and RPC operation declares its section, and the server returns `403` for a section outside the list. Write actions follow the section that owns them: Env management needs `env`, Connections management needs `connections`, Agent Invocations and Channel replay need `agents`, Schedule runs need `schedules`, and Content saves and publishes need `content`. Content then checks `content.can()` for the signed-in user, so `{ sections: ['content'] }` gives an editor the section, and `defineContent({ authorize })` decides which collections and actions they get. The Console navigation shows only the allowed sections. That is a convenience. The server check is the security boundary.
 

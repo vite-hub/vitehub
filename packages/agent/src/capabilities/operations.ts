@@ -15,7 +15,7 @@ export type OperationsApproval = "all" | "destructive" | "never" | "write" | rea
 export interface OperationsCapabilityOptions {
   /** Operation names, or a section with a star, such as `content.*`. `*` exposes every operation. */
   include: readonly string[]
-  /** Operations that wait for approval. Default: `destructive`. */
+  /** Operations that wait for approval. Default: `write`. */
   approve?: OperationsApproval
   /**
    * Map the Invocation's Actor to the user that the operations see. Default: the Auth user the Actor stands for when Auth
@@ -84,8 +84,9 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
   const access = { mode: "agent", sections, ...(user ? { user } : {}) }
   const selected = registry.list()
     .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
-    // An operation that reads its section from the input is checked again when it runs.
-    .filter(operation => typeof operation.section === "function" || operationAccessAllows(access, operation.section))
+    // An operation that reads its section from the input is checked again when it runs. A read-only grant keeps the
+    // operations that read, and the ones with a dry run.
+    .filter(operation => typeof operation.section === "function" || operationAccessAllows(access, operation.section, { kind: operation.kind, readOnly: operation.readOnlyWhen !== undefined }))
   const tools: AgentToolSet = {}
   for (const operation of selected) {
     const approval: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"
@@ -120,13 +121,13 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
  * underscores (`content.publish` is `content_publish`). The operations see the Auth user that the Actor stands for.
  * `console.authorize` runs for that user (with a request that has no headers) and decides which Console sections it may
  * use: an operation of another section is not offered. An app without `console.authorize` has no such filter, so the
- * `include` list is the only gate. Destructive operations wait for approval unless `approve` says otherwise, and a
+ * `include` list is the only gate. Write and destructive operations wait for approval unless `approve` says otherwise, and a
  * dry run (`readOnlyWhen`) never waits.
  */
 export function operations(options: OperationsCapabilityOptions): AgentCapabilityDefinition {
   const parsed = v.safeParse(optionsSchema, options)
   if (!parsed.success) throw agentDiagnostics.AGENT_C0013()
-  const { approve = "destructive", include, overrideLeases = false, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
+  const { approve = "write", include, overrideLeases = false, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
   return defineCapability({
     id: "operations",
     metadata: { approve: typeof approve === "string" ? approve : Array.isArray(approve) ? approve : "custom", include: [...include] },

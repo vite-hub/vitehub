@@ -16,10 +16,11 @@ import { createConnectionsHandler } from "@vite-hub/connections/http"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
 import { bindConsoleAccess, consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
+import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -291,6 +292,51 @@ describe("Console access grants", () => {
     await expect(outer(event())).resolves.toEqual({ mode: "auth", sections: "all" })
     expect(check).toHaveBeenCalledTimes(1)
     expect(inner).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("read-only section access", () => {
+  const readOnly: ConsoleAuthorize = () => ({ sections: ["agents:read"] })
+
+  function rpc(operation: string, input: unknown = {}) {
+    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input, operation }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }))
+  }
+
+  it("shows the section but refuses a write route of it", async () => {
+    installConsoleAccess({ mode: "open", authorize: readOnly })
+    const read = vi.fn(() => "data")
+    const write = vi.fn(() => "changed")
+    expect(await withConsoleAccess(read, { section: "agents" })(event())).toBe("data")
+    await expect(rejection(await withConsoleAccess(write, { section: "agents", write: true })(event()))).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
+    expect(write).not.toHaveBeenCalled()
+    await expect(rejection(await withConsoleAccess(read, { section: "usage" })(event()))).resolves.toMatchObject({ status: 403 })
+    // The full grant wins over the read-only one.
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["agents:read", "agents"] }) })
+    expect(await withConsoleAccess(write, { section: "agents", write: true })(event())).toBe("changed")
+  })
+
+  it("keeps the reads of the mixed document and media actions for a read-only grant", () => {
+    const registry = consoleOperationRegistry()
+    const documents = registry.get("documents.action")!
+    const media = registry.get("media.action")!
+    expect(documents.readOnlyWhen?.({ action: "list", section: "content" } as never)).toBe(true)
+    expect(documents.readOnlyWhen?.({ action: "save", section: "content" } as never)).toBe(false)
+    expect(media.readOnlyWhen?.({ action: "usage", section: "content" } as never)).toBe(true)
+    expect(media.readOnlyWhen?.({ action: "remove", section: "content" } as never)).toBe(false)
+  })
+
+  it("runs reads over the RPC and refuses writes", async () => {
+    installConsoleAccess({ mode: "open", authorize: readOnly })
+    installConsoleSections("/console-read-only", ["agents"])
+    expect((await rpc("sections.list")).status).toBe(200)
+    expect((await rpc("invocations.list")).status).not.toBe(403)
+    const refused = await rpc("invocations.cancel", { id: "run-1" })
+    expect(refused.status).toBe(403)
+    await expect(refused.json()).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
   })
 })
 

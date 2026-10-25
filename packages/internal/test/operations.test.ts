@@ -36,6 +36,20 @@ describe("operations", () => {
     expect(await runOperation(registry, "demo.greet", { name: "Ada" }, context(["other"]))).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
   })
 
+  it("lets a read-only grant run reads and dry runs, and refuses writes", async () => {
+    const write = defineOperation({ description: "Write.", input: v.object({ dryRun: v.optional(v.boolean()) }), kind: "write", name: "demo.write", readOnlyWhen: input => input.dryRun === true, run: () => "done", section: "demo" })
+    const registry = createOperationRegistry([{ operations: [greet, write] }])
+    const readOnly = context(["demo:read"])
+    expect(await runOperation(registry, "demo.greet", { name: "Ada" }, readOnly)).toEqual({ ok: true, value: "hello Ada" })
+    expect(await runOperation(registry, "demo.write", { dryRun: true }, readOnly)).toEqual({ ok: true, value: "done" })
+    const refused = await runOperation(registry, "demo.write", {}, readOnly)
+    expect(refused).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+    expect(refused.ok === false && refused.message).toContain("read-only")
+    // The full grant wins, and a grant of another section does not help.
+    expect(await runOperation(registry, "demo.write", {}, context(["demo:read", "demo"]))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "demo.greet", { name: "Ada" }, context(["other:read"]))).toMatchObject({ code: "INTERNAL_R0023", ok: false })
+  })
+
   it("reads the section from the input when the section is a function", async () => {
     const dynamic = defineOperation({
       description: "Read a section.",

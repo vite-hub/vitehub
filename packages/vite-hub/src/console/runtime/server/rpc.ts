@@ -1,10 +1,10 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, developmentRuntime, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, developmentRuntime, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { uploadConsoleMedia } from "./media.ts"
@@ -195,7 +195,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
-    if (!consoleAccessAllows(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section.")
+    if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
     return uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
@@ -218,6 +218,10 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
+  }
+  // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
+  if (section !== false && !operationAccessAllows(context.access, section, operationCall(operation, input))) {
+    throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleAccessUser(context.access)
