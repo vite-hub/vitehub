@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import type { UIMessage } from "ai";
 
-// SAFETY: Every fixture entry below is a concrete AI SDK UIMessage part variant.
-const parts = [
+const parts: UIMessage["parts"] = [
   {
     type: "text",
     text: "I found the failing layout rule and verified the fix.",
@@ -27,7 +26,7 @@ const parts = [
     url: "https://vitehub.dev/docs/ui",
     title: "ViteHub UI documentation",
   },
-] as UIMessage["parts"];
+];
 </script>
 
 <template>
