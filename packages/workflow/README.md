@@ -56,7 +56,6 @@ ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server
 // server/workflow-runtime.ts
 import type {
   ResolvedWorkflowOptions,
-  WorkflowDefinition,
   WorkflowDefinitionRegistry,
 } from "@vite-hub/workflow";
 import {
@@ -74,9 +73,7 @@ export const workflowConfig = {
 } satisfies ResolvedWorkflowOptions;
 
 const workflowRegistry = {
-  "onboard-user": async () => ({
-    default: (await import("./workflows/onboard-user.ts")).default as WorkflowDefinition,
-  }),
+  "onboard-user": () => import("./workflows/onboard-user.ts"),
 } satisfies WorkflowDefinitionRegistry;
 
 export function installWorkflowRuntime() {

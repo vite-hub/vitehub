@@ -90,7 +90,7 @@ icon: i-lucide-radio
   export default defineConfig({
     plugins: [
       vue(),
-      nitro() as never,
+      nitro(),
       vitehub({
         preset: 'node',
         // Keep rooms in this server process

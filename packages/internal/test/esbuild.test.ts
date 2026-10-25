@@ -22,6 +22,96 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it.each(["cloudflare", "vercel", "netlify"] as const)("minifies final %s output with independent opt-outs and preserved runtime behavior", async (provider) => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const runtime = resolve(import.meta.dirname, "../../runtime/src/index.ts")
+    await writeFile(entry, `
+import { basename } from "node:path"
+import { createRuntimeContext, defineCapability, getCapability, ViteHubError, getViteHubErrorShape } from ${JSON.stringify(runtime)}
+export const environment = () => process.env.NODE_ENV
+export const fileName = () => basename("/provider/entry.mjs")
+export function branch() {
+  const enabled = false
+  if (enabled) return "unreachable-provider-branch"
+  return "ready"
+}
+export function names() {
+  const retainedFunction = function() {}
+  const RetainedClass = class {}
+  return [retainedFunction, RetainedClass].map(value => value.name)
+}
+export default async function handleRequest(request) {
+  const context = createRuntimeContext({ runtime: "node", capabilities: { health: defineCapability("health", { status: "ready" }) } })
+  let drained = false
+  context.waitUntil(Promise.resolve().then(() => { drained = true }))
+  await context.flushWaitUntil()
+  try {
+    if (new URL(request.url).pathname === "/error") throw new ViteHubError("PROVIDER_DENIED", "Access denied", { details: { reason: "test" } })
+    return Response.json({ runtime: context.runtime, health: getCapability(context, "health").value.status, drained })
+  } catch (error) {
+    return Response.json(getViteHubErrorShape(error), { status: 403 })
+  }
+}
+`)
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const outputs = new Map<string, string>()
+    for (const [mode, minification] of Object.entries({
+      compact: {},
+      readable: { minifySyntax: false, minifyWhitespace: false },
+      syntax: { minifyWhitespace: false },
+      whitespace: { minifySyntax: false },
+    })) {
+      const outputRoot = resolve(rootDir, mode)
+      const bundleOptions = { ...minification, external: ["node:*"], platform: provider === "cloudflare" ? "neutral" : "node" } satisfies NonNullable<Parameters<typeof bundleEsmEntry>[2]>
+      await writeProviderDeploymentOutputs({
+        clientOutDir: "dist",
+        rootDir,
+        ...(provider === "cloudflare" ? {
+          cloudflare: { bundleEntry: entry, bundleOptions, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+        } : provider === "vercel" ? {
+          vercel: { bundleEntry: entry, bundleOptions, outputRoot },
+        } : {
+          netlify: { functions: [{ bundleEntry: entry, bundleOptions, functionName: "handler" }], outputRoot },
+        }),
+      })
+      const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
+      const code = await readFile(outfile, "utf8")
+      outputs.set(mode, code)
+      expect(code).toContain('"node:path"')
+      expect(code).toContain("process.env.NODE_ENV")
+      // SAFETY: The entry above defines these exports and each output is imported from its own path.
+      const loaded = await import(pathToFileURL(outfile).href) as {
+        default: (request: Request) => Promise<Response>
+        branch: () => string
+        environment: () => string | undefined
+        fileName: () => string
+        names: () => string[]
+      }
+      expect(loaded.default.name).toBe("handleRequest")
+      expect(loaded.branch()).toBe("ready")
+      expect(loaded.names()).toEqual(["retainedFunction", "RetainedClass"])
+      expect(loaded.environment()).toBe(process.env.NODE_ENV)
+      expect(loaded.fileName()).toBe("entry.mjs")
+      await expect((await loaded.default(new Request("https://provider.test/"))).json()).resolves.toEqual({ runtime: "node", health: "ready", drained: true })
+      const denied = await loaded.default(new Request("https://provider.test/error"))
+      expect(denied.status).toBe(403)
+      await expect(denied.json()).resolves.toMatchObject({ code: "PROVIDER_DENIED", message: "Access denied", details: { reason: "test" } })
+    }
+    const compact = outputs.get("compact")!
+    const readable = outputs.get("readable")!
+    expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(readable) * 0.9)
+    expect(compact.split("\n").length).toBeLessThan(outputs.get("syntax")!.split("\n").length)
+    expect(compact).not.toContain("unreachable-provider-branch")
+    expect(outputs.get("syntax")).not.toContain("unreachable-provider-branch")
+    expect(outputs.get("whitespace")).toContain("unreachable-provider-branch")
+    expect(readable).toContain("unreachable-provider-branch")
+    const intermediate = resolve(rootDir, "intermediate.mjs")
+    await bundleEsmEntry(entry, intermediate, { external: ["node:*"], platform: provider === "cloudflare" ? "neutral" : "node" })
+    expect(await readFile(intermediate, "utf8")).toBe(readable)
+  })
+
   it("keeps mounted Console links isolated across concurrent provider builds", async () => {
     const { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } = await import("../src/build/deployment-output.ts")
     const runtime = resolve(import.meta.dirname, "../../runtime/src/public-url.ts")

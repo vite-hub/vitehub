@@ -27,7 +27,7 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubSandboxTask({ provider: 'vercel' }), nitro() as never],
+  plugins: [hubSandboxTask({ provider: 'vercel' }), nitro()],
 })
 ```
 
