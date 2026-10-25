@@ -1,7 +1,7 @@
 import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "channels", "blob", "databases", "kv"] as const
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -36,6 +36,12 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "Usage",
     routeName: "vitehub-console-usage",
   },
+  channels: {
+    description: "Read and export the conversations of Agent Channels.",
+    icon: "i-lucide-messages-square",
+    label: "Channels",
+    routeName: "vitehub-console-channels",
+  },
   blob: {
     description: "Inspect configured Blob stores and object metadata without downloading contents.",
     icon: "i-lucide-file-box",
@@ -64,6 +70,7 @@ export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
   agents: "agents",
   usage: "agents",
+  channels: "agents",
   databases: "data",
   kv: "data",
   blob: "data",
@@ -144,6 +151,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
+  primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", "agents/channels"),
   primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
   primitive("databases", "Databases", consoleSectionDetails.databases.icon, "database", "Define relational data with Drizzle and query it through generated imports."),
@@ -205,6 +213,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   agents: "a",
   content: "t",
   usage: "u",
+  channels: "h",
   databases: "d",
   kv: "k",
   blob: "b",
@@ -325,7 +334,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.auth ? ["auth"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
-    ...(options.agent ? ["agents", "usage"] : []),
+    ...(options.agent ? ["agents", "usage", "channels"] : []),
     ...(options.blob ? ["blob"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
