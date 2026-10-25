@@ -3,6 +3,7 @@ import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
@@ -76,12 +77,36 @@ function configuredScanDirs(value: unknown): string[] | undefined {
     : undefined
 }
 
+/**
+ * Tell `vitehub` commands where `nuxt dev` listens: `.vitehub/dev-server.json` in the root, removed when Nuxt closes.
+ * Nuxt runs Vite in middleware mode, so the Vite plugin cannot see the listener.
+ */
+function publishNuxtDevServer(nuxt: NuxtLike): void {
+  const root = resolve(nuxt.options.rootDir || process.cwd())
+  nuxt.hook?.("listen", (_server, listener) => {
+    try {
+      writeViteHubDevServerFile(root, { root, url: listener.url })
+    }
+    catch {
+      // A read-only root only means commands must pass --url.
+    }
+  })
+  nuxt.hook?.("close", async () => {
+    try {
+      removeViteHubDevServerFile(root)
+    }
+    catch {
+      // The file is advisory.
+    }
+  })
+}
+
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: (
+  hook?: ((
     name: "close" | "nitro:config",
     callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
-  ) => void
+  ) => void) & ((name: "listen", callback: (server: unknown, listener: { url: string }) => void) => void)
   options: {
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
@@ -1053,6 +1078,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       removeGeneratedHandlersListener()
     })
   }
+  if (nuxt.options.dev && !nuxt.options.vitehubCliDiscovery) publishNuxtDevServer(nuxt)
   typesPlugin?.api?.setPrepareSources?.(sourcePlugin?.api?.prepareSources)
   await typesPlugin?.api?.prepareTypes?.({ projectRoot })
 
