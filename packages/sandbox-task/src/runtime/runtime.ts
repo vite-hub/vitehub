@@ -1,8 +1,8 @@
 import { CLOUDFLARE_RETRIABLE_STARTUP_ERROR_RE, CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS, collectCloudflareErrorMessages } from '../internal/shared/cloudflare-retry'
 import { sleep } from '../internal/shared/utils'
-import { sandboxTaskError } from '../sandbox-task/errors'
+import { isSandboxTaskError, sandboxTaskError } from '../sandbox-task/errors'
 import { executeSandboxTaskDefinition } from './execute'
-import { readSandboxTaskErrorMetadata, toSandboxTaskError } from './error-normalization'
+import { combineSandboxTaskErrors, readSandboxTaskErrorMetadata, toSandboxTaskError } from './error-normalization'
 import { createTaskSandbox, type TaskSandbox } from './task-sandbox'
 import type { ResolvedTaskSandbox } from './provider-loader'
 import {
@@ -80,6 +80,9 @@ async function serializeCloudflareRun<TResult>(id: string | undefined, run: () =
 }
 
 function isRetriableCloudflareSandboxError(error: unknown) {
+  // A cleanup failure must not decide whether the primary failure can retry.
+  if (isSandboxTaskError(error) && error.cause instanceof AggregateError)
+    error = error.cause.errors[0]
   const metadata = readSandboxTaskErrorMetadata(error)
 
   const provider = metadata?.provider
@@ -191,7 +194,7 @@ async function createSandboxTaskRunner(
             const shouldRetry = !handlerMayHaveStarted
               && provider.provider === 'cloudflare'
               && attempt < CLOUDFLARE_SANDBOX_RETRY_DELAYS_MS.length
-              && isRetriableCloudflareSandboxError(sandboxTaskError)
+              && isRetriableCloudflareSandboxError(error)
 
             if (!shouldRetry)
               throw sandboxTaskError
@@ -210,12 +213,8 @@ async function createSandboxTaskRunner(
               catch (cleanupError) {
                 if (options.signal?.aborted)
                   throw options.signal.reason ?? cleanupError
-                if (runError) {
-                  throw new AggregateError(
-                    [runError, cleanupError],
-                    `${runError.message} Cleanup failed: ${toSandboxTaskError(cleanupError).message}`,
-                  )
-                }
+                if (runError)
+                  throw combineSandboxTaskErrors(runError, cleanupError)
                 throw toSandboxTaskError(cleanupError)
               }
             }
