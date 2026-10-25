@@ -43,6 +43,7 @@ Available namespaces:
   content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
+  queue       List Queue Definitions and send a job to one.
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
@@ -97,6 +98,8 @@ Available namespaces:
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template locally without sending it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
+| `vitehub db tables` | Available | ViteHub Framework | List the tables of a database with their columns and relationships, from the running app or a deployment. |
+| `vitehub db rows` | Available | ViteHub Framework | Read one page of rows of a table, sorted or searched, from the running app or a deployment. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
 | `vitehub kv get` | Available | KV Package | Print the value of one key. |
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
@@ -105,8 +108,11 @@ Available namespaces:
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with `--url`. |
-| `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the running app registers. |
+| `vitehub queue list` | Available | Queue Package | List the Queue Definitions of the app and the provider that sends their jobs. |
+| `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
+| `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
+| `vitehub usage get` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
@@ -346,6 +352,19 @@ pnpm vitehub db migrate
 
 `db generate` forwards Drizzle Kit arguments, supports `--name <name>` for a migration name, and uses `--custom` to create an empty custom migration. `db migrate` accepts forwarded Drizzle Kit migration arguments.
 
+## Browse Database tables
+
+`db tables` and `db rows` run the `databases.tables` and `databases.browse` [operations](/docs/development/operations) that the Databases section of the Console uses. They read the Database Definitions of the running app, so they work on any driver without a Drizzle Kit config, and they never write.
+
+```bash [Terminal]
+pnpm vitehub db tables
+pnpm vitehub db rows users --limit 20 --sort email --direction desc
+pnpm vitehub db rows users --search ada --json
+pnpm vitehub db rows users --database analytics --offset 20 --url https://app.example.com
+```
+
+`db rows` reads at most 100 rows at a time and cuts a long cell at 32 KiB. `--offset` pages, `--sort <column>` and `--direction asc|desc` order, and `--search <text>` matches any column. Without a table, `db rows` reads the tables only. A table that does not exist fails with `CONSOLE_NOT_FOUND`. `--database` picks a named database. Access needs the `databases` section, and `databases:read` is enough.
+
 ## Read and write KV keys
 
 Start the app's Vite Development Server, then run `vitehub kv` from another terminal. The commands call the same KV storage as the running app, so they read and write the keys that the app uses.
@@ -406,29 +425,32 @@ Start the app's Vite Development Server, then run the task from another terminal
 
 ```bash [Terminal]
 pnpm vitehub task list
-pnpm vitehub task run db:seed --title "First note"
+pnpm vitehub task run db:seed --payload '{"title":"First note"}'
 pnpm vitehub task run db:seed --payload '{"title":"First note","count":3}' --json
+pnpm vitehub task run db:seed --url https://app.example.com
 ```
 
-```txt [Output]
-NAME     DESCRIPTION
-db:seed  Add one demo note
-Task db:seed finished in 14 ms.
+```json [Output]
 {
-  "id": 1,
-  "title": "First note"
+  "tasks": [
+    { "description": "Add one demo note", "name": "db:seed" }
+  ]
+}
+{
+  "durationMs": 14,
+  "name": "db:seed",
+  "result": { "id": 1, "title": "First note" }
 }
 ```
 
-- `--<key> <value>` and `--<key>=<value>` set `payload.<key>` to a string. A `--<key>` option without a value sets it to `true`.
-- `--payload <json>` sets the whole payload from a JSON object. `--<key>` options replace its keys.
-- `--json`, `--url <url>`, `--server <url>`, and `--timeout <ms>` are command options, so they never become payload keys. Put such a key in `--payload`.
-- The command prints the `result` field that `run()` returns. A task that throws makes the command exit with status 1. The error message goes to stderr, or into `{ "error": { "code", "message" } }` with `--json`, and the dev server log shows the stack.
+- `--payload <json>` sets the payload from a JSON object. Without it the payload is `{}`.
+- The command prints the name, the time it took in `durationMs`, and the `result` field that `run()` returns. A task that throws makes the command exit with status 1 and the code `TASK_FAILED`. The message goes to stderr, or into `{ "error": { "code", "message", "fix" } }` with `--json`, and the server log shows the stack.
+- A name that no task has fails with `TASK_NOT_FOUND`. A task file without `run()` fails with `TASK_NOT_IMPLEMENTED`.
 - Nitro runs at most one instance of a task name at a time in one server. A second run of the same task while the first is active gets the result of the first run.
 
 `vitehub inspect definitions --kind task` lists the files in `server/tasks/` without a running server. `task list` asks the running app, so it also shows tasks that `nitro.tasks` declares in the Vite config.
 
-The commands use a guarded dev endpoint and a private token. Only the Vite + Nitro Development Server registers the endpoint. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt. Deployed runtimes do not expose the endpoint, and there is no command that runs a task on a deployment. To run a task on a deployment, call `runTask()` from `vite-hub/task` in an authenticated route, or use a [Schedule](/docs/schedule) with `manual: true`.
+`task list` and `task run` are the `task.list` and `task.run` [operations](/docs/development/operations) in the `tasks` section. They exist when the app has task files or declares `nitro.tasks`. A generated Nitro plugin hands the registry of Nitro to them, so they work on a deployment too, with `--url` and the Console credentials. The `tasks` section has no Console page. Grant it in `console.authorize` with `sections: ['tasks']`, or `'tasks:read'` to allow listing only. A task can change anything the app can, so give `tasks` only to people who may run a seed or a backfill. Nuxt runs its own Nitro and scans `server/tasks` itself when `nitro.experimental.tasks` is on, so `vitehub task` does not support Nuxt.
 
 Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `nitro.tasks` already declares keeps its handler and description.
 
@@ -460,7 +482,7 @@ pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub databases browse`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |

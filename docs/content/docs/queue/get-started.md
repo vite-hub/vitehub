@@ -164,3 +164,15 @@ Cloudflare assigns the delivery ID. It differs from the locally generated `messa
 
 Continue with [Configuration](/docs/queue/configure#queue-definition-options) for retry policy and [Server API](/docs/queue/server-api) for enqueue options. Add access checks before exposing this route to users.
 ::
+
+## List Queues and send a test job
+
+`vitehub queue list` shows the Queue Definitions that the running app loads and the provider that sends their jobs. `vitehub queue send <name> '<json>'` sends one job, so you can try a handler without a route. Both call the `queue.list` and `queue.send` [operations](/docs/development/operations) of the Queues section, on the dev server or on a deployment with `--url`.
+
+```bash [Terminal]
+pnpm vitehub queue list
+pnpm vitehub queue send welcome '{"userId":7}' --delay-seconds 30
+pnpm vitehub queue send welcome '{"userId":7}' --url https://app.example.com
+```
+
+The payload is a JSON value. `--delay-seconds`, `--id`, and `--idempotency-key` are the options of [`QueueEnqueueOptions`](/docs/queue/server-api#queue-enqueue-options); a provider that does not support one fails with `QUEUE_UNSUPPORTED_OPTION`. `queue send` returns `{ queue, status: "queued", messageId }`, which is acceptance and not completion. An unknown name fails with `QUEUE_DEFINITION_NOT_FOUND`. Access needs the `queues` section, and a read-only grant (`queues:read`) can list but not send. There is no peek or backlog command: Cloudflare and Vercel do not let a producer read the queue.
