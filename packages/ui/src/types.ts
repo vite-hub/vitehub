@@ -1,7 +1,7 @@
 import type { UIDataTypes, UIMessage, UITools } from "ai";
 
 /** Trace types that `TraceRun` renders. ViteHub Runtime derives them with `deriveTraceRuns()`. */
-export type { TraceRunView, TraceStepView } from "@vite-hub/runtime";
+export type { TraceEventLogEntry, TraceRunView, TraceStepView } from "@vite-hub/runtime";
 
 export type ViteHubUIMessage<
   Metadata = unknown,

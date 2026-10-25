@@ -10,6 +10,7 @@ import {
   getSingularPatch,
   type CodeViewItem,
   type FileContents,
+  type TraceEventLogEntry,
   type TraceRunView,
   type TraceStepView,
 } from "../src/index.ts";
@@ -57,5 +58,7 @@ const traceRun: TraceRunView = {
   steps: [traceStep],
 };
 const traceRunProp: InstanceType<typeof TraceRun>["$props"]["run"] = traceRun;
+const traceEvents: TraceEventLogEntry[] = traceRun.events;
 
 void traceRunProp;
+void traceEvents;

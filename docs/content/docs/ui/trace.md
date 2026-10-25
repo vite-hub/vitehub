@@ -413,10 +413,20 @@ The detail of a line that expands. It mutes its text. A `class` goes to its inne
 
 #### Types
 
-`@vite-hub/ui` exports `TraceRunView` and `TraceStepView` from ViteHub Runtime, so you can type a run without a second import.
+`@vite-hub/ui` exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you can type a run without a second import.
 
 ```ts
 import type { TraceRunView, TraceStepView } from "@vite-hub/ui";
+
+function failedSteps(run: TraceRunView): TraceStepView[] {
+  return run.steps.filter(step => step.status === "failed");
+}
+```
+
+The two types have these shapes:
+
+```ts
+import type { TraceEventLogEntry } from "@vite-hub/ui";
 
 interface TraceRunView {
   id: string;
