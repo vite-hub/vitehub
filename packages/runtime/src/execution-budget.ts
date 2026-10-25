@@ -207,9 +207,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       const abortChild = (reason?: unknown) => childController.abort(reason)
       const releaseSignals = [childController.signal, state.sharedController.signal]
       if (state.sharedController.signal.aborted) abortChild(state.sharedController.signal.reason)
-      else if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
+      else if (controller.signal.aborted) abortChild(controller.signal.reason)
       else {
-        listenUntilReleased(state.controller.signal, () => abortChild(state.controller.signal.reason), childNode, releaseSignals)
+        listenUntilReleased(controller.signal, () => abortChild(controller.signal.reason), childNode, releaseSignals)
         listenUntilReleased(state.sharedController.signal, () => abortChild(state.sharedController.signal.reason), childNode, releaseSignals)
       }
       if (options.signal) {
