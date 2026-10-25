@@ -257,6 +257,9 @@ export function createMultipartUploader(baseURL: string, options: MultipartUploa
             method: "PUT",
             signal: controller.signal,
           }, { partNumber: String(partNumber), uploadId }), parseMultipartPart)
+          if (result.part.partNumber !== partNumber) {
+            throw new Error("Upload request returned a part number that does not match the requested part.")
+          }
           parts.set(partNumber, result.part)
           options.onProgress?.(Math.round((parts.size / partCount) * 100))
         }
