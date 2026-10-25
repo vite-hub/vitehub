@@ -47,6 +47,8 @@ const query = v.optional(
 const read = v.object({
   operation: v.picklist([
     "describe",
+    "overview",
+    "activity",
     "users",
     "user",
     "sessions",
@@ -56,6 +58,14 @@ const read = v.object({
   ]),
   id: v.optional(id),
   query,
+  activity: v.optional(
+    v.object({
+      group: v.optional(v.picklist(["sign-in", "admin", "agents", "organizations"])),
+      userId: v.optional(id),
+      cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
+      limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
+    }),
+  ),
 });
 
 function failure(error: ResultError<AuthConsoleErrorCode>): Response {
@@ -85,25 +95,33 @@ async function handler(event: ConsoleRequestEvent): Promise<Response> {
   const origin = request.headers.get("origin");
   const site = request.headers.get("sec-fetch-site");
   // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
-  if (origin === "null" || site === "cross-site" || site === "same-site"
-    || (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin))
+  if (
+    origin === "null" ||
+    site === "cross-site" ||
+    site === "same-site" ||
+    (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin)
+  )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
   const api = getAuthConsoleForRequest(request, event);
   try {
     const command = v.safeParse(read, input);
     if (command.success) {
-      const { operation, query, id } = command.output;
+      const { operation, query, id, activity } = command.output;
       if ((operation === "user" || operation === "organization") && !id)
         return Response.json({ message: "An id is required." }, { status: 400 });
       const [error, data] =
         operation === "describe"
           ? await api.describe(request)
-          : operation === "user"
-            ? await api.user(id!)
-            : operation === "organization"
-              ? await api.organization(id!, query)
-              : await api[operation](query);
+          : operation === "overview"
+            ? await api.overview()
+            : operation === "activity"
+              ? await api.activity(activity)
+              : operation === "user"
+                ? await api.user(id!)
+                : operation === "organization"
+                  ? await api.organization(id!, query)
+                  : await api[operation](query);
       if (error) return failure(error);
       return Response.json(data, { headers: { "cache-control": "no-store" } });
     }

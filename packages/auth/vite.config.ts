@@ -33,6 +33,8 @@ export default defineConfig({
     }],
     entry: [
       "src/agent.ts",
+      "src/cli.ts",
+      "src/runtime/console.ts",
       "src/console.ts",
       "src/console-runtime.ts",
       "src/index.ts",

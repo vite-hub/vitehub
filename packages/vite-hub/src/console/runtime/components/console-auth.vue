@@ -7,6 +7,7 @@ import type {
   AuthConsoleOrganization,
   AuthConsoleOrganizationDetail,
   AuthConsolePage,
+  AuthConsoleOverview,
   AuthConsoleQuery,
   AuthConsoleSession,
   AuthConsoleUser,
@@ -17,17 +18,21 @@ import { authDate, authFieldValue, readAuthConsole } from "../client/auth-manage
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
+import ConsoleAuthOverview from "./console-auth-overview.vue";
+import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ sectionsBase: string; managementBase: string }>();
 const route = useRoute();
 const router = useRouter();
 const page = computed<AuthConsolePage>(() =>
-  ["sessions", "organizations", "agents"].includes(String(route.params.page))
+  ["users", "sessions", "organizations", "agents", "activity"].includes(String(route.params.page))
     ? (route.params.page as AuthConsolePage)
-    : "users",
+    : "overview",
 );
 const description = shallowRef<AuthConsoleDescription>();
+const overview = shallowRef<AuthConsoleOverview>();
+const revision = ref(0);
 const users = shallowRef<AuthConsoleUser[]>([]);
 const sessions = shallowRef<AuthConsoleSession[]>([]);
 const organizations = shallowRef<AuthConsoleOrganization[]>([]);
@@ -37,7 +42,12 @@ const offset = ref(0);
 const limit = 25;
 const search = ref("");
 const filter = ref<NonNullable<AuthConsoleQuery["filter"]>>("all");
-const selectedUser = ref<string>();
+const selectedUser = computed({
+  get: () => (typeof route.query.user === "string" ? route.query.user : undefined),
+  set: (user: string | undefined) => {
+    void router.replace({ query: { ...route.query, user } });
+  },
+});
 const selectedOrg = shallowRef<AuthConsoleOrganizationDetail>();
 const orgOffset = ref(0);
 const loading = ref(false);
@@ -46,12 +56,16 @@ const orgError = shallowRef<unknown>();
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
 const labels: Record<AuthConsolePage, string> = {
+  overview: "Overview",
+  activity: "Activity",
   users: "Users",
   sessions: "Sessions",
   organizations: "Organizations",
   agents: "Agents",
 };
 const icons: Record<AuthConsolePage, string> = {
+  overview: "i-lucide-chart-no-axes-combined",
+  activity: "i-lucide-history",
   users: "i-lucide-users-round",
   sessions: "i-lucide-monitor",
   organizations: "i-lucide-building-2",
@@ -75,6 +89,15 @@ async function refresh() {
     const config = await readAuthConsole(props.managementBase, "describe", {}, current.signal);
     if (current.signal.aborted) return;
     description.value = config;
+    if (page.value === "overview") {
+      const result = await readAuthConsole(props.managementBase, "overview", {}, current.signal);
+      if (!current.signal.aborted) overview.value = result;
+      return;
+    }
+    if (page.value === "activity") {
+      revision.value++;
+      return;
+    }
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
       throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
@@ -127,12 +150,11 @@ async function refresh() {
 function navigate(target: AuthConsolePage) {
   void router.push({
     name: "vitehub-console-auth",
-    params: { page: target === "users" ? undefined : target },
+    params: { page: target === "overview" ? undefined : target },
   });
 }
 watch(page, () => {
   offset.value = 0;
-  selectedUser.value = undefined;
   closeOrganization();
   void refresh();
 });
@@ -189,7 +211,7 @@ onBeforeUnmount(() => {
           class="flex gap-1 overflow-x-auto border-b border-default px-4 py-2"
         >
           <UButton
-            v-for="item in description?.pages ?? ['users']"
+            v-for="item in description?.pages ?? ['overview', 'users', 'activity']"
             :key="item"
             :icon="icons[item as AuthConsolePage]"
             :color="page === item ? 'primary' : 'neutral'"
@@ -230,8 +252,19 @@ onBeforeUnmount(() => {
       <template #body>
         <main class="flex min-h-0 flex-1 flex-col" :aria-busy="loading">
           <ConsoleState v-if="error" :error="error" title="Could not load Auth" :retry="refresh" />
+          <ConsoleAuthOverview
+            v-else-if="page === 'overview' && overview && description"
+            :data="overview"
+            :description="description"
+          />
+          <ConsoleAuthActivity
+            v-else-if="page === 'activity' && description"
+            :base="managementBase"
+            :enabled="description.events.enabled"
+            :revision="revision"
+          />
           <ConsoleState
-            v-else-if="description && !description.storage.enabled"
+            v-else-if="description && !description.storage.enabled && page !== 'overview'"
             icon="i-lucide-users-round"
             title="No stored Auth data"
             :description="description.storage.reason"

@@ -1,9 +1,15 @@
 import type { BetterAuthOptions, DBAdapter, User, Where } from "better-auth";
 import { defineErrors, type Result } from "@vite-hub/runtime";
 import { defineGrant } from "@vite-hub/runtime/internal/grant";
-import { authConsoleActionNames } from "./console-types.ts";
+import { authConsoleActionNames, authConsoleEventGroups } from "./console-types.ts";
+import { parseAuthEventList } from "./events.ts";
+import type { AuthEventCounts, AuthEventListInput, AuthEventStore } from "./events.ts";
 import type {
   AuthConsoleAction,
+  AuthConsoleActivity,
+  AuthConsoleActivityQuery,
+  AuthConsoleEventUser,
+  AuthConsoleOverview,
   AuthConsoleAgent,
   AuthConsoleCapability,
   AuthConsoleDescription,
@@ -25,6 +31,10 @@ export type * from "./console-types.ts";
 
 export interface AuthConsole {
   describe(request?: Request): Promise<Result<AuthConsoleDescription, AuthConsoleErrorCode>>;
+  overview(): Promise<Result<AuthConsoleOverview, AuthConsoleErrorCode>>;
+  activity(
+    query?: AuthConsoleActivityQuery,
+  ): Promise<Result<AuthConsoleActivity, AuthConsoleErrorCode>>;
   users(
     query?: AuthConsoleQuery,
   ): Promise<Result<AuthConsoleList<AuthConsoleUser>, AuthConsoleErrorCode>>;
@@ -248,6 +258,7 @@ export function describeAuthConsoleFields(
 export function createAuthConsole(
   auth: { api: object; $context: Promise<{ adapter: ConsoleAdapter; options: BetterAuthOptions }> },
   policy: AuthConsoleOptions = {},
+  events?: AuthEventStore,
 ): AuthConsole {
   async function context() {
     return await auth.$context;
@@ -327,12 +338,127 @@ export function createAuthConsole(
       actions,
       fields,
       pages: [
+        "overview",
         "users",
         "sessions",
         ...(organization ? ["organizations" as const] : []),
         ...(oauth || mcp ? ["agents" as const] : []),
+        "activity",
       ],
       storage,
+      events: events
+        ? { enabled: true }
+        : disabled("Add events.store to defineAuth() to record auth activity."),
+    };
+  }
+  async function activity(query: AuthConsoleActivityQuery = {}): Promise<AuthConsoleActivity> {
+    let input: AuthEventListInput;
+    try {
+      if (query.group !== undefined && !Object.hasOwn(authConsoleEventGroups, query.group))
+        throw new TypeError("Unknown auth event group.");
+      input = parseAuthEventList({
+        type: query.group ? authConsoleEventGroups[query.group] : undefined,
+        userId: query.userId,
+        cursor: query.cursor,
+        limit: query.limit ?? 25,
+      }).query;
+    } catch {
+      throw new AuthConsoleError(400, "Invalid auth activity filters or cursor.");
+    }
+    if (!events) return { enabled: false, events: [] };
+    const page = await events.list(input);
+    const ids = [
+      ...new Set(
+        page.events.flatMap((event) => [
+          ...(event.userId ? [event.userId] : []),
+          ...(event.actor.startsWith("user:") ? [event.actor.slice(5)] : []),
+        ]),
+      ),
+    ];
+    const ctx = await context();
+    // One bounded batch reads names only. No session, account, or additional fields enter this projection.
+    const rows =
+      ctx.options.database && ids.length
+        ? await ctx.adapter.findMany<Row>({
+            model: "user",
+            where: [{ field: "id", operator: "in", value: ids }],
+            select: ["id", "name"],
+            limit: ids.length,
+          })
+        : [];
+    const names = new Map(rows.map((row) => [string(row.id), string(row.name)]));
+    const user = (id: string): AuthConsoleEventUser => ({
+      id,
+      name: names.get(id) || id,
+      available: names.has(id),
+    });
+    return {
+      enabled: true,
+      events: page.events.map((event) => ({
+        id: event.id,
+        type: event.type,
+        time: event.time,
+        actor: event.actor.startsWith("user:") ? user(event.actor.slice(5)) : null,
+        subject: event.userId ? user(event.userId) : null,
+      })),
+      ...(page.nextCursor ? { nextCursor: page.nextCursor } : {}),
+    };
+  }
+  async function overview(): Promise<AuthConsoleOverview> {
+    const { ctx, oauth } = await features();
+    const now = Date.now();
+    const week = new Date(now - 7 * 86400_000);
+    const today = new Date(now).toISOString().slice(0, 10);
+    const window = {
+      from: new Date(Date.parse(`${today}T00:00:00.000Z`) - 29 * 86400_000).toISOString(),
+      to: new Date(now + 1).toISOString(),
+    };
+    const db = ctx.options.database ? ctx.adapter : undefined;
+    const persistedSessions =
+      db && (!ctx.options.secondaryStorage || ctx.options.session?.storeSessionInDatabase);
+    const [users, newUsers, activeSessions, approvedAgents, analytics, recent, weekEvents] =
+      await Promise.all([
+        db ? db.count({ model: "user" }) : null,
+        db
+          ? db.count({
+              model: "user",
+              where: [
+                { field: "createdAt", operator: "gte", value: week },
+                { field: "createdAt", operator: "lte", value: new Date(now) },
+              ],
+            })
+          : null,
+        persistedSessions
+          ? db.count({
+              model: "session",
+              where: [{ field: "expiresAt", operator: "gt", value: new Date(now) }],
+            })
+          : null,
+        oauth ? (db ? db.count({ model: "oauthConsent" }) : null) : undefined,
+        events ? events.aggregate(window) : null,
+        activity({ limit: 8 }),
+        events ? events.aggregate({ from: week.toISOString(), to: window.to }) : null,
+      ]);
+    const counts = (value: AuthEventCounts): AuthEventCounts => ({
+      signIns: value.signIns,
+      signUps: value.signUps,
+      activeUsers: value.activeUsers,
+      methods: Object.fromEntries(Object.entries(value.methods)),
+    });
+    return {
+      users,
+      newUsers,
+      activeSessions,
+      ...(oauth ? { approvedAgents } : {}),
+      activeUsers: weekEvents?.totals.activeUsers ?? null,
+      window,
+      recent,
+      analytics: analytics
+        ? {
+            days: analytics.days.map((day) => ({ day: day.day, ...counts(day) })),
+            totals: counts(analytics.totals),
+          }
+        : null,
     };
   }
   async function adapter(): Promise<ConsoleAdapter> {
@@ -760,6 +886,8 @@ export function createAuthConsole(
   }
   return {
     describe: (request) => result(() => describe(request)),
+    overview: () => result(overview),
+    activity: (query) => result(() => activity(query)),
     users: (query) => result(() => users(query)),
     user: (id) => result(() => user(id)),
     sessions: (query) => result(() => sessions(query)),

@@ -483,9 +483,40 @@ function databaseInspection(url: URL): Record<string, unknown> {
   }
 }
 
+/**
+ * Fails chosen Console routes, so a contributor can see each error state. Set the `playground-fail` cookie to
+ * `<route>=<status>` pairs, such as `agents=401,invocations=401` or `sections=503`. A route matches the path after
+ * `/api/_vitehub/console/`, so `agents` also fails `agents/<name>/invocations`.
+ */
+function playgroundFailure(request: IncomingMessage, path: string): number | undefined {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-fail="))
+  if (!cookie) return undefined
+  const route = path.slice("/api/_vitehub/console/".length)
+  for (const pair of decodeURIComponent(cookie.slice("playground-fail=".length)).split(",")) {
+    const [name, status] = pair.split("=")
+    if (name && (route === name || route.startsWith(`${name}/`)) && Number(status) >= 400) return Number(status)
+  }
+  return undefined
+}
+
+const playgroundFailureMessages: Record<number, string> = {
+  401: "The Cloudflare Access token is not valid for this Console.",
+  403: "This account cannot read this Console section.",
+  500: "The Console handler threw an error.",
+  503: "The Console server is restarting.",
+}
+
 async function handleAPI(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   const path = url.pathname
   if (!path.startsWith("/api/_vitehub/console/")) return false
+
+  const failure = playgroundFailure(request, path)
+  if (failure) {
+    response.statusCode = failure
+    response.setHeader("content-type", "text/plain; charset=utf-8")
+    response.end(playgroundFailureMessages[failure] ?? `Playground failure ${failure}.`)
+    return true
+  }
 
   if (path === "/api/_vitehub/console/env") {
     json(response, { entries: [
@@ -870,7 +901,7 @@ export function consoleMockAPI(): Plugin {
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
-            json(response, authFixture(await body(request)));
+            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/connections") {
