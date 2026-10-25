@@ -114,13 +114,13 @@ export interface ConsoleVitePluginOptions {
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
   databaseDiscoveryRoot?: string
-  kvStores?: readonly string[]
   preset?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
   resolveBlobStores?: (blob: unknown) => readonly string[] | false
-  resolveKVStores?: (kv: unknown) => readonly string[] | false
+  /** Whether the KV section is on for this `kv` config. */
+  resolveKV?: (kv: unknown) => boolean
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
@@ -383,7 +383,6 @@ function consoleD1JournalMessage(binding: string): string {
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let sections = options.sections ?? []
-  let kvStores = options.kvStores ?? []
   let blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
   let databaseDiscoveryRoot: string | undefined
@@ -423,7 +422,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     authConfig: ResolvedConsoleAuthConfig
     handlers?: ConsoleAuthHandlers
     blobStores: typeof blobStores
-    kvStores: typeof kvStores
     fixture?: string
     invoke: boolean
     observations: typeof observations
@@ -444,15 +442,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
   function resolveKVRegistration(kv: unknown): void {
-    const resolvedKVStores = options.resolveKVStores?.(kv)
     sections = sections.filter(section => section !== "kv")
-    if (resolvedKVStores !== false) sections = [...sections, "kv"]
-    kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+    if (options.resolveKV?.(kv) !== false) sections = [...sections, "kv"]
   }
 
   function resolveBlobRegistration(blob: unknown): void {
@@ -610,7 +606,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           catalog.agents,
           catalog,
           blobStores,
-          kvStores,
           fixture,
           options.invocationRootState?.binding,
           invoke,
@@ -663,7 +658,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
             blobStores,
-            kvStores,
             fixture,
             invoke,
             observations,
@@ -708,7 +702,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 callbackState.catalog.agents,
                 callbackState.catalog,
                 callbackState.blobStores,
-                callbackState.kvStores,
                 callbackState.fixture,
                 callbackState.invocationBinding,
                 callbackState.invoke,

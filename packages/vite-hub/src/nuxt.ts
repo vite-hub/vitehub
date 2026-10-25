@@ -333,7 +333,6 @@ async function installConsole(
   queueDiscoveryRoot: string,
   sections: readonly ConsoleSectionId[],
   blobStores: readonly string[],
-  kvStores: readonly string[],
   fixture?: string,
   serverDirs?: string[],
   installInvocations = true,
@@ -401,7 +400,6 @@ async function installConsole(
       catalog.agents,
       catalog,
       blobStores,
-      kvStores,
       fixture,
       invocationRootState?.binding,
       invoke,
@@ -831,13 +829,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     sandboxTask: options.sandboxTask === true && plan.services.sandbox.supported,
     workflow: effectiveWorkflow,
   })
-  const configuredConsoleKV = effectiveKV && effectiveKV !== true ? effectiveKV : undefined
-  const resolvedConsoleKV = effectiveKV
-    ? resolveKVViteConfig(configuredConsoleKV, { hosting: plan.nitroPreset }).kv
-    : false
-  const consoleKVStores = resolvedConsoleKV
-    ? Object.keys(resolvedConsoleKV.stores || { default: resolvedConsoleKV.store })
-    : []
   const runtimeCapabilityImports = {
     blob: consoleBlobEnabled ? "vite-hub/_internal/blob" : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
@@ -1260,11 +1251,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleBlobStores.length,
         ...(resolvedReplayedBlob ? Object.keys(resolvedReplayedBlob.stores || { default: resolvedReplayedBlob.store }) : []),
       )
-      consoleKVStores.splice(
-        0,
-        consoleKVStores.length,
-        ...(resolvedKV ? Object.keys(resolvedKV.stores || { default: resolvedKV.store }) : []),
-      )
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(options.console)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, consoleSections);
@@ -1299,7 +1285,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         consoleCatalog.agents,
         consoleCatalog,
         consoleBlobStores,
-        consoleKVStores,
         resolvedConsoleFixture,
         consoleInvocationRootState.binding,
         consoleInvokeEnabled && !resolvedConsoleFixture,
@@ -1377,7 +1362,6 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       rootDir,
       consoleSections,
       consoleBlobStores,
-      consoleKVStores,
       resolvedConsoleFixture,
       resolveNuxtServerDirs(nuxt.options),
       // The app-wide `agent.invocations` journal exists only in the server runtime, so the host process installs none.

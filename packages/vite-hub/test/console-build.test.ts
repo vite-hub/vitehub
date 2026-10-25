@@ -31,7 +31,7 @@ function event(): ConsoleRequestEvent {
 }
 
 async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [], ["default"])
+  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build

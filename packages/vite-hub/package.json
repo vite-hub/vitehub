@@ -1162,12 +1162,6 @@
       "require": "./dist/console/runtime/server/env.js",
       "default": "./dist/console/runtime/server/env.js"
     },
-    "./console/kv": {
-      "types": "./dist/console/runtime/server/kv.d.ts",
-      "import": "./dist/console/runtime/server/kv.js",
-      "require": "./dist/console/runtime/server/kv.js",
-      "default": "./dist/console/runtime/server/kv.js"
-    },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",
       "import": "./dist/console/runtime/server/sections.js",

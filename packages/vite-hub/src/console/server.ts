@@ -13,7 +13,6 @@ import {
   installConsoleAgents,
 } from "./runtime/server/agents.ts"
 import { getConsoleProjectName, getConsoleSections, installConsoleProjectName, installConsoleSections } from "./runtime/server/sections.ts"
-import { getConsoleKV, installConsoleKV } from "./runtime/server/kv.ts"
 import { getConsoleBlob, installConsoleBlob } from "./runtime/server/blob.ts"
 import { getConsoleDefinitions, installConsoleDefinitions } from "./runtime/server/definitions.ts"
 import { getConsoleDatabase, installConsoleDatabase } from "./runtime/server/database.ts"
@@ -68,7 +67,6 @@ export {
   getConsoleDatabase,
   getConsoleInvocations,
   getConsoleInvocationsDatabase,
-  getConsoleKV,
   getConsoleSections,
   getConsoleProjectName,
   installConsoleAgentDefinitions,
@@ -78,7 +76,6 @@ export {
   installConsoleDatabase,
   installConsoleInvocations,
   installConsoleBlob,
-  installConsoleKV,
   installConsoleProjectName,
   installConsoleSections,
 }

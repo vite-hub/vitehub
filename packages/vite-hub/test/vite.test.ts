@@ -451,7 +451,7 @@ describe("vitehub", () => {
         await callHook(inactive.configResolved, [inactiveConfig])
 
         const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
         })
@@ -470,8 +470,8 @@ describe("vitehub", () => {
       await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('installConsoleKV(')
-      expect(generated).toContain('["cache","sessions"]')
+      expect(generated).toContain('"kv"')
+      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
@@ -487,7 +487,7 @@ describe("vitehub", () => {
       await callHook(disabled.configResolved, [config])
 
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(disabledGenerated).not.toContain('"kv"')
       expect(config.nitro).not.toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
       })

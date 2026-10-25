@@ -418,7 +418,6 @@ export default defineConfig({
         delete exports["./console/runtime/server/auth-manage"];
         delete exports["./console/runtime/server/env-manage"];
         delete exports["./console/runtime/server/env"];
-        delete exports["./console/runtime/server/kv"];
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];
@@ -440,7 +439,6 @@ export default defineConfig({
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
           "./console/documents": "./dist/console/runtime/server/documents.js",
           "./console/env": "./dist/console/runtime/server/env.js",
-          "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",

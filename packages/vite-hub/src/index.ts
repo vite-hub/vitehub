@@ -1051,7 +1051,6 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
       databaseUrl: consoleDatabaseUrl(options),
       databaseDiscoveryRoot: options.database && options.database !== true ? options.database.projectRoot : undefined,
-      kvStores: presetKV ? Object.keys(presetKV.stores || { default: presetKV.store }) : [],
       preset: plan.preset,
       rateLimitDiscoveryRoot: options.rateLimit && options.rateLimit !== true ? options.rateLimit.projectRoot : undefined,
       rateLimitScanDirs: options.rateLimit && options.rateLimit !== true ? options.rateLimit.scanDirs : undefined,
@@ -1072,7 +1071,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
         ).blob
         return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
       },
-      resolveKVStores: (kv) => {
+      resolveKV: (kv) => {
         if (kv === false) return false
         if (kv === undefined && !options.kv) return false
         const resolved = resolveKVViteConfig(
@@ -1080,7 +1079,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
           (kv ?? configuredKV) as KVModuleOptions | undefined,
           { hosting: plan.nitroPreset },
         ).kv
-        return resolved ? Object.keys(resolved.stores || { default: resolved.store }) : false
+        return Boolean(resolved)
       },
       scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
