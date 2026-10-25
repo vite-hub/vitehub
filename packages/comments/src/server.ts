@@ -5,7 +5,7 @@ import type { CommentUser } from "./types.ts"
 
 /** Where mentions find people. */
 export interface CommentsUsers {
-  /** People whose name or email contains `query`. */
+  /** People whose name contains `query`. `users()` returns only their `id`, `name`, and `image`. */
   search: (query: string, limit: number) => Promise<CommentUser[]>
   /** The people with these ids. An id that is not a person is left out. */
   byIds: (ids: readonly string[]) => Promise<CommentUser[]>

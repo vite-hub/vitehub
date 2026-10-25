@@ -1,4 +1,4 @@
-import type { CommentActor, CommentMessage, CommentThread, CommentUser } from "./types.ts"
+import type { CommentActor, CommentMessage, CommentSubject, CommentThread, CommentUser } from "./types.ts"
 
 export type CommentAction = "read" | "write" | "resolve" | "delete"
 
@@ -10,6 +10,11 @@ export interface CommentsAuthorizeContext {
   action: CommentAction
   /** The thread that the action is about. Not set for `create`, `list`, and `users`. */
   thread?: CommentThread
+  /**
+   * What the action is about: the subject of `thread`, the subject that `create` starts a thread on, or the subject
+   * that a `list` filters by. Not set for a `list` with no filter and for `users`.
+   */
+  subject?: CommentSubject
 }
 
 /** Decides whether a person or an Agent may take an action. Comments are private: without it, nobody can read. */

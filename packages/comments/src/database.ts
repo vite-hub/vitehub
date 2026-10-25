@@ -44,7 +44,16 @@ export const commentMessages = sqliteTable("vitehub_comment_messages", {
 ])
 
 /**
+ * The next thread number of each scope. A number is handed out once, so a deleted thread never gives its number to a
+ * new one, and a link such as `?comment=3` keeps naming the same thread.
+ */
+export const commentCounters = sqliteTable("vitehub_comment_counters", {
+  scope: text("scope").primaryKey(),
+  next: integer("next").notNull(),
+})
+
+/**
  * The tables behind the comment operations, for SQLite, libSQL, and D1. Add them to a Database Definition yourself
  * and apply their migration, or let `hubComments()` contribute them. For Postgres use `@vite-hub/comments/database/postgres`.
  */
-export const commentsSchema = { commentThreads, commentMessages }
+export const commentsSchema = { commentThreads, commentMessages, commentCounters }

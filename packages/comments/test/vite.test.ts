@@ -39,14 +39,17 @@ function configHook(plugin: ReturnType<typeof hubComments>): ConfigHook {
 
 describe("comment tables", () => {
   it("name the tables and keep the same columns for SQLite and Postgres", () => {
-    expect(Object.keys(commentsSchema)).toEqual(["commentThreads", "commentMessages"])
-    expect(Object.keys(commentsPostgresSchema)).toEqual(["commentThreads", "commentMessages"])
+    expect(Object.keys(commentsSchema)).toEqual(["commentThreads", "commentMessages", "commentCounters"])
+    expect(Object.keys(commentsPostgresSchema)).toEqual(["commentThreads", "commentMessages", "commentCounters"])
     for (const schema of [commentsSchema, commentsPostgresSchema]) {
       expect(getTableName(schema.commentThreads)).toBe("vitehub_comment_threads")
       expect(getTableName(schema.commentMessages)).toBe("vitehub_comment_messages")
     }
     expect(Object.keys(getTableColumns(commentsSchema.commentThreads)).sort()).toEqual(Object.keys(getTableColumns(commentsPostgresSchema.commentThreads)).sort())
     expect(Object.keys(getTableColumns(commentsSchema.commentMessages)).sort()).toEqual(Object.keys(getTableColumns(commentsPostgresSchema.commentMessages)).sort())
+    expect(getTableName(commentsSchema.commentCounters)).toBe("vitehub_comment_counters")
+    expect(getTableName(commentsPostgresSchema.commentCounters)).toBe("vitehub_comment_counters")
+    expect(Object.keys(getTableColumns(commentsSchema.commentCounters))).toEqual(["scope", "next"])
   })
 })
 

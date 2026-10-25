@@ -74,7 +74,7 @@ export interface CommentMessage {
   actor?: CommentActor
   /** Ids of the users mentioned in `body`. */
   mentions: string[]
-  /** Blob keys. */
+  /** Blob keys. Always empty for now: attachments come with the upload operation. */
   attachments: string[]
   /** Milliseconds since the epoch. */
   createdAt: number
@@ -109,6 +109,16 @@ export interface CommentListQuery {
   mine?: boolean
   /** Only threads that mention the signed-in user. */
   mentions?: boolean
+  /** Most threads in the answer. Default 200, at most 500. */
+  limit?: number
+  /** Where the next page starts: the `updatedAt` and `id` of the last thread of the page before. Threads come newest first. */
+  before?: CommentListCursor
+}
+
+/** The position of a thread in a list: the list is ordered by `updatedAt`, then `id`, newest first. */
+export interface CommentListCursor {
+  updatedAt: number
+  id: string
 }
 
 /** By id, or by number inside its scope, as `?comment=<n>` names it. */

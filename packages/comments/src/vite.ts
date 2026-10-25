@@ -133,7 +133,7 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
     "    const { db, schema } = entry()",
     "    return {",
     "      definition: app.default ?? app.comments,",
-    "      store: createCommentsStore(db, { commentMessages: schema.commentMessages, commentThreads: schema.commentThreads }),",
+    "      store: createCommentsStore(db, { commentCounters: schema.commentCounters, commentMessages: schema.commentMessages, commentThreads: schema.commentThreads }),",
     ...(options.auth ? ["      users: createAuthUsers(() => getAuth()),"] : []),
     "    }",
     "  })",

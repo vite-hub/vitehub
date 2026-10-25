@@ -56,6 +56,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "The comments request did not get an answer from the server.",
       fix: "Check the connection and the app URL, then try again.",
     },
+    COMMENTS_R0014: {
+      why: "Attachments are not supported yet: no operation uploads a file for a comment.",
+      fix: "Send the comment without attachments. They arrive with the upload operation.",
+    },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",

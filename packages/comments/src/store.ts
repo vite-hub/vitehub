@@ -1,8 +1,9 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, desc, eq, inArray, lt, or, sql } from "drizzle-orm"
+import type { SQL } from "drizzle-orm"
 import type { LibSQLDatabase } from "drizzle-orm/libsql"
 
 import { commentsErrorDiagnostics } from "./errors.ts"
-import { commentMessages, commentThreads } from "./database.ts"
+import { commentCounters, commentMessages, commentThreads } from "./database.ts"
 import type {
   CommentActor,
   CommentAnchor,
@@ -15,9 +16,10 @@ import type {
 } from "./types.ts"
 
 /**
- * The Drizzle database that the store uses. The store calls only `select`, `insert`, `update`, and `delete` with
- * awaited results, which SQLite, libSQL, D1, and Postgres Drizzle databases all offer. The Postgres tables have the
- * same property names, so one set of queries serves every driver.
+ * The Drizzle database that the store uses. The store calls `select`, `insert`, `update`, and `delete` (with
+ * `onConflictDoNothing()` and `returning()`), which SQLite, libSQL, D1, and Postgres Drizzle databases all offer, and
+ * groups writes with `batch()` or `transaction()` when the driver has one. The Postgres tables have the same property
+ * names, so one set of queries serves every driver.
  */
 export type CommentsDatabase = LibSQLDatabase<Record<string, never>>
 
@@ -28,10 +30,14 @@ type MessageRow = typeof commentMessages.$inferSelect
 export interface CommentsTables {
   commentThreads: typeof commentThreads
   commentMessages: typeof commentMessages
+  commentCounters: typeof commentCounters
 }
 
 const chunkSize = 80
 const allocationAttempts = 12
+export const defaultListLimit = 200
+export const maximumListLimit = 500
+const candidateLimit = 200
 
 function chunks<T>(items: readonly T[]): T[][] {
   const result: T[][] = []
@@ -89,15 +95,27 @@ function threadOf(row: ThreadRow, messages: CommentMessage[]): CommentThread {
   }
 }
 
-/** A unique index refused the insert. The message differs by driver, and Drizzle may wrap the driver error. */
+const uniqueCodes = new Set(["23505", "SQLITE_CONSTRAINT_PRIMARYKEY", "SQLITE_CONSTRAINT_UNIQUE"])
+const uniqueMessage = /UNIQUE constraint failed|duplicate key value violates unique constraint/i
+
+/**
+ * A unique index refused the insert. Drizzle wraps the driver error in one whose message carries the statement and its
+ * parameters, which come from the user. So only codes decide, and a message counts only when it is the driver's own:
+ * the error with no cause below it.
+ */
 function isUniqueViolation(error: unknown): boolean {
-  for (let current: unknown = error, depth = 0; current && depth < 4; depth++) {
-    const message = String(Reflect.get(Object(current), "message") ?? "")
-    const code = String(Reflect.get(Object(current), "code") ?? "")
-    if (/unique|duplicate key/i.test(message) || code === "23505" || code.startsWith("SQLITE_CONSTRAINT")) return true
-    current = Reflect.get(Object(current), "cause")
+  for (let current: unknown = error, depth = 0; current && depth < 5; depth++) {
+    const code = Reflect.get(Object(current), "code")
+    if (typeof code === "string" && uniqueCodes.has(code)) return true
+    const cause = Reflect.get(Object(current), "cause")
+    if (!cause) return uniqueMessage.test(String(Reflect.get(Object(current), "message") ?? ""))
+    current = cause
   }
   return false
+}
+
+function escapeLike(value: string): string {
+  return value.replaceAll(/[%_\\]/g, "\\$&")
 }
 
 export interface NewMessage {
@@ -118,23 +136,30 @@ export interface NewThread extends NewMessage {
 }
 
 export interface CommentsStore {
+  /** Newest first: by `updatedAt`, then `id`. `before` continues after the last thread of an earlier page. */
   list: (query: CommentListQuery & { userId?: string }) => Promise<CommentThread[]>
   getById: (id: string) => Promise<CommentThread | null>
   getByNumber: (scope: string, n: number) => Promise<CommentThread | null>
-  /** Inserts the thread with the next number of its scope. Several creators at once each get their own number. */
+  /**
+   * Inserts the thread and its first message together, with the next number of its scope. Several creators at once each
+   * get their own number, and a number is never handed out twice.
+   */
   createThread: (input: NewThread) => Promise<CommentThread>
   addMessage: (threadId: string, input: NewMessage) => Promise<CommentThread>
   editMessage: (threadId: string, messageId: string, input: { body: string, mentions: string[], now: number }) => Promise<CommentThread>
   deleteMessage: (threadId: string, messageId: string, now: number) => Promise<CommentThread>
   deleteThread: (threadId: string) => Promise<void>
   setStatus: (threadId: string, status: CommentStatus, by: CommentUser, now: number) => Promise<CommentThread>
-  /** The people that wrote in a thread, for a store without an Auth adapter. */
-  knownUsers: (query: string, limit: number) => Promise<CommentUser[]>
+  /**
+   * The people that wrote in a thread, for a store without an Auth adapter. Only authors of threads that `canRead`
+   * accepts count, and a message without a thread never shows.
+   */
+  knownUsers: (query: string, limit: number, canRead: (thread: CommentThread) => Promise<boolean>) => Promise<CommentUser[]>
   knownUsersByIds: (ids: readonly string[]) => Promise<CommentUser[]>
 }
 
-export function createCommentsStore(database: CommentsDatabase, tables: CommentsTables = { commentMessages, commentThreads }): CommentsStore {
-  const { commentMessages: messages, commentThreads: threads } = tables
+export function createCommentsStore(database: CommentsDatabase, tables: CommentsTables = { commentCounters, commentMessages, commentThreads }): CommentsStore {
+  const { commentCounters: counters, commentMessages: messages, commentThreads: threads } = tables
   const db = database
 
   async function attach(rows: ThreadRow[]): Promise<CommentThread[]> {
@@ -147,14 +172,45 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     return rows.map(row => threadOf(row, byThread.get(row.id) ?? []))
   }
 
-  async function one(id: string): Promise<CommentThread> {
+  async function find(id: string): Promise<CommentThread | null> {
     const [row] = await db.select().from(threads).where(eq(threads.id, id)).limit(1)
-    if (!row) throw commentsErrorDiagnostics.COMMENTS_R0002({ id })
-    return (await attach([row]))[0]!
+    return row ? (await attach([row]))[0]! : null
   }
 
-  async function touch(id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}): Promise<void> {
-    await db.update(threads).set({ ...values, updatedAt: now }).where(eq(threads.id, id))
+  async function one(id: string): Promise<CommentThread> {
+    const found = await find(id)
+    if (!found) throw commentsErrorDiagnostics.COMMENTS_R0002({ id })
+    return found
+  }
+
+  // SAFETY: Drizzle's libSQL, D1, and Postgres databases have these methods. The store passes the builders it made.
+  const driver = db as unknown as {
+    batch?: (statements: unknown[]) => Promise<unknown>
+    transaction?: (run: (target: CommentsDatabase) => Promise<void>) => Promise<unknown>
+  }
+  /** Whether the driver can run several writes as one unit: `batch()` on libSQL and D1, a transaction on Postgres. */
+  const groups = typeof driver.batch === "function" || typeof driver.transaction === "function"
+
+  /**
+   * Runs the writes together where the driver can. Otherwise they run in order, and the caller orders them so that a
+   * failure leaves nothing visible.
+   */
+  async function together(build: (target: CommentsDatabase) => PromiseLike<unknown>[]): Promise<void> {
+    if (typeof driver.batch === "function") {
+      await driver.batch(build(db))
+      return
+    }
+    if (typeof driver.transaction === "function") {
+      await driver.transaction(async (target) => {
+        for (const statement of build(target)) await statement
+      })
+      return
+    }
+    for (const statement of build(db)) await statement
+  }
+
+  function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}) {
+    return target.update(threads).set({ ...values, updatedAt: now }).where(eq(threads.id, id))
   }
 
   function messageRow(threadId: string, input: NewMessage): typeof messages.$inferInsert {
@@ -173,60 +229,82 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     }
   }
 
+  /** The next number of a scope. The counter only goes up, so a deleted thread never gives its number away. */
+  async function claimNumber(scope: string): Promise<number> {
+    const [existing] = await db.select({ next: counters.next }).from(counters).where(eq(counters.scope, scope)).limit(1)
+    if (!existing) {
+      // Threads that exist from before the counter keep their numbers: start after the highest one.
+      const [top] = await db.select({ highest: sql<number>`coalesce(max(${threads.n}), 0)` }).from(threads).where(eq(threads.scope, scope))
+      await db.insert(counters).values({ next: Number(top?.highest ?? 0) + 1, scope }).onConflictDoNothing()
+    }
+    // One statement reads and advances the counter, so two creators never get the same number.
+    const [claimed] = await db.update(counters).set({ next: sql`${counters.next} + 1` }).where(eq(counters.scope, scope)).returning({ next: counters.next })
+    if (!claimed) throw commentsErrorDiagnostics.COMMENTS_R0011()
+    return Number(claimed.next) - 1
+  }
+
+  function candidateAuthors(where: SQL) {
+    return db.select({ id: messages.authorId, image: messages.authorImage, name: messages.authorName, threadId: messages.threadId })
+      .from(messages)
+      .innerJoin(threads, eq(threads.id, messages.threadId))
+      .where(where)
+      .orderBy(desc(messages.createdAt))
+  }
+
   return {
     async list(query) {
       const subject = query.subject ?? (query.page === undefined ? undefined : { id: query.page, kind: "page" })
+      const before = query.before
       const where = [
         ...(subject ? [eq(threads.subjectKind, subject.kind), eq(threads.subjectId, subject.id)] : []),
         ...(query.status ? [eq(threads.status, query.status)] : []),
         ...(query.mine && query.userId ? [eq(threads.authorId, query.userId)] : []),
+        ...(query.mentions
+          ? [query.userId
+              ? sql`exists (select 1 from ${messages} where ${messages.threadId} = ${threads.id} and ${messages.mentions} like ${`%${escapeLike(JSON.stringify(query.userId))}%`} escape '\\')`
+              : sql`1 = 0`]
+          : []),
+        ...(before ? [or(lt(threads.updatedAt, before.updatedAt), and(eq(threads.updatedAt, before.updatedAt), lt(threads.id, before.id)))!] : []),
       ]
-      const rows = await db.select().from(threads).where(where.length ? and(...where) : undefined).orderBy(asc(threads.scope), asc(threads.n)).limit(1_000)
-      const found = await attach(rows)
-      return query.mentions && query.userId ? found.filter(thread => thread.messages.some(message => message.mentions.includes(query.userId!))) : found
+      const limit = Math.min(Math.max(Math.trunc(query.limit ?? defaultListLimit), 1), maximumListLimit)
+      const rows = await db.select().from(threads).where(where.length ? and(...where) : undefined).orderBy(desc(threads.updatedAt), desc(threads.id)).limit(limit)
+      return attach(rows)
     },
-    async getById(id) {
-      const [row] = await db.select().from(threads).where(eq(threads.id, id)).limit(1)
-      return row ? (await attach([row]))[0]! : null
-    },
+    getById: find,
     async getByNumber(scope, n) {
       const [row] = await db.select().from(threads).where(and(eq(threads.scope, scope), eq(threads.n, n))).limit(1)
       return row ? (await attach([row]))[0]! : null
     },
     async createThread(input) {
-      // The unique index on (scope, n) is the lock: a creator that reads the same highest number loses the insert and reads again.
       for (let attempt = 0; attempt < allocationAttempts; attempt++) {
-        const [top] = await db.select({ highest: sql<number>`coalesce(max(${threads.n}), 0)` }).from(threads).where(eq(threads.scope, input.scope))
-        const n = Number(top?.highest ?? 0) + 1
+        const n = await claimNumber(input.scope)
+        const thread = {
+          actor: input.actor ? JSON.stringify(input.actor) : null,
+          anchor: JSON.stringify(input.anchor),
+          authorId: input.author.id,
+          authorImage: input.author.image ?? null,
+          authorName: input.author.name ?? null,
+          createdAt: input.now,
+          id: input.threadId,
+          n,
+          resolvedAt: null,
+          resolvedBy: null,
+          scope: input.scope,
+          status: "open" as const,
+          subjectId: input.subject.id,
+          subjectKind: input.subject.kind,
+          updatedAt: input.now,
+        }
         try {
-          await db.insert(threads).values({
-            actor: input.actor ? JSON.stringify(input.actor) : null,
-            anchor: JSON.stringify(input.anchor),
-            authorId: input.author.id,
-            authorImage: input.author.image ?? null,
-            authorName: input.author.name ?? null,
-            createdAt: input.now,
-            id: input.threadId,
-            n,
-            resolvedAt: null,
-            resolvedBy: null,
-            scope: input.scope,
-            status: "open",
-            subjectId: input.subject.id,
-            subjectKind: input.subject.kind,
-            updatedAt: input.now,
-          })
+          // The message goes first: without a batch or a transaction, a failure after it leaves a message that no thread
+          // lists, and one after the thread would leave an empty thread.
+          await together(target => [target.insert(messages).values(messageRow(input.threadId, input)), target.insert(threads).values(thread)])
         }
         catch (error) {
+          // A driver without a batch or a transaction may have kept the message. A failed cleanup must not hide the original error.
+          if (!groups) await db.delete(messages).where(eq(messages.id, input.id)).catch(() => undefined)
+          // The unique index is a backstop for a counter that lags the threads. Claim the next number.
           if (isUniqueViolation(error)) continue
-          throw error
-        }
-        try {
-          await db.insert(messages).values(messageRow(input.threadId, input))
-        }
-        catch (error) {
-          // Without a transaction, a thread with no message would stay behind.
-          await db.delete(threads).where(eq(threads.id, input.threadId))
           throw error
         }
         return one(input.threadId)
@@ -235,29 +313,28 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     },
     async addMessage(threadId, input) {
       await one(threadId)
-      await db.insert(messages).values(messageRow(threadId, input))
-      await touch(threadId, input.now)
+      await together(target => [target.insert(messages).values(messageRow(threadId, input)), touching(target, threadId, input.now)])
       return one(threadId)
     },
     async editMessage(threadId, messageId, input) {
       const found = await one(threadId)
       if (!found.messages.some(message => message.id === messageId)) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId })
-      await db.update(messages).set({ body: input.body, editedAt: input.now, mentions: JSON.stringify(input.mentions) }).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))
-      await touch(threadId, input.now)
+      await together(target => [
+        target.update(messages).set({ body: input.body, editedAt: input.now, mentions: JSON.stringify(input.mentions) }).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))),
+        touching(target, threadId, input.now),
+      ])
       return one(threadId)
     },
     async deleteMessage(threadId, messageId, now) {
-      await db.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId)))
-      await touch(threadId, now)
+      await together(target => [target.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))), touching(target, threadId, now)])
       return one(threadId)
     },
     async deleteThread(threadId) {
-      await db.delete(messages).where(eq(messages.threadId, threadId))
-      await db.delete(threads).where(eq(threads.id, threadId))
+      await together(target => [target.delete(messages).where(eq(messages.threadId, threadId)), target.delete(threads).where(eq(threads.id, threadId))])
     },
     async setStatus(threadId, status, by, now) {
       await one(threadId)
-      await touch(threadId, now, status === "resolved"
+      await touching(db, threadId, now, status === "resolved"
         ? { resolvedAt: now, resolvedBy: JSON.stringify(by), status }
         : { resolvedAt: null, resolvedBy: null, status })
       return one(threadId)
@@ -265,21 +342,30 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     async knownUsersByIds(ids) {
       const seen = new Map<string, CommentUser>()
       for (const part of chunks([...new Set(ids)])) {
-        const rows = await db.select({ id: messages.authorId, image: messages.authorImage, name: messages.authorName }).from(messages).where(inArray(messages.authorId, part)).orderBy(desc(messages.createdAt))
+        const rows = await candidateAuthors(inArray(messages.authorId, part))
         for (const row of rows) if (!seen.has(row.id)) seen.set(row.id, user(row.id, row.name, row.image))
       }
       return [...seen.values()]
     },
-    async knownUsers(query, limit) {
-      const pattern = `%${query.replaceAll(/[%_\\]/g, "\\$&").toLowerCase()}%`
-      const rows = await db.select({ id: messages.authorId, image: messages.authorImage, name: messages.authorName })
-        .from(messages)
-        .where(sql`lower(coalesce(${messages.authorName}, ${messages.authorId})) like ${pattern} escape '\\'`)
-        .orderBy(desc(messages.createdAt))
-        .limit(limit * 10)
+    async knownUsers(query, limit, canRead) {
+      const pattern = `%${escapeLike(query.toLowerCase())}%`
+      const rows = await candidateAuthors(sql`lower(coalesce(${messages.authorName}, ${messages.authorId})) like ${pattern} escape '\\'`).limit(candidateLimit)
       const seen = new Map<string, CommentUser>()
-      for (const row of rows) if (!seen.has(row.id)) seen.set(row.id, user(row.id, row.name, row.image))
-      return [...seen.values()].slice(0, limit)
+      const readable = new Map<string, Promise<boolean>>()
+      for (const row of rows) {
+        if (seen.has(row.id)) continue
+        let allowed = readable.get(row.threadId)
+        if (!allowed) {
+          allowed = (async () => {
+            const found = await find(row.threadId)
+            return found ? await canRead(found) : false
+          })()
+          readable.set(row.threadId, allowed)
+        }
+        if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
+        if (seen.size >= limit) break
+      }
+      return [...seen.values()]
     },
   }
 }
