@@ -179,7 +179,7 @@ describe("Console Schedule runs", () => {
       ok: false,
       status: 404,
     })
-    expect(read).toMatchObject({ code: "INTERNAL_R0016", ok: false, status: 400 })
+    expect(read).toMatchObject({ code: "INTERNAL_R0022", ok: false, status: 400 })
     expect(calls).toBe(1)
   })
 

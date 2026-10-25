@@ -151,7 +151,7 @@ describe("Console invocation history", () => {
 
   it("rejects an invocation without a prompt before it starts the Agent", async () => {
     const fixture = setup()
-    expect(await fixture.request({})).toMatchObject({ code: "INTERNAL_R0016", ok: false, status: 400 })
+    expect(await fixture.request({})).toMatchObject({ code: "INTERNAL_R0022", ok: false, status: 400 })
     expect(fixture.run).not.toHaveBeenCalled()
   })
 })

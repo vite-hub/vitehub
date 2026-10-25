@@ -62,7 +62,7 @@ describe("contributed operations over the Console RPC", () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     const response = await call("fixture.greet", { name: 1, extra: true })
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0016", message: expect.stringContaining("Invalid input for fixture.greet"), ok: false, status: 400 })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("Invalid input for fixture.greet"), ok: false, status: 400 })
   })
 
   it("denies the operation without access to its section", async () => {

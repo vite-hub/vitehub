@@ -128,11 +128,11 @@ The core raises these codes:
 
 | Code | When |
 | --- | --- |
-| `INTERNAL_R0014` | The definition is not valid. |
-| `INTERNAL_R0015` | The call names an operation that the app does not have. |
-| `INTERNAL_R0016` | The input does not match the schema. The message lists the fields. |
-| `INTERNAL_R0017` | The access does not include the section of the operation. |
-| `INTERNAL_R0018` | The CLI could not reach the app. |
+| `INTERNAL_R0020` | The definition is not valid. |
+| `INTERNAL_R0021` | The call names an operation that the app does not have. |
+| `INTERNAL_R0022` | The input does not match the schema. The message lists the fields. |
+| `INTERNAL_R0023` | The access does not include the section of the operation. |
+| `INTERNAL_R0024` | The CLI could not reach the app. |
 | `INTERNAL_B0048` | Two operations have the same name. |
 
 ## Access

@@ -197,7 +197,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const operation = consoleOperationRegistry().get(envelope.output.operation)
   if (!operation) throw consoleRequestError(404, "Console operation not found.")
   if (Array.isArray(envelope.output.input)) throw consoleRequestError(400, "Invalid Console input.")
-  // A failed check throws INTERNAL_R0016 with status 400, which names the fields to fix.
+  // A failed check throws INTERNAL_R0022 with status 400, which names the fields to fix.
   const input = await parseOperationInput(operation, envelope.output.input)
   const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {

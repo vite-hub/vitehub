@@ -77,7 +77,7 @@ describe("operations capability", () => {
   it("returns input and conflict failures to the model and throws server failures", async () => {
     const resolved = await tools(operations({ include: ["demo.remove"], registry }))
     expect(await resolved.demo_remove!.execute!({ id: "locked" } as never, {})).toEqual({ error: { code: "DEMO_R0001", fix: "Unlock it first.", message: "The thing is locked." }, ok: false })
-    expect(await resolved.demo_remove!.execute!({ id: 1 } as never, {})).toMatchObject({ error: { code: "INTERNAL_R0016" }, ok: false })
+    expect(await resolved.demo_remove!.execute!({ id: 1 } as never, {})).toMatchObject({ error: { code: "INTERNAL_R0022" }, ok: false })
     await expect(resolved.demo_remove!.execute!({ id: "boom" } as never, {})).rejects.toMatchObject({ code: "DEMO_R0002" })
   })
 

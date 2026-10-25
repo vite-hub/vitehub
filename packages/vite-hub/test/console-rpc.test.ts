@@ -82,7 +82,7 @@ describe("Console RPC", () => {
     }
     expect(next).toBe(4)
     await expect(requestConsole("/api/_vitehub/console/definitions"))
-      .rejects.toMatchObject({ code: "INTERNAL_R0016", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
+      .rejects.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
   })
 
   it("returns operation results and errors with no-store headers", async () => {
@@ -96,7 +96,7 @@ describe("Console RPC", () => {
 
     const failure = await call(JSON.stringify({ operation: "definitions.list" }))
     expect(failure.status).toBe(400)
-    await expect(failure.json()).resolves.toMatchObject({ code: "INTERNAL_R0016", fix: expect.stringContaining("--help"), message: expect.stringContaining("section"), ok: false, status: 400 })
+    await expect(failure.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", fix: expect.stringContaining("--help"), message: expect.stringContaining("section"), ok: false, status: 400 })
   })
 
   it("preserves upstream search status messages in RPC errors", async () => {
@@ -238,13 +238,13 @@ describe("Console RPC", () => {
     const envelope = JSON.stringify({ operation: "agents.invoke" })
     const response = await call(envelope.padEnd(80 * 1_024, " "))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0016", ok: false, status: 400 })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", ok: false, status: 400 })
   })
 
   it("keeps the larger allowance for invocation envelopes", async () => {
     const response = await call(JSON.stringify({ operation: "agents.invoke", input: { prompt: "x".repeat(80 * 1_024) } }))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0016", message: expect.stringContaining("Invalid input for agents.invoke"), ok: false, status: 400 })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("Invalid input for agents.invoke"), ok: false, status: 400 })
   })
 
   it("classifies invocation prefixes split across stream chunks", async () => {
@@ -267,7 +267,7 @@ describe("Console RPC", () => {
       method: "POST",
     } as RequestInit))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0016" })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022" })
   })
 
   it.each([
