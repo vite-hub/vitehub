@@ -33,7 +33,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({ preset: "node", database: true }),
-    // Nitro's prerelease plugin is runtime-compatible with this Vite version.
     nitro(),
   ],
 })`,

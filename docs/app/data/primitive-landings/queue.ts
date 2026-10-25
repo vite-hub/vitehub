@@ -99,7 +99,6 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({ preset: "cloudflare", queue: true, console: false }),
-    // Nitro is runtime-compatible; its prerelease Vite types differ.
     nitro(),
   ],
 })`,
