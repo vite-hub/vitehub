@@ -4,6 +4,7 @@ import { hasRuntimeType, isRuntimeObject } from "./internal/runtime-type.ts"
 import { getViteHubErrorShape } from "./errors.ts"
 
 import type { MaybePromise } from "./index.ts"
+import type { ResultError } from "./result.ts"
 import { runtimeErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type RuntimeDiagnosticLevel = "debug" | "error" | "info" | "warn"
@@ -70,7 +71,7 @@ export interface RuntimeDiagnosticErrorOptions {
 }
 
 /** Recognizes a live Nostics error across bundled copies. This does not make its fields safe for public responses. */
-export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown> {
+export function isRuntimeDiagnostic(error: unknown): error is Diagnostic<unknown> | ResultError {
   if (!isRuntimeObject(error)) return false
   try {
     const nativeIsError: unknown = Reflect.get(Error, "isError")
