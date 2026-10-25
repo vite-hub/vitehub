@@ -1,6 +1,6 @@
 import { link, mkdir, mkdtemp, readFile, readdir, rename, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -13,6 +13,31 @@ afterEach(async () => {
 })
 
 describe("fs blob driver", () => {
+  it.each([
+    `${"a".repeat(190)}.txt`,
+    `${"a".repeat(100)}/${"b".repeat(100)}/file.txt`,
+    `${"é".repeat(100)}.txt`,
+  ])("keeps sidecar names bounded for pathname %s", async (pathname) => {
+    const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
+    tempDirs.push(base)
+    // The payload path fits the filesystem even when its Base64 sidecar does not.
+    await mkdir(dirname(join(base, pathname)), { recursive: true })
+    await writeFile(join(base, pathname), "external")
+    const driver = createDriver({ base, driver: "fs" })
+    const metadata = { contentType: "text/plain", customMetadata: { owner: "docs" } }
+
+    await expect(driver.put(pathname, "stored", metadata)).resolves.toMatchObject({ pathname, size: 6, ...metadata })
+    const reopened = createDriver({ base, driver: "fs" })
+    await expect(reopened.head(pathname)).resolves.toMatchObject({ pathname, size: 6, ...metadata })
+    expect(await (await reopened.get(pathname))?.text()).toBe("stored")
+    await expect(reopened.list()).resolves.toMatchObject({ blobs: [{ pathname, ...metadata }] })
+
+    await reopened.delete(pathname)
+    await expect(reopened.head(pathname)).resolves.toBeNull()
+    await expect(reopened.list()).resolves.toMatchObject({ blobs: [], hasMore: false })
+    await expect(readdir(join(base, ".vitehub", "blob-hashes"))).resolves.toEqual([])
+  })
+
   it("rechecks containment after consuming a streamed body", async () => {
     const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-"))
     const outside = await mkdtemp(join(tmpdir(), "vitehub-blob-outside-"))
