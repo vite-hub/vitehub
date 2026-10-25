@@ -2498,12 +2498,6 @@ importers:
       '@cloudflare/workers-types':
         specifier: ^5.20261016.1
         version: 5.20261019.1
-      '@google-cloud/storage':
-        specifier: catalog:storage
-        version: 8.4.0
-      '@googleapis/drive':
-        specifier: catalog:storage
-        version: 26.0.2
       '@internationalized/date':
         specifier: ^3.12.4
         version: 3.12.4
@@ -2724,6 +2718,12 @@ importers:
       '@fontsource-variable/geist-mono':
         specifier: catalog:ui
         version: 5.3.0
+      '@google-cloud/storage':
+        specifier: catalog:storage
+        version: 8.4.0
+      '@googleapis/drive':
+        specifier: catalog:storage
+        version: 26.0.2
       '@iconify-json/lucide':
         specifier: catalog:ui
         version: 1.2.139

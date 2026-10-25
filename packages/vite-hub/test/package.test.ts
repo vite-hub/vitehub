@@ -773,6 +773,8 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).toHaveProperty("@cloudflare/workers-types");
     expect(manifest.dependencies).toHaveProperty("h3");
     expect(manifest.dependencies).toHaveProperty("ocache");
+    expect(manifest.dependencies).not.toHaveProperty("@google-cloud/storage");
+    expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
   it("configures Nitro with Console files from the distributed package", async () => {
