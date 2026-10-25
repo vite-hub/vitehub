@@ -608,7 +608,7 @@ function deploymentPlugins(
           const { installModules } = await import(new URL("./_chunks/nitro.mjs", builderUrl).href)
           const existingModules = new Set(nitro.options.modules)
           await scanAndSyncOptions(nitro)
-          await installModules(nitro, nitro.options.modules.filter(module => !existingModules.has(module)))
+          await installModules(nitro, (nitro.options.modules ?? []).filter(module => !existingModules.has(module)))
         },
       },
       resolveId(source) {
