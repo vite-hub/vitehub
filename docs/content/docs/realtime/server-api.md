@@ -217,19 +217,30 @@ classes: `collaboration-carets__caret`, `collaboration-carets__label`, and
 
 Do not add `@tiptap/extension-collaboration-caret` next to Realtime. It has its
 own copy of y-tiptap, so it cannot find the sync plugin that Realtime installs,
-and it draws nothing. To change the markup, configure `RealtimeCaret` from
-`vite-hub/realtime/vue` with `render` and `selectionRender`, and pass
-`carets: false` so the default is not added twice.
+and it draws nothing. To change the markup, pass `render` and `selectionRender`
+in `carets`. They take the same arguments as in TipTap's CollaborationCaret.
+`render` builds the caret element, and `selectionRender` returns the decoration
+attributes of a selection. An option that you leave out keeps the default.
 
 ```ts
-const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', { carets: false })
-const editor = useEditor({
-  extensions: [
-    ...realtime.extensions.value,
-    RealtimeCaret.configure({ awareness: realtime.provider.value!.awareness, render: renderCaret }),
-  ],
+const realtime = useRealtimeTiptap('docs', 'guides/welcome.md', {
+  carets: {
+    render: (user) => {
+      const caret = document.createElement('span')
+      caret.className = 'caret'
+      caret.style.borderColor = user.color
+      caret.title = user.name
+      return caret
+    },
+  },
 })
+const editor = useEditor({ extensions: realtime.extensions.value })
 ```
+
+`realtime.extensions` binds the carets to the current document. It is empty
+during SSR and while the document id is empty, and it changes when the
+document changes, so create the editor again for each document. Pass
+`carets: false` to leave the carets out.
 
 ## Saves, refresh, and resets
 

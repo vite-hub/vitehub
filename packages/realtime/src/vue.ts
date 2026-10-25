@@ -10,6 +10,8 @@ import * as Y from "yjs"
 import type { AnyExtension } from "@tiptap/core"
 import type { Result } from "@vite-hub/runtime"
 import type { MaybeRefOrGetter, Ref } from "vue"
+import type { Awareness } from "y-protocols/awareness"
+import type { RealtimeCaretOptions } from "./caret.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type { RealtimeCheckpoint, RealtimeDocumentStatus, RealtimeEditor, RealtimePerson, RealtimeReadOnlyReason, RealtimeRequestErrorCode, RealtimeResetReason, RealtimeSaved, RealtimeUser, RealtimeWorkspaceChange } from "./types.ts"
 import { resolveRealtimeApplicationPath } from "./application-path.ts"
@@ -57,8 +59,9 @@ export interface UseRealtimeTiptapOptions {
   /**
    * Other people's carets and selections, in their presence color. Defaults to `true`. They use TipTap's
    * CollaborationCaret classes (`collaboration-carets__caret`, `collaboration-carets__label`, `ProseMirror-yjs-selection`).
+   * Pass `{ render, selectionRender }` to change the markup, or `false` to leave the carets out.
    */
-  carets?: boolean
+  carets?: boolean | Partial<Pick<RealtimeCaretOptions, "render" | "selectionRender">>
   onReset?: (event: RealtimeResetEvent) => void
 }
 
@@ -110,6 +113,16 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
     : undefined
   const identity = () => options.identity === undefined ? sessionUser?.value : toValue(options.identity)
   const createExtensions = () => options.editor ? options.editor.extensions() : createRealtimeEditorExtensions({ collaborative: true })
+  // Each document gets its own caret extension, bound to that document's awareness.
+  const createCarets = (awareness: Awareness): AnyExtension[] => {
+    if (options.carets === false) return []
+    const { render, selectionRender } = typeof options.carets === "object" ? options.carets : {}
+    return [markRaw(RealtimeCaret.configure({
+      awareness: markRaw(awareness),
+      ...(render ? { render } : {}),
+      ...(selectionRender ? { selectionRender } : {}),
+    }))]
+  }
   const document = shallowRef<Y.Doc>()
   const provider = shallowRef<WebsocketProvider>()
   const workspaceProvider = shallowRef<WebsocketProvider>()
@@ -425,7 +438,7 @@ export function useRealtimeTiptap(definition: string, documentId: MaybeRefOrGett
       ? [
           ...createExtensions(),
           markRaw(Collaboration.configure({ fragment: markRaw(document.value.getXmlFragment(realtimeDocumentLayout.body)) })),
-          ...(options.carets === false ? [] : [markRaw(RealtimeCaret.configure({ awareness: markRaw(provider.value.awareness) }))]),
+          ...createCarets(provider.value.awareness),
         ]
       : []),
     fields: computed(() => document.value?.getMap<unknown>(realtimeDocumentLayout.fields)),
