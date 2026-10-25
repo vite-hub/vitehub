@@ -8,6 +8,22 @@ import type { StandardSchemaV1 } from "@standard-schema/spec"
 export const operationRpcPath = "/_vitehub/rpc/__call"
 /** Header that proves the caller is not a browser page. A foreign page cannot send it without a CORS preflight. */
 export const operationRpcHeader = "x-vitehub-console"
+/** Response header of the local dev RPC. Its value is {@link projectRootHash} of the project that the server runs. */
+export const operationRootHeader = "x-vitehub-root"
+/** A short stable hash of a project root. The CLI uses it to see that the dev server runs its own project. */
+export function projectRootHash(root: string): string {
+  const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "")
+  let first = 0xdeadbeef
+  let second = 0x41c6ce57
+  for (let index = 0; index < normalized.length; index++) {
+    const code = normalized.charCodeAt(index)
+    first = Math.imul(first ^ code, 2654435761)
+    second = Math.imul(second ^ code, 1597334677)
+  }
+  first = Math.imul(first ^ (first >>> 16), 2246822507) ^ Math.imul(second ^ (second >>> 13), 3266489909)
+  second = Math.imul(second ^ (second >>> 16), 2246822507) ^ Math.imul(first ^ (first >>> 13), 3266489909)
+  return `${(second >>> 0).toString(16).padStart(8, "0")}${(first >>> 0).toString(16).padStart(8, "0")}`
+}
 /** Header that names the tool behind a call. `cli` marks `vitehub` commands. */
 export const operationSurfaceHeader = "x-vitehub-surface"
 
@@ -52,6 +68,11 @@ export interface OperationContext {
   request?: Request
   /** Operations set a success status here, such as 202 for an accepted call. */
   response?: { status?: number }
+  /**
+   * An agent may pass `lease: "override"` to `content.save` only when the developer allowed it. Defaults to false, so a
+   * model cannot take over a document that a person is editing.
+   */
+  overrideLeases?: boolean
 }
 
 export interface OperationDefinition<Input, Output> {
@@ -78,15 +99,21 @@ export interface OperationDefinition<Input, Output> {
     /** Human output. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
   }
-  /** Largest request body in bytes. Defaults to 64 KiB. */
+  /** Largest request body in bytes. It can raise the 64 KiB default but not lower it. */
   maxRequestBytes?: number
+  /**
+   * Returns true when this call only reads, such as a dry run of a `destructive` operation. The CLI then skips the
+   * confirmation, and agents run it without approval. Without it, every call of a `destructive` operation asks.
+   */
+  readOnlyWhen?: (input: Input) => boolean
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
   run: (input: Input, context: OperationContext) => Output | Promise<Output>
 }
 
 /** An operation of any input and output, as a registry holds it. */
-export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "run" | "section"> {
+export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "section"> {
+  readOnlyWhen?: (input: never) => boolean
   cli?: { namespace?: string, command?: string, positional?: string[], format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
@@ -130,7 +157,17 @@ function checkDefinition(definition: unknown): void {
   const input = definition.input
   if (!isObject(input) || !isObject(input["~standard"]) || !(input["~standard"].validate instanceof Function)) throw invalidDefinition(name, "input must be a Standard Schema, such as a valibot object.")
   if (!(definition.run instanceof Function)) throw invalidDefinition(name, "run must be a function.")
+  const { maxRequestBytes } = definition
+  if (maxRequestBytes !== undefined && (!Number.isInteger(maxRequestBytes) || Number(maxRequestBytes) < defaultRequestBytes)) {
+    throw invalidDefinition(name, `maxRequestBytes can only raise the limit above ${defaultRequestBytes} bytes (64 KiB).`)
+  }
+  if (definition.readOnlyWhen !== undefined && !(definition.readOnlyWhen instanceof Function)) throw invalidDefinition(name, "readOnlyWhen must be a function.")
 }
+
+/** The default limit of a call, in bytes. */
+export const defaultRequestBytes: number = 64 * 1_024
+/** Input keys that the generated CLI commands read themselves. */
+export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
 
 /**
  * Define one operation. The Console, the CLI, MCP, and agent tools call the same definition. Contribute it with
@@ -139,7 +176,13 @@ function checkDefinition(definition: unknown): void {
 export function defineOperation<Input, Output>(definition: OperationDefinition<Input, Output>): OperationDefinition<Input, Output> {
   checkDefinition(definition)
   // Valibot schemas carry no JSON Schema. Add it here, so the CLI and MCP read the fields of any definer's input.
-  return { ...definition, input: withValibotJsonSchema(definition.input) }
+  const defined = { ...definition, input: withValibotJsonSchema(definition.input) }
+  const properties = operationInputJsonSchema(defined as unknown as AnyOperation).properties
+  const clashes = isObject(properties) ? Object.keys(properties).filter(key => reservedOperationFlags.includes(key)) : []
+  if (clashes.length) {
+    throw invalidDefinition(definition.name, `the input key ${clashes.map(key => JSON.stringify(key)).join(", ")} is a CLI flag of every command (${reservedOperationFlags.join(", ")}). Rename it.`)
+  }
+  return defined
 }
 
 export function isOperation(value: unknown): value is AnyOperation {
@@ -164,9 +207,12 @@ export interface OperationContributionEntry {
   runtime?: false
 }
 
+/** The contribution of a plugin: a list, or a function that returns it, for a plugin that reads the project first. */
+export type OperationContributions = readonly OperationContributionEntry[] | (() => readonly OperationContributionEntry[] | Promise<readonly OperationContributionEntry[]>)
+
 export interface OperationContributingPlugin {
   name?: string
-  vitehub?: { operations?: readonly OperationContributionEntry[] }
+  vitehub?: { operations?: OperationContributions }
 }
 
 /** A validated contribution with the plugin that added it. */
@@ -184,12 +230,13 @@ function pluginName(plugin: object): string {
 }
 
 /** Reads `plugin.vitehub.operations` from resolved Vite plugins. The same module and export from two plugins counts once. */
-export function collectOperationContributions(plugins: readonly unknown[]): CollectedOperationContribution[] {
+export async function collectOperationContributions(plugins: readonly unknown[]): Promise<CollectedOperationContribution[]> {
   const collected = new Map<string, CollectedOperationContribution>()
   for (const plugin of plugins) {
     if (!isObject(plugin) || !Object.hasOwn(plugin, "vitehub")) continue
-    const entries: unknown = Reflect.get(Object(Reflect.get(plugin, "vitehub")), "operations")
-    if (entries === undefined) continue
+    const declared: unknown = Reflect.get(Object(Reflect.get(plugin, "vitehub")), "operations")
+    if (declared === undefined) continue
+    const entries: unknown = declared instanceof Function ? await declared() : declared
     const owner = pluginName(plugin)
     if (!Array.isArray(entries)) throw internalErrorDiagnostics.INTERNAL_B0048({ message: `[vitehub] ${owner} sets vitehub.operations, which must be a list of { module, export }.` })
     for (const entry of entries as unknown[]) {
@@ -229,7 +276,16 @@ export interface OperationRegistry {
   list(): AnyOperation[]
 }
 
-/** Build the registry by name. A duplicate name fails with `INTERNAL_B0048`. */
+/** The CLI namespace and command of an operation. Defaults: the section (or the name prefix) and the verb. */
+export function operationCliPath(operation: Pick<AnyOperation, "cli" | "name" | "section">): { command: string, namespace: string } {
+  const dot = operation.name.indexOf(".")
+  return {
+    command: operation.cli?.command ?? operation.name.slice(dot + 1),
+    namespace: operation.cli?.namespace ?? (typeof operation.section === "string" ? operation.section : operation.name.slice(0, dot)),
+  }
+}
+
+/** Build the registry by name. A duplicate name or CLI command fails with `INTERNAL_B0048` or `INTERNAL_B0049`. */
 export function createOperationRegistry(sources: Iterable<{ operations: readonly AnyOperation[], plugin?: string }>): OperationRegistry {
   const byName = new Map<string, { operation: AnyOperation, plugin?: string }>()
   for (const source of sources) {
@@ -243,6 +299,16 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
     }
   }
   const operations = [...byName.values()].map(entry => entry.operation).sort((left, right) => left.name.localeCompare(right.name))
+  const commands = new Map<string, AnyOperation>()
+  for (const operation of operations) {
+    const { command, namespace } = operationCliPath(operation)
+    const key = `${namespace} ${command}`
+    const other = commands.get(key)
+    if (other) {
+      throw internalErrorDiagnostics.INTERNAL_B0049({ message: `[vitehub] The operations ${JSON.stringify(other.name)} and ${JSON.stringify(operation.name)} are both the CLI command \`vitehub ${key}\`.` })
+    }
+    commands.set(key, operation)
+  }
   return { get: name => byName.get(name)?.operation, list: () => [...operations] }
 }
 
@@ -256,6 +322,24 @@ export function installOperationRegistry(registry: OperationRegistry): void {
 
 export function installedOperationRegistry(): OperationRegistry | undefined {
   return scope[registryKey]
+}
+
+/**
+ * What `console.authorize` allows for a person. Agents and MCP have no browser request, so the Console installs this
+ * resolver, and it calls `authorize` with a request that carries no headers. Without `console.authorize` it returns
+ * `"all"`, and the `include` list of the agent is the only gate.
+ */
+export type OperationSectionResolver = (call: { actor?: OperationActor, user: OperationUser | null }) => Promise<"all" | readonly string[]>
+
+const sectionResolverKey: unique symbol = Symbol.for("vitehub.operations.section-resolver")
+const resolverScope = globalThis as typeof globalThis & { [sectionResolverKey]?: OperationSectionResolver }
+
+export function installOperationSectionResolver(resolver: OperationSectionResolver | undefined): void {
+  resolverScope[sectionResolverKey] = resolver
+}
+
+export function installedOperationSectionResolver(): OperationSectionResolver | undefined {
+  return resolverScope[sectionResolverKey]
 }
 
 /** JSON Schema of the input, for CLI flags and MCP tool schemas. Falls back to an open object. */
@@ -354,6 +438,11 @@ export interface OperationTarget {
   fetch?: typeof fetch
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
+  /**
+   * Project roots that the caller accepts. A local dev server names its project in a response header, and the call fails
+   * with `INTERNAL_R0025` when that project is none of these.
+   */
+  roots?: readonly string[]
 }
 
 export const operationCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
@@ -395,6 +484,12 @@ export async function callOperation(target: OperationTarget, name: string, input
   }
   catch (error) {
     return unreachable(`The request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const served = response.headers.get(operationRootHeader)
+  if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
+    const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
+    const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
+    return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
   }
   const body = await response.text()
   let json: unknown

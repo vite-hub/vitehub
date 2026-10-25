@@ -1,7 +1,7 @@
 import * as v from "valibot"
 import { describe, expect, it } from "vitest"
 
-import { collectOperationContributions, createOperationRegistry, defineOperation, operationInputJsonSchema, runOperation } from "../src/operations.ts"
+import { collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, projectRootHash, runOperation } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -80,8 +80,48 @@ describe("operations", () => {
     expect(operationInputJsonSchema(greet)).toMatchObject({ properties: { name: { type: "string" }, times: { type: "number" } }, required: ["name"], type: "object" })
   })
 
-  it("collects contributions from plugins once", () => {
+  it("collects contributions from plugins once, also from a function", async () => {
     const entry = { export: "ops", module: "@demo/operations" }
-    expect(collectOperationContributions([{ name: "a", vitehub: { operations: [entry] } }, { name: "b", vitehub: { operations: [entry] } }, { name: "c" }])).toEqual([{ export: "ops", module: "@demo/operations", plugin: "a" }])
+    expect(await collectOperationContributions([{ name: "a", vitehub: { operations: [entry] } }, { name: "b", vitehub: { operations: async () => [entry] } }, { name: "c" }, { name: "d", vitehub: { operations: () => [] } }])).toEqual([{ export: "ops", module: "@demo/operations", plugin: "a" }])
+  })
+
+  it("fails when two operations are the same CLI command", () => {
+    const first = defineOperation({ ...greet, name: "agents.list", section: "agents" })
+    const second = defineOperation({ ...greet, name: "invocations.list", section: "agents" })
+    expect(() => createOperationRegistry([{ operations: [first, second], plugin: "vite-hub" }])).toThrowError(/both the CLI command `vitehub agents list`/)
+    const moved = defineOperation({ ...second, cli: { namespace: "invocations" } })
+    expect(operationCliPath(moved)).toEqual({ command: "list", namespace: "invocations" })
+    expect(() => createOperationRegistry([{ operations: [first, moved] }])).not.toThrow()
+    try {
+      createOperationRegistry([{ operations: [first, second] }])
+    }
+    catch (error) {
+      expect(error).toMatchObject({ code: "INTERNAL_B0049" })
+    }
+  })
+
+  it("rejects a request limit below the default and a key that clashes with a CLI flag", () => {
+    expect(() => defineOperation({ ...greet, maxRequestBytes: 1024 })).toThrowError(/can only raise the limit above 65536 bytes/)
+    expect(defineOperation({ ...greet, maxRequestBytes: 128 * 1024 }).maxRequestBytes).toBe(128 * 1024)
+    for (const key of ["url", "timeout", "json", "yes", "input"]) {
+      expect(() => defineOperation({ ...greet, input: v.object({ [key]: v.string() }) as never }), key).toThrowError(new RegExp(`input key "${key}" is a CLI flag`))
+    }
+    try {
+      defineOperation({ ...greet, input: v.object({ url: v.string() }) as never })
+    }
+    catch (error) {
+      expect(error).toMatchObject({ code: "INTERNAL_R0020" })
+    }
+  })
+
+  it("hashes a project root the same with or without a trailing slash", () => {
+    expect(projectRootHash("/home/app")).toBe(projectRootHash("/home/app/"))
+    expect(projectRootHash("/home/app")).not.toBe(projectRootHash("/home/other"))
+  })
+
+  it("keeps readOnlyWhen for the CLI and agents", () => {
+    const publish = defineOperation({ ...greet, kind: "destructive", name: "demo.publish", readOnlyWhen: () => true })
+    expect(publish.readOnlyWhen?.({ name: "x" })).toBe(true)
+    expect(() => defineOperation({ ...greet, readOnlyWhen: "yes" as never })).toThrowError(/readOnlyWhen must be a function/)
   })
 })

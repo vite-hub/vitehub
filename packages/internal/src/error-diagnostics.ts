@@ -85,6 +85,14 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Rename one of the two operations. A name is `<section>.<verb>` and is unique in the app.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    INTERNAL_B0049: {
+      fix: "Set `cli: { namespace, command }` on one of the two operations.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
+    INTERNAL_R0025: {
+      fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
     INTERNAL_C0001: dynamicError,
     INTERNAL_C0002: dynamicError,
     INTERNAL_R0001: dynamicError,
