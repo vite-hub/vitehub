@@ -12,7 +12,7 @@ import { taskRegistryKey } from "../src/task/registry.ts"
 import { discoverTaskDefinitions } from "../src/task/discovery.ts"
 import { viteHubTaskPlugin } from "../src/task/vite.ts"
 
-import { operationCliPath } from "@vite-hub/internal/operations"
+import { collectOperationContributions, operationCliPath, operationsOf } from "@vite-hub/internal/operations"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
 
@@ -79,9 +79,11 @@ describe("viteHubTaskPlugin", () => {
   it("contributes the task operations only when the app has tasks", async () => {
     const withTasks = await runConfigHook(await project({ "server/tasks/seed.ts": "" }))
     const without = await runConfigHook(await project({}))
-    const entries = (plugin: ReturnType<typeof viteHubTaskPlugin>) => (plugin.vitehub.operations as () => unknown[])()
-    expect(entries(withTasks.plugin)).toEqual([expect.objectContaining({ export: "taskOperations", module: "vite-hub/_internal/task/operations" })])
-    expect(entries(without.plugin)).toEqual([])
+
+    const [contribution] = await collectOperationContributions([withTasks.plugin])
+    expect(contribution).toMatchObject({ export: "taskOperations", module: "vite-hub/_internal/task/operations" })
+    expect(operationsOf(await contribution?.load?.()).map(operation => operation.name)).toEqual(["task.list", "task.run"])
+    await expect(collectOperationContributions([without.plugin])).resolves.toEqual([])
   })
 
   it("enables Nitro tasks for tasks declared in Nitro config", async () => {

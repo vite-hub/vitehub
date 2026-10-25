@@ -1,1 +1,3 @@
-export { taskOperations } from "../../task/operations.ts"
+import { taskOperations } from "../../task/operations.ts"
+
+export { taskOperations }
