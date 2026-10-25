@@ -909,6 +909,12 @@
       "require": "./dist/ui/avatar-stack.js",
       "default": "./dist/ui/avatar-stack.js"
     },
+    "./ui/comments": {
+      "types": "./dist/ui/comments.d.ts",
+      "import": "./dist/ui/comments.js",
+      "require": "./dist/ui/comments.js",
+      "default": "./dist/ui/comments.js"
+    },
     "./ui/connection-status": {
       "types": "./dist/ui/connection-status.d.ts",
       "import": "./dist/ui/connection-status.js",
