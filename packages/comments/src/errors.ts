@@ -24,5 +24,45 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "A comment needs some text.",
       fix: "Write at least one character before you send.",
     },
+    COMMENTS_R0006: {
+      why: "server/comments.ts defines no authorize policy, so nobody can read or write comments.",
+      fix: "Pass authorize to defineComments({ authorize }) and return true for the people and Agents that may take the action.",
+    },
+    COMMENTS_R0007: {
+      why: ({ message }: { message: string }) => message,
+      fix: "Mention only people that users() finds, and write @ and their name in the text.",
+    },
+    COMMENTS_R0008: {
+      why: ({ kind }: { kind: string }) => `The comment subject kind "${kind}" is not defined.`,
+      fix: "Use page or content, or add defineCommentSubject({ kind, scope }) to defineComments({ subjects }).",
+    },
+    COMMENTS_R0009: {
+      why: ({ action }: { action: string }) => `This user or Agent may not ${action} this comment.`,
+      fix: "Ask for access, or allow the action in defineComments({ authorize }).",
+    },
+    COMMENTS_R0010: {
+      why: "The comments runtime is not installed.",
+      fix: "Add server/comments.ts and enable the Database with vitehub({ database: true }). `vite dev` and builds install the runtime for you.",
+    },
+    COMMENTS_R0011: {
+      why: "The comment numbers of this scope are busy.",
+      fix: "Try again. Several people created a comment at the same moment.",
+    },
+    COMMENTS_R0012: {
+      why: "Writing a comment needs a signed-in user.",
+      fix: "Sign in, then try again. In `vite dev` without sign-in, set console.auth so comments know who writes.",
+    },
+    COMMENTS_R0013: {
+      why: "The comments request did not get an answer from the server.",
+      fix: "Check the connection and the app URL, then try again.",
+    },
+    COMMENTS_B0001: {
+      why: ({ file }: { file: string }) => `${file} needs a Database, and vitehub() has none.`,
+      fix: "Set vitehub({ database: true }) in your Vite config, or define a Database in server/databases/config.ts.",
+    },
+    COMMENTS_B0002: {
+      why: ({ file }: { file: string }) => `${file} must default-export defineComments().`,
+      fix: "Write `export default defineComments({ authorize })` in server/comments.ts.",
+    },
   },
 })
