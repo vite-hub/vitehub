@@ -13,7 +13,10 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubComments } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
+
+import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -106,6 +109,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
@@ -360,6 +364,11 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /**
+   * Comments tables and operations. They turn on when `server/comments.ts` exists. Set `database` to choose the
+   * Database Definition, and `dialect: "postgresql"` for a Postgres Database.
+   */
+  comments?: Pick<HubCommentsOptions, "database" | "dialect">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -1245,6 +1254,17 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       database: "vite-hub/database/drizzle",
       databaseDefinition: "vite-hub/database",
       workspace: "vite-hub/workspace",
+    },
+  }))
+  // Comment tables, operations, and the runtime plugin, when the app has `server/comments.ts`. Inert without it.
+  plugins.push(hubComments({
+    ...options.comments,
+    auth: Boolean(options.auth),
+    imports: {
+      auth: "vite-hub/auth/server",
+      database: "vite-hub/database/drizzle",
+      databaseSchema: "vite-hub/comments/database",
+      runtime: "vite-hub/comments/server",
     },
   }))
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.

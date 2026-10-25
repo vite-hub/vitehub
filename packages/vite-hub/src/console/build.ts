@@ -1,4 +1,5 @@
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
+import { findCommentsEntry } from "@vite-hub/comments/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { collectOperationContributions, createOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
 import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
@@ -23,6 +24,8 @@ export interface ConsoleBuildCatalog {
   content: Record<ConsoleSectionId, ConsoleSectionContent>
   /** Application module of each document editor section that discovery found, such as `server/content.ts`. */
   documents?: Record<ConsoleSectionId, string>
+  /** Sections that exist because the app has their file, such as `server/comments.ts`. */
+  extraSections?: readonly ConsoleSectionId[]
   /** The operations that Vite plugins contribute through `vitehub.operations`. */
   operations?: readonly CollectedOperationContribution[]
 }
@@ -31,8 +34,9 @@ export interface ConsoleBuildCatalog {
  * Returns the sections in navigation order with every document editor section that discovery found. A document editor
  * has no Vite option: the Console shows it when its application module exists, such as `server/content.ts`.
  */
-export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents">): ConsoleSectionId[] {
+export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents"> & { extraSections?: readonly ConsoleSectionId[] }): ConsoleSectionId[] {
   let result = sections.filter(section => !consoleDocumentEditorSectionIds.includes(section))
+  for (const section of catalog.extraSections ?? []) result = insertConsoleSection(result, section)
   for (const section of consoleDocumentEditorSectionIds) {
     if (catalog.documents && Object.hasOwn(catalog.documents, section)) result = insertConsoleSection(result, section)
   }
@@ -86,7 +90,9 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
       kind: "definition-catalog",
     }
   }
-  for (const section of sections) {
+  // A section whose file exists in the app, such as server/comments.ts, joins the enabled sections.
+  const extraSections: ConsoleSectionId[] = findCommentsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) }) ? ["comments"] : []
+  for (const section of [...sections, ...extraSections.filter(extra => !sections.includes(extra))]) {
     const contributed = consoleContributedSections.get(section)
     if (contributed && !contributed.documents) content[section] = await contributed.read(options)
   }
@@ -119,5 +125,5 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const contributed = await collectOperationContributions(await flattenPluginOptions(options.plugins))
   await assertUniqueOperationNames(contributed)
   const operations = contributed.filter(contribution => contribution.runtime !== false)
-  return { agents, content, documents, manualSchedules, operations }
+  return { agents, content, documents, extraSections, manualSchedules, operations }
 }

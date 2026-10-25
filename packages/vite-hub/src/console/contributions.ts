@@ -1,4 +1,5 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
+import { commentsConsoleSection } from "@vite-hub/comments/vite"
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
@@ -103,6 +104,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     schedules: context.scheduleDefinitions,
     serverDirs: context.serverDirs,
   })),
+  registerConsoleSection(commentsConsoleSection, () => undefined),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
