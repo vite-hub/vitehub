@@ -29,6 +29,8 @@ export type ViteHubCliSpawn = (
 export interface ViteHubCliContext extends ViteHubCliStreams {
   cwd: string
   env: NodeJS.ProcessEnv
+  /** Replaces `fetch` for commands that call a running app, so tests need no server. */
+  fetch?: typeof fetch
   rootDir: string
   spawn: ViteHubCliSpawn
 }
