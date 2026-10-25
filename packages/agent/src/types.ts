@@ -828,7 +828,8 @@ export interface AgentChannelState extends AgentChannelStateBinding {
    * `T` types the saved value. `R` is inferred from `run`; when `T` is given explicitly, `R` defaults to a trigger result.
    *
    * @example
-   * invoke: (context, change) => context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+   * durableState: true,
+   * invoke: (context, change) => context.channelState.transaction<{ version: number }>(`record:${change.id}`, (record) => {
    *   if (record.value && record.value.version >= change.version) return ignored("stale_update")
    *   record.set({ version: change.version })
    *   return { input: { prompt: change.text }, webhook: { deliveryId: change.eventId, serialize: change.id } }
