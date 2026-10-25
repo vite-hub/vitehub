@@ -1,5 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
+import type { AuthEventsConfiguration } from "./events.ts"
 import type { AuthPreset } from "./presets.ts"
 declare global {
   namespace ViteHub {
@@ -10,7 +11,7 @@ declare global {
 }
 
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
-export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage"
+export type AuthReservedOption = AuthRuntimeOption | "events" | "access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage"
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
 }
@@ -45,7 +46,7 @@ export interface AuthRuntimeContext<TEnv extends Record<string, unknown> = AuthR
   requestOrigin: string
 }
 
-export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">>
+export type AuthRuntimeOptions = Partial<Omit<BetterAuthOptions, "basePath">> & { events?: AuthEventsConfiguration | false }
 export type AuthRuntimeOptionsResolver = (context: AuthRuntimeContext) => AuthRuntimeOptions
 export type AuthRuntimeConfiguration = AuthRuntimeOptions | AuthRuntimeOptionsResolver
 
@@ -100,6 +101,8 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  /** Opt in to durable auth events with an explicit store. */
+  events?: AuthEventsConfiguration | false
   access?: AuthAccessConfiguration
   basePath?: string
   database?: AuthDatabaseConfiguration
@@ -169,8 +172,8 @@ export interface ResolvedAuthViteConfig {
 
 export type AuthBetterAuthRuntimeOptions<TOptions extends AuthDefinitionInput = AuthDefinitionInput> =
   (TOptions extends AuthDefinitionResolver<infer TResolved>
-    ? Omit<TResolved, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">
-    : Omit<TOptions, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">)
+    ? Omit<TResolved, AuthRuntimeOption | "events" | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">
+    : Omit<TOptions, AuthRuntimeOption | "events" | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">)
   & AuthRuntimeOptions
   & BetterAuthOptions
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">

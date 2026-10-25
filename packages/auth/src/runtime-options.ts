@@ -2,6 +2,8 @@ import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
+import { validateAuthEvents } from "./events-config.ts"
+import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -46,6 +48,7 @@ function stripViteHubOptions(
   const {
     access: _access,
     database,
+    events,
     route: _route,
     runtime: _runtime,
     secondaryStorage,
@@ -56,11 +59,15 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
   }
+  validateAuthEvents(events)
+  const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
+  const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
     ...storage,
-    ...withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage)),
+    ...sessionRefresh,
+    ...(events ? { plugins: [...plugins, createAuthEventsPlugin(events)] } : {}),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions
