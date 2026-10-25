@@ -751,6 +751,37 @@ export default function (_options, nuxt) {
     expect(stderr.output()).toContain("CLOUDFLARE_ACCOUNT_ID")
   })
 
+  it.each(["malformed", "empty", "directory"])("rejects %s provision state before applying resources", async (kind) => {
+    const rootDir = await createTempDir()
+    const statePath = join(rootDir, ".vitehub", "provision.json")
+    await mkdir(join(rootDir, ".vitehub"))
+    const contents = kind === "malformed" ? "{broken" : ""
+    if (kind === "directory") await mkdir(statePath)
+    else await writeFile(statePath, contents)
+    const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id-1" } } } }))
+    const options = {
+      cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
+      loadConfig: async () => ({ plugins: [provisionPlugin(apply)], root: rootDir }),
+      stdout: stream(),
+    }
+
+    for (const flags of [[], ["--json"]]) {
+      await expect(runViteHubCli({
+        ...options,
+        args: ["provision", "run", "--provider", "cloudflare", ...flags],
+      })).rejects.toMatchObject({ code: "INTERNAL_R0014" })
+      expect(apply).not.toHaveBeenCalled()
+    }
+    if (kind !== "directory") expect(await readFile(statePath, "utf8")).toBe(contents)
+
+    await expect(runViteHubCli({
+      ...options,
+      args: ["provision", "run", "--provider", "cloudflare", "--dry-run"],
+    })).resolves.toBe(0)
+    expect(apply).not.toHaveBeenCalled()
+  })
+
   it("applies provision steps and writes ids to provision state", async () => {
     const rootDir = await createTempDir()
     const apply = vi.fn(async () => ({ ids: { cloudflare: { test: { demo: "id-1" } } } }))
