@@ -128,6 +128,6 @@ describe("responsiveImage", () => {
       sources: [],
     })
     expect(() => responsiveImage({ width: 10 })).toThrow("needs the served URL")
-    expect(responsiveImage({}, { url: "/x.jpg", widths: [320] }).img.srcset).toBe("/x.jpg?w=320&fmt=webp 320w")
+    expect(responsiveImage({}, { url: "/x.jpg", widths: [320] }).img.srcset).toBe("/x.jpg?w=384&fmt=webp 384w")
   })
 })
