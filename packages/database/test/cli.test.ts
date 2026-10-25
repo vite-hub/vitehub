@@ -1,6 +1,6 @@
 import { execFile, spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
@@ -199,12 +199,14 @@ describe("DB CLI contributor", () => {
     expect(existsSync(join(viteRoot, "migrations"))).toBe(false)
   })
 
-  it("resolves Kit from the installed facade when the application has no direct Kit dependency", async () => {
+  it.each(["nested", "pnpm"])("resolves Kit from the %s facade layout without a direct Kit dependency", async (layout) => {
     const rootDir = await mkdtemp(resolve(import.meta.dirname, "../../../../.database-facade-"))
     tempDirs.push(rootDir)
-    const facade = join(rootDir, "node_modules/vite-hub")
-    const kit = join(facade, "node_modules/drizzle-kit")
+    const facade = join(rootDir, layout === "pnpm" ? "node_modules/.pnpm/vite-hub/node_modules/vite-hub" : "node_modules/vite-hub")
+    const kit = layout === "pnpm" ? join(dirname(facade), "drizzle-kit") : join(facade, "node_modules/drizzle-kit")
+    await mkdir(facade, { recursive: true })
     await mkdir(kit, { recursive: true })
+    if (layout === "pnpm") await symlink(facade, join(rootDir, "node_modules/vite-hub"), "dir")
     await writeFile(join(rootDir, "package.json"), '{"type":"module"}')
     await writeFile(join(facade, "package.json"), '{"name":"vite-hub","main":"index.js"}')
     await writeFile(join(facade, "index.js"), "")

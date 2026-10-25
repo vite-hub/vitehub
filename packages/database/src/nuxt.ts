@@ -679,7 +679,7 @@ async function installNitroRequestStats(config: Record<string, unknown>, root: s
   kit.addHandler({ handler: generatedNitroRequestStatsMiddleware, middleware: true }, "start")
   config.handlers = kit.config.handlers
   await writeFileIfChanged(resolve(root, generatedNitroRequestStatsMiddleware), [
-    "import { runWithDatabaseRequestStats } from '@vite-hub/database/runtime/request-stats'",
+    `import { runWithDatabaseRequestStats } from ${JSON.stringify(resolveRuntimeModule(resolve(databaseRuntimeDir, "../.."), "runtime/request-stats"))}`,
     "",
     "export default (event: unknown, next?: () => unknown) => typeof next === 'function' ? runWithDatabaseRequestStats(event, next) : undefined",
     "",

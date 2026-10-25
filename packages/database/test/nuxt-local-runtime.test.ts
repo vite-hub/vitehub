@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
+import { dirname, join, resolve } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { build } from "esbuild"
@@ -13,6 +13,38 @@ const execFileAsync = promisify(execFile)
 const packageRoot = fileURLToPath(new URL("..", import.meta.url))
 
 describe("Nuxt production Node Database runtime", () => {
+  it("bundles request middleware without a direct Database dependency", async () => {
+    // Stay outside the checkout so the generated import cannot find workspace dependencies.
+    const root = await mkdtemp(resolve(packageRoot, "../../../.vitest-nuxt-stats-"))
+    const hooks: Array<(config: Record<string, unknown>) => Promise<void> | void> = []
+    try {
+      await writeFile(join(root, "package.json"), '{"private":true,"type":"module"}')
+      await hubDb()(undefined, {
+        hook: (event: string, callback: (config: Record<string, unknown>) => Promise<void> | void) => {
+          if (event === "nitro:config") hooks.push(callback)
+        },
+        options: { dev: false, nitro: { preset: "node-server" }, rootDir: root, vite: {} },
+      })
+      for (const hook of hooks) await hook({})
+      const output = join(root, "middleware.mjs")
+      await build({
+        bundle: true,
+        entryPoints: [join(root, ".vitehub/nitro/database/request-stats.ts")],
+        format: "esm",
+        outfile: output,
+        platform: "node",
+      })
+      const { stdout } = await execFileAsync(process.execPath, ["--input-type=module", "-e", [
+        `import middleware from ${JSON.stringify(pathToFileURL(output).href)}`,
+        "console.log(middleware({}, () => 42))",
+      ].join("\n")], { cwd: root })
+      expect(stdout.trim()).toBe("42")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
   it.each(["default", "orders"])("queries the configured %s SQLite database through the generated host alias", async (name) => {
     const root = await mkdtemp(join(packageRoot, ".vitest-nuxt-node-"))
     const definition = join(root, "server/databases", ...(name === "default" ? [] : [name]), "config.ts")

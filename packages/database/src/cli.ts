@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { findPackageJSON } from "node:module"
 import { pathToFileURL } from "node:url"
@@ -87,11 +87,12 @@ function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
     const drizzleKitBin = resolveDrizzleKitBinFromRoot(projectRoot)
     if (drizzleKitBin) return drizzleKitBin
   }
-  // The framework facade supplies Kit as its dependency under pnpm's isolated layout.
+  // pnpm keeps Kit beside the facade's real directory, outside the application's symlink.
   for (const projectRoot of projectRoots) {
     let facadeManifest: string | undefined
     try {
       facadeManifest = findPackageJSON("vite-hub", pathToFileURL(resolve(projectRoot, "package.json")))
+      if (facadeManifest) facadeManifest = realpathSync(facadeManifest)
     }
     catch {
       continue
