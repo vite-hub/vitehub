@@ -4,13 +4,14 @@ import { createInterface } from "node:readline/promises"
 import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
+import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCliPath, operationInputJsonSchema, operationsOf } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationFailure, OperationResult } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
 
@@ -342,6 +343,47 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
   return { failure: failureOf(error, 503) }
 }
 
+/**
+ * Posts a signed dispatch to the route of an operation on a deployed app. Returns undefined when no dispatch key is set,
+ * so the command falls back to the RPC with Console credentials.
+ */
+async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
+  let key: string | undefined
+  try {
+    key = await resolveViteHubDispatchKey(context.env)
+  }
+  catch (error) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
+  }
+  if (!key) return undefined
+  const base = new URL(url)
+  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
+  const target = new URL(route.slice(1), base)
+  const body = JSON.stringify(input ?? {})
+  const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
+  const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
+  let response: Response
+  try {
+    response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
+  }
+  catch (error) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${error instanceof Error ? error.message : String(error)}` }), 502), ok: false }
+  }
+  const text = await response.text()
+  let json: unknown
+  try {
+    json = text ? JSON.parse(text) : undefined
+  }
+  catch {
+    json = undefined
+  }
+  if (response.ok && json !== undefined) return { ok: true, value: json }
+  const message = Reflect.get(Object(json), "message")
+  const failure = failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request failed with HTTP ${response.status}${typeof message === "string" && message ? `: ${message}` : "."}` }), response.status)
+  if (response.status === 401) failure.fix = "Set VITEHUB_DISPATCH_KEY to the key of the app (`vitehub secret derive vitehub:dispatch` prints it), and keep the clock of this machine correct."
+  return { ...failure, ok: false }
+}
+
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
   const flags = flagsOf(operation)
   const { command } = operationCliPath(operation)
@@ -373,7 +415,8 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
           return writeFailure(failureOf(cliErrorDiagnostics.CLI_R0004({ message: `${operation.name} changes or removes data and was not confirmed.` })), parsed, context)
         }
       }
-      const result = await callOperation({
+      const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
+      const result = dispatch ?? await callOperation({
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
         roots: acceptedRoots(context.rootDir),

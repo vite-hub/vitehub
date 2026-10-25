@@ -67,6 +67,16 @@ const digest = defineOperation({
   section: "digest",
 })
 
+const trigger = defineOperation({
+  cli: { dispatch: "/_vitehub/triggers/run", positional: ["name"] },
+  description: "Run a trigger now.",
+  input: v.strictObject({ name: v.string() }),
+  kind: "write",
+  name: "triggers.run",
+  run: ({ name }) => ({ run: { id: "r1", name } }),
+  section: "triggers",
+})
+
 const cleanup: string[] = []
 
 afterEach(async () => {
@@ -177,6 +187,62 @@ describe("generated operation commands", () => {
     const code = await runViteHubCli({ args: ["reports", "list", "acme", "--url", "https://app.example.com"], cwd: "/app", env: { VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
     expect(code).toBe(0)
     expect(JSON.parse(stdout.output())).toEqual({ deployed: true })
+  })
+
+  describe("signed dispatch", () => {
+    const key = "ab".repeat(32)
+
+    async function runTrigger(env: NodeJS.ProcessEnv, fetch: ReturnType<typeof vi.fn>) {
+      const stdout = stream()
+      const stderr = stream()
+      const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [trigger], module: "fixture/operations" }] } }
+      const code = await runViteHubCli({ args: ["triggers", "run", "nightly", "--url", "https://app.example.com", "--yes"], cwd: "/app", env, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
+      return { code, stderr: stderr.output(), stdout: stdout.output() }
+    }
+
+    it("signs the input with VITEHUB_DISPATCH_KEY and posts it to the dispatch route", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://app.example.com/_vitehub/triggers/run")
+        const headers = new Headers(init?.headers)
+        expect(headers.get("x-vitehub-dispatch-signature")).toMatch(/^v1=[0-9a-f]{64}$/)
+        expect(headers.get("x-vitehub-dispatch-timestamp")).toBeTruthy()
+        expect(headers.get("x-vitehub-dispatch-nonce")).toBeTruthy()
+        expect(headers.get("authorization")).toBeNull()
+        expect(JSON.parse(String(init?.body))).toEqual({ name: "nightly" })
+        return Response.json({ run: { id: "r1", name: "nightly" } })
+      })
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+      expect(result.code).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r1", name: "nightly" } })
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("uses the RPC with Console credentials when no key is set", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc/__call")
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
+        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+      })
+      const result = await runTrigger({ VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch)
+      expect(result.code).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r2" } })
+    })
+
+    it("names the key when the app refuses the signature", async () => {
+      const fetch = vi.fn(async () => Response.json({ message: "The dispatch signature does not match." }, { status: 401 }))
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("CLI_R0006: The signed request failed with HTTP 401: The dispatch signature does not match.")
+      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY")
+    })
+
+    it("rejects a malformed key before it calls the app", async () => {
+      const fetch = vi.fn()
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: "nope" }, fetch)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY must be the 64-character hex key")
+      expect(fetch).not.toHaveBeenCalled()
+    })
   })
 
   it("fails with a coded error when no dev server is known, and never guesses a port", async () => {
