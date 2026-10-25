@@ -12,7 +12,14 @@ export class RealtimeDocumentConflict extends Diagnostic {
     this.name = "RealtimeDocumentConflict"
   }
 
-  override toJSON() {
+  override toJSON(): {
+    code: string
+    data: undefined
+    docs: string | undefined
+    fix: string | undefined
+    name: string
+    why: string
+  } {
     return {
       code: this.code,
       // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
