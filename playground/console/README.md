@@ -34,3 +34,5 @@ cloudflared tunnel --url http://127.0.0.1:5173
 
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
+
+Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
