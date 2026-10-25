@@ -672,3 +672,26 @@ describe("what a page subject may be", () => {
     expect(await failure("comments.reply", { attachments: ["blob/a.png"], body: "x", threadId: thread.id })).toMatchObject({ code: "COMMENTS_R0014" })
   })
 })
+
+describe("the overlay session", () => {
+  it("tells the overlay who is signed in and what that person may do, and nothing else", async () => {
+    await setup(defineComments({ authorize: ({ action, user }) => action === "read" || user?.id === "ana" }))
+    expect(await value("comments.session")).toEqual({ canRead: true, canWrite: true, user: ana })
+    signedIn = ben
+    expect(await value("comments.session")).toEqual({ canRead: true, canWrite: false, user: ben })
+    // No user: the policy decides read, and nobody writes without one.
+    signedIn = undefined
+    expect(await value("comments.session")).toEqual({ canRead: true, canWrite: false, user: null })
+  })
+
+  it("says no to everything without a policy, when the policy refuses, or when it cannot answer without a thread", async () => {
+    const { store } = await setup(defineComments())
+    expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
+    installComments({ definition: defineComments({ authorize: () => false }), store })
+    expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
+    installComments({ definition: defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" }), store })
+    expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
+    // It takes no input, so it cannot be asked about anything else.
+    expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "INTERNAL_R0022" })
+  })
+})

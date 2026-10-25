@@ -389,5 +389,20 @@ const users = defineOperation({
   section: "comments",
 })
 
+const session = defineOperation({
+  description: "Tell the comments overlay who is signed in and what that person may do. Nothing else leaves the server.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "comments.session",
+  run: async (_input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
+    const who = await caller(context)
+    // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
+    const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action).catch(() => false) : Promise.resolve(false)
+    const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
+    return { canRead, canWrite: canRead && canWrite && who.user !== null, user: who.user }
+  },
+  section: "comments",
+})
+
 /** The comment operations. The Console, the CLI, MCP, and the comments client call them. */
-export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users]
+export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users, session]
