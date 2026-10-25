@@ -304,6 +304,11 @@ A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `
 
 Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`. The code and name keep their literal types. Cause, stack, sources, and diagnostic data stay in memory and are absent from public JSON.
 
+`toResultError()` gives an allowed diagnostic this public serializer. It keeps the
+same object when its `name` and `toJSON` properties can be replaced. Otherwise it
+creates a new diagnostic with the same code, text, cause, data, sources, and stack,
+and leaves the original unchanged. The caller owns code allowlisting and public text.
+
 ### Developer diagnostics
 
 Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).

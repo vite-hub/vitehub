@@ -5,7 +5,12 @@ import { defineErrors, isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { loadBundledCopy, loadDiagnosticCopy } from "../../runtime/test/fixtures/diagnostic-copy.ts"
 import { kvResult } from "../src/errors.ts"
 
-it.each(["local", "foreign"])("serializes allowed %s native diagnostics without exposing their metadata", async (origin) => {
+it.each([
+  { origin: "local", frozen: false },
+  { origin: "foreign", frozen: false },
+  { origin: "local", frozen: true },
+  { origin: "foreign", frozen: true },
+])("serializes allowed $origin native diagnostics with frozen=$frozen without exposing their metadata", async ({ origin, frozen }) => {
   const init = {
     code: "KV_INVALID_CURSOR",
     why: "The cursor is invalid.",
@@ -22,8 +27,13 @@ it.each(["local", "foreign"])("serializes allowed %s native diagnostics without 
   expect(failure instanceof Diagnostic).toBe(origin === "local")
   Object.defineProperty(failure, "name", { value: "ProviderError" })
   const stack = failure.stack
+  if (frozen) Object.freeze(failure)
   const [error, value] = await kvResult("list", "default", async () => { throw failure }, ["KV_INVALID_CURSOR"])
-  expect(error).toBe(failure)
+  if (frozen) {
+    expect(error).not.toBe(failure)
+    expect(failure.name).toBe("ProviderError")
+  }
+  else expect(error).toBe(failure)
   expect(value).toBeUndefined()
   if (!error) throw new Error("Expected the cursor error")
   expectTypeOf(error.code).toEqualTypeOf<"KV_INVALID_CURSOR" | "KV_OPERATION_FAILED">()
