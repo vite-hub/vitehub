@@ -15,6 +15,7 @@ import type { BlobDriverAdapter, BlobDriverMultipartUpload, BlobListOptions, Blo
 import type { BlobImagesOptions, BlobImageTransformer } from "./media/types.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import isBlob from "./internal/is-blob.ts"
+import { readDerivedHeader } from "./internal/derived-header.ts"
 import { assertValidPathname } from "./internal/pathname.ts"
 import { createBlobMedia } from "./media/records.ts"
 import { resolveBlobImages } from "./media/transformers.ts"
@@ -96,13 +97,12 @@ async function derivedCachePrefix(pathname: string): Promise<string> {
 
 async function readDerived(cache: Blob | null, fingerprint: string): Promise<Blob | null> {
   if (!cache) return null
-  const header = new Uint8Array(await cache.slice(0, 4096).arrayBuffer())
-  const boundary = header.indexOf(10)
-  if (boundary < 0) return null
+  const header = await readDerivedHeader(cache)
+  if (!header) return null
   try {
     const metadata = parse(object({ fingerprint: literal(fingerprint), type: string() }),
-      JSON.parse(new TextDecoder().decode(header.subarray(0, boundary))))
-    return cache.slice(boundary + 1, cache.size, metadata.type)
+      JSON.parse(header.text))
+    return cache.slice(header.bodyOffset, cache.size, metadata.type)
   }
   catch {
     return null
