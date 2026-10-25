@@ -1,9 +1,10 @@
 ---
 title: Build a support Agent
 description: Compose a support Agent that answers in Teams from scoped Workspace evidence.
-navigation.order: 36
-navigation.group: Configure
+navigation.order: 80
+navigation.group: Recipes
 icon: i-lucide-life-buoy
+navigation.kind: Guides
 ---
 
 A support Agent needs a source boundary, a read tool, a caller check, and a

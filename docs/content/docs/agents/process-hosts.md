@@ -2,9 +2,10 @@
 title: Process hosts
 description: Run one long-lived Node process that admits, recovers, and drains background Agent work.
 navigation.title: Process hosts
-navigation.order: 74
-navigation.group: Advanced execution
+navigation.order: 77
+navigation.group: Advanced
 icon: i-lucide-server-cog
+navigation.kind: Guides
 ---
 
 A process host owns background Agent work inside one Node process. It combines a

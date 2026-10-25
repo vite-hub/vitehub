@@ -1,9 +1,10 @@
 ---
 title: Gmail Labeller preset
 description: Label Gmail messages with ordered rules and a constrained Jev fallback.
-navigation.order: 40.6
-navigation.group: Connect
+navigation.order: 81
+navigation.group: Recipes
 icon: i-lucide-tags
+navigation.kind: Guides
 ---
 
 `labeller` composes the Gmail Channel with ordered rules, a constrained Jev label choice, and allowlisted message actions. The application supplies labels and rules; Gmail OAuth, Pub/Sub, history, and message methods remain owned by ViteHub.

@@ -80,6 +80,35 @@ import { useServerEnv } from '#vitehub/env/server'
 const env = useServerEnv()
 ```
 
+## Include generated types
+
+For a Vite app, extend the supported `vite-hub/tsconfig` entry. It includes
+`.vitehub/types.d.ts`, which references the declarations for enabled features.
+Use TypeScript 5.5 or newer and keep your existing compiler options.
+
+```json [tsconfig.json]
+{
+  "extends": ["vite-hub/tsconfig"],
+  "include": ["server/**/*.ts", "src/**/*.ts", "vite.config.ts"]
+}
+```
+
+Prepare declarations after installation and before running a separate type
+check:
+
+```bash [commands/prepare-types]
+pnpm vitehub types prepare
+```
+
+Once the ViteHub config exists, add `"postinstall": "vitehub types prepare"`
+to your package scripts to prepare types after later installs. Vite config
+resolution and builds also refresh the entry. If your application sets
+`files`, include `.vitehub/types.d.ts` there because `files` replaces the
+inherited list.
+
+In Nuxt, keep its generated TypeScript config. The ViteHub module adds its
+type references during Nuxt preparation.
+
 ## Regenerate after edits
 
 Vite Integrations refresh generated files during dev startup, hot updates, or build hooks depending on the package.
@@ -93,7 +122,7 @@ pnpm dev
 
 | Symptom | Likely cause | Fix |
 | --- | --- | --- |
-| Stable import does not resolve | Generated type path is missing from TypeScript includes, or the Vite Integration did not run. | Add `.vitehub/types/**/*.d.ts` to `tsconfig.json` and restart Vite. |
+| Stable import does not resolve | Generated declarations are missing, or the Vite integration did not run. | Extend `vite-hub/tsconfig`, run `pnpm vitehub types prepare`, and restart Vite. Check that an application `files` list includes `.vitehub/types.d.ts`. For Nuxt, run `pnpm nuxt prepare`. |
 | Generated registry is empty | Discovery path does not match the package file convention. | Check [File conventions](/docs/reference/file-conventions). |
 | Provider output is stale | Build skipped provider output during dev or e2e mode. | Run a production-shaped build. |
 | Provision ids are missing | Provision State was never written, or env vars override it. | Run `vitehub provision run --dry-run`, then apply with credentials if needed. |
