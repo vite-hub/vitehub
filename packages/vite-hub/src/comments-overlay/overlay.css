@@ -4,6 +4,7 @@
 :host {
   all: initial;
   color: CanvasText;
+  /* Follows the visitor's system. The overlay sets color-scheme and the "dark" class itself when the app picks a theme. */
   color-scheme: light dark;
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
 }

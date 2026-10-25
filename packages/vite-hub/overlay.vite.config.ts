@@ -26,6 +26,17 @@ const icons = [
   "x-light",
 ];
 
+// The icons are drawn from elements, never from markup, so a flat list of shapes is all that they need.
+function shapes(name: string, body: string): Array<[string, Record<string, string>]> {
+  const found: Array<[string, Record<string, string>]> = [];
+  for (const [, tag, attributes] of body.matchAll(/<(\w+)((?:\s+[\w:-]+="[^"]*")*)\s*\/?>/g)) {
+    if (tag === "g" || tag === "svg") throw new TypeError(`The Phosphor icon "${name}" nests elements, which the overlay does not draw.`);
+    found.push([tag!, Object.fromEntries([...attributes!.matchAll(/([\w:-]+)="([^"]*)"/g)].map(([, key, value]) => [key!, value!]))]);
+  }
+  if (!found.length || body.replaceAll(/<\w+(?:\s+[\w:-]+="[^"]*")*\s*\/?>/g, "").trim()) throw new TypeError(`The Phosphor icon "${name}" has a body that the overlay cannot draw: ${body}`);
+  return found;
+}
+
 export function overlayPlugin(): Plugin {
   return {
     name: "vitehub-comments-overlay",
@@ -43,7 +54,7 @@ export function overlayPlugin(): Plugin {
       const bodies = Object.fromEntries(icons.map((name) => {
         const icon = set.icons[name];
         if (!icon) throw new TypeError(`The Phosphor icon "${name}" does not exist.`);
-        return [`i-ph-${name}`, icon.body];
+        return [`i-ph-${name}`, shapes(name, icon.body)];
       }));
       return `export const icons = ${JSON.stringify(bodies)};`;
     },
@@ -82,7 +93,8 @@ export default defineConfig({
       input: { loader: resolve(source, "loader.ts"), overlay: resolve(source, "overlay.ts") },
       output: {
         chunkFileNames: "chunks/[name]-[hash].js",
-        entryFileNames: "[name].js",
+        // The hash is in the file names, so a page names the exact bundle it loads.
+        entryFileNames: "[name].[hash].js",
       },
     },
     target: "es2022",

@@ -4,16 +4,17 @@ import { icons } from "virtual:comments-overlay-icons"
 
 const size = { sm: "sm", xs: "xs" } as const
 
-/** The icons of the comment parts, as inline SVG. Nuxt UI's `UIcon` would pull its whole icon runtime into the page. */
+/** The icons of the comment parts, as SVG elements built from path data. Nuxt UI's `UIcon` would pull its icon runtime into the page. */
 export const UIcon = defineComponent({
   name: "UIcon",
   inheritAttrs: false,
   props: { name: { default: "", type: String } },
   setup(props, { attrs }) {
     return () => {
-      const body = icons[props.name]
-      if (!body) return h("span", { ...attrs, "aria-hidden": "true", "data-slot": "overlay-icon" })
-      return h("svg", { ...attrs, "aria-hidden": "true", "data-slot": "overlay-icon", fill: "currentColor", innerHTML: body, viewBox: "0 0 256 256" })
+      const parts = icons[props.name]
+      if (!parts) return h("span", { ...attrs, "aria-hidden": "true", "data-slot": "overlay-icon" })
+      // Elements, not markup: nothing here parses a string, so a Trusted Types policy has nothing to refuse.
+      return h("svg", { ...attrs, "aria-hidden": "true", "data-slot": "overlay-icon", fill: "currentColor", viewBox: "0 0 256 256" }, parts.map(([tag, shape]) => h(tag, shape)))
     }
   },
 })

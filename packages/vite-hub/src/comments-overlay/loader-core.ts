@@ -12,9 +12,29 @@ export interface OverlaySession {
   canWrite: boolean
 }
 
+/** What the loader hands to `overlay.js`. */
+export interface MountOptions {
+  /** The overlay shows only while this is true: the page is one that the options allow. */
+  active: boolean
+  /** The app base, such as `/` or `/portal/`. */
+  base: string
+  /** The script nonce of the loader, for the styles the overlay adds itself. */
+  nonce?: string
+  /** The page path below the app base, without a trailing slash. */
+  path: () => string
+  session: OverlaySession
+  /** Calls the listener after each client-side navigation. Returns a function that stops it. */
+  subscribe: (listener: () => void) => () => void
+}
+
+export interface OverlayControl {
+  /** Shows or hides the overlay and its hotkey, for a page that the options allow or leave out. */
+  setActive: (active: boolean) => void
+}
+
 /** The module that `overlay.js` is. */
 export interface OverlayModule {
-  mount: (options: { base: string, session: OverlaySession }) => unknown
+  mount: (options: MountOptions) => OverlayControl
 }
 
 export interface LoaderEnvironment {
@@ -23,9 +43,51 @@ export interface LoaderEnvironment {
   fetch: typeof fetch
   /** Imports the overlay. The browser's `import()`; tests pass a fake. */
   load: (url: string) => Promise<OverlayModule>
-  pathname: string
-  /** URL of `overlay.js` with the version of this loader. */
+  nonce?: string
+  /** URL of the overlay file that the loader tag names. */
   overlayUrl: string
+  /** The page path below the app base, without a trailing slash. */
+  path: () => string
+  subscribe: (listener: () => void) => () => void
+}
+
+/** The path of a page below the app base: `/portal/pricing/` under `/portal/` is `/pricing`, and `/portal` is `/`. */
+export function appPathname(pathname: string, base: string): string {
+  const prefix = base.replace(/\/+$/, "")
+  const below = prefix && (pathname === prefix || pathname.startsWith(`${prefix}/`)) ? pathname.slice(prefix.length) : pathname
+  return below.length > 1 ? below.replace(/\/+$/, "") || "/" : below || "/"
+}
+
+/**
+ * Calls `listener` after each client-side navigation: `history.pushState`, `history.replaceState`, and `popstate`.
+ * The returned function stops it. It restores the history methods only when they are still ours. When another library
+ * wrapped them since, restoring would undo its wrapper, so ours stays and does nothing.
+ */
+export function trackNavigation(listener: () => void): () => void {
+  const { history } = globalThis
+  const push = history.pushState
+  const replace = history.replaceState
+  let active = true
+  const onPush = function pushState(this: History, ...args: Parameters<History["pushState"]>) {
+    push.apply(this, args)
+    if (active) listener()
+  }
+  const onReplace = function replaceState(this: History, ...args: Parameters<History["replaceState"]>) {
+    replace.apply(this, args)
+    if (active) listener()
+  }
+  const onPop = () => {
+    if (active) listener()
+  }
+  history.pushState = onPush
+  history.replaceState = onReplace
+  globalThis.addEventListener("popstate", onPop)
+  return () => {
+    active = false
+    globalThis.removeEventListener("popstate", onPop)
+    if (history.pushState === onPush) history.pushState = push
+    if (history.replaceState === onReplace) history.replaceState = replace
+  }
 }
 
 function globPattern(glob: string): RegExp {
@@ -86,20 +148,41 @@ async function readSession(environment: LoaderEnvironment): Promise<OverlaySessi
 
 /**
  * Asks the server whether this visitor may read comments, and only then downloads the overlay. A visitor who is not
- * signed in, or may not read, downloads nothing more. It never throws into the page.
+ * signed in, or may not read, downloads nothing more. The loader follows client-side navigation: a page that the
+ * options leave out hides the overlay, and a first allowed page mounts it. It never throws into the page.
  */
-export async function runLoader(options: LoaderOptions, environment: LoaderEnvironment): Promise<unknown> {
-  if (!matchesPath(environment.pathname, options)) return undefined
-  const session = await readSession(environment)
-  if (!session) return undefined
-  try {
-    const overlay = await environment.load(environment.overlayUrl)
-    return overlay.mount({ base: environment.base, session })
+export function runLoader(options: LoaderOptions, environment: LoaderEnvironment): { ready: Promise<void>, stop: () => void } {
+  const allowed = () => matchesPath(environment.path(), options)
+  let started: Promise<void> | undefined
+  let control: OverlayControl | undefined
+
+  async function start(): Promise<void> {
+    const session = await readSession(environment)
+    if (!session) return
+    try {
+      const overlay = await environment.load(environment.overlayUrl)
+      control = overlay.mount({
+        active: allowed(),
+        base: environment.base,
+        path: environment.path,
+        session,
+        subscribe: environment.subscribe,
+        ...(environment.nonce ? { nonce: environment.nonce } : {}),
+      })
+    }
+    catch (error) {
+      globalThis.console.warn("[vitehub] The comments overlay did not load.", error)
+    }
   }
-  catch (error) {
-    globalThis.console.warn("[vitehub] The comments overlay did not load.", error)
-    return undefined
+
+  const check = (): Promise<void> => {
+    if (control) control.setActive(allowed())
+    // One session request per page load, also when the answer is no.
+    else if (!started && allowed()) started = start()
+    return started ?? Promise.resolve()
   }
+  const stop = environment.subscribe(() => void check())
+  return { ready: check(), stop }
 }
 
 /** Reads the loader options from the `o` query parameter of the loader URL. */

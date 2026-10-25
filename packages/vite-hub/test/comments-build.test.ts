@@ -15,7 +15,7 @@ import type { CommentThread } from "@vite-hub/comments"
 describe("Comments in a built Nitro 3 app", () => {
   it("creates the contributed tables with the CLI and serves create, reply, list, and resolve from the built server", async () => {
     const root = await createProject({
-      "index.html": "<main>ok</main>\n",
+      "index.html": "<!doctype html><html><head><title>Fixture</title></head><body><main>ok</main></body></html>\n",
       "package.json": JSON.stringify({ name: "comments-build", private: true, type: "module" }),
       // Only the policy and the stores of vitehub() are the app's: the Database, its tables, and the plugin are contributed.
       "server/comments.ts": [
@@ -66,23 +66,23 @@ describe("Comments in a built Nitro 3 app", () => {
       }
       const subject = { id: "/pricing", kind: "page" }
 
-      // The overlay: the loader tag is in the SPA page and in a server-rendered page, once, and the loader is served for good.
-      const tag = /<script type="module" src="(\/_vitehub\/comments\/loader\.js\?v=[0-9a-f]{12})"><\/script>/
+      // The overlay: the loader tag is in the SPA page and in a server-rendered page, once, and the files are served for good.
+      const tag = /<script type="module" src="(\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=(overlay\.[\w-]+\.js))"><\/script>/
       const home = await (await server.fetch("/")).text()
-      const loaderSrc = tag.exec(home)?.[1]
-      expect(loaderSrc).toBeDefined()
-      expect(home.match(/comments\/loader\.js/g)).toHaveLength(1)
+      const found = tag.exec(home)
+      expect(found, home).not.toBeNull()
+      expect(home.match(/comments\/loader\./g)).toHaveLength(1)
       const rendered = await (await server.fetch("/ssr")).text()
-      expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.js\?v=[0-9a-f]{12}"><\/script><\/body>/)
+      expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=overlay\.[\w-]+\.js"><\/script><\/body>/)
       expect(await (await server.fetch("/_vitehub/rpc/__call", { body: JSON.stringify({ input: {}, operation: "comments.session" }), headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })).json()).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: "local", name: "You" } } })
-      for (const file of [loaderSrc!, loaderSrc!.replace("loader.js", "overlay.js")]) {
+      for (const file of [found![1]!.split("?")[0]!, `/_vitehub/comments/${found![2]!}`]) {
         const asset = await server.fetch(file)
         expect(asset.status, file).toBe(200)
         expect(asset.headers.get("content-type")).toContain("javascript")
         expect(asset.headers.get("cache-control")).toMatch(/max-age=31536000/)
       }
       // The Console page is HTML too, and gets no overlay.
-      expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.js")
+      expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.")
 
       const created = await call<CommentThread>("comments.create", { anchor: { kind: "page" }, body: "Too small.", subject })
       expect(created).toMatchObject({ author: { id: "local", name: "You" }, n: 1, status: "open", subject })
