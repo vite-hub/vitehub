@@ -7,7 +7,34 @@
   /* Follows the visitor's system. The overlay sets color-scheme and the "dark" class itself when the app picks a theme. */
   color-scheme: light dark;
   font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /*
+   * Every token the parts use, with a concrete color for each scheme. The tokens of the UI stylesheet default to
+   * `currentColor` and `Canvas`, which are right inside an app that sets them, and white on white in a shadow root:
+   * a pressed button has `currentColor` for its background and the inverted color for its text. A Nuxt UI app still
+   * wins: its `--ui-*` variables reach the shadow root through inheritance.
+   */
+  --vh-ui-radius: var(--ui-radius, 0.5rem);
+  --vh-ui-border: var(--ui-border, light-dark(#e2e8f0, #334155));
+  --vh-ui-muted: var(--ui-text-muted, light-dark(#64748b, #94a3b8));
+  --vh-ui-dimmed: var(--ui-text-dimmed, light-dark(#64748b, #94a3b8));
+  --vh-ui-text: var(--ui-text, light-dark(#334155, #e2e8f0));
+  --vh-ui-bg: var(--ui-bg, light-dark(#ffffff, #0f172a));
+  --vh-ui-bg-muted: var(--ui-bg-muted, light-dark(#f8fafc, #1e293b));
+  --vh-ui-bg-elevated: var(--ui-bg-elevated, light-dark(#f1f5f9, #1e293b));
+  --vh-ui-bg-accented: var(--ui-bg-accented, light-dark(#e2e8f0, #334155));
+  --vh-ui-highlighted: var(--ui-text-highlighted, light-dark(#0f172a, #f8fafc));
+  --vh-ui-inverted: var(--ui-text-inverted, light-dark(#ffffff, #0f172a));
+  --vh-ui-primary: var(--ui-primary, light-dark(#2563eb, #60a5fa));
+  --vh-ui-error: var(--ui-error, light-dark(#dc2626, #f87171));
+  --vh-ui-info: var(--ui-info, light-dark(#2563eb, #60a5fa));
+  --vh-ui-success: var(--ui-success, light-dark(#15803d, #4ade80));
+  --vh-ui-warning: var(--ui-warning, light-dark(#a16207, #facc15));
+  --vh-ui-ring: color-mix(in oklab, var(--vh-ui-primary) 50%, transparent);
 }
+
+/* The overlay sets the class when the app picks dark, and light-dark() follows the scheme. */
+:host(.dark) { color-scheme: dark; }
 
 *, *::before, *::after { box-sizing: border-box; }
 
@@ -33,7 +60,7 @@ button[data-size="xs"] { font-size: 0.75rem; padding: 0.25rem 0.5rem; }
 button[data-square="true"] { padding: 0.4rem; }
 button[data-size="xs"][data-square="true"] { padding: 0.25rem; }
 button[data-variant="solid"] { background: var(--vh-ui-highlighted); color: var(--vh-ui-inverted); }
-button[data-variant="solid"][data-color="error"] { background: var(--vh-ui-error); color: #fff; }
+button[data-variant="solid"][data-color="error"] { background: var(--vh-ui-error); color: var(--vh-ui-inverted); }
 button[data-variant="outline"] { border-color: var(--vh-ui-border); }
 button[data-variant="soft"] { background: var(--vh-ui-bg-accented); }
 button[data-variant="ghost"]:hover:not(:disabled), button[data-variant="soft"]:hover:not(:disabled) { background: var(--vh-ui-bg-accented); }
