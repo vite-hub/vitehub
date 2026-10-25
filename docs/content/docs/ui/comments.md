@@ -252,7 +252,7 @@ The component exposes `focus()` and `shake()`.
 
 ### CommentToolbar
 
-The comment button, the "Comment on page" button, the list button, and the people on the page. Renders a `div` with `data-slot="comment-toolbar"`.
+The comment button, the "Comment on page" button, the list button, and the people on the page. Its default slot adds your own tools after them, such as an Edit link. Renders a `div` with `data-slot="comment-toolbar"`.
 
 #### Props
 

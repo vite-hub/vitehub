@@ -149,7 +149,7 @@ export const CommentToolbar = defineComponent({
     /** The people on this page, from Realtime. Shown as a stack of avatars. */
     people: { default: () => [], type: Array as PropType<AvatarStackPerson[]> },
   },
-  setup(props) {
+  setup(props, { slots }) {
     const UButton = resolveComponent("UButton");
     const comments = useCommentsContext(props.comments);
     return () => {
@@ -192,6 +192,8 @@ export const CommentToolbar = defineComponent({
           variant: "ghost",
         }),
         props.people.length > 0 ? h(AvatarStack, { people: props.people, size: "sm", variant: "outline" }) : null,
+        // Extra tools of the host, such as an Edit link.
+        slots.default?.(),
       ]);
     };
   },
