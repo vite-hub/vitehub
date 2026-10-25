@@ -35,6 +35,7 @@ function encodeContinuation(providerCursor: string, history: CursorHistory): str
 // Continuation ownership is established only by this registry. Never decode a
 // caller-provided cursor, since providers own the complete opaque cursor space.
 const continuations = new Map<string, Continuation>()
+const continuationOwners = new Map<string, Set<string>>()
 const consumedContinuations = new Map<string, Continuation>()
 const consumedOwners = new Map<string, Set<string>>()
 const invalidatedContinuations = new Set<string>()
@@ -72,7 +73,10 @@ export function createCursorHistory(namespace = "default") {
       return { providerCursor: cursor, history: new Set([cursor]), epoch, namespace }
     }
     continuations.delete(cursor)
-    ownedContinuations.delete(cursor)
+    continuationOwners.get(cursor)?.delete(cursor)
+    continuationOwners.delete(cursor)
+    // Retry restoration follows the consuming instance's disposal lifecycle.
+    continuation.epoch = epoch
     consumedContinuations.set(cursor, continuation)
     ownedConsumedContinuations.add(cursor)
     consumedOwners.set(cursor, ownedConsumedContinuations)
@@ -90,11 +94,13 @@ export function createCursorHistory(namespace = "default") {
     const token = encodeContinuation(providerCursor, history)
     continuations.set(token, { providerCursor, history, epoch, namespace: requestedNamespace })
     ownedContinuations.add(token)
+    continuationOwners.set(token, ownedContinuations)
     while (continuations.size > MAX_CURSOR_HISTORIES) {
       const oldest = continuations.keys().next().value as string | undefined
       if (oldest === undefined) break
       continuations.delete(oldest)
-      ownedContinuations.delete(oldest)
+      continuationOwners.get(oldest)?.delete(oldest)
+      continuationOwners.delete(oldest)
       rememberInvalidated(oldest)
     }
     return token
@@ -103,6 +109,7 @@ export function createCursorHistory(namespace = "default") {
     if (continuation.epoch !== epoch || consumedContinuations.get(cursor) !== continuation) return
     continuations.set(cursor, continuation)
     ownedContinuations.add(cursor)
+    continuationOwners.set(cursor, ownedContinuations)
     consumedContinuations.delete(cursor)
     consumedOwners.delete(cursor)
     ownedConsumedContinuations.delete(cursor)
@@ -118,6 +125,7 @@ export function createCursorHistory(namespace = "default") {
     epoch++
     for (const token of ownedContinuations) {
       continuations.delete(token)
+      continuationOwners.delete(token)
       rememberInvalidated(token)
     }
     ownedContinuations.clear()
