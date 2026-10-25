@@ -36,7 +36,7 @@ icon: i-lucide-database
     plugins: [
       // Local SQLite while you develop
       vitehub({ preset: 'node', database: true }),
-      nitro() as never,
+      nitro(),
     ],
   })
   ```
