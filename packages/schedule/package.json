@@ -31,29 +31,23 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
-    "./cli": {
-      "types": "./dist/cli.d.ts",
-      "import": "./dist/cli.js",
-      "require": "./dist/cli.js",
-      "default": "./dist/cli.js"
-    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/kv": {
       "types": "./dist/runtime/kv.d.ts",
@@ -98,7 +92,8 @@
     "cron-schedule": "catalog:workflow",
     "effect": "catalog:effect",
     "esbuild": "catalog:tooling",
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",

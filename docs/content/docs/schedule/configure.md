@@ -96,7 +96,7 @@ Only the process driver (`runtime: { driver: 'process' }`) evaluates `timeZone`.
 
 On daylight saving time changes, a local time that does not exist does not run that day. For example, `30 2 * * *` in `Europe/Madrid` does not run on the spring-forward day. A local time that occurs twice runs once, at its first occurrence, when the cron sets a fixed minute and hour. A cron with `*` in the minute or hour field runs on elapsed time, so it also runs in the repeated hour.
 
-Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com` and a [signed dispatch](/docs/development/cli#run-a-schedule-on-demand), or from the Console.
+Run it from a ViteHub development server with `vitehub schedule run daily-report`. The command uses the discovered file name as the definition name and supports `--json`. Run it on a deployment with `vitehub schedule run daily-report --url https://app.example.com`, from a CI job with a [signed dispatch](/docs/development/cli#signed-dispatch), or from the Console.
 
 Write `manual` as a literal `true` or `false` value in the directly exported definition. Use an identifier key or a quoted key without escape sequences. Discovery does not evaluate constants, spreads, computed properties, or getters. Unsupported forms fail with the source file and line instead of silently omitting manual runs.
 

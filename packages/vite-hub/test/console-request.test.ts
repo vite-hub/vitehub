@@ -229,7 +229,7 @@ describe("Console requests", () => {
     await requestConsole("/base/api/_vitehub/console/schedule-run", { body: { name: "sync" }, method: "POST" })
     await requestConsole("/base/api/_vitehub/console/invocation-capabilities")
 
-    expect(mocks.call).toHaveBeenNthCalledWith(1, "schedules.run", { name: "sync" })
+    expect(mocks.call).toHaveBeenNthCalledWith(1, "schedule.run", { name: "sync" })
     expect(mocks.call).toHaveBeenNthCalledWith(2, "invocations.capabilities", {})
   })
 

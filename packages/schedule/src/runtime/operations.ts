@@ -1,13 +1,8 @@
-import { validateViteHubNitroDevRequest } from "@vite-hub/internal/dev-endpoint"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { ViteHubError } from "@vite-hub/runtime"
 
-import { isScheduleDevOperation, scheduleDevHeader, scheduleDevHeaderValue } from "../dev.ts"
 import { runSchedule } from "./execute.ts"
 import { getScheduleRunStore } from "./state.ts"
-import { ScheduleHistoryIncompleteError } from "./store.ts"
 
-import type { ScheduleDevRequestBody } from "../dev.ts"
 import type { ScheduleDefinitionRegistry, ScheduleRunAttemptRecord, ScheduleRunAttemptStatus, ScheduleRunError, ScheduleRunRecord, ScheduleRunStatus } from "../types.ts"
 
 /** Error of a run or attempt. The stack is not included. */
@@ -78,7 +73,7 @@ export function summarizeScheduleRun(run: ScheduleRunRecord): ScheduleRunSummary
 }
 
 /** Serializable view of one manual Static Schedule run, as `vitehub schedule run` prints it. */
-interface ManualScheduleRunSummary {
+export interface ManualScheduleRunSummary {
   completedAt?: string
   error?: ScheduleRunErrorSummary
   id: string
@@ -134,96 +129,80 @@ export async function listScheduleRunAttempts(runId: string): Promise<ScheduleRu
     .map(summarizeScheduleRunAttempt)
 }
 
-function json(value: unknown, status = 200): Response {
-  return Response.json(value, { headers: { "cache-control": "no-store" }, status })
-}
 
-function failure(message: string, status: number, code?: string): Response {
-  return json({ error: { ...(code ? { code } : {}), message } }, status)
+/** Raised for the failures of a Schedule operation. `status` and `code` reach every surface. */
+class ScheduleOperationError extends Error {
+  readonly code: string
+  readonly fix?: string
+  readonly status: number
+
+  constructor(status: number, code: string, message: string, fix?: string) {
+    super(message)
+    this.code = code
+    this.status = status
+    if (fix) this.fix = fix
+  }
 }
 
 const errorStatus: Readonly<Record<string, number>> = {
   SCHEDULE_DEFINITION_NOT_FOUND: 404,
+  SCHEDULE_HISTORY_INCOMPLETE: 503,
   SCHEDULE_MANUAL_RUN_DISABLED: 403,
   SCHEDULE_RUN_NOT_FOUND: 404,
 }
 
-function scheduleFailure(error: unknown): Response {
-  if (error instanceof ScheduleHistoryIncompleteError) {
-    return failure(redactInspectionText(error.message), 503, error.code)
-  }
-  if (!(error instanceof ViteHubError)) {
-    return failure("The Schedule operation failed.", 500)
-  }
-  return failure(redactInspectionText(error.message), errorStatus[error.code] ?? 400, error.code)
-}
-
-async function readBody(request: Request): Promise<ScheduleDevRequestBody | undefined> {
-  const body: unknown = await request.json().catch(() => undefined)
-  if (!body || typeof body !== "object" || Array.isArray(body)) return
-  const operation: unknown = Reflect.get(body, "operation")
-  const id: unknown = Reflect.get(body, "id")
-  const limit: unknown = Reflect.get(body, "limit")
-  if (!isScheduleDevOperation(operation)) return
-  if (id !== undefined && (typeof id !== "string" || !id)) return
-  if (limit !== undefined && (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1)) return
-  return {
-    ...(id !== undefined ? { id } : {}),
-    ...(limit !== undefined ? { limit } : {}),
-    operation,
-  }
-}
-
-interface ScheduleDevRequestOptions {
-  authorize?: (request: Request) => Promise<boolean>
-  /** Static Schedule registry of the Nitro runtime. `run-static` loads definitions from it. */
-  registry?: ScheduleDefinitionRegistry
-}
-
-async function runOperation(body: ScheduleDevRequestBody, options: ScheduleDevRequestOptions): Promise<Response> {
-  const id = body.id
-  if (!id) return failure(`The ${body.operation} operation requires an id.`, 400)
-  switch (body.operation) {
-    case "runs":
-      return json({ runs: await listScheduleRuns(id, { limit: body.limit }) })
-    case "attempts": {
-      const run = await getScheduleRunStore().getRun(id)
-      if (!run) return failure("Schedule Run was not found.", 404, "SCHEDULE_RUN_NOT_FOUND")
-      return json({ attempts: await listScheduleRunAttempts(id), run: summarizeScheduleRun(run) })
-    }
-    case "run-static":
-      if (!options.registry) return failure("No Static Schedule registry is installed in this runtime. Restart the Vite Development Server.", 409)
-      try {
-        return json({ run: summarizeManualScheduleRun(await runSchedule(id, { registry: options.registry })) })
-      }
-      catch (error) {
-        return scheduleFailure(error)
-      }
-  }
-}
-
-/**
- * Handles one Schedule operation from `vitehub schedule`. The Vite Development Server forwards the request into the
- * Nitro runtime, so the operation uses the same stores and registry as the application.
- *
- * The request must carry the Schedule dev header, must not come from another origin, and must use JSON.
- * The owner authorization callback is required. The Node dev entry supplies private project-token verification.
- * `run-static` runs a Static Schedule Definition from `options.registry`. The definition must set `manual: true`.
- */
-export async function handleScheduleDevRequest(request: Request, options: ScheduleDevRequestOptions = {}): Promise<Response> {
-  const { rejection } = await validateViteHubNitroDevRequest(request, {
-    authorize: async request => await options.authorize?.(request) ? undefined : new Response("Forbidden Schedule Dev token.", { status: 403 }),
-    header: scheduleDevHeader,
-    headerValue: scheduleDevHeaderValue,
-    label: "Schedule Dev",
-  })
-  if (rejection) return rejection
-  const body = await readBody(request)
-  if (!body) return failure("The Schedule Dev request body is invalid.", 400)
+/** Gives a Schedule error the status and the redacted message that every surface reports. */
+async function attempt<T>(work: () => Promise<T>): Promise<T> {
   try {
-    return await runOperation(body, options)
+    return await work()
   }
   catch (error) {
-    return scheduleFailure(error)
+    if (error instanceof ScheduleOperationError) throw error
+    const code: unknown = Reflect.get(Object(error), "code")
+    const status = String(code) === code ? errorStatus[code] : undefined
+    if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message))
+    throw error
   }
+}
+
+/** Result of `schedule.runs`. */
+export interface ScheduleRunsResult {
+  runs: ScheduleRunSummary[]
+}
+
+/** Result of `schedule.attempts`. */
+export interface ScheduleAttemptsResult {
+  attempts: ScheduleRunAttemptSummary[]
+  run: ScheduleRunSummary
+}
+
+/** Result of `schedule.run`. */
+export interface ScheduleRunResult {
+  run: ManualScheduleRunSummary
+}
+
+export async function runScheduleRuns(input: { id: string, limit?: number }): Promise<ScheduleRunsResult> {
+  return await attempt(async () => ({ runs: await listScheduleRuns(input.id, input.limit === undefined ? {} : { limit: input.limit }) }))
+}
+
+export async function runScheduleAttempts(input: { id: string }): Promise<ScheduleAttemptsResult> {
+  return await attempt(async () => {
+    const run = await getScheduleRunStore().getRun(input.id)
+    if (!run) throw new ScheduleOperationError(404, "SCHEDULE_RUN_NOT_FOUND", "Schedule Run was not found.", "List the runs of the Schedule with `vitehub schedule runs <name>` and pass one of their ids.")
+    return { attempts: await listScheduleRunAttempts(input.id), run: summarizeScheduleRun(run) }
+  })
+}
+
+/** The manual Static Schedule Definitions that the Console installed. Only `console.invoke` installs them. */
+const consoleSchedulesKey = Symbol.for("vitehub.console.schedules")
+
+/**
+ * Runs a Static Schedule Definition that sets `manual: true`. The registry holds only those definitions, and it is empty
+ * unless Console invocation is enabled, so anything else is "not available".
+ */
+export async function runScheduleNow(input: { name: string }, registry: ScheduleDefinitionRegistry = Reflect.get(globalThis, consoleSchedulesKey) ?? {}): Promise<ScheduleRunResult> {
+  if (!Object.hasOwn(registry, input.name)) {
+    throw new ScheduleOperationError(404, "SCHEDULE_DEFINITION_NOT_FOUND", "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.", "Set `manual: true` in defineSchedule() and keep `console.invoke` on (it is on in development).")
+  }
+  return await attempt(async () => ({ run: summarizeManualScheduleRun(await runSchedule(input.name, { registry })) }))
 }

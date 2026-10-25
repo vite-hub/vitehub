@@ -279,16 +279,6 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
-const schedulesRun = defineConsoleOperation({
-  cli: { positional: ["name"] },
-  description: "Run a manual Schedule Definition now.",
-  input: v.strictObject({ name: v.pipe(text, v.minLength(1)) }),
-  kind: "write",
-  name: "schedules.run",
-  run: async (input, context) => (await import("./schedule-run.ts")).consoleScheduleRunHandler(legacyEvent("schedule-run", "POST", { body: input }, context)),
-  section: "schedules",
-})
-
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -369,7 +359,6 @@ export const consoleOperations: readonly AnyOperation[] = [
   kvGet,
   kvList,
   mediaAction,
-  schedulesRun,
   searchQuery,
   sectionsList,
   statusGet,

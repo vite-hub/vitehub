@@ -221,7 +221,7 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     if (action !== "start" && action !== "get" && action !== "cancel" && action !== "resume") throw new ConsoleRequestError(400, "Unsupported Workflow action.")
     return { input, operation: `workflow.${action}` }
   }
-  if (route === "schedule-run") return { input: body, operation: "schedules.run" }
+  if (route === "schedule-run") return { input: body, operation: "schedule.run" }
   const known = Object.hasOwn(consoleRoutes, route) ? consoleRoutes[route] : undefined
   if (!known) throw new ConsoleRequestError(404, "Console operation not found.")
   return { input: inputFromQuery(known, call.query), operation: known.operation }
