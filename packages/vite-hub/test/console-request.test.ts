@@ -172,6 +172,16 @@ describe("Console requests", () => {
     })
   })
 
+  it("keeps the owner code and details of a failed document action", async () => {
+    const details = { id: "hello", issues: [{ field: "title", message: "Required", path: [] }] }
+    mocks.call.mockResolvedValue({ code: "CONTENT_INVALID", details, message: "hello has invalid fields.", ok: false, status: 422 })
+
+    const failure = await requestConsole("/api/_vitehub/console/documents?action=save&section=content", { body: { id: "hello" }, method: "POST" }).catch(error => error)
+    expect(failure).toBeInstanceOf(ConsoleRequestError)
+    expect(failure).toMatchObject({ code: "CONTENT_INVALID", details, failureCode: "CONTENT_INVALID", status: 422 })
+    expect(mocks.call).toHaveBeenCalledWith("documents.action", { action: "save", body: { id: "hello" }, section: "content" })
+  })
+
   it("preserves remote status and retries only transient request failures", async () => {
     mocks.call.mockResolvedValue({ message: "Upstream unavailable.", ok: false, status: 502 })
 
