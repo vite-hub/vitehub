@@ -62,6 +62,23 @@ Open the Console at `/_vitehub` and choose **Comments**. The list comes from `co
 
 With `console: { auth: false }`, or with no `console` option, and nobody signed in, `vite dev` runs every operation as the user `{ id: 'local', name: 'You' }`. `authorize` sees that user, and the comments you create have it as author, so you can try comments without Auth. A production build never does this: there, an unsigned call has no user, and writing fails with `COMMENTS_R0012`.
 
+## The overlay
+
+Nothing else to add: the pages of your app now have comments. `vitehub()` puts one `<script type="module">` tag, a loader of about 3 KB, into the HTML of every page. In `vite dev` and in the build it goes into `index.html`. Pages that your server renders get it from a Nitro middleware, which also covers the pages Nitro prerenders. Under Nuxt it goes in through the `render:html` hook.
+
+The loader asks the server `comments.session` with the visitor's cookie. The answer is `{ user, canRead, canWrite }` and nothing else. Only when `canRead` is true does the loader download the overlay, about 160 KB (51 KB compressed). A visitor who is not signed in, or may not read comments, downloads nothing more, and sees nothing.
+
+Press `C` on a page, click a spot, and write. The toolbar at the bottom has the comment button, the list, and *Edit* when the page comes from the [Content](/docs/content) cms preset: the overlay asks `content.resolve` for the document at the page's URL and links to its editor in the Console. An app without Content has no such operation, so it has no Edit button. A visitor who may read but not write sees the threads without the writing tools.
+
+The overlay lives in a shadow root on an element with `data-comments-ui`, so your styles do not reach it and its styles do not reach your page. It follows the color scheme of the visitor (`prefers-color-scheme`). It follows client-side navigation too: `history.pushState`, `history.replaceState`, and `popstate` change the page that the threads belong to. Comments show their text as Markdown for the small subset notes use: paragraphs, line breaks, `code`, bold, italics, and links.
+
+Turn it off, or limit it to some pages, in `vitehub()`:
+
+```ts [vite.config.ts]
+vitehub({ comments: { overlay: { paths: ['/docs/**'], exclude: ['/docs/internal/**'] } } })
+vitehub({ comments: { overlay: false } })
+```
+
 ## Use it in the browser
 
 ```ts [app/comments.ts]

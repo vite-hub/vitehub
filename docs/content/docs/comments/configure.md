@@ -75,6 +75,25 @@ export default defineComments({
 
 `onMention` runs after the comment is saved, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives only the people that the message mentions for the first time and that `authorize({ action: 'read', user: <mentioned>, thread })` lets read the thread. The mention stays in the text for the others.
 
+## Overlay
+
+`vitehub({ comments: { overlay } })` controls the comment UI that [the loader](/docs/comments/get-started#the-overlay) puts on your pages.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `overlay` | `false \| { paths?, exclude? }` | `{}` | `false` adds no loader. |
+| `overlay.paths` | `string[]` | every page | Globs of the pages that get the overlay, relative to the app base. `*` is one path segment, `**` any depth: `/docs/**` is `/docs` and everything below it. |
+| `overlay.exclude` | `string[]` | none | Globs of the pages that never get it. |
+
+The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all.
+
+The loader and the overlay are served by your app at `/_vitehub/comments/loader.js` and `/_vitehub/comments/overlay.js`. The URL carries a hash of the bundle (`?v=`), so they are sent with `Cache-Control: max-age=31536000`, and a new release changes the URL.
+
+### Content Security Policy and privacy
+
+- **CSP.** Both files come from your own origin, so `script-src 'self'` is enough. The loader makes `fetch` calls to your own origin, so `connect-src 'self'` too. The overlay sets its styles through a constructed stylesheet in its shadow root, so it needs no `style-src 'unsafe-inline'`; where the browser has no constructed stylesheets it falls back to a `<style>` element.
+- **Privacy.** The loader sends one `POST /_vitehub/rpc/__call` with the session cookie and no other data. It receives your own user, and whether you may read and write, and nothing about anyone else. Everything else is downloaded only after `authorize` says you may read comments. The Console page never gets the loader.
+
 ## Database
 
 With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on and adds an empty default Database Definition (`.vitehub/comments/database.ts`) when the app has none, the way the Content cms preset does. Comments then use the default Database. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
