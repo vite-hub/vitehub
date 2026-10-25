@@ -115,7 +115,7 @@ export default defineAgent({
 })
 ```
 
-Each operation becomes a tool named after it, with dots as underscores: `reports.list` is `reports_list`. `approve` says which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as read only never waits.
+Each operation becomes a tool named after it, with dots as underscores: `reports.list` is `reports_list`. The Channel conversations are private: an Agent reads them only with `operations({ conversations: 'participant' | 'all' })`, as [Who can read a conversation](/docs/agents/channels#who-can-read-a-conversation) describes. `approve` says which operations wait for approval: `'write'` (the default: write and destructive operations wait), `'destructive'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as read only never waits.
 
 The agent acts for the Auth user that its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability then runs `console.authorize` for that user, with a request that has no headers, and offers only the operations of the sections it allows. A read-only grant (`'<section>:read'`) offers only the operations that read, and the ones with a `readOnlyWhen` dry run; the run still refuses a write. If the app has no `console.authorize`, nothing filters by section, and the `include` list is the only gate: list only what the agent may do. `content.save` rejects `lease: 'override'` from an agent unless you create the capability with `operations({ overrideLeases: true })`.
 
