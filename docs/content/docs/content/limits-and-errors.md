@@ -25,6 +25,7 @@ icon: i-lucide-circle-alert
 ## Collections
 
 - Collections need a Workspace whose Store keeps retained history, such as the Blob + Database Store. Other Stores fail on first use with `CONTENT_R0007`.
+- The [GitHub store](/docs/content/cms-preset#github-store) of the `cms` preset keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0015`) and no pull request mode (`publish: 'pr'` fails the build with `CONTENT_B0001`). Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
 - Content owns the `draft`, `published`, and `schedules` refs of its Workspace. Other writers can commit to them, and the validation hook checks their files, but `revisions()` attributes only commits made through Content.
 - The draft accepts fields that fail validation; `published` and every other ref do not. `status()` reads every draft file once per digest to count issues.
 - Validation is installed when `server/content.ts` loads. A writer that runs before that, for example in a fresh server instance, is not checked. `publish()` validates every file it publishes, so invalid files never reach `published`.
@@ -47,7 +48,7 @@ icon: i-lucide-circle-alert
 
 ## Sessions
 
-- `content.sessions` needs the `vitehub_content_sessions` table from `contentSessionsSchema` in the Database of the Workspace history. The `cms` preset adds it. Without it, `content.sessions` throws `CONTENT_R0012`, and writes skip the lease check for a minute at a time before they look again.
+- `content.sessions` needs the `vitehub_content_sessions` table from `contentSessionsSchema` in the Database of the Workspace history. On the GitHub store it uses the Database of the Store's `database` option, which the `cms` preset sets. The `cms` preset adds it. Without it, `content.sessions` throws `CONTENT_R0012`, and writes skip the lease check for a minute at a time before they look again.
 - A session is present for 45 seconds after a report. A lease lasts 5 minutes after `acquire()`, a renewing report, or a save with `session`, and stops blocking others after 15 minutes without reported input. Times use the Database clock.
 - Session tokens are 8 to 128 letters, digits, `-`, or `_`. User names keep their first 256 characters and images their first 2,048.
 - `save()`, `remove()`, and `restore()` run one extra Database query for the lease check, unless the collection has `editing: { lease: false }` or the write passes `lease: 'override'`. The check runs once before the commit, so a lease taken during the commit does not stop that write.
@@ -57,7 +58,7 @@ icon: i-lucide-circle-alert
 
 | Code | Cause | What to do |
 | --- | --- | --- |
-| `CONTENT_B0001` | The build cannot read how `server/content.ts` selects the `cms` preset. | Pass `extends: cms` or `extends: [cms, { ... }]` with string literal options. See [CMS preset](/docs/content/cms-preset#errors). |
+| `CONTENT_B0001` | The build cannot read how `server/content.ts` selects the `cms` preset, or an option is not valid, such as `publish: 'pr'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with string literal options. See [CMS preset](/docs/content/cms-preset#errors). |
 | `CONTENT_B0002` | Workspace, Database, or Blob is set to `false` in `vitehub()`, a Blob store or Database that the `cms` preset needs does not exist, or the Database choice is ambiguous. | Set the `vitehub()` setting or preset option that the message names. |
 | `CONTENT_INVALID` | `publish()` or `schedule()` found a draft with field issues, `get()` read an invalid document on `published`, a writer put an invalid file outside the draft, or a file cannot be parsed as an object of fields. `save()` throws it only for input that cannot become a file. `details.issues` lists `{ field, path, message }`; from `publish()` and `schedule()`, `details.documents` names every invalid document. | Fix the listed fields, save, and publish again. |
 | `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, or `ifHead` no longer matches the published head. `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |
@@ -71,8 +72,9 @@ icon: i-lucide-circle-alert
 | `CONTENT_R0009` | Invalid `publish()` options, such as `ids` without `collection`, `expect` combined with `collection` or `ids`, an empty or repeated `expect` entry, or an invalid digest. | Pass `collection` with `ids`, or `expect` alone with one entry per document, and `ifHead` as a revision id or `null`. |
 | `CONTENT_R0010` | `content.preview.enable()` has no signing key outside development and tests, or `VITEHUB_CONTENT_KEY` is not 32 bytes. | Set `VITEHUB_CONTENT_KEY` to `openssl rand -base64 32` on every instance. |
 | `CONTENT_R0011` | Invalid `schedule()` options: `at` not in the future or without a time zone, an invalid `expect`, every document already published as reviewed, or a document that already has a pending schedule. | Pass a future time with a zone, and `unschedule()` the existing schedule first. See [Scheduling](/docs/content/scheduling). |
-| `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace does not use the Blob + Database Store. | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
+| `CONTENT_R0012` | `content.sessions` cannot reach its table: the Database of the Workspace history has no `vitehub_content_sessions` table, or the Workspace Store has no Database (the Blob + Database Store, or the GitHub Store with a `database`). | Use the `cms` preset, or add `contentSessionsSchema` from `vite-hub/content/database` to that Database next to `workspaceHistorySchema`, then run `vitehub db generate` and `vitehub db migrate`. |
 | `CONTENT_R0013` | A writer other than `publish()` deleted a document from the `published` ref, such as a raw history commit. | Remove the document from the draft with `remove()`, then publish the deletion with `content.publish()`. |
+| `CONTENT_R0015` | `schedule()` ran on a Workspace on the GitHub store, which keeps no schedules. | Use `content.publish()`, or the Blob + Database store. See [CMS preset](/docs/content/cms-preset#github-store). |
 | `CONTENT_R0014` | Invalid [`vitehub content`](/docs/content/cli) arguments, such as a missing collection, `--id` without `--collection`, `schedule` without `--at`, or `edit` without `--file` and without an interactive terminal. | Run the command with `--help`. |
 | `CONTENT_UNDEFINED` | `vitehub content` reached a Content file that does not export a `defineContent()` runtime named `content`. | Export `content` from `server/content.ts`. |
 | `CONTENT_PUBLISH_UNCONFIRMED` | `vitehub content publish` or `schedule` ran without an interactive terminal and without `--yes`. | Pass `--yes`, or `--dry-run` to only list the changes. |

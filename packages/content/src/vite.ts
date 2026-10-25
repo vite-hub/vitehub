@@ -226,8 +226,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
+        // The GitHub store keeps history in Git. Only editor sessions need tables.
         const entries: DatabaseContributionEntry[] = [
-          { database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." },
+          ...(plan.store === "github"
+            ? []
+            : [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]),
           ...(imports.contentDatabase
             ? [{ database: plan.database, definition: { export: "contentSessionsSchema", module: imports.contentDatabase }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }]
             : []),
@@ -275,12 +278,13 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       const missing = [
         pluginByName(config, workspacePluginName) ? undefined : "workspace",
         pluginByName(config, databasePluginName) || viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] ? undefined : "database",
-        blobStoreNames(pluginByName(config, blobPluginName)) ? undefined : "blob",
+        plan.store === "github" || blobStoreNames(pluginByName(config, blobPluginName)) ? undefined : "blob",
       ].filter(Boolean)
       if (missing.length) {
         const setting = missing.map(name => `${name}: true`).join(", ")
         throw cmsRequirementError(plan.file, projectRoot, `it needs ${missing.join(", ")} enabled. Set vitehub({ ${setting} }) in your Vite config.`)
       }
+      if (plan.store === "github" || plan.blob === undefined) return
       const stores = blobStoreNames(pluginByName(config, blobPluginName)) || []
       if (!stores.includes(plan.blob)) {
         throw cmsRequirementError(plan.file, projectRoot, `it stores files in Blob store ${JSON.stringify(plan.blob)}, which is not configured. Blob stores: ${stores.map(name => JSON.stringify(name)).join(", ")}. Choose one with extends: [cms, { blob: ${JSON.stringify(stores[0])} }] or add the store to vitehub({ blob }).`)
