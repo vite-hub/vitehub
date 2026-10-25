@@ -952,5 +952,6 @@ export function getAuthConsoleForRequest(request: Request, event?: unknown): Aut
   return createAuthConsole(
     createAuthenticationProvider(resolved.providerOptions),
     resolved.options.console as AuthConsoleOptions | undefined,
+    resolved.options.events ? resolved.options.events.store : undefined,
   );
 }

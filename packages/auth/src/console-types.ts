@@ -1,4 +1,5 @@
 import type { User } from "better-auth";
+import type { AuthEventAggregates, AuthEventType, AuthEventWindow } from "./events.ts";
 
 export type AuthConsoleValue = string | number | boolean | null | string[] | number[];
 export type AuthConsoleFieldType =
@@ -60,13 +61,79 @@ export interface AuthConsoleField {
   computed: boolean;
   edit: AuthConsoleCapability;
 }
-export type AuthConsolePage = "users" | "sessions" | "organizations" | "agents";
+export type AuthConsolePage =
+  | "overview"
+  | "activity"
+  | "users"
+  | "sessions"
+  | "organizations"
+  | "agents";
 export interface AuthConsoleDescription {
   access: string[];
   actions: Record<AuthConsoleAction, AuthConsoleCapability>;
   fields: AuthConsoleField[];
   pages: AuthConsolePage[];
   storage: AuthConsoleCapability;
+  events: AuthConsoleCapability;
+}
+
+export type AuthConsoleEventGroup = "sign-in" | "admin" | "agents" | "organizations";
+export const authConsoleEventGroups: Readonly<
+  Record<AuthConsoleEventGroup, readonly AuthEventType[]>
+> = {
+  "sign-in": ["user.signed_up", "user.signed_in", "user.signed_out", "sign_in.failed"],
+  admin: [
+    "session.revoked",
+    "user.banned",
+    "user.unbanned",
+    "user.role_changed",
+    "user.updated",
+    "user.removed",
+    "impersonation.started",
+    "impersonation.stopped",
+  ],
+  agents: ["oauth.consent_granted", "oauth.consent_revoked"],
+  organizations: [
+    "organization.member_added",
+    "organization.member_removed",
+    "organization.member_role_changed",
+  ],
+};
+export interface AuthConsoleActivityQuery {
+  group?: keyof typeof authConsoleEventGroups;
+  /** The subject user, as in AuthEventListInput. */
+  userId?: string;
+  cursor?: string;
+  limit?: number;
+}
+export interface AuthConsoleEventUser {
+  id: string;
+  name: string;
+  available: boolean;
+}
+/** Explicit display projection. Event metadata and provider records stay on the server. */
+export interface AuthConsoleEvent {
+  id: string;
+  type: AuthEventType;
+  time: string;
+  actor: AuthConsoleEventUser | null;
+  subject: AuthConsoleEventUser | null;
+}
+export interface AuthConsoleActivity {
+  enabled: boolean;
+  events: AuthConsoleEvent[];
+  nextCursor?: string;
+}
+export interface AuthConsoleOverview {
+  users: number | null;
+  newUsers: number | null;
+  activeSessions: number | null;
+  /** Consent grants, one per user and client. Omitted without the OAuth provider plugin. */
+  approvedAgents?: number | null;
+  activeUsers: number | null;
+  window: AuthEventWindow;
+  analytics: AuthEventAggregates | null;
+  recent: AuthConsoleActivity;
 }
 export interface AuthConsoleUser {
   id: string;

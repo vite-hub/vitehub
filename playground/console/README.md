@@ -36,3 +36,5 @@ Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
 
 Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
+
+Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.
