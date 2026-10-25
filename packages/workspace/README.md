@@ -177,8 +177,8 @@ Use a strongly consistent Blob backend and small folders. See
 [configuration](https://vitehub.dev/docs/workspace/configure#blob-database-store)
 and [server API](https://vitehub.dev/docs/workspace/server-api#retained-folder-history).
 
-During development, read history from the CLI. The commands call the Nitro
-runtime of a running Vite + Nitro Development Server and never write:
+Read history from the CLI. The commands are operations that run in the Nitro
+runtime of the dev server, or of a deployed app with `--url`, and never write:
 
 ```sh
 vitehub workspace history content            # revisions on every ref, newest first
@@ -440,7 +440,7 @@ GitHub-backed Stores also expose the retained history reader. Repository branche
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata
 includes the commit author and a `url` that opens the commit on GitHub. Revision file
 views read the configured Workspace root from the commit tree and fetch file bytes from
-that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI commands
+that commit. The `vitehub workspace history`, `refs`, and `show` CLI commands
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
 
