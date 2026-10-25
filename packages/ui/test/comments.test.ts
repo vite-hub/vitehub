@@ -133,6 +133,32 @@ describe("comment mode", () => {
     expect(wrapper.get("[data-slot=comment-layer]").attributes("data-active")).toBeUndefined();
   });
 
+  it("ignores C in custom editors, with a modifier, while composing, on repeat, and when something else handled it", async () => {
+    const { wrapper } = await layer();
+    const active = () => wrapper.get("[data-slot=comment-layer]").attributes("data-active");
+    for (const role of ["textbox", "combobox", "searchbox"]) {
+      const editor = document.createElement("div");
+      editor.setAttribute("role", role);
+      document.body.append(editor);
+      press("c", {}, editor);
+      await flushPromises();
+      expect(active(), role).toBeUndefined();
+    }
+    for (const init of [{ shiftKey: true }, { ctrlKey: true }, { altKey: true }, { metaKey: true }, { isComposing: true }, { repeat: true }]) {
+      press("c", init);
+      await flushPromises();
+      expect(active(), JSON.stringify(init)).toBeUndefined();
+    }
+    const handled = new KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "c" });
+    document.addEventListener("keydown", (event) => event.preventDefault(), { capture: true, once: true });
+    document.dispatchEvent(handled);
+    await flushPromises();
+    expect(active()).toBeUndefined();
+    press("c");
+    await flushPromises();
+    expect(active()).toBe("true");
+  });
+
   it("drops a numbered pin with the avatar and focuses the composer", async () => {
     const { wrapper } = await layer([thread(4)]);
     await drop(wrapper);

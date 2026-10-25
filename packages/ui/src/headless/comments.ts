@@ -158,7 +158,7 @@ function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefin
   return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
 }
 
-const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
 const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
 
 function describeError(error: unknown): string {
@@ -358,7 +358,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (active.value || draft.value || openId.value) exit();
       return;
     }
-    if (event.ctrlKey || event.metaKey || event.altKey || isEditable(path)) return;
+    if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || isEditable(path)) return;
     // The keyboard way to drop a pin: in comment mode, Enter on the focused element comments on it.
     if (event.key === "Enter" && active.value && origin && !path.some(ignore) && origin !== document.body && origin !== document.documentElement) {
       event.preventDefault();
