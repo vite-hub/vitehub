@@ -18,7 +18,7 @@ Framework and provider integrations create Runtime Context in the generated rout
 | Value | Used for |
 | --- | --- |
 | `runtime` and `platform` | Identifying the active runtime and platform. |
-| `memo` | Resolve one value once during the current execution. |
+| `memo` | Resolve one value once during the current execution. `runAgent()` creates a fresh cache when the context has none. |
 | `waitUntil` and `flushWaitUntil` | Register background work and wait for it to finish. Host support controls work after the response. |
 | Provider context | Reading trusted host resources such as bindings. |
 | `trace` and `traceLog` | Keeping trace identity and recording structured events. |

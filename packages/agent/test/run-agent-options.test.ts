@@ -244,3 +244,25 @@ it("keeps a standalone input with a runtime field in tuple mode", async () => {
   const agent = defineAgent({ runtime: false, driver: { run: () => "standalone result" } })
   await expect(runAgent(agent, { runtime: "user data" } as never, { output: "drained" })).resolves.toEqual([null, "standalone result"])
 })
+
+it("keeps a standalone input with runtime and waitUntil fields in tuple mode", async () => {
+  const input = { prompt: "user prompt", runtime: "unknown" as const, waitUntil: vi.fn() }
+  const agent = defineAgent({ runtime: false, driver: { run(context) {
+    expect(context.prompt).toBe(input.prompt)
+    return "standalone result"
+  } } })
+  await expect(runAgent(agent, input, { output: "drained" })).resolves.toEqual([null, "standalone result"])
+
+  const failure = new Error("driver failed")
+  const failingAgent = defineAgent({ runtime: false, driver: { run() { throw failure } } })
+  await expect(runAgent(failingAgent, input, { output: "drained" })).resolves.toEqual([failure, null])
+})
+
+it("accepts a memo-less context with option-like input when four arguments disambiguate it", async () => {
+  const agent = defineAgent({ runtime: false, driver: { run(context) {
+    expect(context.input).toMatchObject({ output: "drained" })
+    return context.memo("result", () => "direct result")
+  } } })
+  const runtime = { runtime: "unknown" as const, waitUntil: vi.fn() }
+  await expect(runAgent(agent, runtime, { output: "drained" } as never, {})).resolves.toBe("direct result")
+})
