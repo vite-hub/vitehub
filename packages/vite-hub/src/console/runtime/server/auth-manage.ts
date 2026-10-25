@@ -83,7 +83,10 @@ async function handler(event: ConsoleRequestEvent): Promise<Response> {
   if (request.headers.get("x-vitehub-console") !== "1")
     throw consoleRequestError(403, "The Console request header is required.");
   const origin = request.headers.get("origin");
-  if (origin && origin !== new URL(request.url).origin)
+  const site = request.headers.get("sec-fetch-site");
+  // Browser-controlled Fetch Metadata survives trusted TLS termination, as in Console RPC.
+  if (origin === "null" || site === "cross-site" || site === "same-site"
+    || (site !== "same-origin" && origin !== null && origin !== new URL(request.url).origin))
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
   const api = getAuthConsoleForRequest(request, event);

@@ -44,6 +44,22 @@ describe("Auth Console route", () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["auth"] }) });
     const request = (body: unknown) =>
       authManage(event(body, { cookie: operator.request.headers.get("cookie")! }));
+    const proxied = await authManage(event({ operation: "users" }, {
+      origin: "https://localhost:3000",
+      "sec-fetch-site": "same-origin",
+    }));
+    expect(proxied.status).toBe(200);
+    expect(await proxied.json()).toMatchObject({ total: 2 });
+    const rejectedHeaders: Record<string, string>[] = [
+      { origin: "null", "sec-fetch-site": "same-origin" },
+      { "sec-fetch-site": "cross-site" },
+      { "sec-fetch-site": "same-site" },
+      { "sec-fetch-site": "same-origin", "x-vitehub-console": "" },
+    ];
+    for (const headers of rejectedHeaders) {
+      await expect(authManage(event({ operation: "users" }, headers)))
+        .rejects.toMatchObject({ statusCode: 403 });
+    }
     const listed = await request({ operation: "users" });
     expect(listed.status).toBe(200);
     expect(await listed.json()).toMatchObject({ total: 2 });

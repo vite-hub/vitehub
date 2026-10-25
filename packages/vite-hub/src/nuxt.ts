@@ -807,13 +807,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   let resolvedConsoleFixture: string | undefined
   let generatedConsolePluginPath: string | undefined
   let consoleWorkflowConfigResolved = false
+  const effectiveAuth = nuxt.options.vite?.auth ?? options.auth
   let consoleHasPrimaryAuth = false;
   let consoleAccess: ConsoleAccessBuild | undefined
   if (options.console) {
     const configuredConsole = resolveConsoleOptions(options.console)
     if (!configuredConsole) throw new TypeError("[vitehub] Invalid console configuration")
-    const viteAuth = nuxt.options.vite?.auth
-    const effectiveAuth = viteAuth ?? options.auth
     if (!nuxt.options.vitehubCliDiscovery) {
       const appAuth = effectiveAuth
         ? resolveAuthViteConfig(effectiveAuth === true ? undefined : effectiveAuth, viteRoot, { serverDirs: resolveNuxtServerDirs(nuxt.options) })
@@ -1288,10 +1287,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (!include.includes("vite-hub/agent/vue")) include.push("vite-hub/agent/vue")
   }
   addVueImports(nuxt, "vite-hub/source/client", ["useCollection"])
-  if (options.auth) {
+  if (effectiveAuth) {
     const envOptions = options.env || {}
     hubAuthNuxt({
-      auth: options.auth === true ? undefined : options.auth,
+      auth: effectiveAuth === true ? undefined : effectiveAuth,
       env: options.env === false
         ? false
         : { projectRoot: envOptions.projectRoot },
