@@ -1,4 +1,3 @@
-import type { ChannelArchiveMedia } from "@vite-hub/internal/channel-archive"
 
 export { inlineChannelArchiveMedia, materializeChannelArchive } from "@vite-hub/internal/channel-archive"
 export type { ChannelArchiveMedia } from "@vite-hub/internal/channel-archive"
