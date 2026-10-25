@@ -63,6 +63,7 @@ export default defineConfig({
       "src/observability.ts",
       "src/observability/host.ts",
       "src/observability/posthog.ts",
+      "src/operations.ts",
       "src/invocations/d1.ts",
       "src/invocations/sqlite.ts",
       "src/state/sqlite.ts",

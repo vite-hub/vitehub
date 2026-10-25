@@ -74,6 +74,7 @@ export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retenti
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -84,6 +85,7 @@ interface AgentCliContributingPlugin {
       transformWorkflowRegistry: (code: string, id: string) => string
     }
     cli?: unknown
+    operations?: OperationContributions
     providerOutput?: {
       prepareSources: (sources: { resolve: (path: string) => string }) => Promise<void>
     }
@@ -1709,6 +1711,18 @@ function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string
   ]
 }
 
+/** Lets the Console read Channel conversations through the same handlers, State, and identities as the webhook routes. */
+function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string }, runtimeRouteOption = ""): string[] {
+  return [
+    "installChannelsConsoleHost({",
+    "  agents,",
+    "  handlers: webhookHandlers,",
+    `  options: name => ({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`,
+    "})",
+    "",
+  ]
+}
+
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -2025,7 +2039,7 @@ async function generateAgentWebhookRouteHandler(
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
-    ...(options.libsqlState ? [`import { createAgentWebhookWarmup } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2055,6 +2069,7 @@ async function generateAgentWebhookRouteHandler(
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
     ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
+    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : []),
     ...(options.processDiscordGateway
       ? [
           "function hasDiscordGatewayChannel(agent: unknown): boolean {",
@@ -3177,6 +3192,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
     },
     vitehub: {
+      // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
+      operations: () => agent === false
+        ? []
+        : [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: "@vite-hub/agent/operations" }],
       providerOutput: {
         async prepareSources(sources) {
           if (agent === false || !resolved) return

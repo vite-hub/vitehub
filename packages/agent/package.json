@@ -153,6 +153,12 @@
       "require": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./output": {
       "types": "./dist/output.d.ts",
       "import": "./dist/output.js",
