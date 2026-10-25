@@ -236,6 +236,18 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
   return access.user ?? await deferredUsers.get(access)?.()
 }
 
+/**
+ * The user that an operation sees. A development server without sign-in (`local` access, or `open` with
+ * `console.auth: false`) has no accounts, so the person is the local developer: `{ id: "local", name: "You" }`.
+ * Production servers never invent a user.
+ */
+export async function readConsoleOperationUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
+  const user = await readConsoleAccessUser(access)
+  if (user) return user
+  // SAFETY: The local developer has the id and name that a Console user needs.
+  return (access.mode === "local" || access.mode === "open") && developmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
+}
+
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
   return access.sections === "all" || (section !== undefined && access.sections.includes(section))

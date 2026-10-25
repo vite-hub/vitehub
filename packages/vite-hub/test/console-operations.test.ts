@@ -151,6 +151,24 @@ describe("contributed operations over the Console RPC", () => {
     expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")).status).toBe(200)
   })
 
+  it("gives a development server without sign-in the local developer as the user, and production none", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    const user = async (url: string) => (await (await call("fixture.greet", { name: "Ada" }, {}, url)).json() as { value: { user: string | null } }).value.user
+    vi.stubEnv("NODE_ENV", "development")
+    for (const mode of ["local", "open"] as const) {
+      installConsoleAccess({ mode })
+      expect(await user("http://localhost:5173/_vitehub/rpc/__call"), mode).toBe("local")
+    }
+    // A signed-in Console keeps its own user, or none.
+    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ id: "ada" }) as never })
+    expect(await user("http://localhost:5173/_vitehub/rpc/__call")).toBe("ada")
+    installConsoleAccess({ check: async () => undefined, mode: "auth" })
+    expect(await user("http://localhost:5173/_vitehub/rpc/__call")).toBeNull()
+    vi.stubEnv("NODE_ENV", "production")
+    installConsoleAccess({ mode: "open" })
+    expect(await user("https://app.example.com/_vitehub/rpc/__call")).toBeNull()
+  })
+
   it("names the project of the local dev RPC in a response header", async () => {
     installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
     installConsoleProjectRoot("/work/app")

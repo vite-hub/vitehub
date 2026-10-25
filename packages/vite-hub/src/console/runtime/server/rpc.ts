@@ -4,7 +4,7 @@ import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, developmentRuntime, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, developmentRuntime, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { uploadConsoleMedia } from "./media.ts"
@@ -220,7 +220,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
   // Navigation and other reads that do not need a person skip the session lookup.
-  const user = operation.user === false ? undefined : await readConsoleAccessUser(context.access)
+  const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
     access: context.access,
     request,
