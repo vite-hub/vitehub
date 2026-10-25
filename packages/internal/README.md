@@ -31,6 +31,8 @@ Source readers use `createSourceScanner(file)` from `@vite-hub/internal/source-s
 
 Packages use it for definition discovery, generated runtime registries, Provider Output, hosted runtime helpers, and hosting normalization.
 
+The shared deployment output writer minifies whitespace and syntax in final Cloudflare, Vercel, and Netlify bundles. Each bundle can disable either pass with `bundleOptions.minifyWhitespace: false` or `bundleOptions.minifySyntax: false`. Syntax minification preserves function and class names. Identifier minification stays opt-in, except for Netlify functions with an appended static config, which already need it to avoid config binding collisions. Direct `bundleEsmEntry` calls keep their existing defaults so intermediate generated sources are unchanged.
+
 ViteHub writes its own Blob objects, such as Workspace history, Console attachments, and derived caches, under one prefix. `vitehubOwnedPrefix` from `@vite-hub/internal/owned-paths` is `_vitehub/`. Build every ViteHub-owned Blob path from it. `isVitehubOwnedPath(pathname)` returns true for those paths, so a UI that lists a Blob store can hide them and refuse to move or delete them.
 
 Owner packages expose inspection data through `vitehub.inspect` on their Vite plugin. The contributor returns `definitions` inspectors and `providerOutput` entries from `@vite-hub/internal/inspect`. `vitehub inspect` and the Console render that data. They do not own it.
