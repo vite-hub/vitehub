@@ -15,6 +15,7 @@ catalog:
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
   unified: ^11.0.5
+  comark-chat: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer

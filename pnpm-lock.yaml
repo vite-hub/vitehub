@@ -89,6 +89,9 @@ catalogs:
     '@types/proper-lockfile':
       specifier: 4.1.4
       version: 4.1.4
+    comark-chat:
+      specifier: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468
+      version: 0.5.0
     forges:
       specifier: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
       version: 0.1.0
@@ -2425,6 +2428,9 @@ importers:
       '@types/node':
         specifier: catalog:tooling
         version: 24.19.1
+      comark-chat:
+        specifier: 'catalog:'
+        version: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       katex:
         specifier: ^0.17.0
         version: 0.17.0
@@ -11006,6 +11012,31 @@ packages:
 
   colortranslator@5.0.0:
     resolution: {integrity: sha512-Z3UPUKasUVDFCDYAjP2fmlVRf1jFHJv1izAmPjiOa0OCIw1W7iC8PZ2GsoDa8uZv+mKyWopxxStT9q05+27h7w==}
+
+  comark-chat@https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468:
+    resolution: {integrity: sha512-NnOtIzYUAeptosW3Rd3SBHonWra6Rul8jDXcT722T1Bf16i4oUxQflP+8hukAVwHGQoj+4wiQ9+pKvBt9ngsCQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468}
+    version: 0.5.0
+    engines: {node: '>=22.12.0'}
+    peerDependencies:
+      '@comark/react': ^0.7.0 || ^0.8.0
+      '@comark/svelte': ^0.7.0 || ^0.8.0
+      '@comark/vue': ^0.7.0 || ^0.8.0
+      react: '>=18'
+      svelte: '>=5'
+      vue: 3.5.44
+    peerDependenciesMeta:
+      '@comark/react':
+        optional: true
+      '@comark/svelte':
+        optional: true
+      '@comark/vue':
+        optional: true
+      react:
+        optional: true
+      svelte:
+        optional: true
+      vue:
+        optional: true
 
   comark-content@0.4.1:
     resolution: {integrity: sha512-z0nuo3PM53FwBYbxP4rNrUo1QW7jv8YO44HDYaGm2Wx4pmHsLqKdsA6CiHcSOaURze6m7my0Z0YFaLL77LtDUA==}
@@ -27702,6 +27733,12 @@ snapshots:
   color-name@1.1.4: {}
 
   colortranslator@5.0.0: {}
+
+  comark-chat@https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
+    optionalDependencies:
+      '@comark/vue': 0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
+      react: 19.2.6
+      vue: 3.5.44(typescript@6.0.3)
 
   comark-content@0.4.1(@azure/identity@4.13.3)(@azure/storage-blob@12.34.0)(@netlify/blobs@10.7.5)(@upstash/redis@1.39.0)(@vercel/blob@2.8.0(patch_hash=015566b186d9cff0cbb8b65329ee62915fc585ee6aa848ecd8d81ab91dd44b25))(@vercel/functions@3.9.11(@aws-sdk/credential-provider-web-identity@3.972.49)(ws@8.22.0))(aws4fetch@1.0.20)(db0@0.4.1)(ioredis@5.11.1)(katex@0.17.0)(shiki@4.5.0)(uploadthing@7.7.4(express@5.2.1)(fastify@5.12.5)(h3@2.0.1-rc.33(crossws@0.4.12(srvx@1.0.5))(ocache@0.3.0))(tailwindcss@4.3.3)):
     dependencies:
