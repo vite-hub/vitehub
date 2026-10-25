@@ -130,6 +130,32 @@ describe("@vite-hub/source glob source cache", () => {
     expect(tinyglobby).toHaveBeenCalledTimes(3)
   })
 
+  it.each([true, false])("drops removed keys after refreshing with keyCache=%s", async (keyCache) => {
+    const root = await createRoot()
+    await writeFile(join(root, "old.md"), "# Old\n")
+    await writeFile(join(root, "new.md"), "# New\n")
+    vi.mocked(tinyglobby)
+      .mockResolvedValueOnce(["old.md"])
+      .mockResolvedValueOnce(["new.md"])
+    if (!keyCache) {
+      vi.mocked(tinyglobby)
+        .mockResolvedValueOnce(["new.md"])
+        .mockResolvedValueOnce(["new.md"])
+    }
+    const docs = glob({ include: "*.md", keyCache })
+    const ctx = { rootDir: root }
+
+    await docs.prepare?.(ctx)
+    await expect(docs.getItem("old.md", ctx)).resolves.toMatchObject({ key: "old.md" })
+    if (keyCache) await docs.prepare?.(ctx)
+    else await docs.getKeys(ctx)
+
+    await expect(docs.getItem("new.md", ctx)).resolves.toMatchObject({ key: "new.md" })
+    await expect(docs.getMeta?.("new.md", ctx)).resolves.toMatchObject({ digest: expect.any(String) })
+    await expect(docs.getItem("old.md", ctx)).rejects.toThrow('glob could not find "old.md"')
+    await expect(docs.getMeta?.("old.md", ctx)).rejects.toThrow('glob could not find "old.md"')
+  })
+
   it("reuses live glob listings for item reads and refreshes missing keys", async () => {
     const root = await createRoot()
     await mkdir(join(root, "docs"), { recursive: true })
