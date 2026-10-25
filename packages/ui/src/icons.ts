@@ -20,6 +20,7 @@ export const viteHubUIIcons: readonly string[] = [
   "ph:link-simple-light",
   "ph:list-bullets",
   "ph:minus-circle-light",
+  "ph:note-pencil",
   "ph:pencil-simple-light",
   "ph:plus",
   "ph:stop-fill",

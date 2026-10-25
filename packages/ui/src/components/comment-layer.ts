@@ -1,8 +1,9 @@
 import type { CommentsClient, CommentSubject, CommentThread as CommentThreadModel, CommentUser } from "@vite-hub/comments/client";
-import { computed, defineComponent, h, type PropType, reactive } from "vue";
+import { computed, defineComponent, h, nextTick, type PropType, ref, watch } from "vue";
 import { draftPositionKey, provideComments, useComments, type CommentsState } from "../headless/comments.ts";
 import { uiErrorDiagnostics } from "../error-diagnostics.ts";
 import { consumedPointerEvents } from "../internal/comment-outside.ts";
+import { excerpt } from "../internal/comment-person.ts";
 import type { AvatarStackPerson } from "./avatar-stack.ts";
 import { CommentComposer, type CommentComposerSubmit } from "./comment-composer.ts";
 import { CommentList, CommentToolbar } from "./comment-list.ts";
@@ -12,9 +13,8 @@ import { CommentThread } from "./comment-thread.ts";
 const popoverWidth = 360;
 const popoverHeight = 420;
 
-function reason(error: unknown): string {
-  return error instanceof Error ? error.message : "That did not work. Try again.";
-}
+// A pointer that moved more than this between down and up was a scroll or a drag, not a click.
+const clickSlop = 6;
 
 // The overlay of a page: pins on the spots that threads point at, the hover preview, the open thread, and the composer of
 // a new comment. In comment mode a click anywhere drops a pin. It is built from the other comment parts.
@@ -33,6 +33,8 @@ export const CommentLayer = defineComponent({
     people: { default: () => [], type: Array as PropType<AvatarStackPerson[]> },
     /** The key that toggles comment mode. `false` turns it off. */
     hotkey: { default: "c", type: [String, Boolean] as PropType<string | false> },
+    /** The URL of the page that a subject lives on, for the links of threads that are not page threads. */
+    subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
     navigate: { type: Function as PropType<(href: string) => void> },
   },
@@ -43,28 +45,22 @@ export const CommentLayer = defineComponent({
         message: "CommentLayer needs a `client` and a `subject`, or the `comments` state from useComments().",
       });
     }
+    const layer = ref<HTMLElement | null>(null);
+    // The comment UI may live in a shadow root. Composers are looked up there, not in the document.
+    const uiRoot = () => {
+      const node = layer.value?.getRootNode();
+      return node instanceof ShadowRoot ? node : document;
+    };
     // SAFETY: the check above leaves `client` and `subject` defined whenever `props.comments` is missing.
     const state = props.comments ?? useComments({
       client: client!,
       hotkey: props.hotkey,
       subject: () => props.subject!,
+      subjectUrl: props.subjectUrl,
+      uiRoot,
       user: () => props.user,
     });
     provideComments(state);
-
-    // Per thread, so a failed reply on one thread does not show on another.
-    const status = reactive<Record<string, { busy: boolean; error?: string }>>({});
-    async function run(id: string, task: Promise<unknown>): Promise<boolean> {
-      status[id] = { busy: true };
-      try {
-        await task;
-        status[id] = { busy: false };
-        return true;
-      } catch (error) {
-        status[id] = { busy: false, error: reason(error) };
-        return false;
-      }
-    }
 
     const user = computed(() => state.user.value);
     const pinned = computed(() => {
@@ -74,8 +70,15 @@ export const CommentLayer = defineComponent({
       return threads;
     });
 
-    const place = (event: PointerEvent) => {
-      if (consumedPointerEvents.has(event) || event.button !== 0) return;
+    // A pin drops on pointer up, and only if the pointer stayed put: a touch that scrolls the page is not a click.
+    let down: { x: number; y: number } | null = null;
+    const press = (event: PointerEvent) => {
+      down = consumedPointerEvents.has(event) || event.button !== 0 ? null : { x: event.clientX, y: event.clientY };
+    };
+    const release = (event: PointerEvent) => {
+      const start = down;
+      down = null;
+      if (!start || Math.hypot(event.clientX - start.x, event.clientY - start.y) > clickSlop) return;
       event.preventDefault();
       try {
         state.startDraft({ x: event.clientX, y: event.clientY });
@@ -84,24 +87,58 @@ export const CommentLayer = defineComponent({
       }
     };
 
+    // Opening a thread moves the focus into it. Closing it gives the focus back to its pin, unless the reader already went elsewhere.
+    let returnTo: string | null = null;
+    let restoring = false;
+    watch(
+      () => state.openId.value,
+      (id, previous) => {
+        if (id) {
+          void nextTick(() => layer.value?.querySelector<HTMLElement>("[data-slot='comment-thread']:not([data-preview])")?.focus());
+          return;
+        }
+        returnTo = null;
+        const active = uiRoot().activeElement;
+        const thread = layer.value?.querySelector("[data-slot='comment-thread']:not([data-preview])");
+        if (previous && (!active || active === document.body || thread?.contains(active))) returnTo = previous;
+      },
+      { flush: "pre" },
+    );
+    watch(
+      () => state.openId.value,
+      (id) => {
+        if (id || !returnTo) return;
+        const target = returnTo;
+        returnTo = null;
+        void nextTick(() => {
+          const pins = layer.value?.querySelectorAll<HTMLElement>("[data-slot='comment-pin']") ?? [];
+          // Giving the focus back must not open the hover preview of the pin.
+          restoring = true;
+          [...pins].find((pin) => pin.getAttribute("data-thread-id") === target)?.focus();
+          restoring = false;
+        });
+      },
+      { flush: "post" },
+    );
     const side = (x: number, y: number) => ({
       "data-flip-x": x + popoverWidth > window.innerWidth ? "true" : undefined,
       "data-flip-y": y + popoverHeight > window.innerHeight ? "true" : undefined,
     });
 
+    // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
-        busy: status[thread.id]?.busy ?? false,
         detached: state.positions.value.get(thread.id)?.detached === true,
-        error: status[thread.id]?.error,
         onClose: () => state.close(),
-        onDelete: (messageId: string) => void run(thread.id, state.remove(thread.id, messageId)),
-        onEdit: (messageId: string, body: string, mentions: string[]) =>
-          void run(thread.id, state.edit(thread.id, messageId, body, mentions)),
-        onReopen: () => void run(thread.id, state.reopen(thread.id)),
-        onReply: (body: string, mentions: string[]) => void run(thread.id, state.reply(thread.id, body, mentions)),
+        onDelete: (messageId: string) => state.remove(thread.id, messageId),
+        onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),
+        onReopen: () => state.reopen(thread.id),
+        onReply: (body: string, mentions: string[]) => state.reply(thread.id, body, mentions),
         // Resolving puts the thread away, as in Figma.
-        onResolve: () => void run(thread.id, state.resolve(thread.id)).then((done) => done && state.close()),
+        onResolve: async () => {
+          await state.resolve(thread.id);
+          state.close();
+        },
         thread,
         user: user.value,
         users: state.users,
@@ -110,7 +147,7 @@ export const CommentLayer = defineComponent({
     return () => {
       const items = pinned.value.flatMap((thread) => {
         const position = state.positions.value.get(thread.id);
-        if (!position || position.detached || thread.anchor.kind === "page") return [];
+        if (!position || position.detached || position.clipped || thread.anchor.kind === "page") return [];
         const open = state.openId.value === thread.id;
         const hover = state.hoverId.value === thread.id && !open && !state.draft.value;
         return [
@@ -126,9 +163,11 @@ export const CommentLayer = defineComponent({
               h(CommentPin, {
                 active: open,
                 author: thread.author,
+                "data-thread-id": thread.id,
+                excerpt: excerpt(thread.messages[0]?.body ?? ""),
                 n: thread.n,
                 onHover: () => {
-                  if (!open && !state.draft.value) state.hoverId.value = thread.id;
+                  if (!open && !restoring && !state.draft.value) state.hoverId.value = thread.id;
                 },
                 onLeave: () => {
                   if (state.hoverId.value === thread.id) state.hoverId.value = null;
@@ -150,13 +189,14 @@ export const CommentLayer = defineComponent({
       const opened = state.opened.value;
       const openedPosition = opened && state.positions.value.get(opened.id);
       const floating =
-        opened && (!openedPosition || openedPosition.detached || opened.anchor.kind === "page")
+        opened && (!openedPosition || openedPosition.detached || openedPosition.clipped || opened.anchor.kind === "page")
           ? h("div", { "data-floating": "true", "data-slot": "comment-layer-popover" }, threadView(opened))
           : null;
 
       const draft = state.draft.value;
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
-      const point = draftPosition && !draftPosition.detached ? draftPosition : draft?.point;
+      // A comment on the whole page has no spot, so its composer stays where it opened.
+      const point = draftPosition && !draftPosition.detached && draft?.anchor.kind !== "page" ? draftPosition : draft?.point;
       const composing =
         draft && point
           ? h(
@@ -168,7 +208,7 @@ export const CommentLayer = defineComponent({
                 style: { left: `${point.x}px`, top: `${point.y}px` },
               },
               [
-                h(CommentPin, { author: user.value, draft: true, n: state.nextNumber.value }),
+                h(CommentPin, { author: user.value, draft: true }),
                 h(
                   "div",
                   { "data-slot": "comment-layer-popover" },
@@ -184,6 +224,7 @@ export const CommentLayer = defineComponent({
                     },
                     "onUpdate:mentions": (value: string[]) => (draft.mentions = value),
                     "onUpdate:modelValue": (value: string) => (draft.body = value),
+                    people: user.value ? [user.value] : [],
                     user: user.value,
                     users: state.users,
                   }),
@@ -194,9 +235,16 @@ export const CommentLayer = defineComponent({
 
       return h(
         "div",
-        { "data-active": state.active.value ? "true" : undefined, "data-comments-ui": "", "data-slot": "comment-layer" },
+        { "data-active": state.active.value ? "true" : undefined, "data-comments-ui": "", "data-slot": "comment-layer", ref: layer },
         [
-          state.active.value ? h("div", { "data-slot": "comment-layer-overlay", onPointerdown: place }) : null,
+          state.active.value
+            ? h("div", {
+                "data-slot": "comment-layer-overlay",
+                onPointercancel: () => (down = null),
+                onPointerdown: press,
+                onPointerup: release,
+              })
+            : null,
           ...items,
           composing,
           floating,

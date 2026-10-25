@@ -2606,3 +2606,29 @@ button.vh-agent-tool-list__count:focus-visible {
     gap: 0.25rem 0.5rem;
   }
 }
+
+@layer components {
+  [data-slot="comment-thread"]:focus-visible {
+    outline: 2px solid var(--vh-ui-ring);
+    outline-offset: -2px;
+  }
+
+  [data-slot="comment-reply-confirm"] {
+    align-items: center;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  [data-slot="comment-reply-confirm"] > p {
+    flex-basis: 100%;
+    margin: 0;
+  }
+
+  [data-slot="comment-reply-error"] {
+    color: var(--vh-ui-error);
+    font-size: 0.75rem;
+    margin: 0.375rem 0 0;
+  }
+}

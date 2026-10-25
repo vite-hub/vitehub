@@ -70,6 +70,10 @@ export interface UseCommentsOptions {
   hotkey?: string | false;
   /** Elements that anchors skip. Defaults to the comment UI. */
   ignore?: (element: Element) => boolean;
+  /** Where the comment UI lives: the document, or the shadow root of the overlay. Composers are looked up there. Defaults to the document. */
+  uiRoot?: MaybeRefOrGetter<ParentNode | undefined>;
+  /** The URL of the page that a subject lives on, for a link to a thread. Page subjects use their id as the path. Other subjects need this, or their link is the current page. */
+  subjectUrl?: (subject: CommentSubject) => string | undefined;
   /** Where the deep link is read. Defaults to `window.location`. */
   location?: () => Pick<Location, "href" | "origin" | "search">;
   /** Load the threads and listen for keys when the component mounts. Default `true`. Call `start()` yourself when `false`. */
@@ -95,8 +99,6 @@ export interface CommentsState {
   /** Pin positions by thread id, and `"draft"` for the comment being written. */
   readonly positions: ShallowRef<ReadonlyMap<string, AnchorPosition>>;
   readonly draft: Ref<CommentDraft | null>;
-  /** The number that the draft pin shows. The server assigns the final one. */
-  readonly nextNumber: ComputedRef<number>;
   readonly openId: Ref<string | null>;
   readonly hoverId: Ref<string | null>;
   readonly opened: ComputedRef<CommentThread | undefined>;
@@ -106,7 +108,7 @@ export interface CommentsState {
   enter: () => void;
   exit: () => void;
   toggle: () => void;
-  /** Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text. */
+  /** Starts a draft on a point, an element, a selection, or `"page"`. Ends an empty draft first, and keeps one with text. A pin has no number until the server assigns one. */
   startDraft: (target: AnchorTarget, options?: CreateAnchorOptions) => void;
   cancelDraft: () => void;
   /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
@@ -132,7 +134,19 @@ const commentsKey: InjectionKey<CommentsState> = Symbol("ViteHubComments");
 export const draftPositionKey = "draft";
 
 const uiSelector = "[data-comments-ui]";
-const defaultIgnore = (element: Element): boolean => element.closest(uiSelector) !== null;
+
+// The comment UI may sit in a shadow root, so an element is also in it when its shadow host is.
+function defaultIgnore(element: Element): boolean {
+  for (let node: Element | null = element; node; ) {
+    if (node.closest(uiSelector)) return true;
+    const root = node.getRootNode();
+    node = root instanceof ShadowRoot ? root.host : null;
+  }
+  return false;
+}
+
+// Events from a shadow root are retargeted to its host, so the real element is the first one of the composed path.
+const elementsOf = (event: Event): Element[] => event.composedPath().filter((node): node is Element => node instanceof Element);
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
   return a.kind === b.kind && a.id === b.id;
@@ -141,13 +155,11 @@ function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
 function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefined): boolean {
   if (!a || !b) return a === b;
   if (a.detached || b.detached) return a.detached === b.detached;
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
 }
 
-function isEditable(target: EventTarget | null): boolean {
-  if (!(target instanceof Element)) return false;
-  return target.closest("input, textarea, select, [contenteditable]:not([contenteditable='false'])") !== null;
-}
+const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";
+const isEditable = (path: readonly Element[]): boolean => path.some(element => element.matches(editableSelector));
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : "The comment could not be sent. Try again.";
@@ -157,7 +169,7 @@ function describeError(error: unknown): string {
 export function useComments(options: UseCommentsOptions): CommentsState {
   const { client } = options;
   const param = options.param ?? "comment";
-  const hotkey = options.hotkey === undefined ? "c" : options.hotkey;
+  const hotkey = options.hotkey === undefined ? "c" : options.hotkey === false ? false : options.hotkey.toLowerCase();
   const ignore = options.ignore ?? defaultIgnore;
   const subject = computed(() => toValue(options.subject));
   const user = computed(() => toValue(options.user) ?? client.user);
@@ -189,10 +201,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       resolved: scoped.filter(thread => thread.status === "resolved").length,
     };
   });
-  const nextNumber = computed(() => Math.max(0, ...threads.value.map(thread => thread.n)) + 1);
   const opened = computed(() => threads.value.find(thread => thread.id === openId.value));
 
   const root = (): ParentNode => toValue(options.root) ?? document;
+  const uiRoot = (): ParentNode => toValue(options.uiRoot) ?? document;
 
   function measure(): void {
     const next = new Map<string, AnchorPosition>();
@@ -206,10 +218,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (!same) positions.value = next;
   }
 
-  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer();
+  const hasText = (): boolean => (draft.value?.body.trim().length ?? 0) > 0 || hasDirtyComposer(uiRoot());
   const block = (): void => {
     blocked.value++;
-    shakeDirtyComposers();
+    shakeDirtyComposers(uiRoot());
   };
 
   function enter(): void {
@@ -247,8 +259,16 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     if (hasText()) return block();
     close();
     const anchor = createAnchor(target, { root: root(), ignore, ...anchorOptions });
-    const isPoint = typeof target === "object" && !("nodeType" in target) && !("rangeCount" in target) && !("startContainer" in target);
-    const point = isPoint ? target : (anchorOptions.point ?? { x: 0, y: 0 });
+    let point = anchorOptions.point ?? { x: 0, y: 0 };
+    if (target === "page") {
+      // A comment on the whole page has no spot, so its composer opens near the top.
+      point = { x: Math.max(16, window.innerWidth / 2 - 180), y: 96 };
+    } else if ("nodeType" in target) {
+      const box = target.getBoundingClientRect();
+      point = anchorOptions.point ?? { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+    } else if (!("rangeCount" in target) && !("startContainer" in target)) {
+      point = target;
+    }
     draft.value = { anchor, point, body: "", mentions: [], busy: false, error: undefined };
     measure();
   }
@@ -275,6 +295,24 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     }
   }
 
+  // The element may not be on the page yet, for example while a route renders. Try for a few seconds, then give up.
+  let revealTimer: ReturnType<typeof setTimeout> | undefined;
+  function reveal(id: string): void {
+    clearTimeout(revealTimer);
+    let attempts = 0;
+    const tick = (): void => {
+      measure();
+      const position = positions.value.get(id);
+      if (position && !position.detached) {
+        position.element?.scrollIntoView?.({ block: "center" });
+        measure();
+      } else if (++attempts < 20) {
+        revealTimer = setTimeout(tick, 150);
+      }
+    };
+    tick();
+  }
+
   function open(thread: CommentThread | string, openOptions: { scroll?: boolean } = {}): void {
     const id = typeof thread === "string" ? thread : thread.id;
     if (hasText()) return block();
@@ -283,16 +321,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     hoverId.value = null;
     const found = threads.value.find(entry => entry.id === id);
     if (found && onPage(found)) {
-      measure();
-      const position = positions.value.get(id);
-      if (openOptions.scroll && position && !position.detached) position.element?.scrollIntoView?.({ block: "center" });
-      if (openOptions.scroll) measure();
+      if (openOptions.scroll) reveal(id);
+      else measure();
     }
   }
 
   function link(thread: CommentThread): string {
     const location = options.location?.() ?? window.location;
-    const url = new URL(thread.subject.kind === "page" ? thread.subject.id : location.href, location.origin);
+    const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
+    const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
     return `${url.pathname}${url.search}${url.hash}`;
   }
@@ -313,14 +350,26 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   }
 
   function onKeydown(event: KeyboardEvent): void {
-    if (event.defaultPrevented || event.isComposing) return;
+    if (event.defaultPrevented || event.isComposing || event.repeat) return;
+    const path = elementsOf(event);
+    const origin = path[0];
     if (event.key === "Escape") {
-      if (event.target instanceof Element && event.target.closest("[data-slot='comment-composer']")) return;
+      if (path.some(element => element.matches("[data-slot='comment-composer']"))) return;
       if (active.value || draft.value || openId.value) exit();
       return;
     }
+    if (event.ctrlKey || event.metaKey || event.altKey || isEditable(path)) return;
+    // The keyboard way to drop a pin: in comment mode, Enter on the focused element comments on it.
+    if (event.key === "Enter" && active.value && origin && !path.some(ignore) && origin !== document.body && origin !== document.documentElement) {
+      event.preventDefault();
+      try {
+        startDraft(origin);
+      } catch {
+        // Nothing of the page to comment on.
+      }
+      return;
+    }
     if (hotkey === false || event.key.toLowerCase() !== hotkey) return;
-    if (event.ctrlKey || event.metaKey || event.altKey || isEditable(event.target)) return;
     event.preventDefault();
     toggle();
   }
@@ -349,29 +398,70 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     };
     window.addEventListener("scroll", schedule, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
+    // Images and fonts that load later move the page.
+    window.addEventListener("load", schedule, { capture: true });
+    document.fonts?.addEventListener("loadingdone", schedule);
+    const onPopstate = (): void => {
+      deepLinked = false;
+      applyDeepLink();
+    };
+    window.addEventListener("popstate", onPopstate);
+    // The comment UI changes the DOM too, and measuring after that would never settle. Only changes that move things count.
     const observer = new MutationObserver(records => {
-      // The comment UI changes the DOM too. Measuring after that would never settle.
-      if (records.every(record => record.target instanceof Element && record.target.closest(uiSelector))) return;
+      if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
     });
-    observer.observe(document.documentElement, { attributes: true, characterData: true, childList: true, subtree: true });
+    observer.observe(document.documentElement, {
+      attributeFilter: ["class", "style", "hidden"],
+      attributes: true,
+      characterData: true,
+      childList: true,
+      subtree: true,
+    });
+    // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
+    const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
+    const watched = new Set<Element>();
+    const follow = (): void => {
+      const now = new Set<Element>();
+      for (const position of positions.value.values()) if (!position.detached && position.element) now.add(position.element);
+      for (const element of watched) {
+        if (!now.has(element)) {
+          resizes?.unobserve(element);
+          watched.delete(element);
+        }
+      }
+      for (const element of now) {
+        if (!watched.has(element)) {
+          resizes?.observe(element);
+          watched.add(element);
+        }
+      }
+    };
     stops.push(() => {
       window.removeEventListener("scroll", schedule, { capture: true });
       window.removeEventListener("resize", schedule);
+      window.removeEventListener("load", schedule, { capture: true });
+      window.removeEventListener("popstate", onPopstate);
+      document.fonts?.removeEventListener("loadingdone", schedule);
       observer.disconnect();
+      resizes?.disconnect();
+      clearTimeout(revealTimer);
       if (frame) cancelAnimationFrame(frame);
     });
 
+    stops.push(watch(positions, follow, { flush: "post" }));
     stops.push(watch(
       [pageThreads, () => draft.value?.anchor, openId],
       () => measure(),
       { flush: "post" },
     ));
     stops.push(watch(() => status.value === "ready", ready => ready && applyDeepLink(), { immediate: true }));
-    stops.push(watch([subject, scope], () => {
+    // By value: a parent that re-renders with a new `{ kind, id }` object for the same page must not reset the draft.
+    stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();
       close();
+      deepLinked = false;
       client.refresh().catch(() => undefined);
     }));
     return () => {
@@ -393,7 +483,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     counts,
     positions,
     draft,
-    nextNumber,
     openId,
     hoverId,
     opened,

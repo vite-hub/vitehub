@@ -2,6 +2,7 @@ import type { CommentThread } from "@vite-hub/comments/client";
 import { defineComponent, h, type PropType, resolveComponent } from "vue";
 import { type CommentFilterState, type CommentsState, useCommentsContext } from "../headless/comments.ts";
 import { timeAgo } from "../internal/comment-time.ts";
+import { displayName, toPerson } from "../internal/comment-person.ts";
 import { AvatarStack, type AvatarStackPerson } from "./avatar-stack.ts";
 
 // The `comments` prop lets a part work outside `CommentLayer`. Inside it, the part uses the layer's state.
@@ -104,7 +105,7 @@ export const CommentList = defineComponent({
                 const position = comments.positions.value.get(thread.id);
                 const detached = position?.detached === true;
                 const replies = thread.messages.length - 1;
-                const person: AvatarStackPerson = thread.author;
+                const person = toPerson(thread.author);
                 return h("li", { key: thread.id }, [
                   h(
                     "a",
@@ -122,7 +123,7 @@ export const CommentList = defineComponent({
                       h("span", { "data-slot": "comment-list-body" }, [
                         h("span", { "data-slot": "comment-list-text" }, preview(thread)),
                         h("span", { "data-slot": "comment-list-meta" }, [
-                          h("span", thread.author.name),
+                          h("span", displayName(thread.author)),
                           h("span", timeAgo(thread.updatedAt)),
                           replies > 0 ? h("span", `${replies} ${replies === 1 ? "reply" : "replies"}`) : null,
                           thread.status === "resolved" ? h("span", "Resolved") : null,
@@ -176,6 +177,19 @@ export const CommentToolbar = defineComponent({
           onClick: () => (comments.listOpen.value = !comments.listOpen.value),
           size: "sm",
           variant: comments.listOpen.value ? "solid" : "ghost",
+        }),
+        // The keyboard way to comment on the page as a whole, and the way for a page that has no spot to point at.
+        h(UButton, {
+          "aria-label": "Comment on page",
+          color: "neutral",
+          "data-slot": "comment-toolbar-page",
+          icon: "i-ph-note-pencil",
+          onClick: () => {
+            comments.startDraft("page");
+          },
+          size: "sm",
+          title: "Comment on the whole page",
+          variant: "ghost",
         }),
         props.people.length > 0 ? h(AvatarStack, { people: props.people, size: "sm", variant: "outline" }) : null,
       ]);

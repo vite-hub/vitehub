@@ -76,7 +76,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   let generation = 0
 
   const notify = (): void => {
-    for (const listener of [...listeners]) listener()
+    for (const listener of listeners) listener()
   }
   const publish = (): void => {
     threads = [...byId.values()].sort((a, b) => a.n - b.n)

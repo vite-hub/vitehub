@@ -1,11 +1,13 @@
 import type { CommentUser } from "@vite-hub/comments/client";
-import { defineComponent, h, nextTick, onBeforeUnmount, onMounted, type PropType, ref } from "vue";
+import { defineComponent, h, nextTick, onBeforeUnmount, onMounted, type PropType, ref, useId, watch } from "vue";
 import {
   consumedPointerEvents,
+  pathOf,
   shakeEventName,
   swallowNextClick,
   useDocumentPointerDown,
 } from "../internal/comment-outside.ts";
+import { displayName, toPerson } from "../internal/comment-person.ts";
 import { AvatarStack } from "./avatar-stack.ts";
 import { PromptInput, type PromptInputSubmit } from "./prompt-input.ts";
 
@@ -57,6 +59,8 @@ export const CommentComposer = defineComponent({
     autofocus: { default: true, type: Boolean },
     /** Treat a click outside as a close, or as a shake when there is text. Turn it off when the parent decides. */
     guard: { default: true, type: Boolean },
+    /** People whose names the text may hold, such as the authors of a thread. Only mentions of a person whose `@name` is still in the text are sent. */
+    people: { default: () => [], type: Array as PropType<CommentUser[]> },
     /** Finds people for `@mentions`. Without it the box has no mention menu. */
     users: { type: Function as PropType<(query: string) => Promise<CommentUser[]>> },
   },
@@ -65,10 +69,16 @@ export const CommentComposer = defineComponent({
     const root = ref<HTMLElement | null>(null);
     const shaking = ref<"shake" | "flash" | null>(null);
     const menu = ref<MentionMenu | null>(null);
-    const known = new Map<string, string>();
+    const picked = new Map<string, string>();
+    const menuId = useId();
+    const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lookup = 0;
 
+    const nameOf = (id: string): string | undefined => {
+      const person = props.people.find((entry) => entry.id === id);
+      return picked.get(id) ?? (person ? displayName(person) : undefined);
+    };
     const textarea = () => root.value?.querySelector<HTMLTextAreaElement>("textarea") ?? null;
     const hasText = () => props.modelValue.trim().length > 0;
     const focus = () => textarea()?.focus();
@@ -95,9 +105,25 @@ export const CommentComposer = defineComponent({
     });
     expose({ focus, shake });
 
+    // The textarea is the combobox, and PromptInput owns it, so its ARIA is set here.
+    watch(menu, (open) => {
+      const field = textarea();
+      if (!field) return;
+      field.setAttribute("role", "combobox");
+      field.setAttribute("aria-autocomplete", "list");
+      field.setAttribute("aria-expanded", String(open !== null));
+      if (open) {
+        field.setAttribute("aria-controls", `${menuId}-list`);
+        field.setAttribute("aria-activedescendant", optionId(open.index));
+      } else {
+        field.removeAttribute("aria-controls");
+        field.removeAttribute("aria-activedescendant");
+      }
+    }, { deep: true });
+
     useDocumentPointerDown((event) => {
-      const target = event.target;
-      if (!props.guard || !(target instanceof Node) || root.value?.contains(target)) return;
+      // A click inside a shadow root is retargeted to its host here, so ask the composed path.
+      if (!props.guard || !root.value || pathOf(event).includes(root.value)) return;
       consumedPointerEvents.add(event);
       if (hasText()) {
         event.stopPropagation();
@@ -111,9 +137,9 @@ export const CommentComposer = defineComponent({
       const current = menu.value;
       if (!field || !current) return;
       const caret = field.selectionStart;
-      const insert = `@${person.name} `;
+      const insert = `@${displayName(person)} `;
       const next = props.modelValue.slice(0, current.start) + insert + props.modelValue.slice(caret);
-      known.set(person.id, person.name);
+      picked.set(person.id, displayName(person));
       emit("update:modelValue", next);
       if (!props.mentions.includes(person.id)) emit("update:mentions", [...props.mentions, person.id]);
       menu.value = null;
@@ -142,8 +168,9 @@ export const CommentComposer = defineComponent({
     function submit(payload: PromptInputSubmit) {
       if (props.busy || !payload.text) return;
       const mentions = props.mentions.filter((id) => {
-        const name = known.get(id);
-        return name === undefined || payload.text.includes(`@${name}`);
+        // A person whose name is not known cannot be checked against the text, so the mention goes.
+        const name = nameOf(id);
+        return name !== undefined && payload.text.includes(`@${name}`);
       });
       emit("submit", { body: payload.text, mentions: [...mentions] } satisfies CommentComposerSubmit);
     }
@@ -190,7 +217,7 @@ export const CommentComposer = defineComponent({
         },
         [
           props.user
-            ? h(AvatarStack, { "aria-hidden": "true", people: [props.user], size: "sm" })
+            ? h(AvatarStack, { "aria-hidden": "true", people: [toPerson(props.user)], size: "sm" })
             : null,
           h("div", { "data-slot": "comment-composer-box" }, [
             h(PromptInput, {
@@ -204,13 +231,14 @@ export const CommentComposer = defineComponent({
             menu.value
               ? h(
                   "ul",
-                  { "aria-label": "People", "data-slot": "comment-composer-mentions", role: "listbox" },
+                  { "aria-label": "People", "data-slot": "comment-composer-mentions", id: `${menuId}-list`, role: "listbox" },
                   menu.value.items.map((person, index) =>
                     h(
                       "li",
                       {
                         "aria-selected": String(index === menu.value?.index),
                         "data-slot": "comment-composer-mention",
+                        id: optionId(index),
                         key: person.id,
                         // Keep the focus in the box, or the menu would close before the click lands.
                         onMousedown: (event: MouseEvent) => {
@@ -219,7 +247,7 @@ export const CommentComposer = defineComponent({
                         },
                         role: "option",
                       },
-                      person.name,
+                      displayName(person),
                     ),
                   ),
                 )

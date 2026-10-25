@@ -29,13 +29,17 @@ export const shakeEventName = "comments:shake";
 const dirtySelector = "[data-slot='comment-composer'][data-dirty='true']";
 
 // A composer with text, the new comment, a reply, or an edit, keeps the page from closing it by accident.
-export function hasDirtyComposer(): boolean {
-  return typeof document !== "undefined" && document.querySelector(dirtySelector) !== null;
+// Look in the root of the comment UI, which is a shadow root when the overlay lives in one.
+export function hasDirtyComposer(root: ParentNode = document): boolean {
+  return root.querySelector(dirtySelector) !== null;
 }
 
 // Shakes every composer that has text. Returns whether there was one.
-export function shakeDirtyComposers(): boolean {
-  const dirty = [...document.querySelectorAll(dirtySelector)];
+export function shakeDirtyComposers(root: ParentNode = document): boolean {
+  const dirty = [...root.querySelectorAll(dirtySelector)];
   for (const composer of dirty) composer.dispatchEvent(new CustomEvent(shakeEventName));
   return dirty.length > 0;
 }
+
+// Events from a shadow root are retargeted to their host at the document, so read the real elements from the composed path.
+export const pathOf = (event: Event): Element[] => event.composedPath().filter((node): node is Element => node instanceof Element);
