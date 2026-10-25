@@ -185,7 +185,7 @@ describe("Console Go to shortcuts", () => {
       agents: "g a",
       content: "g t",
       usage: "g u",
-      channels: "g h",
+      channels: "g l",
       databases: "g d",
       kv: "g k",
       blob: "g b",

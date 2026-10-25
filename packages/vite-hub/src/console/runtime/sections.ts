@@ -213,7 +213,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   agents: "a",
   content: "t",
   usage: "u",
-  channels: "h",
+  channels: "l",
   databases: "d",
   kv: "k",
   blob: "b",
