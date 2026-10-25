@@ -10,8 +10,7 @@ export default defineConfig({
   },
   plugins: [
     hubBlob(),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
   blob: {
     driver: "cloudflare-r2",
