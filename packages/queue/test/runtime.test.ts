@@ -216,6 +216,28 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    [200, false], [200, true], [503, false], [503, true],
+  ] as const)("releases a Cloudflare handler's HTTP %s body when cancellation rejects=%s", async (status, rejects) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const cancel = vi.fn(() => rejects ? Promise.reject(new Error("cleanup failed")) : Promise.resolve())
+    const response = new Response(new ReadableStream({ cancel }), { status })
+    const ack = vi.fn()
+    const retry = vi.fn()
+    const handler = createCloudflareQueueBatchHandler({ onMessage: async () => response })
+
+    await handler({
+      ackAll: vi.fn(),
+      messages: [{ ack, attempts: 1, body: "payload", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(ack).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(status === 503 ? 1 : 0)
+  })
+
   it("honors explicit Cloudflare delivery directives", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const first = { ack: vi.fn(), retry: vi.fn() }
@@ -1082,6 +1104,34 @@ describe("vercel provider", () => {
     setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
 
     await expect(handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)).resolves.toBe("acknowledged")
+  })
+
+  it.each([
+    [200, false], [200, true], [503, false], [503, true],
+  ] as const)("releases a Vercel handler's HTTP %s body when cancellation rejects=%s", async (status, rejects) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const cancel = vi.fn(() => rejects ? Promise.reject(new Error("cleanup failed")) : Promise.resolve())
+    const response = new Response(new ReadableStream({ cancel }), { status })
+    const retry = vi.fn(() => ({ afterSeconds: 30 }))
+    const acknowledge = vi.fn()
+    const definition = { handler: async () => response, options: { callbackOptions: { retry } } }
+    vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
+      try {
+        await (handler as (payload: unknown) => Promise<unknown>)({})
+        acknowledge()
+      } catch (error) {
+        return (options as VercelQueueCallbackOptions).retry?.(error, {})
+      }
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(acknowledge).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(status === 503 ? 1 : 0)
+    if (status === 503) expect(retry).toHaveBeenCalledWith(expect.objectContaining({ status: 503 }), expect.anything())
   })
 
   it("preserves Vercel behavior when the retry callback returns undefined", async () => {
