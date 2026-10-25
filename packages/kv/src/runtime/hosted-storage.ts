@@ -1,10 +1,11 @@
 import { destr } from "destr"
-import { createStorage, normalizeKey } from "unstorage"
+import { normalizeKey } from "unstorage"
 
 import type { KVListOptions, KVListPage, ResolvedKVModuleOptions } from "../types.ts"
 import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createLazyKVRuntimeDriver } from "./driver.ts"
 import { normalizeKVListPrefix } from "./list-prefix.ts"
+import { createKVStorage } from "./create-storage.ts"
 
 export interface RuntimeStorage {
   dispose(): Promise<void>
@@ -38,9 +39,9 @@ export function createHostedKVStorage(config: false | ResolvedKVModuleOptions | 
   const store = Object.hasOwn(stores, name) ? stores[name] : undefined
   if (!store) throw kvErrorDiagnostics.KV_STORE_NOT_FOUND({ store: name })
   const driver = createLazyKVRuntimeDriver({ store, stores: { default: store, [name]: store } })
-  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
-  // SAFETY: createStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
-  const storage = createStorage({ driver }) as unknown as RuntimeStorage
+  // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- createKVStorage supplies every RuntimeStorage method; listKeys is installed immediately below.
+  // SAFETY: createKVStorage supplies the base methods, and this boundary installs the required listKeys method before returning.
+  const storage = createKVStorage(driver) as unknown as RuntimeStorage
   storage.listKeys = options => driver.listKeys({ ...options, prefix: normalizeKVListPrefix(options.prefix) })
   const getAndDeleteItem = driver.getAndDeleteItem
   const incrementItem = driver.incrementItem

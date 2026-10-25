@@ -118,6 +118,17 @@ describe("shared Console navigation layout", () => {
     expect(component("console-database")).not.toContain("tracking-[.1em] text-muted\">\n            Database")
   })
 
+  it("shows one Agents panel failure and never offers older sessions for an empty list", () => {
+    const app = component("console-app")
+    expect(app).toContain("[agentsError.value, list.error.value].find((error) => isConsoleSignInRequired(error))")
+    expect(app).toContain('v-else-if="!selectedInvocationId && sessionsPanelError"')
+    expect(app).toContain('<template v-if="!sessionsPanelError">')
+    expect(app).toContain('v-if="list.cursor.value && invocationItems.length" class="flex justify-center px-2 py-3"')
+    // Session filters are one select panel with search and checked values, not select menus inside a popover.
+    expect(app).toContain("<UCommandPalette")
+    expect(app).not.toContain("<USelectMenu")
+  })
+
   it("shows Run now after the Read-only note only for runnable Schedules", () => {
     const definitions = component("console-definitions")
     expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected && catalogView"[\s\S]*?label="Run now"/)
