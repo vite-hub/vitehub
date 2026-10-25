@@ -123,11 +123,11 @@
       "require": "./dist/_internal/blob.js",
       "default": "./dist/_internal/blob.js"
     },
-    "./_internal/blob/runtime/dev": {
-      "types": "./dist/_internal/blob/runtime/dev.d.ts",
-      "import": "./dist/_internal/blob/runtime/dev.js",
-      "require": "./dist/_internal/blob/runtime/dev.js",
-      "default": "./dist/_internal/blob/runtime/dev.js"
+    "./_internal/blob/operations": {
+      "types": "./dist/_internal/blob/operations.d.ts",
+      "import": "./dist/_internal/blob/operations.js",
+      "require": "./dist/_internal/blob/operations.js",
+      "default": "./dist/_internal/blob/operations.js"
     },
     "./_internal/blob/runtime/state": {
       "types": "./dist/_internal/blob/runtime/state.d.ts",

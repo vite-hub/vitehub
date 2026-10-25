@@ -38,7 +38,7 @@ Available namespaces:
   workspace   Workspace development workflows and retained history.
   console     Console development workflows.
   agent       Agent development workflows.
-  blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
+  blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
   channels    External Channel registration workflows.
   content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
@@ -67,7 +67,7 @@ Available namespaces:
 
 | `vitehub blob list` | Available | Blob Package | List blobs of a Blob store, one page at a time. |
 | `vitehub blob head` | Available | Blob Package | Show the metadata of one blob. |
-| `vitehub blob get` | Available | Blob Package | Download one blob to a file or to stdout, byte for byte. |
+| `vitehub blob get` | Available | Blob Package | Download one blob (up to 8 MiB) to a file or to stdout, byte for byte. |
 | `vitehub blob put` | Available | Blob Package | Upload one file as a blob and print what changed. |
 | `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
@@ -125,7 +125,7 @@ Available namespaces:
 
 ## Read and write blobs
 
-Start the app's Vite Development Server, then run `vitehub blob` from another terminal. The commands call the same Blob storage as the running app, so they read and write the blobs that the app uses.
+Start the app's Vite Development Server, then run `vitehub blob` from another terminal. Each command runs a `blob.*` [operation](/docs/development/operations) of the app, so it reads and writes the blobs that the app uses. With `--url`, the same command runs on a deployed app that enables the Console, with the credentials in [Run any operation](#run-any-operation).
 
 ```bash [Terminal]
 pnpm vitehub blob list --prefix avatars/ --limit 20
@@ -155,11 +155,11 @@ Every command accepts `--store <name>`, `--json`, `--url <url>` for a deployed a
 - `variants` lists the cached image variants of one blob and its crop replacements, with each transform key, type, and size.
 - `del` says if the blob existed. Deleting a missing blob changes nothing and exits with status 0. The existed/missing label is best-effort for the same reason, and a concurrent writer can change the object between the metadata read and delete.
 
-The Vite dev endpoint forwards a JSON request body, so `put` sends the file as base64 and accepts files up to 8 MiB. The CLI checks the size before it reads the file. `get` returns the raw bytes as a stream. There is no `sign` command.
+The operations carry a file as base64 in a JSON call, so `put` accepts files up to 8 MiB and `get` returns files up to 8 MiB. The CLI checks the size of an upload before it reads the file. A larger blob fails with `BLOB_UPLOAD_TOO_LARGE` or `BLOB_DOWNLOAD_TOO_LARGE`: use the application or the tools of your provider. There is no `sign` command. `list` shows every object, also the ones that ViteHub keeps under `_vitehub/`, which the Console hides by default.
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
 
-The commands use a guarded dev endpoint that `hubBlob()` registers only on the Development Server. The endpoint forwards each operation into the Nitro dev environment, which owns the Blob storage. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 and the CLI prints that the host is not supported. Deployed runtimes do not expose the endpoint.
+The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. The Console Blob page uploads and deletes objects with the same operations.
 
 ## Inspect the Email development outbox
 

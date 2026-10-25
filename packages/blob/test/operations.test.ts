@@ -4,12 +4,13 @@ import { join } from "node:path"
 
 import { H3Event } from "h3"
 import sharp from "sharp"
-import { createViteHubDevToken, removeViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { blob } from "../src/index.ts"
-import { blobDevFileHeader, blobDevHeader, blobDevHeaderValue, blobDevMaximumUploadBytes, blobDevTokenNamespace, blobDevTokenServerHeader } from "../src/dev.ts"
-import { handleBlobDevRequest, listBlobDevStores } from "../src/runtime/dev.ts"
+import { blobOperations } from "../src/operations.ts"
+import { blobDevMaximumUploadBytes } from "../src/results.ts"
+import { listBlobDevStores } from "../src/runtime/operations.ts"
 import { setBlobRuntimeConfig, setBlobRuntimeStorage } from "../src/runtime/state.ts"
 
 // The runtime handler imports the package entries, so the test runs the real Blob storage on the fs driver.
@@ -17,13 +18,9 @@ vi.mock("@vite-hub/blob", async () => await import("../src/index.ts"))
 vi.mock("@vite-hub/blob/runtime/state", async () => await import("../src/runtime/state.ts"))
 
 let base: string
-let credential: { serverId: string, token: string }
-let extraCredentials: Array<{ serverId: string, token: string }>
 
 beforeEach(async () => {
-  base = await mkdtemp(join(tmpdir(), "vitehub-blob-dev-"))
-  credential = await createViteHubDevToken(base, blobDevTokenNamespace)
-  extraCredentials = []
+  base = await mkdtemp(join(tmpdir(), "vitehub-blob-ops-"))
   setBlobRuntimeConfig({
     store: { base: join(base, "default"), driver: "fs" },
     stores: {
@@ -37,52 +34,24 @@ beforeEach(async () => {
 afterEach(async () => {
   setBlobRuntimeConfig(undefined)
   setBlobRuntimeStorage(undefined)
-  await removeViteHubDevToken(base, { namespace: blobDevTokenNamespace, serverId: credential.serverId })
-  await Promise.all(extraCredentials.map(({ serverId }) => removeViteHubDevToken(base, { namespace: blobDevTokenNamespace, serverId })))
   await rm(base, { force: true, recursive: true })
 })
 
-function devRequest(body: unknown, init: { headers?: Record<string, string>, method?: string } = {}): Request {
-  const method = init.method ?? "POST"
-  return new Request("http://localhost/_vitehub/blob/dev", {
-    ...(method === "POST" ? { body: typeof body === "string" ? body : JSON.stringify(body) } : {}),
-    headers: {
-      "content-type": "application/json",
-      [blobDevHeader]: blobDevHeaderValue,
-      [blobDevTokenServerHeader]: credential.serverId,
-      [viteHubDevTokenHeader]: credential.token,
-      ...init.headers,
-    },
-    method,
-  })
-}
+const registry = createOperationRegistry([{ operations: blobOperations }])
+const access = { mode: "local", sections: "all" } as const
 
-/** Calls the handler as the generated Nitro handler does, with the project root and the token server ID. */
-async function handle(request: Request): Promise<Response> {
-  return await handleBlobDevRequest(request, base, credential.serverId)
-}
-
-async function run(body: unknown): Promise<{ body: Record<string, unknown>, status: number }> {
-  const response = await handle(devRequest(body))
-  expect(response.headers.get("cache-control")).toBe("no-store")
-  return { body: await response.json() as Record<string, unknown>, status: response.status }
+/** Runs `blob.<operation>` as the RPC does, and maps a failure to the status and error that it reports. */
+async function run(body: Record<string, unknown>): Promise<{ body: Record<string, unknown>, status: number }> {
+  const { operation, ...input } = body
+  const result = await runOperation(registry, `blob.${String(operation)}`, input, { access, surface: "cli", user: null })
+  return result.ok
+    ? { body: result.value as Record<string, unknown>, status: 200 }
+    : { body: { error: { code: result.code, message: result.message } }, status: result.status }
 }
 
 const binary = Uint8Array.from([0, 255, 1, 128, 10, 13, 0xef, 0xbb, 0xbf, 0xc3, 0x28])
 
-describe("Blob dev runtime handler", () => {
-  it("streams downloads without reading the whole file into memory", async () => {
-    await run({ operation: "put", pathname: "stream.txt", data: Buffer.from("streamed").toString("base64") })
-    const file = (await blob.get("stream.txt"))[1]!
-    const buffered = vi.spyOn(file, "arrayBuffer").mockRejectedValue(new Error("must stream"))
-    const get = vi.spyOn(blob, "get").mockResolvedValue([null, file])
-    try {
-      const response = await handle(devRequest({ operation: "get", pathname: "stream.txt" }))
-      expect(await response.text()).toBe("streamed")
-      expect(buffered).not.toHaveBeenCalled()
-    }
-    finally { get.mockRestore(); buffered.mockRestore() }
-  })
+describe("blob operations", () => {
   it("reports the pre-write metadata result even when it is stale", async () => {
     await run({ operation: "put", pathname: "recent.txt", data: Buffer.from("original").toString("base64") })
     const missing = await blob.head("absent.txt")
@@ -131,16 +100,9 @@ describe("Blob dev runtime handler", () => {
       status: 200,
     })
 
-    const response = await handle(devRequest({ operation: "get", pathname: "files/raw.bin" }))
-    expect(response.status).toBe(200)
-    expect(response.headers.get("content-type")).toBe("application/octet-stream")
-    expect(JSON.parse(decodeURIComponent(response.headers.get(blobDevFileHeader)!))).toEqual({
-      contentType: "application/x-test",
-      pathname: "files/raw.bin",
-      size: binary.byteLength,
-      store: "default",
-    })
-    expect(new Uint8Array(await response.arrayBuffer())).toEqual(binary)
+    const downloaded = await run({ operation: "get", pathname: "files/raw.bin" })
+    expect(downloaded).toMatchObject({ body: { contentType: "application/x-test", pathname: "files/raw.bin", size: binary.byteLength, store: "default" }, status: 200 })
+    expect(new Uint8Array(Buffer.from(String(downloaded.body.data), "base64"))).toEqual(binary)
 
     const replaced = await run({ data: "", operation: "put", pathname: "files/raw.bin" })
     expect(replaced.body).toMatchObject({ created: false, object: { pathname: "files/raw.bin", size: 0 } })
@@ -196,60 +158,56 @@ describe("Blob dev runtime handler", () => {
     })
   })
 
-  it("rejects invalid bodies, invalid base64, and oversized uploads", async () => {
-    await expect(run("not json")).resolves.toMatchObject({ status: 400 })
-    await expect(run({ operation: "sign", pathname: "a.txt" })).resolves.toMatchObject({ status: 400 })
-    await expect(run({ operation: "head" })).resolves.toEqual({ body: { error: { message: "The head operation requires a pathname." } }, status: 400 })
+  it("rejects invalid input, invalid base64, and oversized uploads", async () => {
+    // There is no sign operation.
+    await expect(run({ operation: "sign", pathname: "a.txt" })).resolves.toMatchObject({ body: { error: { code: "INTERNAL_R0021" } } })
+    await expect(run({ operation: "head" })).resolves.toMatchObject({ body: { error: { code: "INTERNAL_R0022" } }, status: 400 })
     await expect(run({ limit: 251, operation: "list" })).resolves.toMatchObject({ status: 400 })
     await expect(run({ operation: "put", pathname: "a.txt" })).resolves.toMatchObject({ status: 400 })
-    await expect(run({ data: "not base64!", operation: "put", pathname: "a.txt" })).resolves.toEqual({
-      body: { error: { message: "The file data is not valid base64." } },
+    await expect(run({ data: "not base64!", operation: "put", pathname: "a.txt" })).resolves.toMatchObject({
+      body: { error: { code: "BLOB_INVALID_INPUT", message: "The file data is not valid base64." } },
       status: 400,
     })
     const oversized = "A".repeat(Math.ceil(blobDevMaximumUploadBytes / 3 + 1) * 4)
     await expect(run({ data: oversized, operation: "put", pathname: "a.txt" })).resolves.toMatchObject({
-      body: { error: { code: "BLOB_DEV_UPLOAD_TOO_LARGE" } },
+      body: { error: { code: "BLOB_UPLOAD_TOO_LARGE" } },
       status: 413,
     })
+  })
+
+  it("refuses to return a blob over the limit", async () => {
+    await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "big.bin" })
+    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { contentType: "application/octet-stream", customMetadata: {}, httpMetadata: {}, pathname: "big.bin", size: blobDevMaximumUploadBytes + 1, uploadedAt: new Date() }])
+    try {
+      await expect(run({ operation: "get", pathname: "big.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
+    }
+    finally { head.mockRestore() }
+  })
+
+  it("hides the objects of ViteHub unless asked, and folds a listing into folders", async () => {
+    await run({ data: Buffer.from("a").toString("base64"), operation: "put", pathname: "docs/a.txt" })
+    await run({ data: Buffer.from("b").toString("base64"), operation: "put", pathname: "_vitehub/internal.json" })
+    expect((await run({ operation: "list" })).body.blobs).toEqual([expect.objectContaining({ pathname: "docs/a.txt" })])
+    expect((await run({ operation: "list", showVitehub: true })).body.blobs).toHaveLength(2)
+    const folded = await run({ folded: true, operation: "list" })
+    expect(folded.body).toMatchObject({ blobs: [], folders: ["docs"] })
+  })
+
+  it("answers only to a call whose access includes the blob section", async () => {
+    const call = (sections: "all" | readonly string[]) => runOperation(registry, "blob.put", { data: Buffer.from("x").toString("base64"), pathname: "guarded.txt" }, { access: { mode: "app", sections }, surface: "console", user: null })
+    expect(await call(["kv"])).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+    expect(await blob.head("guarded.txt")).toEqual([null, null])
+    expect(await call(["blob"])).toMatchObject({ ok: true, value: { created: true } })
+  })
+
+  it("marks the upload as a write and the delete as destructive", () => {
+    expect(blobOperations.map(operation => [operation.name, operation.kind])).toEqual([
+      ["blob.list", "read"], ["blob.head", "read"], ["blob.get", "read"], ["blob.put", "write"], ["blob.del", "destructive"], ["blob.media", "read"], ["blob.variants", "read"],
+    ])
   })
 
   it("reports a disabled Blob runtime", async () => {
     setBlobRuntimeConfig(false)
     await expect(run({ operation: "list" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DISABLED" } }, status: 409 })
-  })
-
-  it("rejects a missing, wrong, or other-server token, and every request without a server ID", async () => {
-    await run({ operation: "put", pathname: "secret.txt", data: Buffer.from("secret").toString("base64") })
-    const list = { operation: "list" }
-    const wrongToken = `${credential.token.slice(0, -1)}${credential.token.endsWith("0") ? "1" : "0"}`
-    const other = await createViteHubDevToken(base, blobDevTokenNamespace)
-    extraCredentials.push(other)
-    const forbidden = [
-      await handle(devRequest(list, { headers: { [viteHubDevTokenHeader]: "" } })),
-      await handle(devRequest(list, { headers: { [viteHubDevTokenHeader]: wrongToken } })),
-      await handle(devRequest(list, { headers: { [blobDevTokenServerHeader]: other.serverId, [viteHubDevTokenHeader]: other.token } })),
-      await handleBlobDevRequest(devRequest(list), base, ""),
-      // SAFETY: the generated handler always passes a server ID. JavaScript callers can omit it.
-      await (handleBlobDevRequest as (request: Request, rootDir: string) => Promise<Response>)(devRequest(list), base),
-    ]
-    for (const response of forbidden) {
-      expect([response.status, await response.text()]).toEqual([403, "Forbidden Blob Dev token."])
-    }
-    expect((await run(list)).status).toBe(200)
-  })
-
-  it("rejects requests without the dev header or from another origin", async () => {
-    const withoutHeader = await handle(new Request("http://localhost/_vitehub/blob/dev", {
-      body: JSON.stringify({ operation: "list" }),
-      headers: { "content-type": "application/json", [blobDevTokenServerHeader]: credential.serverId, [viteHubDevTokenHeader]: credential.token },
-      method: "POST",
-    }))
-    expect(withoutHeader.status).toBe(403)
-
-    const crossOrigin = await handle(devRequest({ operation: "list" }, { headers: { origin: "https://evil.example" } }))
-    expect(crossOrigin.status).toBe(403)
-
-    const get = await handle(devRequest(undefined, { method: "GET" }))
-    expect(get.status).toBe(405)
   })
 })

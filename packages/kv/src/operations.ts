@@ -10,7 +10,7 @@ import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult
 // when they run, so the CLI and `vitehub inspect` can list them without it.
 const runtime = () => import("./runtime/operations.ts")
 
-const store = v.optional(v.pipe(v.string(), v.nonEmpty("Name a store.")))
+const store = v.optional(v.pipe(v.string(), v.check(name => name.trim() !== "", "Name a store.")))
 const key = v.string()
 
 function defineKVOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "section" | "user">): OperationDefinition<Input, Output> {

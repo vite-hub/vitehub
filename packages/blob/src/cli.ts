@@ -1,48 +1,25 @@
 import { randomUUID } from "node:crypto"
-import { createWriteStream } from "node:fs"
-import { readFile, rename, rm, stat } from "node:fs/promises"
-import { isAbsolute, relative, resolve, sep } from "node:path"
-import { Readable, Transform, Writable } from "node:stream"
-import { pipeline } from "node:stream/promises"
-import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
-import { readViteHubDevToken, viteHubDevTokenHeader } from "@vite-hub/internal/dev-token"
+import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
+import { resolve } from "node:path"
 
 import * as v from "valibot"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
+import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
 
 import {
   blobDevDefaultListLimit,
-  blobDevFileHeader,
-  blobDevHeader,
-  blobDevHeaderValue,
   blobDevMaximumListLimit,
   blobDevMaximumUploadBytes,
-  blobDevRoute,
-  blobDevTokenNamespace,
-  blobDevTokenServerHeader,
-} from "./dev.ts"
+} from "./results.ts"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { sanitizeMediaRecord } from "./media/records.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
-import type { BlobDevFileHeader, BlobDevOperation, BlobDevRequestBody } from "./dev.ts"
-import type { BlobDevDeleteResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/dev.ts"
+import type { BlobDevOperation } from "./results.ts"
+import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevObject, BlobDevPutResult, BlobDevVariantsResult } from "./runtime/operations.ts"
 
-export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
-
-function isCompatibleBlobDevServerRoot(rootDir: string, serverRoot: string): boolean {
-  const resolvedRootDir = resolve(rootDir)
-  const resolvedServerRoot = resolve(serverRoot)
-  if (resolveViteHubProjectRoot(resolvedRootDir) !== resolveViteHubProjectRoot(resolvedServerRoot)) return false
-  const nestedPath = relative(resolvedRootDir, resolvedServerRoot)
-  return nestedPath === "" || (nestedPath !== ".." && !nestedPath.startsWith(`..${sep}`) && !isAbsolute(nestedPath))
-}
+export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface BlobCliOptions {
   fetch?: typeof fetch
@@ -70,25 +47,13 @@ interface ParsedBlobArgs {
   prefix?: string
   store?: string
   timeout?: number
-  url: string
-}
-
-interface BlobDevDiscovery {
-  message?: unknown
-  root?: unknown
-  runtime?: unknown
-  blobDevTokenServerId?: unknown
+  url?: string
 }
 
 interface BlobCliFailure {
   code?: string
+  fix?: string
   message: string
-}
-
-const blobDevEndpoint = {
-  header: blobDevHeader,
-  headerValue: blobDevHeaderValue,
-  route: blobDevRoute,
 }
 
 const blobDevTargetErrors = {
@@ -96,9 +61,6 @@ const blobDevTargetErrors = {
   invalidTimeout: (message: string) => blobErrorDiagnostics.BLOB_R0029({ message }),
   missingValue: (message: string) => blobErrorDiagnostics.BLOB_R0029({ message }),
 }
-
-// Nuxt mounts Vite under `/_nuxt/`, so the Blob dev endpoint is not reachable there.
-const blobDevServerHint = "`vitehub blob` needs a running Vite + Nitro Development Server with `blob` enabled. Nuxt and plain Vite are not supported."
 
 const blobCommands: readonly BlobCommand[] = [
   { description: "List blobs of a Blob store, one page at a time.", name: "list", options: ["prefix", "limit", "cursor"], pathname: false },
@@ -139,14 +101,14 @@ function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): 
     "",
     command.description,
     "The command calls the Blob runtime of a running Vite + Nitro Development Server.",
-    ...(command.file ? [`The file path is relative to the current directory. The dev endpoint accepts files up to ${blobDevMaximumUploadBytes} bytes (8 MiB).`] : []),
+    ...(command.file ? [`The file path is relative to the current directory. The operation accepts files up to ${blobDevMaximumUploadBytes} bytes (8 MiB).`] : []),
     ...(command.name === "get" ? ["--json needs --output, because stdout carries the file bytes otherwise."] : []),
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      Blob store. Defaults to `default`.",
     "  --json              Print JSON.",
-    "  --url <url>         Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
     "",
@@ -171,8 +133,8 @@ function readOptionValue(args: readonly string[], index: number, name: string): 
   if (arg.startsWith(`--${name}=`)) return { consumed: 0, value: arg.slice(name.length + 3) }
 }
 
-function parseArgs(command: BlobCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedBlobArgs {
-  const parsed: ParsedBlobArgs = { help: false, json: false, url: resolveViteHubDevServerUrl(env) }
+function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArgs {
+  const parsed: ParsedBlobArgs = { help: false, json: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -238,8 +200,8 @@ async function readUpload(path: string): Promise<{ data: string } | BlobCliFailu
   if (!info?.isFile()) return { message: `File not found: ${path}` }
   if (info.size > blobDevMaximumUploadBytes) {
     return {
-      code: "BLOB_DEV_UPLOAD_TOO_LARGE",
-      message: `The file is ${info.size} bytes. \`vitehub blob put\` accepts at most ${blobDevMaximumUploadBytes} bytes (8 MiB), because the dev endpoint sends the file as base64 JSON.`,
+      code: "BLOB_UPLOAD_TOO_LARGE",
+      message: `The file is ${info.size} bytes. \`vitehub blob put\` accepts at most ${blobDevMaximumUploadBytes} bytes (8 MiB), because the file travels as base64 JSON.`,
     }
   }
   try {
@@ -398,87 +360,30 @@ function writeResult(result: BlobCliResult, context: BlobCliContext): void {
   }
 }
 
-async function readFailure(response: Response): Promise<BlobCliFailure> {
-  let text: string
-  try {
-    text = await response.text()
-  }
-  catch (error) {
-    return { message: `Could not read the Blob error response: ${error instanceof Error ? error.message : String(error)}` }
-  }
-  try {
-    const body: unknown = JSON.parse(text)
-    const parsed = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.string() }) }), body)
-    if (parsed.success) return parsed.output.error
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `Blob Dev request failed with HTTP ${response.status}.` }
-}
-
 function writeFailure(parsed: Pick<ParsedBlobArgs, "json">, context: BlobCliContext, failure: BlobCliFailure): number {
   if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}\n`)
+  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
   return 1
 }
 
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
-}
-
-const fileHeaderSchema = v.object({ pathname: v.string(), store: v.string(), contentType: v.optional(v.string()) })
-function readFileHeader(response: Response, fallback: { pathname: string, store: string }, size: number): BlobDevFileHeader {
-  const raw = response.headers.get(blobDevFileHeader)
-  try {
-    const parsed = v.safeParse(fileHeaderSchema, raw ? JSON.parse(decodeURIComponent(raw)) : undefined)
-    if (parsed.success) return { ...parsed.output, size }
+/** Writes the downloaded file to `--output` through a temporary file, or its bytes to stdout. */
+async function writeDownload(file: BlobDevGetResult, parsed: ParsedBlobArgs, context: BlobCliContext): Promise<number> {
+  const bytes = Uint8Array.from(atob(file.data), character => character.charCodeAt(0))
+  if (!parsed.output) {
+    context.stdout.write(bytes)
+    return 0
   }
-  catch {
-    // A missing or damaged header only removes the metadata. The bytes are still correct.
-  }
-  return { ...fallback, size }
-}
-
-async function writeDownload(response: Response, parsed: ParsedBlobArgs, context: BlobCliContext): Promise<number> {
-  const output = parsed.output ? resolve(context.cwd, parsed.output) : undefined
-  const temporaryOutput = output ? `${output}.${randomUUID()}.tmp` : undefined
-  const destination = output
-    ? createWriteStream(temporaryOutput!, { flags: "wx" })
-    : context.stdout instanceof Writable
-      ? context.stdout
-      : new Writable({
-          write(chunk: Uint8Array, _encoding, callback) {
-            try {
-              context.stdout.write(chunk)
-              callback()
-            }
-            catch (error) {
-              callback(error instanceof Error ? error : new Error(String(error)))
-            }
-          },
-        })
-  let size = 0
-  const source = response.body ? Readable.fromWeb(response.body) : Readable.from([])
-  let failureSource: "read" | "write" | undefined
-  source.once("error", () => { failureSource ??= "read" })
-  destination.once("error", () => { failureSource ??= "write" })
-  const counter = new Transform({
-    transform(chunk: Uint8Array, _encoding, callback) {
-      size += chunk.byteLength
-      callback(null, chunk)
-    },
-  })
+  const output = resolve(context.cwd, parsed.output)
+  const temporaryOutput = `${output}.${randomUUID()}.tmp`
   try {
-    await pipeline(source, counter, destination, { end: Boolean(output) })
-    if (output) await rename(temporaryOutput!, output)
+    await writeFile(temporaryOutput, bytes, { flag: "wx" })
+    await rename(temporaryOutput, output)
   }
   catch (error) {
-    if (temporaryOutput) await rm(temporaryOutput, { force: true }).catch(() => {})
-    return writeFailure(parsed, context, { message: `${failureSource === "read" || !output ? "Could not read the Blob download" : `Could not write ${output}`}: ${error instanceof Error ? error.message : String(error)}` })
+    await rm(temporaryOutput, { force: true }).catch(() => {})
+    return writeFailure(parsed, context, { message: `Could not write ${output}: ${error instanceof Error ? error.message : String(error)}` })
   }
-  if (!output) return 0
-  const header = readFileHeader(response, { pathname: parsed.pathname!, store: parsed.store ?? "default" }, size)
+  const header = { contentType: file.contentType, pathname: file.pathname, size: file.size, store: file.store }
   if (parsed.json) context.stdout.write(`${JSON.stringify({ ...header, output }, null, 2)}\n`)
   else context.stdout.write(`Wrote blob ${header.pathname} from store ${header.store} to ${output} (${formatSize(header.size)}).\n`)
   return 0
@@ -487,7 +392,7 @@ async function writeDownload(response: Response, parsed: ParsedBlobArgs, context
 async function runBlobCommand(command: BlobCommand, args: string[], context: BlobCliContext, options: BlobCliOptions): Promise<number> {
   let parsed: ParsedBlobArgs
   try {
-    parsed = parseArgs(command, args, context.env)
+    parsed = parseArgs(command, args)
   }
   catch (error) {
     const terminator = args.indexOf("--")
@@ -506,71 +411,37 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
     if (!("data" in upload)) return writeFailure(parsed, context, upload)
     data = upload.data
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<BlobDevDiscovery>({
-    endpoint: blobDevEndpoint,
-    fetch: fetchImpl,
-    isCompatibleRoot: isCompatibleBlobDevServerRoot,
+  const input: Record<string, unknown> = {}
+  if (parsed.contentType !== undefined) input.contentType = parsed.contentType
+  if (parsed.cursor !== undefined) input.cursor = parsed.cursor
+  if (data !== undefined) input.data = data
+  if (parsed.limit !== undefined) input.limit = parsed.limit
+  if (parsed.pathname !== undefined) input.pathname = parsed.pathname
+  if (parsed.prefix !== undefined) input.prefix = parsed.prefix
+  if (parsed.store !== undefined) input.store = parsed.store
+  // The command shows every object, also the ones that ViteHub keeps for itself. The Console hides them.
+  if (command.name === "list") input.showVitehub = true
+  const called = await callOperationFromCli({
+    env: context.env,
+    fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
-    serverUrl: parsed.url,
-    ...withTimeout(parsed.timeout),
-    stderr: parsed.json ? { write: (chunk) => { discoveryError += chunk; return true } } : context.stderr,
-  })
-  if (!server) {
-    if (parsed.json) return writeFailure(parsed, context, { message: `${discoveryError.trim()} ${blobDevServerHint}` })
-    context.stderr.write(`${blobDevServerHint}\n`)
-    return 1
+    ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+    ...(parsed.url ? { url: parsed.url } : {}),
+  }, `blob.${command.name}`, input)
+  if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  if (command.name === "get") {
+    const file = v.safeParse(v.object({ contentType: v.optional(v.string()), data: v.string(), pathname: v.string(), size: v.number(), store: v.string() }), called.value)
+    return file.success ? await writeDownload(file.output, parsed, context) : writeFailure(parsed, context, { message: "The blob operation answered with an invalid file." })
   }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed, context, {
-      code: "BLOB_DEV_RUNTIME_UNAVAILABLE",
-      message: v.is(v.string(), server.discovery.message)
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the Blob runtime.",
-    })
-  }
-  const serverId = v.is(v.string(), server.discovery.blobDevTokenServerId) ? server.discovery.blobDevTokenServerId : undefined
-  let token: string | undefined
-  try {
-    const serverRoot = v.is(v.string(), server.discovery.root) ? server.discovery.root : resolveViteHubProjectRoot(context.rootDir)
-    token = serverId ? await readViteHubDevToken(resolveViteHubProjectRoot(serverRoot), { namespace: blobDevTokenNamespace, serverId }) : undefined
-  }
-  catch (error) {
-    return writeFailure(parsed, context, { message: `Could not read the private Blob Dev token: ${error instanceof Error ? error.message : String(error)}` })
-  }
-  if (!serverId || !token) return writeFailure(parsed, context, { message: "No private Blob Dev token found. Restart the Compatible Vite Development Server." })
-  const body: BlobDevRequestBody = { operation: command.name }
-  if (parsed.contentType !== undefined) body.contentType = parsed.contentType
-  if (parsed.cursor !== undefined) body.cursor = parsed.cursor
-  if (data !== undefined) body.data = data
-  if (parsed.limit !== undefined) body.limit = parsed.limit
-  if (parsed.pathname !== undefined) body.pathname = parsed.pathname
-  if (parsed.prefix !== undefined) body.prefix = parsed.prefix
-  if (parsed.store !== undefined) body.store = parsed.store
-  let response: Response
-  try {
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, blobDevEndpoint, {
-      body: JSON.stringify(body),
-      headers: { accept: command.name === "get" ? "application/octet-stream" : "application/json", "content-type": "application/json", [viteHubDevTokenHeader]: token, [blobDevTokenServerHeader]: serverId },
-      method: "POST",
-      ...withTimeout(parsed.timeout),
-    })
-  }
-  catch (error) {
-    return writeFailure(parsed, context, { message: `Blob Dev request failed: ${error instanceof Error ? error.message : String(error)}` })
-  }
-  if (!response.ok) return writeFailure(parsed, context, await readFailure(response))
-  if (command.name === "get") return await writeDownload(response, parsed, context)
-  const result = parseResult(command.name, await response.json().catch(() => undefined))
-  if (!result) return writeFailure(parsed, context, { message: "The Blob Dev response is invalid." })
+  const result = parseResult(command.name, called.value)
+  if (!result) return writeFailure(parsed, context, { message: "The blob operation answered with an invalid result." })
   if (parsed.json) context.stdout.write(`${JSON.stringify(result.value, null, 2)}\n`)
   else writeResult(result, context)
   return 0
 }
 
 /**
- * Runs one `vitehub blob` command against a running Vite + Nitro Development Server.
+ * Runs one `vitehub blob` command: a `blob.*` operation on the dev server of this project, or on a deployed app with `--url`.
  * `args[0]` is the command name, for example `list` or `put`.
  */
 export async function runBlobCli(args: string[], context: BlobCliContext, options: BlobCliOptions = {}): Promise<number> {
@@ -586,7 +457,7 @@ export async function runBlobCli(args: string[], context: BlobCliContext, option
 /** Returns the `blob` CLI namespace. */
 export function createBlobCliNamespaces(options: BlobCliOptions = {}): NonNullable<ViteHubCliContributor["namespaces"]> {
   return [{
-    description: "Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.",
+    description: "Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.",
     features: blobCommands.map(command => ({
       description: command.description,
       name: command.name,

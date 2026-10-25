@@ -14,7 +14,7 @@ import ConsoleSearch from "./console-search.vue";
 import type { ConsoleMediaFile } from "../client/media-library";
 
 /**
- * The Blob section: one Blob Store in the media browser of Content, read-only, with its raw metadata next to it. The
+ * The Blob section: one Blob Store in the media browser of Content, with its raw metadata next to it. Upload and delete run the `blob.put` and `blob.del` operations. The
  * store, the folder, the open object, and "Show ViteHub files" live in the URL, so a link opens the same view.
  */
 const props = defineProps<{
@@ -99,9 +99,6 @@ onMounted(() => rememberConsoleSection("blob"));
 
     <UDashboardPanel id="blob-objects" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <ConsolePageHeader :title="folder ? consoleFolderName(folder) : 'Blob'" :trail="trail" :back="trail.at(-1)" :description="stores.length > 1 ? undefined : store" :toggle="false">
-        <template #right>
-          <span class="text-xs text-dimmed">Read-only</span>
-        </template>
       </ConsolePageHeader>
       <div class="relative flex min-h-0 flex-1">
         <ConsoleMediaBrowser

@@ -4,8 +4,9 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { ConsoleMediaAccess, ConsoleMediaClient, ConsoleMediaFile, ConsoleMediaListing } from "./media-library"
 
-// The Blob section browses a Blob Store with the media browser of Content, read-only. The Blob route lists raw objects;
-// this client maps them to media files and keeps the raw metadata for the detail panel.
+// The Blob section browses a Blob Store with the media browser of Content. The Blob route lists raw objects; this
+// client maps them to media files and keeps the raw metadata for the detail panel. It uploads and deletes through the
+// `blob.put` and `blob.del` operations. Folders, moves, and edits of media details are not part of a Blob Store.
 
 /** One Blob object as the Console Blob route returns it. */
 export interface ConsoleBlobObject {
@@ -115,10 +116,20 @@ export function consoleBlobMediaFile(object: ConsoleBlobObject): ConsoleMediaFil
   }
 }
 
-const readOnly: ConsoleMediaAccess = { manage: false, read: true, write: false }
+/** Upload needs write, and delete needs manage. */
+const blobAccess: ConsoleMediaAccess = { manage: true, read: true, write: true }
 
-function readOnlyError(): Promise<never> {
-  return Promise.reject(new ConsoleRequestError(405, "The Console shows Blob Stores read-only."))
+/** Largest file that `blob.put` takes. The base64 text of the file travels in one JSON call. */
+const maximumUploadBytes = 8 * 1024 * 1024
+
+function unsupportedError(): Promise<never> {
+  return Promise.reject(new ConsoleRequestError(405, "A Blob Store has no folders to create or move. Delete the object and upload it again."))
+}
+
+function base64(bytes: Uint8Array): string {
+  let binary = ""
+  for (let index = 0; index < bytes.byteLength; index += 0x8000) binary += String.fromCharCode(...bytes.subarray(index, index + 0x8000))
+  return btoa(binary)
 }
 
 export interface ConsoleBlobMediaOptions {
@@ -129,7 +140,7 @@ export interface ConsoleBlobMediaOptions {
   store: string
 }
 
-/** A read-only media client for one Blob Store. `object()` returns the raw metadata of a listed object. */
+/** A media client for one Blob Store. `object()` returns the raw metadata of a listed object. */
 export interface ConsoleBlobMediaClient extends ConsoleMediaClient {
   object(pathname: string): ConsoleBlobObject | undefined
 }
@@ -171,7 +182,7 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
       // Folder markers end in `/` and are not files.
       const items = listing.blobs.filter(object => !object.pathname.endsWith("/")).map(consoleBlobMediaFile)
       const result: ConsoleMediaListing = {
-        access: readOnly,
+        access: blobAccess,
         folder,
         folders: listing.folders ?? [],
         hasMore: listing.hasMore,
@@ -190,16 +201,44 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
       if (!object) throw new ConsoleRequestError(404, `No object ${pathname} in store ${options.store}.`)
       return consoleBlobMediaFile(object)
     },
-    info: async () => ({ access: readOnly, served: null, store: options.store }),
+    info: async () => ({ access: blobAccess, served: null, store: options.store }),
     object: pathname => objects.get(pathname),
     usage: async () => ({}),
-    createFolder: readOnlyError,
-    move: readOnlyError,
-    moveFolder: readOnlyError,
-    remove: readOnlyError,
-    removeCropReplacement: readOnlyError,
-    removeFolder: readOnlyError,
-    update: readOnlyError,
-    upload: readOnlyError,
+    createFolder: unsupportedError,
+    move: unsupportedError,
+    moveFolder: unsupportedError,
+    async remove(pathnames) {
+      const removed: string[] = []
+      const failed: Array<{ message: string, pathname: string }> = []
+      for (const pathname of pathnames) {
+        try {
+          await requestConsole(base, { body: { action: "del", pathname, store: options.store }, method: "POST" })
+          objects.delete(pathname)
+          removed.push(pathname)
+        }
+        catch (error) {
+          failed.push({ message: error instanceof Error ? error.message : "The object could not be deleted.", pathname })
+        }
+      }
+      return { failed, removed }
+    },
+    removeCropReplacement: unsupportedError,
+    removeFolder: unsupportedError,
+    update: unsupportedError,
+    async upload(file, uploadOptions = {}) {
+      if (file.size > maximumUploadBytes) throw new ConsoleRequestError(413, `${file.name} is larger than 8 MiB. Upload larger files from the application or with the tools of your provider.`)
+      const pathname = `${uploadOptions.folder ? `${uploadOptions.folder}/` : ""}${file.name}`
+      const data = base64(new Uint8Array(await file.arrayBuffer()))
+      const request: Parameters<typeof requestConsole>[1] = {
+        body: { action: "put", contentType: file.type || undefined, data, pathname, store: options.store },
+        method: "POST",
+      }
+      if (uploadOptions.signal) request.signal = uploadOptions.signal
+      const result = record(await requestConsole(base, request))
+      const object = parseBlob(record(result?.object))
+      objects.set(object.pathname, object)
+      uploadOptions.onProgress?.(1)
+      return { duplicate: false, file: consoleBlobMediaFile(object) }
+    },
   }
 }

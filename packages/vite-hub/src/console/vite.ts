@@ -214,7 +214,6 @@ function configureConsoleNitroRoutes(
 ): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
   const runtimeHandlers = new Set([
     join(consoleRuntimeRoot, "server/agents.get.js"),
-    join(consoleRuntimeRoot, "server/blob.get.js"),
     join(consoleRuntimeRoot, "server/client.get.js"),
     join(consoleRuntimeRoot, "server/database.get.js"),
     join(consoleRuntimeRoot, "server/definitions.get.js"),

@@ -102,15 +102,6 @@ const agentsInvoke = defineConsoleOperation({
   section: "agents",
 })
 
-const blobList = defineConsoleOperation({
-  description: "List the objects of a Blob store.",
-  input: v.strictObject({ cursor: optionalText, folded: v.optional(v.boolean()), limit: optionalCount, prefix: optionalText, showVitehub: v.optional(v.boolean()), store: optionalText }),
-  kind: "read",
-  name: "blob.list",
-  run: async (input, context) => (await import("./blob.get.ts")).default(legacyEvent("blob", "GET", { query: input }, context)),
-  section: "blob",
-})
-
 const databasesBrowse = defineConsoleOperation({
   cli: { namespace: "databases", command: "browse" },
   description: "Read the rows of a database table.",
@@ -313,7 +304,6 @@ async function searchError(response: Response): Promise<Error> {
 export const consoleOperations: readonly AnyOperation[] = [
   agentsInvoke,
   agentsList,
-  blobList,
   databasesBrowse,
   definitionsList,
   documentsAction,
