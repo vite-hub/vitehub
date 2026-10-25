@@ -47,6 +47,9 @@ export const reportOperations = [
 | `input` | A Standard Schema. Valibot is the schema library of this repository. Its JSON Schema makes the CLI options and the tool input. |
 | `output` | Optional. A Standard Schema of the result. |
 | `cli` | Optional. `namespace` and `command` rename the command. `positional` lists the input keys that you pass without a flag. `format` prints a human result; without it the CLI prints JSON. |
+| `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
+| `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips the confirmation and an agent runs it without approval. Without it, every call of a `destructive` operation asks. |
+| `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
 | `run` | Does the work. It gets the checked input and the context. |
 
 `run` gets a context with these fields:
@@ -60,6 +63,7 @@ interface OperationContext {
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
+  overrideLeases?: boolean // an Agent may pass `lease: "override"` to `content.save`
 }
 ```
 
@@ -97,6 +101,8 @@ pnpm vitehub reports list acme --url https://app.example.com --json
 
 See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url`, and the credentials. An operation of `kind: 'destructive'` asks for confirmation, or needs `--yes`.
 
+A flag is made from each key of the input schema. The keys `url`, `timeout`, `json`, `yes`, and `input` are reserved for the CLI, and defining one fails with `INTERNAL_R0020`. Two operations that map to the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`; set `cli.namespace` or `cli.command` on one of them.
+
 To call an operation from an agent, add the capability:
 
 ```ts [server/agents/editor.ts]
@@ -107,7 +113,11 @@ export default defineAgent({
 })
 ```
 
-Each operation becomes a tool named after it, with dots as underscores: `reports.list` is `reports_list`. `approve` says which operations wait for approval: `'destructive'` (the default), `'write'`, `'all'`, `'never'`, a list of names, or a function. The agent acts for the user that its Actor stands for, so `context.user` and `context.actor` are set.
+Each operation becomes a tool named after it, with dots as underscores: `reports.list` is `reports_list`. `approve` says which operations wait for approval: `'destructive'` (the default), `'write'`, `'all'`, `'never'`, a list of names, or a function. A call that `readOnlyWhen` marks as read only never waits.
+
+The agent acts for the Auth user that its Actor stands for (`auth.user(actor)`, or the `user` option), so `context.user` and `context.actor` are set. The capability then runs `console.authorize` for that user, with a request that has no headers, and offers only the operations of the sections it allows. If the app has no `console.authorize`, nothing filters by section, and the `include` list is the only gate: list only what the agent may do. `content.save` rejects `lease: 'override'` from an agent unless you create the capability with `operations({ overrideLeases: true })`.
+
+The operation registry is installed when the server starts, so the tools do not depend on an earlier RPC call.
 
 ## Errors
 
@@ -128,16 +138,22 @@ The core raises these codes:
 
 | Code | When |
 | --- | --- |
-| `INTERNAL_R0020` | The definition is not valid. |
+| `INTERNAL_R0020` | The definition is not valid: a bad name, a reserved input key, a `maxRequestBytes` below 64 KiB. |
 | `INTERNAL_R0021` | The call names an operation that the app does not have. |
 | `INTERNAL_R0022` | The input does not match the schema. The message lists the fields. |
 | `INTERNAL_R0023` | The access does not include the section of the operation. |
 | `INTERNAL_R0024` | The CLI could not reach the app. |
+| `INTERNAL_R0025` | A dev server answered for another project. |
 | `INTERNAL_B0048` | Two operations have the same name. |
+| `INTERNAL_B0049` | Two operations are the same CLI command. |
 
 ## Access
 
-The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In `vite dev` without a `console` option, the Console uses the local policy, so every section is open. In a build, the RPC route exists when `console` is configured, since it needs `console.auth`.
+The RPC checks the section with `console.authorize` before it runs the operation. A call outside the allowed sections gets `403`. In a build, the RPC route exists when `console` is configured, since it needs `console.auth`.
+
+In `vite dev` without a `console` option, the app serves the RPC (and no Console page) with the local policy, so every section is open. A dev RPC without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests: the `Host` header must be `localhost`, `127.0.0.1`, or `[::1]`, and the peer address too, when the host exposes it. Any other request gets `403` with `CONSOLE_LOOPBACK_ONLY`. Set `console.auth` to `"app"` or a Console Auth config to open the dev Console to other people.
+
+Duplicate operation names fail every build, also when the app has no `console` option. An app without `server/content.ts` does not contribute the Content operations.
 
 ## Built-in operations
 

@@ -1,4 +1,4 @@
-import { installedOperationRegistry, operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
+import { installedOperationRegistry, installedOperationSectionResolver, operationAccessAllows, operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -22,6 +22,11 @@ export interface OperationsCapabilityOptions {
    * is configured, otherwise null.
    */
   user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
+  /**
+   * Let the Agent pass `lease: "override"` to `content.save`, so it can write over a document that a person is
+   * editing. Default: false.
+   */
+  overrideLeases?: boolean
   /** The operations to use. Default: the ones the app installed. Tests pass their own. */
   registry?: OperationRegistry
 }
@@ -29,6 +34,7 @@ export interface OperationsCapabilityOptions {
 const optionsSchema = v.object({
   approve: v.optional(v.union([v.picklist(["all", "destructive", "never", "write"]), v.array(v.string()), v.custom<(operation: { kind: OperationKind, name: string }) => boolean>(value => value instanceof Function)])),
   include: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1)),
+  overrideLeases: v.optional(v.boolean()),
   registry: v.optional(v.custom<OperationRegistry>(value => isRuntimeRecord(value) && value.get instanceof Function && value.list instanceof Function)),
   user: v.optional(v.custom<NonNullable<OperationsCapabilityOptions["user"]>>(value => value instanceof Function)),
 })
@@ -62,34 +68,36 @@ async function authUser(context: AgentCapabilityContext): Promise<OperationUser 
   return operationUser(await auth.user(context.actor))
 }
 
-function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, include: readonly string[], registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): AgentToolSet {
+async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
   const registry = options.registry ?? installedOperationRegistry()
   if (!registry) {
-    throw agentDiagnostics.AGENT_R1013({ message: "[vitehub] operations() found no operations. The app installs them when the Console or `vite dev` runs." })
+    throw agentDiagnostics.AGENT_R1013({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
   }
   for (const pattern of options.include) {
     if (!registry.list().some(operation => matches(pattern, operation.name))) {
       throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] operations({ include }) names ${JSON.stringify(pattern)}, which matches no operation of this app.` })
     }
   }
-  const selected = registry.list().filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
-  // Resolve the Actor's Auth user once per Invocation.
-  let user: Promise<OperationUser | null> | undefined
-  const callerUser = () => user ??= (async () => {
-    return options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
-  })()
+  // The operations see the user that the Actor stands for. `console.authorize` decides which sections that user may use.
+  const user = options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
+  const sections = await installedOperationSectionResolver()?.({ ...(context.actor ? { actor: context.actor } : {}), user }) ?? "all"
+  const access = { mode: "agent", sections, ...(user ? { user } : {}) }
+  const selected = registry.list()
+    .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
+    // An operation that reads its section from the input is checked again when it runs.
+    .filter(operation => typeof operation.section === "function" || operationAccessAllows(access, operation.section))
   const tools: AgentToolSet = {}
   for (const operation of selected) {
-    const policy: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"
+    const approval: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"
     tools[operationToolName(operation.name)] = defineInternalTool({
       description: operation.description,
       execute: async (input) => {
         const result = await runOperation(registry, operation.name, input, {
-          // The operation decides what the user may do. Agents have no Console session.
-          access: { mode: "agent", sections: "all" },
+          access,
           ...(context.actor ? { actor: context.actor } : {}),
+          ...(options.overrideLeases ? { overrideLeases: true } : {}),
           surface: "agent",
-          user: await callerUser(),
+          user,
         })
         if (result.ok) return result.value
         // Input, access, and conflict failures are results the model can act on. Server failures stay errors.
@@ -99,7 +107,8 @@ function operationTools(context: AgentCapabilityContext, options: { approve: Ope
       inputSchema: operationInputJsonSchema(operation),
       metadata: { operations: { kind: operation.kind, name: operation.name } },
       name: operationToolName(operation.name),
-      policy,
+      // A call that only reads, such as a dry run, needs no approval.
+      policy: approval === "allow" ? approval : ({ input }) => operation.readOnlyWhen?.((input ?? {}) as never) === true ? "allow" : approval,
       title: operation.description,
     })
   }
@@ -108,17 +117,20 @@ function operationTools(context: AgentCapabilityContext, options: { approve: Ope
 
 /**
  * Tools for the operations of the app, such as `content.*`. Each operation becomes a tool named after it, with dots as
- * underscores (`content.publish` is `content_publish`). The operation checks access with the user the Actor stands for.
- * Destructive operations wait for approval unless `approve` says otherwise.
+ * underscores (`content.publish` is `content_publish`). The operations see the Auth user that the Actor stands for.
+ * `console.authorize` runs for that user (with a request that has no headers) and decides which Console sections it may
+ * use: an operation of another section is not offered. An app without `console.authorize` has no such filter, so the
+ * `include` list is the only gate. Destructive operations wait for approval unless `approve` says otherwise, and a
+ * dry run (`readOnlyWhen`) never waits.
  */
 export function operations(options: OperationsCapabilityOptions): AgentCapabilityDefinition {
   const parsed = v.safeParse(optionsSchema, options)
   if (!parsed.success) throw agentDiagnostics.AGENT_C0013()
-  const { approve = "destructive", include, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
+  const { approve = "destructive", include, overrideLeases = false, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
   return defineCapability({
     id: "operations",
     metadata: { approve: typeof approve === "string" ? approve : Array.isArray(approve) ? approve : "custom", include: [...include] },
     mode: "write",
-    tools: context => operationTools(context, { approve, include, registry, user }),
+    tools: context => operationTools(context, { approve, include, overrideLeases, registry, user }),
   })
 }

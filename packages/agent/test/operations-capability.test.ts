@@ -1,6 +1,6 @@
-import { createOperationRegistry, defineOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, defineOperation, installOperationSectionResolver } from "@vite-hub/internal/operations"
 import * as v from "valibot"
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 
 import { operations } from "../src/capabilities.ts"
 
@@ -28,9 +28,10 @@ const rename = defineOperation({
 })
 const remove = defineOperation({
   description: "Remove a thing.",
-  input: v.strictObject({ id: v.string() }),
+  input: v.strictObject({ dryRun: v.optional(v.boolean()), id: v.string() }),
   kind: "destructive",
   name: "demo.remove",
+  readOnlyWhen: input => input.dryRun === true,
   run: ({ id }) => {
     if (id === "locked") throw Object.assign(new Error("The thing is locked."), { code: "DEMO_R0001", fix: "Unlock it first.", status: 409 })
     if (id === "boom") throw Object.assign(new Error("Storage is down."), { code: "DEMO_R0002", status: 500 })
@@ -38,8 +39,18 @@ const remove = defineOperation({
   },
   section: "demo",
 })
-const other = defineOperation({ ...whoami, name: "other.whoami" })
-const registry = createOperationRegistry([{ operations: [whoami, rename, remove, other] }])
+const other = defineOperation({ ...whoami, name: "other.whoami", section: "other" })
+const lease = defineOperation({
+  description: "Report the lease setting.",
+  input: v.strictObject({}),
+  kind: "write",
+  name: "demo.lease",
+  run: (_input, context) => ({ overrideLeases: context.overrideLeases ?? false, sections: context.access.sections, surface: context.surface }),
+  section: "demo",
+})
+const registry = createOperationRegistry([{ operations: [whoami, rename, remove, other, lease] }])
+
+afterEach(() => installOperationSectionResolver(undefined))
 
 const actor: AgentActor = { id: "user_1", kind: "authUser", meta: { authUserId: "user_1" } }
 const auth = { user: async (value: AgentActor | undefined) => value?.meta?.authUserId === "user_1" ? { id: "user_1", name: "Ada" } : null }
@@ -53,7 +64,7 @@ async function tools(capability: AgentCapabilityDefinition): Promise<Record<stri
 describe("operations capability", () => {
   it("exposes the included operations as tools named after them", async () => {
     const resolved = await tools(operations({ include: ["demo.*"], registry }))
-    expect(Object.keys(resolved)).toEqual(["demo_remove", "demo_rename", "demo_whoami"])
+    expect(Object.keys(resolved)).toEqual(["demo_lease", "demo_remove", "demo_rename", "demo_whoami"])
     expect(resolved.demo_whoami).toMatchObject({ description: "Say who is calling.", inputSchema: { properties: { greeting: { type: "string" } }, type: "object" } })
   })
 
@@ -65,13 +76,52 @@ describe("operations capability", () => {
   })
 
   it("asks for approval of destructive operations by default, and as approve says", async () => {
-    const policy = async (capability: AgentCapabilityDefinition, name: string) => (await tools(capability))[name]!.policy
-    expect(await policy(operations({ include: ["demo.*"], registry }), "demo_remove")).toBe("require-approval")
-    expect(await policy(operations({ include: ["demo.*"], registry }), "demo_rename")).toBe("allow")
-    expect(await policy(operations({ approve: "write", include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
-    expect(await policy(operations({ approve: "write", include: ["demo.*"], registry }), "demo_whoami")).toBe("allow")
-    expect(await policy(operations({ approve: "never", include: ["demo.*"], registry }), "demo_remove")).toBe("allow")
-    expect(await policy(operations({ approve: ["demo.rename"], include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
+    const decide = async (capability: AgentCapabilityDefinition, name: string, input: unknown = {}) => {
+      const policy = (await tools(capability))[name]!.policy
+      return policy instanceof Function ? await policy({ input, name }) : policy
+    }
+    expect(await decide(operations({ include: ["demo.*"], registry }), "demo_remove")).toBe("require-approval")
+    expect(await decide(operations({ include: ["demo.*"], registry }), "demo_rename")).toBe("allow")
+    expect(await decide(operations({ approve: "write", include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
+    expect(await decide(operations({ approve: "write", include: ["demo.*"], registry }), "demo_whoami")).toBe("allow")
+    expect(await decide(operations({ approve: "never", include: ["demo.*"], registry }), "demo_remove")).toBe("allow")
+    expect(await decide(operations({ approve: ["demo.rename"], include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
+  })
+
+  it("runs a dry run without approval, since the operation says that it only reads", async () => {
+    const policy = (await tools(operations({ include: ["demo.remove"], registry }))).demo_remove!.policy
+    if (!(policy instanceof Function)) throw new Error("expected a policy function")
+    expect(await policy({ input: { dryRun: true, id: "a" }, name: "demo_remove" })).toBe("allow")
+    expect(await policy({ input: { id: "a" }, name: "demo_remove" })).toBe("require-approval")
+  })
+
+  it("offers only the operations of sections that console.authorize allows for the user", async () => {
+    const calls: unknown[] = []
+    installOperationSectionResolver(async (call) => {
+      calls.push(call)
+      return call.user?.id === "user_1" ? ["demo"] : []
+    })
+    const resolved = await tools(operations({ include: ["*"], registry }))
+    expect(Object.keys(resolved)).toEqual(["demo_lease", "demo_remove", "demo_rename", "demo_whoami"])
+    expect(calls).toEqual([{ actor, user: { id: "user_1", name: "Ada" } }])
+    // The operation sees the allowed sections and the user, not "all".
+    expect(await resolved.demo_lease!.execute!({} as never, {})).toMatchObject({ sections: ["demo"], surface: "agent" })
+    expect(await resolved.demo_whoami!.execute!({} as never, {})).toMatchObject({ user: "user_1" })
+  })
+
+  it("offers nothing when the user may use no section, and everything without console.authorize", async () => {
+    installOperationSectionResolver(async () => [])
+    expect(Object.keys(await tools(operations({ include: ["*"], registry })))).toEqual([])
+    installOperationSectionResolver(async () => "all")
+    expect(Object.keys(await tools(operations({ include: ["other.*"], registry })))).toEqual(["other_whoami"])
+    installOperationSectionResolver(undefined)
+    expect(Object.keys(await tools(operations({ include: ["other.*"], registry })))).toEqual(["other_whoami"])
+  })
+
+  it("lets an Agent override edit leases only when the developer allowed it", async () => {
+    const result = async (options: { overrideLeases?: boolean }) => (await (await tools(operations({ include: ["demo.lease"], registry, ...options }))).demo_lease!.execute!({} as never, {})) as { overrideLeases: boolean }
+    expect((await result({})).overrideLeases).toBe(false)
+    expect((await result({ overrideLeases: true })).overrideLeases).toBe(true)
   })
 
   it("returns input and conflict failures to the model and throws server failures", async () => {
