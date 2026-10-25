@@ -1234,8 +1234,6 @@
   "dependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
-    "@google-cloud/storage": "catalog:storage",
-    "@googleapis/drive": "catalog:storage",
     "@json-render/core": "0.21.0",
     "@json-render/vue": "0.21.0",
     "@libsql/client": "catalog:database",
