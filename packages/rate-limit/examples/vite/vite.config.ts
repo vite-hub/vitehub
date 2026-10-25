@@ -9,7 +9,6 @@ export default defineConfig({
   },
   plugins: [
     hubRateLimit({ namespace: "rate-limit-showcase" }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
 })
