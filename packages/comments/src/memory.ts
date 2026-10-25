@@ -37,7 +37,6 @@ interface Store {
   users: CommentUser[]
   scope: (subject: CommentSubject) => string
   now: () => number
-  ids: number
 }
 
 // Callers may hand over reactive proxies, which `structuredClone` rejects. Comments are JSON by contract.
@@ -64,7 +63,6 @@ export function createMemoryTransport(options: MemoryTransportOptions): MemoryTr
     users: options.users ?? [],
     scope: options.scope ?? (() => "site"),
     now: options.now ?? Date.now,
-    ids: 0,
   }
   for (const thread of options.threads ?? []) {
     store.threads.set(thread.id, copy(thread))
@@ -87,7 +85,7 @@ function message(store: Store, user: CommentUser, input: { threadId: string, bod
   const body = input.body.trim()
   if (!body) throw commentsErrorDiagnostics.COMMENTS_R0005()
   return {
-    id: `message-${++store.ids}`,
+    id: `message-${crypto.randomUUID()}`,
     threadId: input.threadId,
     body,
     author: copy(user),
@@ -130,7 +128,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     async create(input) {
       const scope = store.scope(input.subject)
       const n = (store.counters.get(scope) ?? 0) + 1
-      const id = `thread-${++store.ids}`
+      const id = `thread-${crypto.randomUUID()}`
       const first = message(store, user, { ...input, threadId: id })
       store.counters.set(scope, n)
       return save({
