@@ -4,6 +4,8 @@ import { queueOperations } from "../src/operations.ts"
 import { setQueueRuntimeConfig, setQueueRuntimeRegistry } from "../src/internal/runtime/state.ts"
 import { createVercelQueueClient } from "../src/providers/vercel.ts"
 
+import { operationCliPath } from "@vite-hub/internal/operations"
+
 import type { OperationContext } from "@vite-hub/internal/operations"
 
 const context: OperationContext = { access: { mode: "local", sections: "all" }, surface: "cli", user: null }
@@ -29,6 +31,13 @@ describe("queue operations", () => {
     expect(queueOperations.map(({ kind, name, section }) => ({ kind, name, section }))).toEqual([
       { kind: "read", name: "queue.list", section: "queues" },
       { kind: "write", name: "queue.send", section: "queues" },
+    ])
+  })
+
+  it("keeps the CLI commands under `vitehub queue`", () => {
+    expect(queueOperations.map(operation => operationCliPath(operation))).toEqual([
+      { command: "list", namespace: "queue" },
+      { command: "send", namespace: "queue" },
     ])
   })
 

@@ -14,6 +14,7 @@ function defineQueueOperation<Input, Output>(definition: Omit<OperationDefinitio
 }
 
 const list = defineQueueOperation<Record<string, never>, QueueListResult>({
+  cli: { namespace: "queue" },
   description: "List the Queue Definitions of the app and the provider that sends their jobs.",
   input: v.strictObject({}),
   kind: "read",
@@ -22,7 +23,7 @@ const list = defineQueueOperation<Record<string, never>, QueueListResult>({
 })
 
 const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationResult>({
-  cli: { positional: ["queue", "payload"] },
+  cli: { namespace: "queue", positional: ["queue", "payload"] },
   description: "Send one job to a Queue Definition. The payload is a JSON value.",
   input: v.strictObject({
     delaySeconds: v.optional(v.pipe(v.number(), v.integer(), v.minValue(0))),
