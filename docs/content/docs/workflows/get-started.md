@@ -112,4 +112,8 @@ inspect the final run status, result, or error metadata after the handler
 completes. Local inline execution retains the final result. It does not retain
 step history.
 
+## Start a run from the CLI or the Console
+
+You can also start a run without a route. `vitehub workflow start onboard --payload '{"email":"ada@example.com"}'` starts it on the running dev server, and the Workflows page of the [Console](/docs/development/console) has a Start button with a JSON payload field. Both read the run back with `workflow.get` and cancel it with `workflow.cancel` where the provider supports it. See [Run Workflows in development](/docs/development/cli#run-workflows-in-development).
+
 ::

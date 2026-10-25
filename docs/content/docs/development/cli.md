@@ -809,12 +809,12 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 Activate `hubWorkflow()` and start the app's Vite Development Server.
 
 ```bash [Terminal]
-pnpm vitehub workflow start welcome --input '{"name":"Ada"}'
-pnpm vitehub workflow get <runId> --workflow welcome
-pnpm vitehub workflow cancel <runId> --workflow welcome
+pnpm vitehub workflow start welcome --payload '{"name":"Ada"}'
+pnpm vitehub workflow get <runId>
+pnpm vitehub workflow cancel <runId> --yes
 pnpm vitehub workflow resume <token> --payload '{"approved":true}'
 ```
 
-The commands use the local Nitro development runtime, so app and CLI runs share state. Plain Vite and Nuxt hosts return `WORKFLOW_DEV_RUNTIME_UNAVAILABLE`. Input and payload accept JSON or `@file`. All commands accept `--json`, `--url`, and `--timeout`. Runs started by app code need `--workflow` for `get` and `cancel`.
+The commands are generated from the `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` [operations](/docs/development/operations). They call the Console RPC of the running app, so app and CLI runs share state, and `--url <origin>` calls a deployed app that serves the Console RPC. The payload is a JSON value; `--input '{"workflow":"welcome","payload":{...}}'` or `--input @file.json` passes the whole input. `cancel` asks for confirmation unless you pass `--yes`. All commands accept `--json`, `--url`, and `--timeout`. A run that this runtime did not start needs `--workflow <name>` for `get` and `cancel`. A `console.authorize` grant of `workflows` allows all four; `workflows:read` allows only `get`.
 
 Inline runs can be read for five minutes. Inline cancellation, Cloudflare cancellation and resume, and OpenWorkflow cancellation and resume return unsupported-operation errors. OpenWorkflow starts enqueue work and require a worker to execute it. Resume uses an opaque hook token, not a run ID or signal name. Workflow inspection lists Definitions; this CLI adds no run list, replay, or Console run view.
