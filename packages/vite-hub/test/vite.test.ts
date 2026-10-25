@@ -270,28 +270,42 @@ describe("vitehub", () => {
     expect(ownerReads()).toHaveLength(ownerManifestPaths.size)
   })
 
-  it("enables Nitro file routes for the server convention", async () => {
-    const plugins = vitehub({ preset: "node" })
-    const preset = dependencyPluginByName(plugins, "vite-hub/deployment-preset")
-    const config: Record<string, unknown> = { ...await resolveConfig({}, "build") }
-
-    await callHook(preset.config, [config, { command: "build", mode: "production" }])
-
-    expect(config.nitro).toMatchObject({ serverDir: "server" })
-  })
-
-  it.each(["custom-server", false] as const)("preserves file-based Nitro serverDir %s", async (serverDir) => {
+  it.each([
+    ["default", "export default {}", "server"],
+    ["custom", 'export default { serverDir: "custom-server" }', "custom-server"],
+    ["disabled", "export default { serverDir: false }", false],
+    ["legacy srcDir", 'export default { srcDir: "custom-server" }', false],
+    ["dotenv", "export default { serverDir: process.env.VITEHUB_TEST_SERVER_DIR }", "custom-server"],
+    ["dotenv opt-out", 'export default { serverDir: process.env.VITEHUB_TEST_SERVER_DIR ? false : undefined }', false],
+  ] as const)("resolves Nitro routes once with %s configuration", async (_name, source, serverDir) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-server-dir-"))
+    const { createNitro } = await import("nitro/builder")
     try {
-      await writeFile(join(root, "nitro.config.ts"), `export default { serverDir: ${JSON.stringify(serverDir)} }`)
+      await mkdir(join(root, "server/api"), { recursive: true })
+      await mkdir(join(root, "custom-server/api"), { recursive: true })
+      await writeFile(join(root, "server/api/default.ts"), "export default () => 'default'")
+      await writeFile(join(root, "custom-server/api/custom.ts"), "export default () => 'custom'")
+      await writeFile(join(root, ".env.production"), "VITEHUB_TEST_SERVER_DIR=custom-server")
+      await writeFile(join(root, "nitro.config.ts"), `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(join(root, "loads"))}, "load\\n"); ${source}`)
       const preset = dependencyPluginByName(vitehub({ preset: "node" }), "vite-hub/deployment-preset")
       const config = { root, nitro: {} }
       await callHook(preset.config, [config, { command: "build", mode: "production" }])
-      const { loadOptions } = await import("nitro/builder")
-      const resolved = await loadOptions({ ...config.nitro, rootDir: root, builder: "vite" })
-      expect(resolved.serverDir).toBe(serverDir === false ? false : `${join(root, serverDir)}/`)
+      await expect(readFile(join(root, "loads"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+      expect(preset.nitro).toBeDefined()
+      const nitro = await createNitro({ ...config.nitro, rootDir: root, builder: "vite", modules: [preset.nitro!] }, {
+        dotenv: { fileName: [".env", ".env.local", ".env.production", ".env.production.local"] },
+      })
+      try {
+        expect(nitro.options.serverDir).toBe(serverDir === false ? false : `${join(root, serverDir)}/`)
+        expect(nitro.scannedHandlers.map(handler => handler.route)).toEqual(serverDir === false ? [] : [serverDir === "server" ? "/api/default" : "/api/custom"])
+        expect(await readFile(join(root, "loads"), "utf8")).toBe("load\n")
+      }
+      finally {
+        await nitro.close()
+      }
     }
     finally {
+      delete process.env.VITEHUB_TEST_SERVER_DIR
       await rm(root, { recursive: true, force: true })
     }
   })
@@ -1461,7 +1475,6 @@ describe("vitehub", () => {
       modules: ["local-module"],
       preset: "node-server",
       rollupConfig: { output: { chunkFileNames: "chunks/[name].mjs" } },
-      serverDir: "server",
     })
   })
 

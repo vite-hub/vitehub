@@ -591,6 +591,18 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-preset",
       enforce: "pre",
+      nitro: {
+        setup(nitro) {
+          // Modules run after Nitro's single config load (including dotenv), but
+          // before route scanning. Keep every application config layer authoritative.
+          const configured = nitro.options._c12.layers?.some(layer =>
+            layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)
+          if (configured) return
+          const serverDir = resolve(nitro.options.rootDir, "server") + "/"
+          nitro.options.serverDir = serverDir
+          if (!nitro.options.scanDirs.includes(serverDir)) nitro.options.scanDirs.unshift(serverDir)
+        },
+      },
       resolveId(source) {
         if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
           if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
@@ -736,21 +748,6 @@ function deploymentPlugins(
         }
         if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
         ;(config as { nitro?: unknown }).nitro = nitro
-        if (nitro.serverDir === undefined && nitro.srcDir === undefined) {
-          // Vite's Nitro key overrides nitro.config.ts. Inspect Nitro's merged
-          // configuration layers before supplying our file-route convention.
-          return import("nitro/builder").then(async ({ loadOptions }) => {
-            const resolved = await loadOptions({
-              ...nitro,
-              rootDir: typeof nitro.rootDir === "string" ? nitro.rootDir : config.root,
-              dev: !building,
-              builder: "vite",
-            }, { dotenv: false })
-            const configured = resolved._c12.layers?.some(layer =>
-              layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)
-            if (!configured) nitro.serverDir = "server"
-          })
-        }
       },
     },
     {
