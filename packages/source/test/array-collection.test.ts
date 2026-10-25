@@ -101,6 +101,29 @@ describe("array()", () => {
     expect((await query(descending, {})).items.map(item => item.slug)).toEqual(["untagged", "gamma", "beta", "alpha"])
   })
 
+  it.each(["asc", "desc"] as const)("keeps nested sort ties stable across %s pages without reordering the loader array", async (direction) => {
+    const items = [
+      { id: "first", meta: { ranks: [{ value: 2 }] } },
+      { id: "second", meta: { ranks: [{ value: 1 }] } },
+      { id: "third", meta: { ranks: [{ value: 2 }] } },
+    ]
+    const collection = defineCollection({ source: array(items, { sort: { direction, field: "meta.ranks.value" } }) })
+    const first = await collection.page({ limit: 2, query: {} })
+    const second = await collection.page({ cursor: first.nextCursor!, limit: 2, query: {} })
+    expect([...first.items, ...second.items].map(item => item.id)).toEqual(
+      direction === "asc" ? ["second", "first", "third"] : ["first", "third", "second"],
+    )
+    expect(items.map(item => item.id)).toEqual(["first", "second", "third"])
+  })
+
+  it("reads updated sort keys on each load", async () => {
+    const items = [{ id: "first", rank: 2 }, { id: "second", rank: 1 }]
+    const collection = defineCollection({ source: array(() => items, { sort: { field: "rank" } }) })
+    expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["second", "first"])
+    items[0]!.rank = 0
+    expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["first", "second"])
+  })
+
   it("sorts Dates by time and filters and facets them as ISO strings", async () => {
     const items = [
       { date: new Date("2026-10-02T00:00:00.000Z"), slug: "b" },
