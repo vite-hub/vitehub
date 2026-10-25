@@ -60,6 +60,8 @@ catch (error) {
 
 When ViteHub wraps a lower-level failure, its `cause` remains available to protected in-process diagnostics. ViteHub preserves existing `DOMException`, `AggregateError`, cancellation errors, and application or third-party errors when their identity is part of the boundary contract.
 
+Use `isRuntimeDiagnostic(error)` from `@vite-hub/runtime` to recognize a live Nostics error across bundled copies. Check its `code` against the codes your operation can handle. The helper rejects serialized records and does not make diagnostic text safe to expose in a public response.
+
 Some code runs where the Nostics package cannot load. Browser page evaluation, uploaded Sandbox scripts, standalone Deno deploy runners, and test helpers can use native errors inside their isolated environment. The owning package translates or sanitizes those failures when they cross back into the ViteHub process.
 
 ## Operational errors
