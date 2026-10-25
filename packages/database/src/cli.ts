@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { findPackageJSON } from "node:module"
+import { createRequire, findPackageJSON } from "node:module"
 import { pathToFileURL } from "node:url"
 
 import type { DBModulePublicOptions } from "./types.ts"
@@ -91,7 +91,7 @@ function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
   for (const projectRoot of projectRoots) {
     let facadeManifest: string | undefined
     try {
-      facadeManifest = findPackageJSON("vite-hub", pathToFileURL(resolve(projectRoot, "package.json")))
+      facadeManifest = resolvePackageManifest("vite-hub", projectRoot)
       if (facadeManifest) facadeManifest = realpathSync(facadeManifest)
     }
     catch {
@@ -103,10 +103,20 @@ function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
   return undefined
 }
 
+function resolvePackageManifest(name: string, projectRoot: string): string | undefined {
+  const base = pathToFileURL(resolve(projectRoot, "package.json"))
+  try {
+    return createRequire(base).resolve(`${name}/package.json`)
+  }
+  catch {
+    return findPackageJSON(name, base)
+  }
+}
+
 function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
   let packageJsonFile: string | undefined
   try {
-    packageJsonFile = findPackageJSON("drizzle-kit", pathToFileURL(resolve(projectRoot, "package.json")))
+    packageJsonFile = resolvePackageManifest("drizzle-kit", projectRoot)
   }
   catch {
     return

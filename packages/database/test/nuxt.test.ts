@@ -167,10 +167,12 @@ describe("Database Nuxt integration", () => {
               binding: "DB",
               database_id: "content-id",
               database_name: "content-db",
+              migrations_dir: ".vitehub/database/migrations/DB",
             },
           ],
         },
       },
+      modules: [expect.any(Function)],
       exportConditions: ["vitehub-hosted", "workerd"],
       handlers: [
         {
@@ -538,7 +540,7 @@ describe("Database Nuxt integration", () => {
       const { hooks, nuxt } = createNuxt({
         database: { driver: "d1", projectRoot: "service", ...(content ? { binding: "CONTENT_DB", databaseName: "content-db" } : {}) },
         dev: false,
-        modules: ["@nuxt/content"],
+        modules: content ? ["@nuxt/content"] : [],
         nitro: { preset: "cloudflare_module" },
         rootDir,
         vite: { root: "app" },
@@ -569,6 +571,56 @@ describe("Database Nuxt integration", () => {
         await expect(readFile(join(rootDir, `.output/server/.vitehub/database/migrations/DB_${name.toUpperCase()}/0001_initial.sql`), "utf8"))
           .resolves.toBe(`SELECT '${name}';\n`)
       }
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([undefined, "custom-migrations"])("stages late inherited migrations in the accepted Wrangler directory: %s", async (migrationsDir) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-late-d1-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
+      await hubDb({ driver: "d1", databaseName: "existing" })(undefined, nuxt)
+      const directory = join(rootDir, "server/databases")
+      await mkdir(join(directory, "migrations"), { recursive: true })
+      const definition = join(rootDir, "contributed.ts")
+      await writeFile(definition, "export default defineDatabase({ schema: {} })")
+      ;(nuxt.options.vite as { plugins: unknown[] }).plugins.push({ name: "late-module", vitehub: { databases: [{ name: "default", definition }] } })
+      await writeFile(join(directory, "migrations/0001.sql"), "SELECT 1;")
+      const binding = { binding: "DB", database_id: "existing-id", database_name: "existing", migrations_dir: migrationsDir }
+      const config: Record<string, unknown> = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [binding] } } }
+      await callHook(hooks, "nitro:config", config)
+      const callbacks: Array<() => Promise<void>> = []
+      for (const module of config.modules as Array<(nitro: unknown) => void>) module({
+        hooks: { hook: (_name: string, callback: () => Promise<void>) => callbacks.push(callback) },
+        options: { output: { serverDir: join(rootDir, ".output/server") } },
+      })
+      await Promise.all(callbacks.map(callback => callback()))
+      const finalBinding = (config.cloudflare as { wrangler: { d1_databases: Array<{ migrations_dir: string }> } }).wrangler.d1_databases[0]!
+      expect(finalBinding.migrations_dir).toBe(migrationsDir ?? ".vitehub/database/migrations/DB")
+      await expect(readFile(join(rootDir, ".output/server", finalBinding.migrations_dir, "0001.sql"), "utf8")).resolves.toBe("SELECT 1;")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
+  it("requires explicit Content storage for a PostgreSQL-only Cloudflare app", async () => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-content-postgres-"))
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      await mkdir(join(rootDir, "server/databases"), { recursive: true })
+      await writeFile(join(rootDir, "server/databases/config.ts"), "export default defineDatabase({ dialect: 'postgresql', schema: {} })")
+      const { hooks, nuxt } = createNuxt({ dev: false, rootDir, modules: ["@nuxt/content"], vite: {} })
+      await hubDb()(undefined, nuxt)
+      // Content's Cloudflare preset turns its default SQLite store into the DB binding.
+      nuxt.options.content = { database: { type: "d1", bindingName: "DB" } }
+      await expect(callHook(hooks, "nitro:config", { preset: "cloudflare_module" })).rejects.toThrow("Nuxt Content on Cloudflare requires")
+      const config = { preset: "cloudflare_module", cloudflare: { wrangler: { d1_databases: [{ binding: "DB", database_id: "content-id", database_name: "content" }] } } }
+      await expect(callHook(hooks, "nitro:config", config)).resolves.toBeUndefined()
+      expect(config.cloudflare.wrangler.d1_databases).toHaveLength(1)
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })
@@ -748,8 +800,13 @@ describe("Database Nuxt integration", () => {
       const { hooks, nuxt } = createNuxt({ dev: false, rootDir, vite: {} })
       await hubDb({ driver: "d1" })(undefined, nuxt)
       const config = { preset: "cloudflare_module" }
-      await expect(callHook(hooks, "nitro:config", config)).resolves.toBeUndefined()
-      expect(config).toHaveProperty("cloudflare.wrangler.d1_databases", [])
+      if (options.includes("VITEHUB_NUXT_TEST_REMOTE_URL")) {
+        await expect(callHook(hooks, "nitro:config", config)).rejects.toMatchObject({ code: "DATABASE_MISSING_D1_RESOURCE" })
+      }
+      else {
+        await expect(callHook(hooks, "nitro:config", config)).resolves.toBeUndefined()
+        expect(config).toHaveProperty("cloudflare.wrangler.d1_databases", [])
+      }
     }
     finally {
       await rm(rootDir, { recursive: true, force: true })

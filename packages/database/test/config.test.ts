@@ -823,7 +823,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     try {
-      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual(connection)
+      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual({ ...connection, url: { ...connection.url, default: "file:.vitehub/data/database/sqlite.db" } })
     }
     finally {
       if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
@@ -870,6 +870,7 @@ describe("resolveDBViteConfig", () => {
         url: {
           kind: "env-variable",
           source: { kind: "env", name: "ANALYTICS_DATABASE_URL" },
+          default: "file:.vitehub/data/database/sqlite.db",
         },
       })
     }
@@ -921,11 +922,18 @@ describe("resolveDBViteConfig", () => {
         ].join("\n"),
       })
 
-      const connection = resolveDBViteConfig(undefined, rootDir)?.databases.default.connection
+      const config = resolveDBViteConfig(undefined, rootDir)!
+      const connection = config.databases.default.connection
       expect(connection).toEqual({
         authToken: { kind: "env-variable", source: { kind: "env", name: "TURSO_AUTH_TOKEN" } },
-        url: { kind: "env-variable", source: { kind: "env", name: "TURSO_DATABASE_URL" } },
+        url: { kind: "env-variable", source: { kind: "env", name: "TURSO_DATABASE_URL" }, default: "file:.vitehub/data/database/sqlite.db" },
       })
+      const expression = renderDatabaseConfigExpression("default", config, "definition")
+      const generated = new Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(
+        { connection: { url: undefined } }, resolveRuntimeCloudflareConfig,
+      )
+      expect(resolveConfigValue(generated.connection.url)).toBe("file:.vitehub/data/database/sqlite.db")
+      expect(resolveConfigValue(connection?.url)).toBe("file:.vitehub/data/database/sqlite.db")
       process.env.TURSO_DATABASE_URL = "libsql://runtime.example.turso.io"
       expect(resolveConfigValue(connection?.url)).toBe("libsql://runtime.example.turso.io")
     }

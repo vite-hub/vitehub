@@ -839,7 +839,7 @@ function selectConnectionValue(value: DatabaseConfigValue | undefined, fallback:
 
 function resolveDefinitionConnection(file: string, name: string, fallback?: DatabaseConnectionConfig) {
   const definition = readDefinitionConnectionConfig(file)
-  const url = selectConnectionValue(definition?.url, fallback?.url)
+  const url = withConfigValueFallback(selectConnectionValue(definition?.url, fallback?.url), getDefaultConnection(name).url)
   if (!hasConnectionValue(url)) return getDefaultConnection(name)
   return {
     authToken: hasConnectionValue(definition?.authToken) ? definition?.authToken : fallback?.authToken,
