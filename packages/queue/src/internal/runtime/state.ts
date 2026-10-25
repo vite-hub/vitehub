@@ -62,6 +62,11 @@ export function setQueueRuntimeRegistry(registry: QueueDefinitionRegistry | unde
   queueClientCache.clear()
 }
 
+/** The names of the Queue Definitions that this runtime loads, sorted. */
+export function listQueueDefinitionNames(): string[] {
+  return registryOverride ? Object.keys(registryOverride).sort() : []
+}
+
 export function getOrCreateQueueClient(name: string, createClient: () => Promise<QueueClient>): Promise<QueueClient> {
   const existing = queueClientCache.get(name)
   if (existing) return existing
