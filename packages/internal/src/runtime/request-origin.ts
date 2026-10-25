@@ -12,6 +12,7 @@ export function forwardedRequestOrigin(request: Pick<Request, "headers" | "url">
   const forwardedProtocol = firstHeaderValue(request.headers, "x-forwarded-proto")?.toLowerCase()
   const protocol = forwardedProtocol === "http" || forwardedProtocol === "https" ? forwardedProtocol : url.protocol.slice(0, -1)
   const host = firstHeaderValue(request.headers, "x-forwarded-host") ?? url.host
+  if (/[\s/\\?#@]/.test(host)) return url.origin
   try {
     return new URL(`${protocol}://${host}`).origin
   }
