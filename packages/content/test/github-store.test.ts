@@ -219,7 +219,7 @@ describe("Content on the GitHub store", () => {
       const main = fake.head("main")
       await expect(content.publish()).rejects.toMatchObject({
         code: "WORKSPACE_CONFLICT",
-        message: expect.stringContaining("Open each document to see the published version"),
+        message: expect.stringContaining("Show the published version of each"),
         details: { ref: "published", documents: [{ collection: "posts", id: "a", expected: a.digest, actual: textSha(page("A main")) }] },
       })
       expect(fake.head("main")).toBe(main)
@@ -272,7 +272,7 @@ describe("Content on the GitHub store", () => {
       expect(fake.pulls).toHaveLength(1)
       expect(fake.pulls[0]).toMatchObject({ base: "main", draft: false })
       expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}$/)
-      expect(fake.pulls[0]!.body).toContain("- posts/b (add)")
+      expect(fake.pulls[0]!.body).toContain("- `posts/b` (add)")
       const branch = fake.commits.get(fake.head(fake.pulls[0]!.head)!)!
       expect(branch.parents).toEqual([main])
       expect(branch.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
@@ -321,59 +321,154 @@ describe("Content on the GitHub store", () => {
       expect([...fake.commits.values()].length).toBeGreaterThan(0)
     })
 
-    it("fails when GitHub refuses the pull request, and the draft stays", async () => {
+    it("fails when GitHub refuses the pull request, and leaves no publish branch behind", async () => {
       const { posts, content } = await setup({ publish: "pr" })
       await posts.save("b", { data: { title: "B" }, body: "" })
-      fake.respond(request => request.path.endsWith("/pulls") && request.method === "POST" ? new Response("{\"message\":\"nope\"}", { status: 403 }) : undefined)
-      await expect(content.publish()).rejects.toThrow()
+      fake.respond(request => request.path.endsWith("/pulls") && request.method === "POST" ? Response.json({ message: "Validation Failed: nope" }, { status: 422 }) : undefined)
+      await expect(content.publish()).rejects.toThrow("422")
       expect(fake.pulls).toHaveLength(0)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/publish/"))).toEqual([])
+      // The draft keeps its change.
+      expect(await posts.status("b")).toMatchObject({ state: "draft" })
     })
 
-    it("merges published content into the draft once per published head", async () => {
+    it("refuses to publish a document that an open pull request already publishes", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await content.publish()
+      vi.advanceTimersByTime(6_000)
+      await expect(content.publish()).rejects.toMatchObject({
+        code: "CONTENT_R0017",
+        message: expect.stringContaining("posts/b: pull request #1 (https://github.com/onmax/repo/pull/1)"),
+      })
+      expect(fake.pulls).toHaveLength(1)
+      // Other documents are not held back.
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      expect((await content.publish({ collection: "posts", ids: ["c"] })).pullRequest).toMatchObject({ number: 2 })
+    })
+
+    it("finds the pending documents of a pull request whose branch has no Content trailer", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await content.publish()
+      // Another tool rewrote the commit, so the message has no trailer.
+      fake.commits.get(fake.head(fake.pulls[0]!.head)!)!.message = "Publish by hand"
+      vi.advanceTimersByTime(6_000)
+      expect(await posts.status("b")).toMatchObject({ pullRequest: { number: 1 } })
+      expect(fake.requests.some(request => request.path.endsWith("/git/matching-refs/heads/vitehub/publish/"))).toBe(true)
+    })
+
+    it("writes the pull request title on one line and the message in code", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      const message = `Ping @octocat about #12\n${"x".repeat(300)}\n\`\`\`rm\`\`\``
+      await content.publish({ message })
+      const [pull] = fake.pulls
+      expect(pull!.title).not.toMatch(/[\n\r]/)
+      expect(pull!.title.length).toBeLessThanOrEqual(200)
+      expect(pull!.title).toContain("@\u200Boctocat")
+      expect(pull!.title).toContain("#\u200B12")
+      expect(pull!.body).toContain("- `posts/b` (add)")
+      expect(pull!.body).toContain("````\nPing @octocat about #12")
+    })
+
+    describe.each(["merge", "squash", "rebase"] as const)("after a %s merge of its own pull request", (method) => {
+      it("keeps the edit made while the pull request was open, and publishes it", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.save("b", { data: { title: "B1" }, body: "" })
+        await content.publish()
+        // The author keeps editing while the pull request waits.
+        await posts.save("b", { data: { title: "B2" }, body: "" })
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        // The next write brings main into the draft. Main holds the draft's earlier version of b, which is no conflict.
+        await posts.save("c", { data: { title: "C" }, body: "" })
+        expect((await posts.raw("b", { ref: "draft" }))!.text).toContain("B2")
+        const head = fake.commits.get(fake.head("vitehub/content")!)!
+        const synced = fake.commits.get(head.parents[0]!)!
+        expect(synced.parents).toHaveLength(2)
+        const result = await content.publish()
+        expect(result.documents).toEqual([
+          { collection: "posts", id: "b", change: "update" },
+          { collection: "posts", id: "c", change: "add" },
+        ])
+        expect(result.pullRequest).toMatchObject({ number: 2 })
+      })
+
+      it("shows the merged publish in the published history of the document", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.save("b", { data: { title: "B1" }, body: "" })
+        await content.publish()
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        const { revisions } = await content.revisions("posts", "b", { ref: "published" })
+        expect(revisions).toHaveLength(1)
+        expect(fake.commits.get(revisions[0]!.id)!.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
+      })
+    })
+
+    it("keeps syncing other documents while one conflicts with the published branch", async () => {
+      const { posts, content } = await setup()
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      vi.advanceTimersByTime(6_000)
+      const main = fake.commit("main", { "content/posts/a.md": page("A main"), "content/posts/d.md": page("D") })
+      vi.advanceTimersByTime(6_000)
+      // The write merges main. Document a conflicts and stays as the draft has it; d arrives.
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      const tree = new Map(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]))
+      expect(tree.get("content/posts/d.md")).toBe(textSha(page("D")))
+      expect((await posts.raw("a", { ref: "draft" }))!.text).toContain("A draft")
+      const merge = fake.commits.get(fake.commits.get(fake.head("vitehub/content")!)!.parents[0]!)!
+      expect(merge.parents[1]).toBe(main)
+      expect(merge.message).toContain('"conflicts":["content/posts/a.md"]')
+      // The conflict does not come back for every write.
+      const attempts = merges().length
+      await posts.save("e", { data: { title: "E" }, body: "" })
+      expect(merges()).toHaveLength(attempts)
+      // Publish names the document that both sides changed, and publishes the others when they are chosen.
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect((await content.publish({ collection: "posts", ids: ["b", "c"] })).documents.map(document => document.id)).toEqual(["b", "c"])
+    })
+
+    it("merges published content into the draft on writes, and not on reads", async () => {
       const { posts } = await setup()
       await posts.save("b", { data: { title: "B" }, body: "" })
       const draft = fake.head("vitehub/content")!
       vi.advanceTimersByTime(6_000)
       const added = fake.commit("main", { "content/posts/c.md": page("C"), "content/posts/a.md": page("A2") })
       vi.advanceTimersByTime(6_000)
-      expect((await posts.list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a", "b", "c"])
-      const merged = fake.commits.get(fake.head("vitehub/content")!)!
+      expect((await posts.list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a", "b"])
+      await posts.status()
+      expect(merges()).toHaveLength(0)
+      await posts.save("b", { data: { title: "B2" }, body: "" })
+      expect(merges()).toHaveLength(1)
+      const saved = fake.commits.get(fake.head("vitehub/content")!)!
+      const merged = fake.commits.get(saved.parents[0]!)!
       expect(merged.parents).toEqual([draft, added])
       expect(merged.message).toContain("Vitehub-Metadata:")
-      expect(merges()).toHaveLength(1)
-      // The same pair costs no request.
-      await posts.list({ ref: "draft" })
-      await posts.status()
-      expect(merges()).toHaveLength(1)
-      expect(await posts.status("a")).toMatchObject({ state: "published" })
-      // The next save builds on the merged draft and records the published head it has merged.
-      await posts.save("b", { data: { title: "B2" }, body: "" })
-      const saved = fake.commits.get(fake.head("vitehub/content")!)!
-      expect(saved.parents).toEqual([merged.sha])
       expect(saved.message).toContain(added)
+      expect((await posts.list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a", "b", "c"])
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      // The same pair costs no request.
+      await posts.save("b", { data: { title: "B3" }, body: "" })
+      expect(merges()).toHaveLength(1)
     })
 
-    it("keeps working while a document conflicts with the published branch", async () => {
+    it("goes on without the merge when GitHub refuses it, and warns once", async () => {
       const { posts } = await setup()
-      const a = (await posts.raw("a"))!
-      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
-      const draft = fake.head("vitehub/content")
-      vi.advanceTimersByTime(6_000)
-      fake.commit("main", { "content/posts/a.md": page("A main") })
-      vi.advanceTimersByTime(6_000)
-      await posts.list({ ref: "draft" })
-      expect(merges()).toHaveLength(1)
-      expect(fake.head("vitehub/content")).toBe(draft)
-      // Another save goes through, and the same conflict is not tried again.
       await posts.save("b", { data: { title: "B" }, body: "" })
-      expect(merges()).toHaveLength(1)
-      expect(fake.commits.get(fake.head("vitehub/content")!)!.parents).toEqual([draft])
-      // The draft moved, so the next read tries the merge again.
-      await posts.list({ ref: "draft" })
-      expect(merges()).toHaveLength(2)
-      // Saving the document again from the published version clears it.
-      const published = (await posts.raw("a", { ref: "published" }))!
-      expect(published.text).toContain("A main")
+      vi.advanceTimersByTime(6_000)
+      fake.commit("main", { "content/posts/c.md": page("C") })
+      vi.advanceTimersByTime(6_000)
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+      fake.respond(request => request.method === "POST" && request.path.endsWith("/merges") ? Response.json({ message: "Resource not accessible" }, { status: 403 }) : undefined)
+      await expect(posts.save("b", { data: { title: "B2" }, body: "" })).resolves.toMatchObject({ data: { title: "B2" } })
+      await posts.save("b", { data: { title: "B3" }, body: "" })
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0]![0]).toContain("could not bring")
+      warn.mockRestore()
     })
   })
 })

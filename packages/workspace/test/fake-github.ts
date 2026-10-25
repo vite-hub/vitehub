@@ -515,6 +515,14 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     },
     /** The pull requests that were opened. */
     pulls,
+    /** Every branch name. */
+    branchNames: () => [...branches.keys()],
+    /** Open a pull request for branches that exist, as a person would. */
+    openPull(head: string, base: string, title: string) {
+      const pull = { base, body: null, draft: false, head, merged: false, number: pulls.length + 1, state: "open" as const, title }
+      pulls.push(pull)
+      return pull.number
+    },
     /**
      * Merge a pull request the way GitHub does. `merge` makes a merge commit, `squash` one commit with the branch's
      * changes, and `rebase` replays each commit of the branch on the base. Only a merge commit keeps the branch's
