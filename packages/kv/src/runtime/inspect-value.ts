@@ -29,10 +29,19 @@ function encodeBase64(bytes: Uint8Array): string {
       const descriptor = Object.getOwnPropertyDescriptor(bytes, key)
       if (descriptor && (!("value" in descriptor) || descriptor.value !== length)) throw new UnsupportedValueError()
     }
-    let binary = ""
+    const encoded: string[] = []
+    let chunk: number[] = []
     // The intrinsic iterator reads native slots and validates detached buffers.
-    for (const byte of Reflect.apply(Uint8Array.prototype.values, bytes, [])) binary += String.fromCharCode(byte)
-    return btoa(binary)
+    for (const byte of Reflect.apply(Uint8Array.prototype.values, bytes, [])) {
+      chunk.push(byte)
+      // Whole three-byte groups avoid padding between chunks. Keep each call below argument limits.
+      if (chunk.length === 12_288) {
+        encoded.push(btoa(String.fromCharCode(...chunk)))
+        chunk = []
+      }
+    }
+    if (chunk.length) encoded.push(btoa(String.fromCharCode(...chunk)))
+    return encoded.join("")
   }
   catch {
     throw new UnsupportedValueError()
