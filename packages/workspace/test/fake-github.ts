@@ -91,6 +91,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
   const branches = new Map<string, string>()
   const trees = new Map<string, FakeTreeEntry[]>()
   const requests: FakeRequest[] = []
+  const pulls: Array<{ base: string, body: string | null, draft: boolean, head: string, merged: boolean, number: number, state: "closed" | "open", title: string }> = []
   const overrides: Array<(request: FakeRequest) => Response | undefined> = []
   let commitIndex = 0
   let treeIndex = 0
@@ -188,6 +189,73 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     return result
   }
 
+  /** Every commit that `sha` reaches, through all parents. */
+  function reachable(sha: string): Set<string> {
+    const seen = new Set<string>()
+    const queue = [sha]
+    while (queue.length) {
+      const next = queue.pop()!
+      if (seen.has(next)) continue
+      seen.add(next)
+      queue.push(...(commits.get(next)?.parents ?? []))
+    }
+    return seen
+  }
+
+  /** Merge `head` into `base`: a three-way merge of whole files. It reports a conflict when both changed the same file. */
+  function mergeBranches(base: string, head: string, message: string): { conflict: true } | { sha: string } | { upToDate: true } {
+    const ours = branches.get(base)!
+    const theirs = branches.get(head)!
+    if (reachable(ours).has(theirs)) return { upToDate: true }
+    const theirAncestors = reachable(theirs)
+    // The nearest commit that both reach, walking back from ours.
+    const ancestor = (() => {
+      const queue = [ours]
+      const seen = new Set<string>()
+      while (queue.length) {
+        const next = queue.shift()!
+        if (seen.has(next)) continue
+        seen.add(next)
+        if (theirAncestors.has(next)) return next
+        queue.push(...(commits.get(next)?.parents ?? []))
+      }
+    })()
+    const shaOf = (tree: FakeTreeEntry[]) => new Map(tree.map(entry => [entry.path, entry]))
+    const before = shaOf(ancestor ? commits.get(ancestor)!.tree : [])
+    const mine = shaOf(commits.get(ours)!.tree)
+    const other = shaOf(commits.get(theirs)!.tree)
+    const merged: FakeTreeEntry[] = []
+    for (const path of new Set([...before.keys(), ...mine.keys(), ...other.keys()])) {
+      const b = before.get(path)?.sha
+      const o = mine.get(path)?.sha
+      const t = other.get(path)?.sha
+      let pick: FakeTreeEntry | undefined
+      if (o === t || t === b) pick = mine.get(path)
+      else if (o === b) pick = other.get(path)
+      else return { conflict: true }
+      if (pick) merged.push(pick)
+    }
+    const commit = addCommit({ message, parents: [ours, theirs], tree: merged })
+    branches.set(base, commit.sha)
+    return { sha: commit.sha }
+  }
+
+  function pullBody(pull: (typeof pulls)[number]) {
+    return {
+      base: { ref: pull.base, sha: branches.get(pull.base) ?? zeroOid },
+      body: pull.body,
+      draft: pull.draft,
+      head: { ref: pull.head, sha: branches.get(pull.head) ?? zeroOid },
+      html_url: `https://github.com/${owner}/${repo}/pull/${pull.number}`,
+      merged: pull.merged,
+      node_id: `PR_${pull.number}`,
+      number: pull.number,
+      state: pull.state,
+      title: pull.title,
+      user: { login: "bot" },
+    }
+  }
+
   function graphql(request: FakeRequest): Response {
     const variables = (request.body?.variables ?? {}) as { input?: Record<string, unknown> }
     const input = variables.input ?? {}
@@ -243,6 +311,27 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     const rest = path.slice(prefix.length)
     if (rest === "" && method === "GET") {
       return json({ default_branch: state.defaultBranch, full_name: `${owner}/${repo}`, name: repo, owner: { login: owner }, private: true })
+    }
+    if (rest === "/merges" && method === "POST") {
+      const base = String(request.body?.base)
+      const head = String(request.body?.head)
+      if (!branches.has(base) || !branches.has(head)) return failure(404, "Base does not exist")
+      const result = mergeBranches(base, head, String(request.body?.commit_message ?? `Merge ${head} into ${base}`))
+      if ("conflict" in result) return failure(409, "Merge conflict")
+      if ("upToDate" in result) return new Response(null, { status: 204 })
+      return json({ sha: result.sha }, { status: 201 })
+    }
+    if (rest === "/pulls" && method === "POST") {
+      const head = String(request.body?.head)
+      const base = String(request.body?.base)
+      if (!branches.has(head) || !branches.has(base)) return failure(422, "Validation Failed: head or base does not exist")
+      const pull = { base, body: typeof request.body?.body === "string" ? request.body.body : null, draft: request.body?.draft === true, head, merged: false, number: pulls.length + 1, state: "open" as const, title: String(request.body?.title) }
+      pulls.push(pull)
+      return json(pullBody(pull), { status: 201 })
+    }
+    if (rest === "/pulls" && method === "GET") {
+      const state = url.searchParams.get("state") ?? "open"
+      return page(pulls.filter(pull => state === "all" || pull.state === state).map(pullBody).reverse(), url)
     }
     if (rest === "/branches" && method === "GET") {
       return page([...branches].sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ commit: { sha }, name, protected: false })), url)
@@ -402,6 +491,16 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     /** Answer the requests that `respond` matches before the fake does. */
     respond(respond: (request: FakeRequest) => Response | undefined) {
       overrides.push(respond)
+    },
+    /** The pull requests that were opened. */
+    pulls,
+    /** Merge a pull request, as its author would on GitHub. */
+    mergePullRequest(number: number) {
+      const pull = pulls.find(entry => entry.number === number)!
+      const result = mergeBranches(pull.base, pull.head, `Merge pull request #${number} from ${pull.head}`)
+      if ("conflict" in result) throw new Error("The fake cannot merge a conflicting pull request.")
+      pull.state = "closed"
+      pull.merged = true
     },
     /** Requests that write: every method but GET, except the GraphQL repository lookup. */
     writes: () => requests.filter(request => request.method !== "GET" && request.operation !== "RepositoryId"),

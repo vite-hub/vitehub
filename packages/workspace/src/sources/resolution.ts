@@ -44,6 +44,8 @@ import type {
   WorkspaceSearchQuery,
   WorkspaceStore,
   WorkspaceHistoryCommitOptions,
+  WorkspaceMergeOptions,
+  WorkspaceOpenPullRequestOptions,
   WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceSessionWriteFileOptions,
@@ -762,6 +764,9 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     const baseHistory = workspace.history
     const writableHistory: WritableWorkspaceFacade["history"] = {
       ...history,
+      // Writes that only some Stores have. They need the complete Workspace, as a commit does.
+      ...(baseHistory.merge ? { merge: async (options: WorkspaceMergeOptions) => { requireCompleteHistory(); return await baseHistory.merge!(options) } } : {}),
+      ...(baseHistory.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => { requireCompleteHistory(); return await baseHistory.openPullRequest!(options) } } : {}),
       commit: commitHistory,
       checkpoint: baseHistory.checkpoint.bind(baseHistory),
       rebase,

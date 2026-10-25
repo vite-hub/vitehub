@@ -8,7 +8,7 @@ import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -47,6 +47,7 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader, co
   return {
     ...(history.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
     ...(history.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
+    ...(history.pullRequests ? { pullRequests: async options => await history.pullRequests!(options) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
@@ -146,6 +147,9 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
   return {
     digest,
     ...(store.history?.forksFrom ? { forksFrom: async (ref: string) => await store.history!.forksFrom!(ref) } : {}),
+    ...(store.history?.pullRequests ? { pullRequests: async (options?: { headPrefix?: string }) => await store.history!.pullRequests!(options) } : {}),
+    ...(store.history?.merge ? { merge: async (options: WorkspaceMergeOptions) => await store.history!.merge!(options) } : {}),
+    ...(store.history?.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => await store.history!.openPullRequest!(options) } : {}),
     head: async options => await history().head(options),
     list: async options => await history().list(options),
     refs: async () => await history().refs(),

@@ -286,4 +286,52 @@ describe("GitHub history commit", () => {
     expect(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]).sort()).toEqual([["posts/a.md", textSha("a")], ["posts/b.md", textSha("b")]])
     expect(fake.head("main")).toBe(second)
   })
+
+  it("merges one ref into another and keeps the merge metadata", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    const added = fake.commit("main", { "posts/c.md": "c" })
+    const metadata = { content: { action: "sync", from: added } }
+    const merged = await target.merge!({ from: "published", into: "draft", message: "Sync", metadata })
+    expect(merged).toMatchObject({ ref: "draft", message: "Sync", metadata })
+    expect(fake.commits.get(merged!.id)!.parents).toEqual([draft.id, added])
+    expect(fake.tree("vitehub/content").map(entry => entry.path).sort()).toEqual(["posts/a.md", "posts/b.md", "posts/c.md"])
+    await expect(target.head({ ref: "draft" })).resolves.toMatchObject({ id: merged!.id })
+    // Nothing is left to merge.
+    await expect(target.merge!({ from: "published", into: "draft" })).resolves.toBeNull()
+    expect(fake.head("main")).toBe(added)
+    expect(published).not.toBe(added)
+  })
+
+  it("maps a merge conflict to WORKSPACE_CONFLICT", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    fake.commit("main", { "posts/a.md": "main" })
+    const head = fake.head("vitehub/content")
+    await expect(target.merge!({ from: "published", into: "draft" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      message: expect.stringContaining("conflicts"),
+      details: { from: "published", into: "draft" },
+    })
+    expect(fake.head("vitehub/content")).toBe(head)
+  })
+
+  it("opens a pull request and lists the open ones by head prefix", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "vitehub/publish/abc1234-1", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    await target.commit({ ref: "other/branch", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    const opened = await target.openPullRequest!({ head: "vitehub/publish/abc1234-1", base: "published", title: "Publish 1 document", body: "Body" })
+    expect(opened).toEqual({ number: 1, url: "https://github.com/onmax/repo/pull/1", title: "Publish 1 document", head: "vitehub/publish/abc1234-1", base: "published" })
+    expect(fake.pulls[0]).toMatchObject({ base: "main", head: "vitehub/publish/abc1234-1", body: "Body" })
+    await target.openPullRequest!({ head: "other/branch", base: "published", title: "Other" })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([opened])
+    fake.mergePullRequest(1)
+    vi.advanceTimersByTime(6_000)
+    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([])
+    await expect(target.pullRequests!()).resolves.toHaveLength(1)
+  })
 })
