@@ -64,6 +64,7 @@ function stripViteHubOptions(
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
+  if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {

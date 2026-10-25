@@ -1,6 +1,8 @@
+import { AsyncLocalStorage } from "node:async_hooks"
 import { APIError } from "better-auth"
 import { createAuthEndpoint, createAuthMiddleware, getSessionFromCtx, sensitiveSessionMiddleware } from "better-auth/api"
-import type { BetterAuthPlugin, GenericEndpointContext } from "better-auth"
+import type { BetterAuthPlugin, GenericEndpointContext, SecondaryStorage } from "better-auth"
+import { parseAuthEventList, parseAuthEventWindow } from "./events.ts"
 import type { AuthDevice, AuthEventActor, AuthEventListInput, AuthEventMetadata, AuthEventsConfiguration, AuthEventType } from "./events.ts"
 
 function record(value: unknown): Record<string, unknown> {
@@ -39,7 +41,8 @@ export function authEventDevice(agent: string | null | undefined): AuthDevice {
 }
 
 /** Compose with Better Auth's own hook pipeline, including direct auth.api calls. */
-export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin & { captureOutcome: (ctx: unknown) => void } {
+export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin & { captureOutcome: (ctx: unknown) => void, wrapStorage: (storage: SecondaryStorage) => SecondaryStorage } {
+  const deletionContext = new AsyncLocalStorage<GenericEndpointContext>()
   const outcomes = new WeakMap<object, unknown>()
   const challenges = new WeakSet<object>()
   const wrappedAdapters = new WeakSet<object>()
@@ -61,6 +64,26 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   }
   return {
     id: "vitehub-auth-events",
+    wrapStorage(storage) {
+      return {
+        get: key => storage.get(key),
+        set: (key, value, ttl) => storage.set(key, value, ttl),
+        getAndDelete: key => storage.getAndDelete(key),
+        increment: (key, ttl) => storage.increment(key, ttl),
+        async delete(key) {
+          // Claim the actual removed value atomically, across requests and workers.
+          const value = await storage.getAndDelete(key)
+          if (!value) return
+          let parsed: unknown
+          try { parsed = typeof value === "string" ? JSON.parse(value) : value }
+          catch { return }
+          const session = record(record(parsed).session)
+          const id = identifier(session.id)
+          const userId = identifier(session.userId)
+          if (id && userId && session.token === key) await deleted({ id, userId, impersonatedBy: session.impersonatedBy }, deletionContext.getStore() ?? null)
+        },
+      }
+    },
     captureOutcome(ctx) {
       // Better Auth passes dispatch state to after-hooks outside the public middleware input type.
       const context = record(ctx).context
@@ -110,27 +133,14 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             const token = await ctx.getSignedCookie(cookie.name, ctx.context.secret)
             if (token && await ctx.context.internalAdapter.findVerificationValue(token)) challenges.add(ctx.context)
           }
-          // Secondary-only sessions bypass database deletion hooks. Wrap the request's
-          // internal adapter, preserving the original deletion and recording only afterward.
+          // Carry request attribution to the atomic secondary-storage deletion.
           if (!ctx.context.options.secondaryStorage || ctx.context.options.session?.storeSessionInDatabase) return
           const adapter = ctx.context.internalAdapter
           ctx.context.internalAdapter = {
             ...adapter,
-            async deleteSession(token) {
-              const session = await adapter.findSession(token)
-              await adapter.deleteSession(token)
-              if (session) await deleted(session.session, ctx)
-            },
-            async deleteSessions(tokens) {
-              const sessions = await Promise.all(tokens.map(token => adapter.findSession(token)))
-              await adapter.deleteSessions(tokens)
-              for (const session of sessions) if (session) await deleted(session.session, ctx)
-            },
-            async deleteUserSessions(userId) {
-              const sessions = await adapter.listSessions(userId)
-              await adapter.deleteUserSessions(userId)
-              for (const session of sessions) await deleted(session, ctx)
-            },
+            deleteSession: token => deletionContext.run(ctx, () => adapter.deleteSession(token)),
+            deleteSessions: tokens => deletionContext.run(ctx, () => adapter.deleteSessions(tokens)),
+            deleteUserSessions: userId => deletionContext.run(ctx, () => adapter.deleteUserSessions(userId)),
           }
         }),
       }, {
@@ -172,8 +182,8 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
         matcher: () => true,
         handler: createAuthMiddleware(async (ctx) => {
           const path = ctx.path ?? ""
-          const result: unknown = ctx.context.returned
-          const value = record(result)
+          const outcome = outcomes.get(ctx.context)
+          const value = record(outcome)
           const signedIn = ctx.context.newSession
           // Better Auth clears newSession when the first factor still needs 2FA.
           // This plugin runs after the app plugins, so only completed sign-ins count.
@@ -181,11 +191,10 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
             recordedSessions.add(signedIn.session)
             await append("user.signed_in", signedIn.user.id, ctx, { method: method(ctx), device: authEventDevice(ctx.headers?.get("user-agent") ?? ctx.request?.headers.get("user-agent")), sessionId: signedIn.session.id }, signedIn.user.id)
           }
-          const outcome = outcomes.get(ctx.context)
           if (!signedIn && outcome instanceof APIError && (path.startsWith("/sign-in/") || path === "/magic-link/verify" || path === "/passkey/verify-authentication" || challenges.has(ctx.context))) {
             await append("sign_in.failed", null, ctx, { method: method(ctx) })
           }
-          if (result instanceof APIError) return
+          if (outcome instanceof APIError) return
           if (path === "/admin/set-user-password") {
             const userId = identifier(record(ctx.body).userId)
             if (userId) { await getSessionFromCtx(ctx, { disableRefresh: true }); await append("user.updated", userId, ctx, { fields: ["password"] }) }
@@ -214,15 +223,19 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
         if (authorization !== true) throw new APIError("FORBIDDEN")
         ctx.setHeader("cache-control", "no-store")
         const query = new URL(ctx.request.url).searchParams
+        let list: AuthEventListInput | undefined
+        let window: { from: string, to: string } | undefined
         try {
-          if (query.get("aggregate") === "true") return ctx.json(await options.store.aggregate({ from: query.get("from") ?? "", to: query.get("to") ?? "" }))
-          const input = Object.fromEntries([...query].filter(([key]) => key !== "limit"))
-          return ctx.json(await options.store.list({ ...input, ...(query.has("limit") ? { limit: Number(query.get("limit")) } : {}) } as AuthEventListInput))
+          if (query.get("aggregate") === "true") window = parseAuthEventWindow({ from: query.get("from") ?? "", to: query.get("to") ?? "" })
+          else {
+            const input = Object.fromEntries([...query].filter(([key]) => key !== "limit"))
+            list = parseAuthEventList({ ...input, ...(query.has("limit") ? { limit: Number(query.get("limit")) } : {}) }).query
+          }
         }
-        catch (error) {
-          if (error instanceof TypeError || error instanceof SyntaxError || error instanceof URIError || record(error).name === "ValiError") throw new APIError("BAD_REQUEST", { message: "Invalid auth event filters." })
-          throw error
+        catch {
+          throw new APIError("BAD_REQUEST", { message: "Invalid auth event filters." })
         }
+        return ctx.json(window ? await options.store.aggregate(window) : await options.store.list(list))
       }),
     } : {},
   }

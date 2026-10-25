@@ -89,6 +89,20 @@ const listSchema = v.object({
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
 })
 
+export function parseAuthEventList(input: unknown): { query: AuthEventListInput, before: [string, string] | undefined } {
+  const query = v.parse(listSchema, input)
+  const before = query.cursor ? v.parse(cursorSchema, JSON.parse(decodeURIComponent(query.cursor))) : undefined
+  if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new TypeError("Auth event from must be before to.")
+  return { query, before }
+}
+
+export function parseAuthEventWindow(window: { from: string, to: string }): { from: string, to: string } {
+  const from = new Date(v.parse(timestamp, window.from)).toISOString()
+  const to = new Date(v.parse(timestamp, window.to)).toISOString()
+  if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
+  return { from, to }
+}
+
 export const defaultAuthEventRetention: Required<AuthEventRetention> = {
   maxAgeMs: 90 * 24 * 60 * 60 * 1000,
   maxRecords: 100_000,
@@ -125,10 +139,8 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
       }
     },
     async list(input = {}) {
-      const query = v.parse(listSchema, input)
+      const { query, before } = parseAuthEventList(input)
       const limit = query.limit ?? 50
-      const before = query.cursor ? v.parse(cursorSchema, JSON.parse(decodeURIComponent(query.cursor))) : undefined
-      if (query.from && query.to && Date.parse(query.from) >= Date.parse(query.to)) throw new TypeError("Auth event from must be before to.")
       await initialize()
       const rows = await db.all(sql`SELECT payload FROM vitehub_auth_events WHERE ${visible()}
         ${query.type ? sql`AND type = ${query.type}` : sql``}
@@ -143,9 +155,7 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
       return { events, ...(rows.length > limit && last ? { nextCursor: encodeURIComponent(JSON.stringify([last.time, last.id])) } : {}) }
     },
     async aggregate(window) {
-      const from = new Date(v.parse(timestamp, window.from)).toISOString()
-      const to = new Date(v.parse(timestamp, window.to)).toISOString()
-      if (from >= to || Date.parse(to) - Date.parse(from) > 366 * 86400_000) throw new TypeError("Auth event windows must be positive and at most 366 days.")
+      const { from, to } = parseAuthEventWindow(window)
       await initialize()
       // One statement gives daily counts, full-window distinct users and methods one snapshot.
       const where = sql`${visible()} AND time >= ${from} AND time < ${to} AND type IN ('user.signed_up', 'user.signed_in')`

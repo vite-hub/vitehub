@@ -170,6 +170,63 @@ describe("auth events with real Better Auth and Node SQLite", () => {
     expect((await app.store.list({ type: "impersonation.stopped" })).events).toHaveLength(1)
   })
 
+  it("atomically records concurrent secondary-storage deletions", async () => {
+    const values = new Map<string, string>()
+    let deleting = false
+    let arrived = 0
+    let release!: () => void
+    const bothDeleting = new Promise<void>((resolve) => { release = resolve })
+    const app = await setup({ secondaryStorage: {
+      get: async (key) => {
+        const value = values.get(key) ?? null
+        if (deleting && key.startsWith("active-sessions-")) {
+          if (++arrived === 2) release()
+          await bothDeleting
+        }
+        return value
+      },
+      set: async (key, value) => { values.set(key, value) },
+      delete: async key => { values.delete(key) },
+      getAndDelete: async (key) => {
+        const value = values.get(key) ?? null
+        values.delete(key)
+        return value
+      },
+      increment: async () => 1,
+    } })
+    const user = await app.signUp("concurrent")
+    deleting = true
+    await Promise.all([
+      app.request("sign-out", {}, user.cookie),
+      app.request("sign-out", {}, user.cookie),
+    ])
+    const events = (await app.store.list()).events.filter(event => event.type === "user.signed_out" || event.type === "session.revoked")
+    expect(events).toHaveLength(1)
+    expect(values.has(user.token)).toBe(false)
+  })
+
+  it.each([false, true])("uses the committed password mutation outcome (failure: %s)", async (failure) => {
+    const app = await setup({ hooks: { after: createAuthMiddleware(async (ctx) => {
+      if (ctx.path !== "/admin/set-user-password") return
+      return failure ? ctx.json({ replaced: true }) : new APIError("BAD_REQUEST")
+    }) } })
+    const user = await app.signUp("password-hook")
+    await (await getAuthForDefinition(app.definition).$context).internalAdapter.updateUser(user.id, { role: "admin" })
+    await app.request("admin/set-user-password", { userId: failure ? "missing-user" : user.id, newPassword: "newpasswordpassword" }, user.cookie)
+    expect((await app.store.list({ type: "user.updated" })).events).toHaveLength(failure ? 0 : 1)
+  })
+
+  it.each(["list", "aggregate"] as const)("keeps %s store errors as server errors", async (operation) => {
+    const database = eventDatabase(); databases.push(database)
+    const store = createDatabaseAuthEventStore({ db: database.db })
+    store[operation] = async () => { throw new TypeError("Backend unavailable") }
+    const app = await setup({ events: { store, authorize: () => true } })
+    const user = await app.signUp("store-error")
+    const query = operation === "aggregate" ? "?aggregate=true&from=2026-01-01T00:00:00Z&to=2026-01-02T00:00:00Z" : ""
+    expect((await app.request(`vitehub/events${query}`, undefined, user.cookie)).status).toBe(500)
+    expect((await app.request("vitehub/events?cursor=%25", undefined, user.cookie)).status).toBe(400)
+  })
+
   it.each(["throw", "return", "replace-failure"])("uses the endpoint outcome before an application after-hook: %s", async (mode) => {
     const app = await setup({ hooks: { after: createAuthMiddleware(async (ctx) => {
       if (ctx.path !== "/sign-in/email") return
