@@ -4,6 +4,7 @@ import { describe, expectTypeOf, it } from "vitest"
 import type { Result } from "@vite-hub/runtime"
 
 import type { RealtimeAuthorizeContext, RealtimeCheckpoint, RealtimeRequestContext, RealtimeRequestErrorCode, RealtimeSaved } from "../src/index.ts"
+import type { RealtimeCaretUser } from "../src/vue.ts"
 import { useRealtimeTiptap } from "../src/vue.ts"
 
 declare const realtime: ReturnType<typeof useRealtimeTiptap>
@@ -32,6 +33,23 @@ describe("realtime client result types", () => {
       return
     }
     expectTypeOf(checkpoint).toEqualTypeOf<RealtimeCheckpoint>()
+  })
+})
+
+describe("realtime caret types", () => {
+  it("infers the person in the caret options", () => {
+    type Carets = NonNullable<Parameters<typeof useRealtimeTiptap>[2]>["carets"]
+    const carets: Carets = {
+      render: (user) => {
+        expectTypeOf(user).toEqualTypeOf<RealtimeCaretUser>()
+        return document.createElement("span")
+      },
+      selectionRender: user => ({ style: `background-color: ${user.color}` }),
+    }
+    void carets
+    // @ts-expect-error A caret is an element, not markup.
+    const markup: Carets = { render: (user: RealtimeCaretUser) => `<span>${user.name}</span>` }
+    void markup
   })
 })
 
