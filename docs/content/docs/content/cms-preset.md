@@ -115,7 +115,7 @@ Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. Th
 | `branch` | `main` | The published branch. `content.publish()` commits here. |
 | `draftBranch` | `vitehub/content` | The draft branch. The first save creates it from `branch`. It must differ from `branch`. |
 | `root` | `''` | The folder of the repository that collection paths start from. `''` is the repository root. |
-| `publish` | `commit` | How a publish reaches `branch`. Only `commit` works. |
+| `publish` | `commit` | How a publish reaches `branch`: `commit` commits to it, `pr` opens a pull request. See [Pull request mode](#pull-request-mode). |
 | `database` | The default or only Database | Database for editor sessions. |
 
 The options `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with `store: 'github'`. The `blob` option does not work with it.
@@ -137,17 +137,29 @@ The preset adds `contentSessionsSchema` to the Database, but not `workspaceHisto
 
 - **First save.** The first save of a document creates `draftBranch` from `branch` in the same commit. There is no seed commit. Until then the draft is the published content.
 - **Save and remove.** Each is one commit on `draftBranch` that changes one file. A busy draft branch is retried.
+- **Draft sync.** When `branch` moved since the draft last merged it, the next read or write of the draft merges `branch` into `draftBranch` with the GitHub Merges API (one request per new `branch` head, which the 5-second head cache bounds). Documents the draft did not change arrive as they are, and for a document both sides changed the merge keeps both edits when they touch different lines. The merge commit records the `branch` revision it brought in. A merge that conflicts leaves the draft as it is, once per pair of heads: the document stays editable, `publish()` names it, and saving it again from the published version clears the conflict.
 - **Publish.** `content.publish()` copies the documents that the draft changed to `branch` in one commit. The commit checks that `draftBranch` did not move. Other files of the repository stay as they are, and so do documents that changed or were added only on `branch`.
 - **Other files.** The generated Workspace denies every write except to the collection paths, for any `root`. Agents and raw history commits cannot change `package.json` or other files, and `main` and `draftBranch` can be written only as `published` and `draft`. With a `root` folder, the Workspace reads and writes files in that folder only.
 
 ### Limits
 
 - `content.schedule()` throws `CONTENT_R0016`. Use `content.publish()`.
-- `publish: 'pr'` is not available yet. The build fails with `CONTENT_B0001`. Pull request publishing comes in a follow-up release.
-- The draft branch does not take changes made on `branch` after the draft was created. A document that only `branch` changed or added is never touched by `publish()`: it is not reverted or deleted, and `status()` reports it as `published`. The draft keeps its old copy until you merge `branch` into `draftBranch` yourself.
+- A document that only `branch` changed or added is never touched by `publish()`: it is not reverted or deleted, and `status()` reports it as `published`. Draft sync brings such documents into the draft; until it runs, the draft keeps its old copy.
 - A document that the draft changed and `branch` changed too (or deleted) cannot be published. `publish()` throws `WORKSPACE_CONFLICT` with `ref: 'published'` and the documents, and publishes nothing, not even the other documents. Open the document to see the published version, make your change again, save, and publish again.
 - A draft commit that was not made by Content has no record of what it changed, so `publish()` then compares the draft with `branch` as the Blob + Database store does.
 - Each read and write calls the GitHub API, so GitHub rate limits apply. The head of a branch is cached for 5 seconds.
+
+### Pull request mode
+
+With `publish: 'pr'`, `content.publish()` does not touch `branch`. It checks the documents with the same rules as commit mode (only what the draft changed, whole publish refused on a conflict), then:
+
+1. creates the branch `vitehub/publish/<draft7>-<timestamp>` from the head of `branch` (`<draft7>` is the first 7 characters of the draft revision), and commits the changes there;
+2. opens a pull request from that branch into `branch`;
+3. returns `{ revision, documents, pullRequest: { number, url }, pending: true }`. `revision` is the commit on the publish branch.
+
+`onPublish` listeners and Comark source refreshes run when `branch` changes, so they do not run for a pending publish. Until the pull request merges, `status()` keeps the state of the document (`draft` or `changed`) and adds `pullRequest: { number, url }`. When `branch` has the bytes of the publish branch, the document is `published` and the link goes away. A closed pull request that was not merged shows nothing; the draft still has the change. The Console shows the link in the publish message, and `vitehub content publish` prints it.
+
+The pull request is a normal one: review it, wait for checks, and merge it as usual. The token needs permission to create branches and pull requests. Publish branches stay in the repository after the merge until you delete them.
 
 ## Hosts
 
@@ -157,7 +169,7 @@ The preset works on every host where both [Blob](/docs/blob/hosts) and [Database
 
 | Code | Cause | What to do |
 | --- | --- | --- |
-| `CONTENT_B0001` | The build cannot read the preset selection: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a string literal or is not valid for its option, a GitHub option is used without `store: 'github'`, or `publish` is `'pr'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. |
+| `CONTENT_B0001` | The build cannot read the preset selection: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a string literal or is not valid for its option, or a GitHub option is used without `store: 'github'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. |
 | `CONTENT_R0006` | The same checks fail when `defineContent()` runs. | Fix the option that the message names. |
 | `CONTENT_R0016` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
 | `WORKSPACE_R0072` | The GitHub store has no repository or no token at its first request. | Set `repo` or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, and `VITEHUB_GITHUB_TOKEN`. |

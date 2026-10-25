@@ -35,6 +35,7 @@ import type {
   ContentPublishMismatch,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -138,6 +139,7 @@ export type {
   ContentPublishMismatch,
   ContentPublishOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -407,6 +409,7 @@ export function defineContent<
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
         live,
+        ...(presetDefaults.publish ? { publish: presetDefaults.publish } : {}),
       })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []

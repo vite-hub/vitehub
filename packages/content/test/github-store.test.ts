@@ -14,6 +14,8 @@ import { createFakeGitHub, textSha } from "../../workspace/test/fake-github.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
+import { createContentConsoleActions } from "../src/runtime/console.ts"
+import cms from "../src/presets/cms.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
 
@@ -38,7 +40,7 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { database?: boolean, root?: string } = {}) {
+async function setup(options: { database?: boolean, publish?: "commit" | "pr", root?: string } = {}) {
   fake.commit("main", {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
@@ -67,7 +69,7 @@ async function setup(options: { database?: boolean, root?: string } = {}) {
     rules: { "**": { write: false } },
   })
   const content = defineContent({
-    workspace,
+    ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
     collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() } }) },
     logger: false,
   })
@@ -250,6 +252,128 @@ describe("Content on the GitHub store", () => {
       await posts.save("b", { data: { title: "B2" }, body: "" })
       expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "b", change: "update" }])
       expect((await posts.get("b"))?.data).toMatchObject({ title: "B2" })
+    })
+  })
+
+  describe("with publish: pr", () => {
+    const merges = () => fake.requests.filter(request => request.method === "POST" && request.path.endsWith("/merges"))
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+    })
+
+    it("opens a pull request instead of committing to the published branch", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "New\n" })
+      const main = fake.head("main")
+      const result = await content.publish()
+      expect(result).toMatchObject({ pending: true, pullRequest: { number: 1, url: "https://github.com/onmax/repo/pull/1" }, documents: [{ collection: "posts", id: "b", change: "add" }] })
+      expect(fake.head("main")).toBe(main)
+      expect(fake.pulls).toHaveLength(1)
+      expect(fake.pulls[0]).toMatchObject({ base: "main", draft: false })
+      expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}$/)
+      expect(fake.pulls[0]!.body).toContain("- posts/b (add)")
+      const branch = fake.commits.get(fake.head(fake.pulls[0]!.head)!)!
+      expect(branch.parents).toEqual([main])
+      expect(branch.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
+      expect(result.revision!.id).toBe(fake.head(fake.pulls[0]!.head))
+    })
+
+    it("returns the pull request from the Console publish action", async () => {
+      const { posts, workspace } = await setup({ publish: "pr" })
+      const saved = await posts.save("b", { data: { title: "B" }, body: "" })
+      const editor = defineContent({
+        extends: [cms, { store: "github", publish: "pr", workspace }] as const,
+        collections: { posts: documents({ path: "content/posts/**/*.md", fields: { title: z.string() } }) },
+        authorize: () => true,
+        logger: false,
+      })
+      cleanup.push(() => editor.dispose())
+      const result = await createContentConsoleActions({ content: editor }).publish({ collection: "posts", expect: [{ id: "b", digest: saved.digest }] }, { user: { id: "ada" } } as never)
+      expect(result).toMatchObject({ documents: [{ id: "b", change: "add" }], pullRequest: { number: 1, url: "https://github.com/onmax/repo/pull/1" } })
+    })
+
+    it("shows the pull request on the documents until the published branch has their bytes", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await posts.save("a", { data: { title: "A edited" }, body: "" })
+      await content.publish({ collection: "posts", ids: ["b"] })
+      vi.advanceTimersByTime(6_000)
+      const pr = { number: 1, url: "https://github.com/onmax/repo/pull/1" }
+      expect(await posts.status("b")).toMatchObject({ state: "draft", pullRequest: pr })
+      expect((await posts.status("a"))?.pullRequest).toBeUndefined()
+      fake.mergePullRequest(1)
+      vi.advanceTimersByTime(6_000)
+      expect(await posts.status("b")).toMatchObject({ state: "published" })
+      expect((await posts.status("b"))?.pullRequest).toBeUndefined()
+      expect(await posts.get("b")).toMatchObject({ data: { title: "B" } })
+    })
+
+    it("applies the conflict rules of commit mode and opens nothing", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      vi.advanceTimersByTime(6_000)
+      fake.commit("main", { "content/posts/a.md": page("A main") })
+      vi.advanceTimersByTime(6_000)
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.pulls).toHaveLength(0)
+      expect([...fake.commits.values()].length).toBeGreaterThan(0)
+    })
+
+    it("fails when GitHub refuses the pull request, and the draft stays", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      fake.respond(request => request.path.endsWith("/pulls") && request.method === "POST" ? new Response("{\"message\":\"nope\"}", { status: 403 }) : undefined)
+      await expect(content.publish()).rejects.toThrow()
+      expect(fake.pulls).toHaveLength(0)
+    })
+
+    it("merges published content into the draft once per published head", async () => {
+      const { posts } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      const draft = fake.head("vitehub/content")!
+      vi.advanceTimersByTime(6_000)
+      const added = fake.commit("main", { "content/posts/c.md": page("C"), "content/posts/a.md": page("A2") })
+      vi.advanceTimersByTime(6_000)
+      expect((await posts.list({ ref: "draft" })).items.map(item => item.id)).toEqual(["a", "b", "c"])
+      const merged = fake.commits.get(fake.head("vitehub/content")!)!
+      expect(merged.parents).toEqual([draft, added])
+      expect(merged.message).toContain("Vitehub-Metadata:")
+      expect(merges()).toHaveLength(1)
+      // The same pair costs no request.
+      await posts.list({ ref: "draft" })
+      await posts.status()
+      expect(merges()).toHaveLength(1)
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      // The next save builds on the merged draft and records the published head it has merged.
+      await posts.save("b", { data: { title: "B2" }, body: "" })
+      const saved = fake.commits.get(fake.head("vitehub/content")!)!
+      expect(saved.parents).toEqual([merged.sha])
+      expect(saved.message).toContain(added)
+    })
+
+    it("keeps working while a document conflicts with the published branch", async () => {
+      const { posts } = await setup()
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      const draft = fake.head("vitehub/content")
+      vi.advanceTimersByTime(6_000)
+      fake.commit("main", { "content/posts/a.md": page("A main") })
+      vi.advanceTimersByTime(6_000)
+      await posts.list({ ref: "draft" })
+      expect(merges()).toHaveLength(1)
+      expect(fake.head("vitehub/content")).toBe(draft)
+      // Another save goes through, and the same conflict is not tried again.
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      expect(merges()).toHaveLength(1)
+      expect(fake.commits.get(fake.head("vitehub/content")!)!.parents).toEqual([draft])
+      // The draft moved, so the next read tries the merge again.
+      await posts.list({ ref: "draft" })
+      expect(merges()).toHaveLength(2)
+      // Saving the document again from the published version clears it.
+      const published = (await posts.raw("a", { ref: "published" }))!
+      expect(published.text).toContain("A main")
     })
   })
 })

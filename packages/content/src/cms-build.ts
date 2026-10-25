@@ -29,7 +29,7 @@ export interface CmsGitHubPlan {
   draftBranch: string
   /** The folder in the repository, or `""` for the repository root. */
   root: string
-  publish: "commit"
+  publish: "commit" | "pr"
 }
 
 /** The resources that the `cms` preset borrows, resolved for one app. */
@@ -316,7 +316,7 @@ function githubPlan(options: CmsPresetOptions): CmsGitHubPlan {
     branch: options.branch ?? cmsGitHubDefaults.branch,
     draftBranch: options.draftBranch ?? cmsGitHubDefaults.draftBranch,
     root: options.root ?? cmsGitHubDefaults.root,
-    publish: "commit",
+    publish: options.publish ?? cmsGitHubDefaults.publish,
   }
 }
 

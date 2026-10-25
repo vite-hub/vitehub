@@ -377,7 +377,7 @@ async function publish(content: ContentDevRuntime, body: ContentDevRequestBody):
   const options: ContentPublishOptions = { expect: body.expect, metadata: cliMetadata }
   if (body.message !== undefined) options.message = body.message
   const result = await content.publish(options)
-  return { dryRun: false, revision: result.revision, documents: result.documents }
+  return { dryRun: false, revision: result.revision, documents: result.documents, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
 }
 
 async function schedule(content: ContentDevRuntime, body: ContentDevRequestBody) {

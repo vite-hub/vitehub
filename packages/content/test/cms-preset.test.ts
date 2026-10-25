@@ -345,10 +345,10 @@ describe("the cms preset on the GitHub store", () => {
     expect(error.message).toContain(message)
   })
 
-  it("names the follow-up when publish is pr", () => {
-    const error = errorOf(() => readCmsPresetUsage(githubSource("store: 'github', publish: 'pr'"), file, "/app", parseAst))
-    expect(error.code).toBe("CONTENT_B0001")
-    expect(error.message).toContain("pull request publishing comes in a follow-up release")
+  it("reads publish: pr and plans it", () => {
+    const usage = readCmsPresetUsage(githubSource("store: 'github', publish: 'pr'"), file, "/app", parseAst)!
+    expect(usage.options).toEqual({ store: "github", publish: "pr" })
+    expect(resolveCmsPresetPlan(usage, choices([]), "/app").github).toMatchObject({ publish: "pr" })
   })
 
   it("plans the GitHub store with its defaults, a Database, and no Blob store", () => {
@@ -380,7 +380,7 @@ describe("the cms preset on the GitHub store", () => {
   it("validates the options at runtime too", () => {
     const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
     expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "docs" }], collections })).message).toContain("option \"repo\" must be a repository in owner/name format.")
-    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", publish: "pr" }], collections })).message).toContain("pull request publishing comes in a follow-up release")
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", publish: "merge" as never }], collections })).message).toContain("option \"publish\" must be \"commit\" or \"pr\".")
     expect(errorOf(() => defineContent({ extends: [cms, { repo: "onmax/docs" }], collections })).message).toContain("only applies to store: \"github\"")
     expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }], collections, workspace: "x" })).message).toContain("sets workspace")
     const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs", root: "", workspace: "docs" }], collections, logger: false })

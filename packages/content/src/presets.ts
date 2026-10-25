@@ -10,6 +10,8 @@ const contentPresetMarker: unique symbol = Symbol.for("vitehub.content.preset")
 export interface ContentPresetDefaults {
   /** Workspace that stores the collections. */
   workspace?: string
+  /** How `publish()` reaches the published ref on a Store with pull requests. Defaults to `commit`. */
+  publish?: "commit" | "pr"
 }
 
 /**

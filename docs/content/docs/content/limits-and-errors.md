@@ -25,7 +25,7 @@ icon: i-lucide-circle-alert
 ## Collections
 
 - Collections need a Workspace whose Store keeps retained history, such as the Blob + Database Store. Other Stores fail on first use with `CONTENT_R0007`.
-- The [GitHub store](/docs/content/cms-preset#github-store) of the `cms` preset keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`) and no pull request mode (`publish: 'pr'` fails the build with `CONTENT_B0001`). Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
+- The [GitHub store](/docs/content/cms-preset#github-store) of the `cms` preset keeps history in Git. It has no schedules (`schedule()` throws `CONTENT_R0016`). With `publish: 'pr'`, `publish()` returns a pending result with a `pullRequest` and the documents stay pending until it merges. Digests are Git blob shas. Every read and write uses the GitHub API, so rate limits apply.
 - Content owns the `draft`, `published`, and `schedules` refs of its Workspace. Other writers can commit to them, and the validation hook checks their files, but `revisions()` attributes only commits made through Content.
 - The draft accepts fields that fail validation; `published` and every other ref do not. `status()` reads every draft file once per digest to count issues.
 - Validation is installed when `server/content.ts` loads. A writer that runs before that, for example in a fresh server instance, is not checked. `publish()` validates every file it publishes, so invalid files never reach `published`.
@@ -58,7 +58,7 @@ icon: i-lucide-circle-alert
 
 | Code | Cause | What to do |
 | --- | --- | --- |
-| `CONTENT_B0001` | The build cannot read how `server/content.ts` selects the `cms` preset, or an option is not valid, such as `publish: 'pr'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with string literal options. See [CMS preset](/docs/content/cms-preset#errors). |
+| `CONTENT_B0001` | The build cannot read how `server/content.ts` selects the `cms` preset, or an option is not valid. | Pass `extends: cms` or `extends: [cms, { ... }]` with string literal options. See [CMS preset](/docs/content/cms-preset#errors). |
 | `CONTENT_B0002` | Workspace, Database, or Blob is set to `false` in `vitehub()`, a Blob store or Database that the `cms` preset needs does not exist, or the Database choice is ambiguous. | Set the `vitehub()` setting or preset option that the message names. |
 | `CONTENT_INVALID` | `publish()` or `schedule()` found a draft with field issues, `get()` read an invalid document on `published`, a writer put an invalid file outside the draft, or a file cannot be parsed as an object of fields. `save()` throws it only for input that cannot become a file. `details.issues` lists `{ field, path, message }`; from `publish()` and `schedule()`, `details.documents` names every invalid document. | Fix the listed fields, save, and publish again. |
 | `WORKSPACE_CONFLICT` | `ifDigest` no longer matches the draft document, `ifHead` no longer matches the published head, or, on the GitHub store, a document that the draft changed also changed on the published branch (`details.ref` is `published`). `details` carry `ref`, `expected`, and `actual`. From `publish({ expect })`, a draft changed after review: `details` are `{ ref: 'draft', documents: [{ collection, id, expected, actual }] }`. | Read the document or head again and retry. After a `publish({ expect })` conflict, review the listed documents again. |

@@ -804,7 +804,9 @@ async function publish(): Promise<void> {
   try {
     // Publish exactly the draft on screen. A deleted document has no draft to expect.
     const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
-    if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
+    const pullRequest = result.pullRequest;
+    if (result.documents.length && pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
+    else if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
     notifyChanged();
     if (removing) await router.replace(listRoute());
     // Edits made while publishing stay on screen and save as the next draft.

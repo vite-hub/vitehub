@@ -191,6 +191,8 @@ export interface ContentDevPublishResult {
   /** The new `published` revision, or null for a dry run or when nothing differed. */
   revision: ContentDevRevision | null
   documents: ContentDevPublishDocument[]
+  /** With `publish: 'pr'`: the pull request that publishes the documents when it merges. */
+  pullRequest?: { number: number, url: string }
 }
 
 export interface ContentDevSchedulesResult {
