@@ -226,6 +226,12 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
     throw new ConsoleRequestError(400, "Unsupported Blob action.")
   }
+  if (route === "rate-limit" && call.method === "POST") {
+    // The Rate Limits page peeks at a counter and resets it through one route.
+    const { action, ...input } = body
+    if (action === "peek" || action === "reset") return { input, operation: `rate-limit.${action}` }
+    throw new ConsoleRequestError(400, "Unsupported Rate Limit action.")
+  }
   if (route === "schedule-run") return { input: body, operation: "schedules.run" }
   const known = Object.hasOwn(consoleRoutes, route) ? consoleRoutes[route] : undefined
   if (!known) throw new ConsoleRequestError(404, "Console operation not found.")

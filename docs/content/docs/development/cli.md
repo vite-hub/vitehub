@@ -42,7 +42,8 @@ Available namespaces:
   channels    External Channel registration workflows.
   content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
-  kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
+  kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
+  rate-limit  Read and reset Rate Limit counters of the app, on the dev server or on a deployed app.
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
@@ -94,7 +95,12 @@ Available namespaces:
 | `vitehub secret generate` | Available | Env Package | Print a new root secret for `VITEHUB_SECRET`. |
 | `vitehub secret derive` | Available | Env Package | Print the secret derived from `VITEHUB_SECRET` for one purpose. |
 | `vitehub email outbox` | Available | Email Package | List, show, or clear the messages that the development outbox captured, on the dev server or with `--url`. |
+| `vitehub email outbox-list` | Available | Email Package | Run `email.outbox-list` and print JSON. `vitehub email outbox list` prints a table. |
+| `vitehub email outbox-show` | Available | Email Package | Run `email.outbox-show <id>` and print JSON. |
+| `vitehub email outbox-clear` | Available | Email Package | Run `email.outbox-clear`, which removes every captured message, and print JSON. Asks for `--yes`. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
+| `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
+| `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |
@@ -174,6 +180,19 @@ pnpm vitehub email outbox clear
 Use `--json` for machine-readable output. The outbox is available only in `vite dev` and is cleared when the server restarts. Use `vitehub email preview <template>` to render a `server/emails` template without sending it.
 
 The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox-list`, `outbox-show`, and `outbox-clear`, which print JSON.
+
+## Read and reset Rate Limit counters
+
+Read or reset the counter of one key of a Rate Limit that `requireRateLimit()` enforces:
+
+```bash [Terminal]
+pnpm vitehub rate-limit peek <id> <key>
+pnpm vitehub rate-limit reset <id> <key>
+```
+
+`<id>` is the stable ID of `requireRateLimit()`, and `<key>` is the limited key, such as a client IP or a user ID. Use `--` before a key that starts with a dash. Both commands accept `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, they call the dev server of this project. With `--url https://app.example.com`, they call a deployed app that enables the [Console](/docs/development/console), with the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
+
+The commands run the `rate-limit.peek` and `rate-limit.reset` operations in the `rate-limits` Console section. `peek` reads and `reset` writes. The memory provider keeps counters in the server process, so a command sees only the counters of the process that answers it. The Cloudflare binding exposes only `limit()`, which consumes a token, so both commands report `unsupported` and exit with status 1. The Console **Rate Limits** page reads and resets the counter of a key through the same operations.
 
 ## Inspect Server Env
 

@@ -206,7 +206,7 @@ describe("Console requests", () => {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
-    expect(mocks.call).toHaveBeenCalledWith("kv.get", { key: "x".repeat(24_576), store: "default" })
+    expect(mocks.call).toHaveBeenCalledWith("kv.get", { key: "x".repeat(24_576), preview: true, store: "default" })
   })
 
   it("routes Agent invocation writes with the encoded Agent identity", async () => {
@@ -408,5 +408,31 @@ describe("Console requests", () => {
     controller.abort(new Error("navigation changed"))
 
     await expect(request).rejects.toThrow("navigation changed")
+  })
+})
+
+describe("Console storage actions", () => {
+  it.each([
+    { action: "set", operation: "kv.set", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache", value: "hi" } },
+    { action: "del", operation: "kv.del", path: "/api/_vitehub/console/kv", input: { key: "greeting", store: "cache" } },
+    { action: "put", operation: "blob.put", path: "/api/_vitehub/console/blob", input: { data: "aGk=", pathname: "docs/hi.txt" } },
+    { action: "del", operation: "blob.del", path: "/api/_vitehub/console/blob", input: { pathname: "docs/hi.txt" } },
+    { action: "peek", operation: "rate-limit.peek", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+    { action: "reset", operation: "rate-limit.reset", path: "/api/_vitehub/console/rate-limit", input: { key: "192.0.2.1", name: "login" } },
+  ])("sends the $action action of $path as $operation", async ({ action, input, operation, path }) => {
+    mocks.call.mockResolvedValue({ ok: true, value: { done: true } })
+    await expect(requestConsole(path, { body: { action, ...input }, method: "POST" })).resolves.toEqual({ done: true })
+    expect(mocks.call).toHaveBeenCalledWith(operation, input)
+  })
+
+  it.each(["/api/_vitehub/console/blob", "/api/_vitehub/console/rate-limit"])("rejects an unknown action of %s before the RPC", async path => {
+    await expect(requestConsole(path, { body: { action: "wipe" }, method: "POST" })).rejects.toMatchObject({ status: 400 })
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it("shows a failed write as the operation reports it", async () => {
+    mocks.call.mockResolvedValue({ code: "KV_UNSUPPORTED_OPERATION", message: "This store is read-only.", ok: false, status: 400 })
+    await expect(requestConsole("/api/_vitehub/console/kv", { body: { action: "del", key: "a", store: "default" }, method: "POST" }))
+      .rejects.toMatchObject({ status: 400, message: expect.stringContaining("read-only") })
   })
 })

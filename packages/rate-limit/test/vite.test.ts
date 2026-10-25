@@ -244,47 +244,22 @@ describe("hubRateLimit", () => {
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("adds the Rate Limit dev handler to Nitro only for the Development Server", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-dev-handler-"))
+  it("adds no Nitro route or handler for the operations", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-operations-"))
     roots.push(root)
     const plugin = hubRateLimit({ importBase: "vite-hub/_internal/rate-limit" } as never)
     const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
     expect(config(serveConfig, { command: "serve" })).toBeUndefined()
-    const devHandler = join(root, ".vitehub", "nitro", "rate-limit", "dev-handler.ts")
-    expect(serveConfig.nitro).toMatchObject({ baseURL: "/app/", handlers: [{ handler: devHandler, route: "/_vitehub/rate-limit/dev" }] })
+    expect(serveConfig.nitro).toMatchObject({ baseURL: "/app/", handlers: [] })
+    expect(plugin.configureServer).toBeUndefined()
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "serve", plugins: [], resolve: { alias: [] }, root } as never)
-    const source = await readFile(devHandler, "utf8")
-    expect(source).toContain("import { handleRateLimitDevRequest as handleViteHubDevRequest } from \"vite-hub/_internal/rate-limit/runtime/console\"")
-    expect(source).toMatch(/handleViteHubDevRequest\(event\.req, "[0-9a-f-]{36}"\)/)
-
-    const buildConfig: Record<string, unknown> = { root }
-    const buildPlugin = hubRateLimit({ provider: "memory" })
-    ;(buildPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown)(buildConfig, { command: "build" })
-    expect(buildConfig.nitro).toMatchObject({ handlers: [] })
+    await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "dev-handler.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it.each([false, true])("does not create or rewrite the dev token during CLI discovery with existing handler %s", async existing => {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-cli-discovery-"))
-    roots.push(root)
-    const config = { build: { outDir: "dist" }, command: "serve", plugins: [], resolve: { alias: [] }, root }
-    const devHandler = join(root, ".vitehub", "nitro", "rate-limit", "dev-handler.ts")
-    let original: string | undefined
-    if (existing) {
-      const serverPlugin = hubRateLimit()
-      await (serverPlugin.configResolved as (config: unknown) => Promise<void>)(config as never)
-      original = await readFile(devHandler, "utf8")
-    }
-    const discoveryPlugin = hubRateLimit()
-    const discoveryConfig = { ...config, nitro: { handlers: [{ handler: "consumer.ts", route: "/consumer" }] }, vitehubCliDiscovery: true }
-    const configure = discoveryPlugin.config as (config: unknown, env: { command: "serve" }) => unknown
-    configure(discoveryConfig, { command: "serve" })
-    expect(discoveryConfig.nitro.handlers).toEqual([{ handler: "consumer.ts", route: "/consumer" }])
-    await (discoveryPlugin.configResolved as (config: unknown) => Promise<void>)(discoveryConfig as never)
-    expect(discoveryConfig.nitro.handlers).toEqual([{ handler: "consumer.ts", route: "/consumer" }])
-    if (existing) expect(await readFile(devHandler, "utf8")).toBe(original)
-    else await expect(access(devHandler)).rejects.toMatchObject({ code: "ENOENT" })
+  it("contributes the rate-limit operations", () => {
+    expect(hubRateLimit().vitehub.operations).toEqual([expect.objectContaining({ export: "rateLimitOperations", module: "@vite-hub/rate-limit/operations" })])
   })
 
   it("contributes the `vitehub rate-limit` CLI commands", async () => {

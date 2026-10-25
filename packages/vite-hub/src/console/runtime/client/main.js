@@ -248,6 +248,7 @@ function addContributedRoutes(navigation) {
         agentsBase: consolePath("/api/_vitehub/console/agents"),
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         details,
+        ...(section === "rate-limits" ? { rateLimitBase: consolePath("/api/_vitehub/console/rate-limit") } : {}),
         ...(section === "schedules" ? { scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run") } : {}),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),

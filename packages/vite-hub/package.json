@@ -195,11 +195,11 @@
       "require": "./dist/_internal/rate-limit/runtime.js",
       "default": "./dist/_internal/rate-limit/runtime.js"
     },
-    "./_internal/rate-limit/runtime/console": {
-      "types": "./dist/_internal/rate-limit/runtime/console.d.ts",
-      "import": "./dist/_internal/rate-limit/runtime/console.js",
-      "require": "./dist/_internal/rate-limit/runtime/console.js",
-      "default": "./dist/_internal/rate-limit/runtime/console.js"
+    "./_internal/rate-limit/operations": {
+      "types": "./dist/_internal/rate-limit/operations.d.ts",
+      "import": "./dist/_internal/rate-limit/operations.js",
+      "require": "./dist/_internal/rate-limit/operations.js",
+      "default": "./dist/_internal/rate-limit/operations.js"
     },
     "./_internal/sandbox-task/runtime/state": {
       "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",

@@ -1,23 +1,16 @@
 import * as v from "valibot"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
-
+import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
 import { redactInspectionText } from "@vite-hub/internal/inspect"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
 
-import { rateLimitDevHeader, rateLimitDevHeaderValue, rateLimitDevRoute } from "./dev.ts"
 import { rateLimitErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
 import type { RateLimitPeekInspection, RateLimitResetInspection } from "./counters.ts"
-import type { RateLimitDevOperation, RateLimitDevRequestBody } from "./dev.ts"
 import type { RateLimitWindow } from "./types.ts"
 
-export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
+export type RateLimitCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface RateLimitCliOptions {
   fetch?: typeof fetch
@@ -25,7 +18,7 @@ export interface RateLimitCliOptions {
 
 interface RateLimitCommand {
   description: string
-  name: RateLimitDevOperation
+  name: "peek" | "reset"
 }
 
 interface ParsedRateLimitArgs {
@@ -34,19 +27,7 @@ interface ParsedRateLimitArgs {
   key?: string
   name?: string
   timeout?: number
-  url: string
-}
-
-interface RateLimitDevDiscovery {
-  message?: unknown
-  root?: unknown
-  runtime?: unknown
-}
-
-const rateLimitDevEndpoint = {
-  header: rateLimitDevHeader,
-  headerValue: rateLimitDevHeaderValue,
-  route: rateLimitDevRoute,
+  url?: string
 }
 
 const rateLimitDevTargetErrors = {
@@ -54,9 +35,6 @@ const rateLimitDevTargetErrors = {
   invalidTimeout: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0041({ message }),
   missingValue: (message: string) => rateLimitErrorDiagnostics.RATE_LIMIT_R0040({ message }),
 }
-
-// Nuxt mounts Vite under `/_nuxt/`, so the Rate Limit dev endpoint is not reachable there.
-const rateLimitDevServerHint = "`vitehub rate-limit` needs a running Vite + Nitro Development Server with `rateLimit` enabled. Nuxt and plain Vite are not supported."
 
 const rateLimitCommands: readonly RateLimitCommand[] = [
   { description: "Show the counter of one key without consuming a token.", name: "peek" },
@@ -72,22 +50,22 @@ function writeUsage(command: RateLimitCommand, stream: ViteHubCliStreams["stdout
     `Usage: ${commandUsage(command)}`,
     "",
     command.description,
-    "The command calls the Rate Limit runtime of a running Vite + Nitro Development Server.",
+    "The command runs the rate-limit operation of the app: on the dev server of this project, or on a deployed app with --url.",
     "`<id>` is the stable ID of `requireRateLimit()`. `<key>` is the limited key, for example a client IP or user ID.",
     "",
     "Use -- before a key that starts with a dash.",
     "",
     "Options:",
     "  --json            Print JSON.",
-    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
     "  -h, --help        Show this help.",
     "",
   ].join("\n"))
 }
 
-function parseArgs(args: readonly string[], env: NodeJS.ProcessEnv): ParsedRateLimitArgs {
-  const parsed: ParsedRateLimitArgs = { help: false, json: false, url: resolveViteHubDevServerUrl(env) }
+function parseArgs(args: readonly string[]): ParsedRateLimitArgs {
+  const parsed: ParsedRateLimitArgs = { help: false, json: false }
   let positionalOnly = false
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -170,7 +148,7 @@ const peekSchema = v.variant("status", [
 const resetSchema = v.variant("status", [v.object({ ...targetFields, scope: scopeSchema, status: v.literal("reset") }), unavailableSchema, unsupportedSchema])
 type RateLimitCliResult = { operation: "peek", value: RateLimitPeekInspection } | { operation: "reset", value: RateLimitResetInspection }
 
-function parseInspection(operation: RateLimitDevOperation, value: unknown): RateLimitCliResult | undefined {
+function parseInspection(operation: RateLimitCommand["name"], value: unknown): RateLimitCliResult | undefined {
   if (operation === "peek") {
     const parsed = v.safeParse(peekSchema, value)
     return parsed.success ? { operation, value: parsed.output } : undefined
@@ -179,30 +157,11 @@ function parseInspection(operation: RateLimitDevOperation, value: unknown): Rate
   return parsed.success ? { operation, value: parsed.output } : undefined
 }
 
-async function readFailure(response: Response): Promise<{ code?: string, message: string }> {
-  let text: string
-  try { text = await response.text() }
-  catch (error) { return { message: `Could not read the Rate Limit error response: ${error instanceof Error ? error.message : String(error)}` } }
-  try {
-    const body: unknown = JSON.parse(text)
-    const parsed = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.string() }) }), body)
-    if (parsed.success) return parsed.output.error
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `Rate Limit Dev request failed with HTTP ${response.status}.` }
-}
-
-function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: { code?: string, message: string }): number {
+function writeFailure(parsed: Pick<ParsedRateLimitArgs, "json">, context: RateLimitCliContext, failure: { code?: string, fix?: string, message: string }): number {
   const message = redactInspectionText(failure.message)
   if (parsed.json) context.stdout.write(`${JSON.stringify({ error: { ...failure, message } }, null, 2)}\n`)
-  else context.stderr.write(`${message}\n`)
+  else context.stderr.write(`${message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
   return 1
-}
-
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
 }
 
 async function runRateLimitCommand(
@@ -213,7 +172,7 @@ async function runRateLimitCommand(
 ): Promise<number> {
   let parsed: ParsedRateLimitArgs
   try {
-    parsed = parseArgs(args, context.env)
+    parsed = parseArgs(args)
   }
   catch (error) {
     const terminator = args.indexOf("--")
@@ -226,43 +185,16 @@ async function runRateLimitCommand(
     writeUsage(command, context.stdout)
     return 0
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<RateLimitDevDiscovery>({
-    endpoint: rateLimitDevEndpoint,
-    fetch: fetchImpl,
+  const called = await callOperationFromCli({
+    env: context.env,
+    fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
-    serverUrl: parsed.url,
-    ...withTimeout(parsed.timeout),
-    stderr: { write: (chunk) => { discoveryError += chunk; return true } },
-  })
-  if (!server) {
-    return writeFailure(parsed, context, { message: [discoveryError.trim(), rateLimitDevServerHint].filter(Boolean).join("\n") })
-  }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed, context, {
-      code: "RATE_LIMIT_DEV_RUNTIME_UNAVAILABLE",
-      message: v.is(v.string(), server.discovery.message)
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the Rate Limit runtime.",
-    })
-  }
-  const body: RateLimitDevRequestBody = { key: parsed.key!, name: parsed.name!, operation: command.name }
-  let response: Response
-  try {
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, rateLimitDevEndpoint, {
-      body: JSON.stringify(body),
-      headers: { accept: "application/json", "content-type": "application/json" },
-      method: "POST",
-      ...withTimeout(parsed.timeout),
-    })
-  }
-  catch (error) {
-    return writeFailure(parsed, context, { message: `Rate Limit Dev request failed: ${error instanceof Error ? error.message : String(error)}` })
-  }
-  if (!response.ok) return writeFailure(parsed, context, await readFailure(response))
-  const result = parseInspection(command.name, await response.json().catch(() => undefined))
-  if (!result) return writeFailure(parsed, context, { message: "The Rate Limit Dev response is invalid." })
+    ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+    ...(parsed.url ? { url: parsed.url } : {}),
+  }, `rate-limit.${command.name}`, { key: parsed.key!, name: parsed.name! })
+  if (!called.ok) return writeFailure(parsed, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  const result = parseInspection(command.name, called.value)
+  if (!result) return writeFailure(parsed, context, { message: "The rate-limit operation answered with an invalid result." })
   const output = result.operation === "peek" ? formatPeek(result.value) : formatReset(result.value)
   context.stdout.write(parsed.json ? `${JSON.stringify(result.value, null, 2)}\n` : output)
   // A counter that the provider cannot read or reset is a command failure, so scripts can check the exit code.
@@ -270,7 +202,8 @@ async function runRateLimitCommand(
 }
 
 /**
- * Runs one `vitehub rate-limit` command against a running Vite + Nitro Development Server.
+ * Runs one `vitehub rate-limit` command through the `rate-limit.*` operations, on the dev server of this project or on a
+ * deployed app with `--url`.
  * `args[0]` is the command name, `peek` or `reset`.
  */
 export async function runRateLimitCli(args: string[], context: RateLimitCliContext, options: RateLimitCliOptions = {}): Promise<number> {
@@ -286,7 +219,7 @@ export async function runRateLimitCli(args: string[], context: RateLimitCliConte
 export function createRateLimitCliContributor(options: RateLimitCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Read and reset Rate Limit counters in a running Vite + Nitro Development Server.",
+      description: "Read and reset Rate Limit counters in the running app.",
       features: rateLimitCommands.map(command => ({
         description: command.description,
         name: command.name,
