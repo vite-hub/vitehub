@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, stat, utimes, writeFile } from "node:fs/promises
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { H3Event } from "h3"
+import { H3, H3Event } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createDriver } from "../src/drivers/fs.ts"
@@ -45,6 +45,37 @@ describe("Blob response transforms", () => {
     expect(request.res.headers.get("cache-control")).toBe("private, no-cache")
   })
 
+  it.each([undefined, "bytes=0-9", "bytes=999-"])("serves HEAD from metadata with Range %s", async (range) => {
+    const app = new H3().all("/photo", async (request) => {
+      const [error, body] = await storage.serve(request, "private/original")
+      if (error) throw error
+      return body
+    })
+    const full = await app.fetch(new Request("https://example.test/photo"))
+    await full.text()
+    const get = vi.spyOn(driver, "get")
+    const response = await app.fetch(new Request("https://example.test/photo", {
+      method: "HEAD",
+      headers: range ? { range } : undefined,
+    }))
+
+    expect(response.status).toBe(200)
+    expect(await response.text()).toBe("")
+    for (const name of ["content-length", "content-type", "etag", "cache-control", "accept-ranges", "x-content-type-options"]) {
+      expect(response.headers.get(name), name).toBe(full.headers.get(name))
+    }
+    expect(response.headers.get("content-range")).toBeNull()
+    expect(get).not.toHaveBeenCalled()
+
+    const conditional = await app.fetch(new Request("https://example.test/photo", {
+      method: "HEAD",
+      headers: { "if-none-match": full.headers.get("etag")! },
+    }))
+    expect(conditional.status).toBe(304)
+    expect(await conditional.text()).toBe("")
+    expect(get).not.toHaveBeenCalled()
+  })
+
   it("accepts native HTTP request and response fields without an H3 event", async () => {
     const request = { req: new Request("https://example.test/photo"), res: { headers: new Headers(), status: 200 } }
     const [error, body] = await storage.serve(request, "private/original", options)
@@ -57,6 +88,32 @@ describe("Blob response transforms", () => {
     const [, response] = await storage.serve(conditional, "private/original", options)
     expect(response).toBeNull()
     expect(conditional.res.status).toBe(304)
+  })
+
+  it.each(["size", "contentType"] as const)("reads the body for HEAD when metadata lacks %s", async (field) => {
+    const head = driver.head.bind(driver)
+    vi.spyOn(driver, "head").mockImplementation(async (path) => {
+      const meta = await head(path)
+      return meta ? { ...meta, [field]: undefined } : null
+    })
+    const get = vi.spyOn(driver, "get")
+    const request = event(undefined, "HEAD")
+    const [error, body] = await storage.serve(request, "private/original")
+    expect(error).toBeNull()
+    await body?.cancel()
+    expect(request.res.headers.get("content-length")).toBe("26")
+    expect(request.res.headers.get("content-type")).toBe("text/plain")
+    expect(get).toHaveBeenCalledOnce()
+  })
+
+  it("uses the derived size and type for transformed HEAD responses", async () => {
+    const request = event(undefined, "HEAD")
+    const [error, body] = await storage.serve(request, "private/original", options)
+    expect(error).toBeNull()
+    await body?.cancel()
+    expect(request.res.headers.get("content-length")).toBe("6")
+    expect(request.res.headers.get("content-type")).toBe("text/plain")
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it("revalidates normal reads when another writer replaces the body and content type", async () => {
