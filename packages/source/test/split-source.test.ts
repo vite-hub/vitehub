@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest"
 import { createSource, defineSource, splitSource } from "../src/index.ts"
 import { file } from "../src/file.ts"
 
+import type { SourceContext } from "../src/index.ts"
+
 const docs = defineSource({
   name: "docs",
   async getKeys() {
@@ -25,6 +27,45 @@ function sections(content: string) {
 }
 
 describe("splitSource()", () => {
+  it("keeps split parts and metadata checks within each reader's revision", async () => {
+    let revision = "old"
+    const source = defineSource({
+      name: "revisions",
+      async resolveRevision() { return { id: revision, immutable: true } },
+      async getKeys() { return ["entry"] },
+      async getItem(key: string, ctx: SourceContext) {
+        return { key, content: ctx.revision!.id }
+      },
+      async getMeta(_key: string, ctx: SourceContext) {
+        return { revision: ctx.revision!.id }
+      },
+    })
+    const split = vi.fn((item: { content: string }) => [{ key: item.content, content: item.content }])
+    const definition = splitSource({ source, split })
+    const oldReader = createSource(definition)
+    await expect(oldReader.keys()).resolves.toEqual(["entry#old"])
+
+    revision = "new"
+    const newReader = createSource(definition)
+    await expect(newReader.meta("entry#new")).resolves.toEqual({ revision: "new" })
+    await expect(newReader.items()).resolves.toEqual([{ key: "entry#new", content: "new" }])
+    await expect(newReader.get("entry#new")).resolves.toEqual({ key: "entry#new", content: "new" })
+    await expect(oldReader.get("entry#old")).resolves.toEqual({ key: "entry#old", content: "old" })
+    await expect(oldReader.meta("entry#new")).rejects.toThrow("could not find")
+    expect(split).toHaveBeenCalledTimes(2)
+  })
+
+  it("does not reuse a failed split when opening another reader", async () => {
+    const split = vi.fn<() => Promise<{ key: string, content: string }[]>>()
+      .mockRejectedValueOnce(new Error("split failed"))
+      .mockResolvedValue([{ key: "part", content: "recovered" }])
+    const definition = splitSource({ source: docs, split })
+
+    await expect(createSource(definition).get("bars.md#part")).rejects.toThrow("split failed")
+    await expect(createSource(definition).get("bars.md#part")).resolves.toMatchObject({ content: "recovered" })
+    expect(split).toHaveBeenCalledTimes(2)
+  })
+
   it("lists one item per part, keyed by the parent key and the part key", async () => {
     const reader = createSource(splitSource({
       source: docs,
