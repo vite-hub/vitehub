@@ -15,6 +15,18 @@ describe("KV inspection values", () => {
     expect(inspectKVValue(new Uint8Array([0, 127, 255]))).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
   })
 
+  it("preserves nested JSON primitives and null-prototype records", () => {
+    const value = {
+      values: [null, true, false, "", "text", 0, -1, 1.5, Number.MAX_VALUE],
+    }
+    Object.setPrototypeOf(value, null)
+    expect(inspectKVValue(value)).toEqual({ type: "object", value: { values: value.values } })
+  })
+
+  it.each([NaN, -Infinity, Symbol("value"), () => {}, Object(1), Object("text"), Object(false)])("rejects unsupported nested primitives and boxed values: %s", (value) => {
+    expect(inspectKVValue({ value })).toBeUndefined()
+  })
+
   it.each([0, 1, 2, 3, 65_535, 65_536, 65_537])("encodes a %i-byte subarray with standard Base64 padding", (length) => {
     const source = Uint8Array.from({ length: length + 17 }, (_, index) => index % 256)
     const value = source.subarray(7, 7 + length)

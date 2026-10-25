@@ -1,5 +1,3 @@
-import * as v from "valibot"
-
 class UnsupportedValueError extends Error {}
 
 function isUint8Array(value: unknown): value is Uint8Array {
@@ -50,9 +48,10 @@ function encodeBase64(bytes: Uint8Array): string {
 
 /** JSON inspection accepts JSON values and represents bigint values as decimal strings. */
 function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
-  if (v.is(v.bigint(), value)) return value.toString()
-  if (v.is(v.union([v.null(), v.string(), v.boolean(), v.pipe(v.number(), v.finite())]), value) && !Object.is(value, -0)) return value
-  if (!v.is(v.custom<object>(value => value !== null && Object(value) === value), value) || seen.has(value)) {
+  if (typeof value === "bigint") return value.toString()
+  if (value === null || typeof value === "string" || typeof value === "boolean") return value
+  if (typeof value === "number" && Number.isFinite(value) && !Object.is(value, -0)) return value
+  if ((typeof value !== "object" && typeof value !== "function") || seen.has(value)) {
     throw new UnsupportedValueError()
   }
   seen.add(value)
@@ -64,7 +63,7 @@ function inspectValue(value: unknown, seen = new WeakSet<object>()): unknown {
       throw new UnsupportedValueError()
     }
     if (Array.isArray(value)) {
-      if (dataKeys.length !== value.length || dataKeys.some(key => !v.is(v.string(), key) || String(Number(key)) !== key || !Number.isInteger(Number(key)) || Number(key) < 0 || Number(key) >= value.length)) {
+      if (dataKeys.length !== value.length || dataKeys.some(key => typeof key !== "string" || String(Number(key)) !== key || !Number.isInteger(Number(key)) || Number(key) < 0 || Number(key) >= value.length)) {
         throw new UnsupportedValueError()
       }
       return Array.from({ length: value.length }, (_, index) => inspectValue(Object.getOwnPropertyDescriptor(value, String(index))?.value, seen))
