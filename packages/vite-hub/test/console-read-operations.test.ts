@@ -116,9 +116,10 @@ describe("database operations", () => {
 })
 
 describe("usage operation", () => {
-  it("reads the Usage section, and is `vitehub usage get`", () => {
+  it("reads the Usage section, and is `vitehub usage`", () => {
     const usage = consoleOperations.find(operation => operation.name === "usage.get")
     expect(usage).toMatchObject({ kind: "read", section: "usage" })
     expect(usage && operationCliPath(usage)).toEqual({ command: "get", namespace: "usage" })
+    expect(usage?.cli?.default).toBe(true)
   })
 })

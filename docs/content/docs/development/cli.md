@@ -112,7 +112,7 @@ Available namespaces:
 | `vitehub queue send` | Available | Queue Package | Send one job to a Queue Definition. |
 | `vitehub task list` | Available | ViteHub Framework | List the Nitro tasks that the app registers. |
 | `vitehub task run` | Available | ViteHub Framework | Run one Nitro task, such as a seed or a backfill, with the app's bindings. |
-| `vitehub usage get` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
+| `vitehub usage` | Available | ViteHub Framework | Read token use and cost of Agent Invocations over a time window. |
 | `vitehub sandbox check` | Available | Sandbox Package | Start the provider Driver through the SSH runner and report readiness. |
 | `vitehub sandbox serve` | Available | Sandbox Package | Serve authenticated SSH commands from this machine. With `--drain-timeout <ms>` or `VITEHUB_SANDBOX_DRAIN_TIMEOUT_MS`, SIGTERM and SIGINT stop new connections and wait up to that time for open ones to close. |
 | `vitehub workflow start` | Available | Workflow Package | Start a discovered Workflow in the local development runtime. |
@@ -482,7 +482,7 @@ pnpm vitehub invocations delete ainv_123 --yes
 pnpm vitehub invocations list --url https://app.example.com
 ```
 
-The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 
 | Option | Use it for |
 | --- | --- |

@@ -46,7 +46,7 @@ export const reportOperations = [
 | `kind` | `read` never changes state. `write` changes state. `destructive` deletes or publishes. |
 | `input` | A Standard Schema. Valibot is the schema library of this repository. Its JSON Schema makes the CLI options and the tool input. |
 | `output` | Optional. A Standard Schema of the result. |
-| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists the input keys that you pass without a flag. `format` prints a human result; without it the CLI prints JSON. |
+| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists the input keys that you pass without a flag. `default: true` makes `vitehub <namespace>` run the command when no command is named, as `vitehub usage` does; `vitehub usage get` also works. `format` prints a human result; without it the CLI prints JSON. |
 | `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
 | `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips the confirmation and an agent runs it without approval. Without it, every call of a `destructive` operation asks. |
 | `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |

@@ -277,7 +277,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
 async function runNamespace(namespace: ViteHubCliCommandNamespace, args: string[], context: ViteHubCliContext): Promise<number> {
   const { stderr, stdout } = context
   const featureName = args[1]
-  if (!featureName || args[1] === "-h" || args[1] === "--help") {
+  if (featureName === "-h" || featureName === "--help") {
+    writeNamespaceHelp(namespace, stdout)
+    return 0
+  }
+  // `vitehub usage` and `vitehub usage --json` run the default feature of the namespace.
+  const defaultFeature = namespace.defaultFeature ? namespace.features.find(item => item.name === namespace.defaultFeature) : undefined
+  if (defaultFeature && (!featureName || featureName.startsWith("-"))) return await defaultFeature.run(args.slice(1), context) ?? 0
+  if (!featureName) {
     writeNamespaceHelp(namespace, stdout)
     return 0
   }

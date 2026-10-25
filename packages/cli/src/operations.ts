@@ -397,6 +397,7 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
     const { namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
     namespace.features.push(featureOf(operation))
+    if (operation.cli?.default) namespace.defaultFeature = operationCliPath(operation).command
     namespaces.set(name, namespace)
   }
   return [...namespaces.values()]
@@ -415,6 +416,7 @@ export function mergeOperationNamespaces(written: readonly ViteHubCliCommandName
       continue
     }
     for (const feature of namespace.features) if (!existing.features.some(candidate => candidate.name === feature.name)) existing.features.push(feature)
+    if (namespace.defaultFeature && !existing.defaultFeature) existing.defaultFeature = namespace.defaultFeature
   }
   return merged
 }

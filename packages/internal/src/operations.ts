@@ -101,6 +101,8 @@ export interface OperationDefinition<Input, Output> {
     positional?: string[]
     /** Human output. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
+    /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
+    default?: boolean
   }
   /** Largest request body in bytes. It can raise the 64 KiB default but not lower it. */
   maxRequestBytes?: number
@@ -117,7 +119,7 @@ export interface OperationDefinition<Input, Output> {
 /** An operation of any input and output, as a registry holds it. */
 export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "section"> {
   readOnlyWhen?: (input: never) => boolean
-  cli?: { namespace?: string, command?: string, positional?: string[], format?: (output: never) => string }
+  cli?: { namespace?: string, command?: string, default?: boolean, positional?: string[], format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
   run: (input: never, context: OperationContext) => unknown

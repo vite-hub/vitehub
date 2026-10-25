@@ -57,6 +57,16 @@ const failing = defineOperation({
   section: "reports",
 })
 
+const digest = defineOperation({
+  cli: { default: true },
+  description: "Read the digest.",
+  input: v.strictObject({ window: v.optional(v.string()) }),
+  kind: "read",
+  name: "digest.get",
+  run: ({ window }) => ({ window: window ?? "day" }),
+  section: "digest",
+})
+
 const cleanup: string[] = []
 
 afterEach(async () => {
@@ -68,7 +78,7 @@ function stream() {
   return { output: () => value, write: (chunk: string | Uint8Array) => { value += String(chunk); return true } }
 }
 
-const operationList = [list, remove, failing, rich]
+const operationList = [list, remove, failing, rich, digest]
 
 // A dev server that runs the operations of the fixture plugin.
 function server(origin = "http://localhost:5173", headers: Record<string, string> = {}) {
@@ -112,6 +122,18 @@ describe("generated operation commands", () => {
     const help = await run(["reports", "list", "--help"])
     expect(help.stdout).toContain("Usage: vitehub reports list <team> [--dry-run] [--limit <value>] [--tags <value>] [--input <json|@file>] [--json] [--url <origin>]")
     expect(help.stdout).toContain("List the reports of a team.")
+    expect(help.fetch).not.toHaveBeenCalled()
+  })
+
+  it("runs the default command of a namespace when none is named", async () => {
+    const bare = await run(["digest"])
+    expect(bare.code).toBe(0)
+    expect(JSON.parse(bare.stdout)).toEqual({ window: "day" })
+    const flagged = await run(["digest", "--window", "week", "--json"])
+    expect(JSON.parse(flagged.stdout)).toEqual({ window: "week" })
+    expect((await run(["digest", "get", "--window", "week"])).code).toBe(0)
+    const help = await run(["digest", "--help"])
+    expect(help.stdout).toContain("get")
     expect(help.fetch).not.toHaveBeenCalled()
   })
 
@@ -231,6 +253,6 @@ describe("generated operation commands", () => {
   it("lists the operations as a Definition kind", async () => {
     const result = await run(["inspect", "definitions", "--kind", "operation", "--json"])
     expect(result.code).toBe(0)
-    expect(JSON.parse(result.stdout).definitions[0].definitions.map((definition: { name: string }) => definition.name)).toEqual(["reports.delete", "reports.fail", "reports.list", "reports.rich"])
+    expect(JSON.parse(result.stdout).definitions[0].definitions.map((definition: { name: string }) => definition.name)).toEqual(["digest.get", "reports.delete", "reports.fail", "reports.list", "reports.rich"])
   })
 })

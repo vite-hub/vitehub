@@ -314,6 +314,7 @@ const statusGet = defineConsoleOperation({
 })
 
 const usageGet = defineConsoleOperation({
+  cli: { default: true },
   description: "Read token use and cost evidence of Agent Invocations.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",
