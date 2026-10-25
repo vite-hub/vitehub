@@ -458,7 +458,7 @@ const dynamicError = {
 
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
 export const agentDiagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
+  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics",
   codes: {
     AGENT_R0907: dynamicError,
     AGENT_R0908: dynamicError,
