@@ -17,6 +17,12 @@ describe("seal", () => {
     expect(await unseal(key, aad("a"), payload)).toBe("secret-value");
   });
 
+  it.each(["\uFEFFsecret", "\uFEFF", "\uFEFF\uFEFFsecret", "before\uFEFFafter"])("preserves Unicode byte-order marks in %j", async (plaintext) => {
+    const key = await importSealKey(raw);
+    const payload = await seal(key, aad("a"), plaintext);
+    expect(await unseal(key, aad("a"), payload)).toBe(plaintext);
+  });
+
   it("rejects a different key, additional data, or a malformed payload", async () => {
     const key = await importSealKey(raw);
     const payload = await seal(key, aad("a"), "secret-value");
