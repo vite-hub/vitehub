@@ -17,6 +17,8 @@ const renderer = createRenderer({
 })
 
 interface ScheduleState {
+  loadDefinitions: () => Promise<void>
+  recordOpen: boolean
   selectedName: string | undefined
   selectedRun: ConsoleScheduleRunView | undefined
   selectDefinition: (name: string) => void
@@ -52,6 +54,44 @@ describe("Console Schedule result selection", () => {
       expect(state.selectedRun).toBeUndefined()
       state.selectDefinition(name)
       expect(state.selectedRun).toEqual({ id: "run-1", status: "succeeded" })
+    }
+    finally {
+      app.unmount()
+    }
+  })
+})
+
+describe("Console record selection URL", () => {
+  it.each(["missing", "removed", "retained"])("normalizes the selection when a record is %s", async (scenario) => {
+    const record = { id: "outbox-3", cells: { subject: "Hello" }, fields: [] }
+    const response = (present: boolean) => ({ section: "email", kind: "record-table", records: present ? [record] : [] })
+    mocks.request.mockReset().mockResolvedValueOnce(response(scenario !== "missing"))
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: "/email", component: {} },
+    ] })
+    await router.push({ path: "/email", query: { record: record.id, search: "hello" } })
+    const app = renderer.createApp({ ...Definitions, render: () => null }, {
+      agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
+      searchBase: "/search", sectionsBase: "/sections",
+      details: { id: "email", label: "Email", icon: "i-lucide-mail", description: "Email", view: { kind: "record-table", notice: "Outbox", columns: [{ key: "subject", label: "Subject" }] } },
+    })
+    app.use(router)
+    app.provide(ssrContextKey, {})
+    try {
+      const instance = app.mount({})
+      const state = (instance.$ as unknown as { setupState: ScheduleState }).setupState
+      await nextTick()
+      if (scenario !== "missing") {
+        expect(state.recordOpen).toBe(true)
+        mocks.request.mockResolvedValueOnce(response(scenario === "retained"))
+        await state.loadDefinitions()
+      }
+      const retained = scenario === "retained"
+      expect(state.recordOpen).toBe(retained)
+      expect(state.selectedName).toBe(retained ? record.id : undefined)
+      await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({
+        ...(retained ? { record: record.id } : {}), search: "hello",
+      }))
     }
     finally {
       app.unmount()

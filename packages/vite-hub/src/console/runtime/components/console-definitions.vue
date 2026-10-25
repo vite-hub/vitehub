@@ -157,6 +157,7 @@ async function loadDefinitions(): Promise<void> {
     selectedName.value = entries.value.some((entry) => entry.id === previousSelection)
       ? previousSelection
       : catalogView.value ? entries.value[0]?.id : undefined;
+    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined);
     error.value = undefined;
   } catch (requestError) {
     if (
