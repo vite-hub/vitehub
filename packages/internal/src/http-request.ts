@@ -201,6 +201,10 @@ async function fetchOnce(
           method: definition.method,
           signal: controller.signal,
         })
+        if (controller.signal.aborted) {
+          cancelResponseBody(response)
+          controller.signal.throwIfAborted()
+        }
       }
       catch (cause) {
         return { failure: { cause, retryable: retryFetchError(cause) } }

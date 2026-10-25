@@ -70,7 +70,7 @@ describe("UI documentation", () => {
     expect(blockPages.length).toBeGreaterThanOrEqual(2);
     for (const page of blockPages) {
       expect(page.source, page.name).toMatch(/::component-preview\{name="[A-Za-z]+Block" flush reset\}/);
-      expect(page.source, page.name).toContain("navigation.group: Console");
+      expect(page.source, page.name).toContain("navigation.group: Blocks");
     }
   });
 
@@ -193,10 +193,12 @@ describe("UI documentation", () => {
     expect(layout).toContain("overflow: hidden;");
   });
 
-  it("lists the Vue ecosystem perspective in the getting started sidebar", () => {
+  it("links the Vue ecosystem perspective from the introduction instead of the beginner sidebar", () => {
     const page = readFileSync(resolve(docsRoot, "content/docs/getting-started/built-for-vue.md"), "utf8");
 
-    expect(page).not.toContain("navigation: false");
+    expect(page).toContain("navigation: false");
+    expect(readFileSync(resolve(docsRoot, "content/docs/getting-started/index.md"), "utf8"))
+      .toContain("/docs/getting-started/built-for-vue");
     expect(page).toContain("navigation.title: Built for the Vue ecosystem");
     expect(page).toContain("I am Maxi");
   });

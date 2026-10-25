@@ -1,7 +1,9 @@
 ---
 title: Babysitter
 description: Deploy an Agent that repairs pull requests, waits for checks, and merges ready ones.
-navigation.group: Configure
+navigation.group: Presets
+navigation.order: 91
+navigation.kind: Guides
 ---
 
 The Babysitter preset repairs selected pull requests. It addresses review feedback from people and bots, fixes failing checks, and pushes the repair. Then it waits for check and review results without another model pass. It can also merge ready pull requests.

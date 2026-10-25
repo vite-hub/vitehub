@@ -1,3 +1,4 @@
+import { authFixture } from "./auth-fixture.ts";
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
 import * as v from "valibot"
@@ -32,7 +33,23 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"] as const
+const sections = [
+  "auth",
+  "env",
+  "connections",
+  "agents",
+  "usage",
+  "blob",
+  "databases",
+  "email",
+  "kv",
+  "rate-limits",
+  "sandbox-tasks",
+  "workspaces",
+  "workflows",
+  "queues",
+  "schedules",
+] as const;
 const definitions = {
   "rate-limits": [
     {
@@ -160,8 +177,8 @@ async function captureEmailOutbox(): Promise<void> {
   }).catch(() => undefined)
   await capture.send({
     from: "hello@acme.test",
-    headers: { "Authorization": "Bearer re_playground_secret" },
-    html: "<p onclick=\"steal()\">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert(\"xss\")</script>",
+    headers: { Authorization: "Bearer re_playground_secret" },
+    html: '<p onclick="steal()">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert("xss")</script>',
     preheader: "Start here",
     subject: "Welcome to Acme",
     text: "Welcome, Linus.",
@@ -203,15 +220,76 @@ let scheduleRunCount = 0
 
 const blobStores = {
   default: [
-    { contentType: "image/png", customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" }, httpEtag: "\"7d3f1c9a\"", httpMetadata: { cacheControl: "public, max-age=31536000" }, pathname: "screenshots/console-empty-states/kv-dark.png", size: 184_320, uploadedAt: "2026-08-30T16:41:12.000Z", urlAvailable: true as const },
-    { contentType: "image/png", customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" }, httpEtag: "\"5b2e0a44\"", httpMetadata: { cacheControl: "public, max-age=31536000" }, pathname: "screenshots/console-empty-states/kv-light.png", size: 176_128, uploadedAt: "2026-08-30T16:41:13.000Z", urlAvailable: true as const },
-    { contentType: "application/json", customMetadata: {}, httpEtag: "\"c01d2e3f\"", httpMetadata: {}, pathname: "exports/usage-2026-08.json", size: 24_576, uploadedAt: "2026-08-29T06:00:00.000Z" },
-    { contentType: "text/csv", customMetadata: { source: "billing" }, httpEtag: "\"9a8b7c6d\"", httpMetadata: { contentDisposition: "attachment; filename=\"usage-september.csv\"" }, pathname: "exports/usage-september.csv", size: 2_048, uploadedAt: "2026-09-01T06:00:00.000Z" },
-    { contentType: "application/pdf", customMetadata: {}, httpEtag: "\"e4f5a6b7\"", httpMetadata: {}, pathname: "invoices/inv_2026_09.pdf", size: 96_201, uploadedAt: "2026-09-01T06:00:04.000Z", urlAvailable: true as const },
+    {
+      contentType: "image/png",
+      customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" },
+      httpEtag: '"7d3f1c9a"',
+      httpMetadata: { cacheControl: "public, max-age=31536000" },
+      pathname: "screenshots/console-empty-states/kv-dark.png",
+      size: 184_320,
+      uploadedAt: "2026-08-30T16:41:12.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "image/png",
+      customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" },
+      httpEtag: '"5b2e0a44"',
+      httpMetadata: { cacheControl: "public, max-age=31536000" },
+      pathname: "screenshots/console-empty-states/kv-light.png",
+      size: 176_128,
+      uploadedAt: "2026-08-30T16:41:13.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "application/json",
+      customMetadata: {},
+      httpEtag: '"c01d2e3f"',
+      httpMetadata: {},
+      pathname: "exports/usage-2026-08.json",
+      size: 24_576,
+      uploadedAt: "2026-08-29T06:00:00.000Z",
+    },
+    {
+      contentType: "text/csv",
+      customMetadata: { source: "billing" },
+      httpEtag: '"9a8b7c6d"',
+      httpMetadata: { contentDisposition: 'attachment; filename="usage-september.csv"' },
+      pathname: "exports/usage-september.csv",
+      size: 2_048,
+      uploadedAt: "2026-09-01T06:00:00.000Z",
+    },
+    {
+      contentType: "application/pdf",
+      customMetadata: {},
+      httpEtag: '"e4f5a6b7"',
+      httpMetadata: {},
+      pathname: "invoices/inv_2026_09.pdf",
+      size: 96_201,
+      uploadedAt: "2026-09-01T06:00:04.000Z",
+      urlAvailable: true as const,
+    },
   ],
   uploads: [
-    { contentType: "image/svg+xml", customMetadata: { attachment: "desktop-layout.svg" }, httpEtag: "\"11aa22bb\"", httpMetadata: {}, pathname: "attachments/ainv_image_previews/desktop-layout.svg", size: 1_842, uploadedAt: "2026-09-05T18:00:00.000Z", urlAvailable: true as const },
-    { contentType: "image/svg+xml", customMetadata: { attachment: "mobile-layout.svg" }, httpEtag: "\"33cc44dd\"", httpMetadata: {}, pathname: "attachments/ainv_image_previews/mobile-layout.svg", size: 1_311, uploadedAt: "2026-09-05T18:00:00.000Z", urlAvailable: true as const },
+    {
+      contentType: "image/svg+xml",
+      customMetadata: { attachment: "desktop-layout.svg" },
+      httpEtag: '"11aa22bb"',
+      httpMetadata: {},
+      pathname: "attachments/ainv_image_previews/desktop-layout.svg",
+      size: 1_842,
+      uploadedAt: "2026-09-05T18:00:00.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "image/svg+xml",
+      customMetadata: { attachment: "mobile-layout.svg" },
+      httpEtag: '"33cc44dd"',
+      httpMetadata: {},
+      pathname: "attachments/ainv_image_previews/mobile-layout.svg",
+      size: 1_311,
+      uploadedAt: "2026-09-05T18:00:00.000Z",
+      urlAvailable: true as const,
+    },
   ],
 } as const
 
@@ -789,6 +867,10 @@ export function consoleMockAPI(): Plugin {
             response.statusCode = 302
             response.setHeader("location", "/_vitehub/")
             response.end()
+            return
+          }
+          if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
+            json(response, authFixture(await body(request)));
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/connections") {

@@ -1,5 +1,6 @@
 import type { AccessAuthorizationContext, AccessAuthorize, AccessAuthorizeResult } from "@vite-hub/runtime"
 import type { Auth, BetterAuthOptions, Session, User } from "better-auth"
+import type { AuthConsoleOptions } from "./console-types.ts";
 import type { AuthPreset } from "./presets.ts"
 declare global {
   namespace ViteHub {
@@ -10,7 +11,16 @@ declare global {
 }
 
 export type AuthRuntimeOption = "baseURL" | "secret" | "secrets"
-export type AuthReservedOption = AuthRuntimeOption | "access" | "basePath" | "database" | "preset" | "route" | "runtime" | "secondaryStorage"
+export type AuthReservedOption =
+  | AuthRuntimeOption
+  | "console"
+  | "access"
+  | "basePath"
+  | "database"
+  | "preset"
+  | "route"
+  | "runtime"
+  | "secondaryStorage";
 export type AuthBetterAuthOptions = Omit<BetterAuthOptions, AuthReservedOption | "session"> & {
   session?: AuthSessionOptions
 }
@@ -100,6 +110,7 @@ export interface AuthSecondaryStorageReference {
 export type AuthSecondaryStorageConfiguration = true | AuthSecondaryStorageReference
 
 export interface AuthViteHubOptions {
+  console?: AuthConsoleOptions;
   access?: AuthAccessConfiguration
   basePath?: string
   database?: AuthDatabaseConfiguration
@@ -167,12 +178,33 @@ export interface ResolvedAuthViteConfig {
   secondaryStorage: false | ResolvedAuthSecondaryStorageConfiguration
 }
 
-export type AuthBetterAuthRuntimeOptions<TOptions extends AuthDefinitionInput = AuthDefinitionInput> =
-  (TOptions extends AuthDefinitionResolver<infer TResolved>
-    ? Omit<TResolved, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">
-    : Omit<TOptions, AuthRuntimeOption | "access" | "database" | "preset" | "route" | "runtime" | "secondaryStorage">)
-  & AuthRuntimeOptions
-  & BetterAuthOptions
+export type AuthBetterAuthRuntimeOptions<
+  TOptions extends AuthDefinitionInput = AuthDefinitionInput,
+> = (TOptions extends AuthDefinitionResolver<infer TResolved>
+  ? Omit<
+      TResolved,
+      | AuthRuntimeOption
+      | "console"
+      | "access"
+      | "database"
+      | "preset"
+      | "route"
+      | "runtime"
+      | "secondaryStorage"
+    >
+  : Omit<
+      TOptions,
+      | AuthRuntimeOption
+      | "console"
+      | "access"
+      | "database"
+      | "preset"
+      | "route"
+      | "runtime"
+      | "secondaryStorage"
+    >) &
+  AuthRuntimeOptions &
+  BetterAuthOptions;
 export type AuthRequest = Pick<Request, "body" | "headers" | "method" | "signal" | "url">
 /** The Node request fields that ViteHub Auth reads from an H3 1 event, such as a Nuxt 4 server event. */
 export interface AuthNodeRequest extends AsyncIterable<unknown> {

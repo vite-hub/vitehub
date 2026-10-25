@@ -1,9 +1,10 @@
 ---
 title: Instructions
 description: Write durable model-facing behavior and policy for an Agent in colocated documents, shared guidance, and trusted values.
-navigation.order: 31
-navigation.group: Configure
+navigation.order: 20
+navigation.group: Instructions and tools
 icon: i-lucide-scroll-text
+navigation.kind: Guides
 ---
 
 Instructions tell a model or a coding provider how to behave. Use them for
@@ -131,7 +132,7 @@ To discard the inherited template, set
 `instructions: { mode: 'replace', value: '...' }`. A new
 `{ template, content }` object also replaces it. Without a template, child
 instructions replace the parent document. Read
-[Extend an Agent](/docs/agents/agent-definitions#extend-an-agent) for the other
+[Extend an Agent](/docs/agents/agent-presets#extend-an-agent) for the other
 inheritance rules.
 
 ## Insert trusted invocation values
@@ -253,3 +254,7 @@ Capabilities, so they do not add empty text to the prompt.
 Read [Agent Drivers](/docs/agents/agent-drivers) for Driver-specific behavior.
 Run `vitehub agent info --agent <name>` to see the resolved instructions and
 coverage warnings. See the [CLI development loop](/docs/development/cli).
+
+## Next steps
+
+[Attach Capabilities](/docs/agents/capabilities) for tools, then choose [Chat History](/docs/agents/chat-history-sessions) or [Workspace context](/docs/agents/workspace-context) for the evidence the Driver needs.

@@ -2,9 +2,10 @@
 title: Auth Users and Agent Invokers
 navigation.title: Auth Users and Agent Invokers
 description: Understand how application identity becomes trusted invocation identity.
-navigation.order: 22.5
-navigation.group: Core
+navigation.order: 32
+navigation.group: History and context
 icon: i-lucide-user-check
+navigation.kind: Concepts
 ---
 
 An Auth User is the person signed in to your application. An Agent Invoker is the trusted caller of one Agent Invocation. Agent and Capability code read that caller from `context.invoker`.

@@ -21,7 +21,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 /** Whether a value carries a Standard Schema `~standard.validate` function. */
 export function isStandardSchema(value: unknown): value is StandardSchemaV1 {
   const standard = readOwn(value, "~standard")
-  return isRecord(standard) && readOwn(standard, "validate") instanceof Function
+  return isRecord(standard) && typeof readOwn(standard, "validate") === "function"
 }
 
 /**
@@ -38,9 +38,9 @@ export function standardJsonSchema(
 ): Record<string, unknown> | undefined {
   const jsonSchema = readOwn(readOwn(schema, "~standard"), "jsonSchema")
   const project = readOwn(jsonSchema, direction)
-  if (!(project instanceof Function)) return
+  if (typeof project !== "function") return
   try {
-    const result: unknown = project(libraryOptions ? { target, libraryOptions } : { target })
+    const result: unknown = project.call(jsonSchema, libraryOptions ? { target, libraryOptions } : { target })
     return isRecord(result) ? result : undefined
   }
   catch {
@@ -60,7 +60,7 @@ export async function validateStandardSchema<TSchema extends StandardSchemaV1>(
 export function standardIssuePath(issue: StandardSchemaV1.Issue): Array<string | number> {
   return (issue.path ?? []).map((segment) => {
     const key = isRecord(segment) && "key" in segment ? segment.key : segment
-    return Number(key) === key ? key : String(key)
+    return typeof key === "number" ? key : String(key)
   })
 }
 
