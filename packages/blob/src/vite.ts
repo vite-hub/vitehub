@@ -151,7 +151,7 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
   const externals = cloneNitroConfig(nitro.externals)
   const inline = Array.isArray(externals.inline) ? externals.inline : []
   // Generated file imports and package imports must share Nitro's bundled runtime.
-  nitro.externals = { ...externals, inline: [...new Set([...inline, blobPackageName])] }
+  nitro.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, blobPackageName])] }
   const plugin = root ? resolve(root, generatedNitroBlobPlugin) : generatedNitroBlobPlugin
   const middleware = root ? resolve(root, generatedNitroBlobMiddleware) : generatedNitroBlobMiddleware
   const serveHandler = root ? resolve(root, generatedBlobServeRouteHandler) : generatedBlobServeRouteHandler

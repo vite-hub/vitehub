@@ -188,6 +188,13 @@ describe("hubBlob", () => {
     }
   })
 
+  it("preserves Nitro inline-all policy", () => {
+    const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
+    const config = { nitro: { externals: { inline: true, trace: false } } }
+    ;(plugin.config as (config: unknown, env: unknown) => void)(config, { command: "build" })
+    expect(config.nitro.externals).toEqual({ inline: true, trace: false })
+  })
+
   it("resolves Blob config from the Vite layer", () => {
     const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
 

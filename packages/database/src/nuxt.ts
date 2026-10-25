@@ -326,17 +326,32 @@ export function hubDb(options: DatabaseNuxtIntegrationOptions = {}): DatabaseNux
             const inheritedSource = d1 && runtime.definitions.some(definition => definition.name === "default") && runtime.definitionDefaults.cloudflareProjections.default?.resource === "inherited"
               ? runtime.databases.default?.migrationsDir
               : undefined
+            const migrationCopies: Array<{ source: string, target: string }> = []
             if (d1 && inheritedSource) {
               const inheritedBinding = findCompleteNitroConfigD1Binding(config, d1.bindingName, d1.unresolved?.databaseName)
               if (inheritedBinding) {
                 const target = typeof inheritedBinding.migrations_dir === "string" ? inheritedBinding.migrations_dir : `${generatedNitroMigrationsDir}/${d1.bindingName}`
                 inheritedBinding.migrations_dir = target
-                installNitroCloudflareMigrations(config, resolve(root, inheritedSource), target)
+                migrationCopies.push({ source: resolve(root, inheritedSource), target })
               }
             }
             for (const binding of bindings) {
-              if (binding.migrations_dir) installNitroCloudflareMigrations(config, resolve(root, binding.migrations_dir), `${generatedNitroMigrationsDir}/${binding.binding}`)
+              if (binding.migrations_dir) migrationCopies.push({ source: resolve(root, binding.migrations_dir), target: `${generatedNitroMigrationsDir}/${binding.binding}` })
             }
+            // Copy callbacks remove their entire target, so aliases and nested targets cannot be shared.
+            const targets = (wrangler.d1_databases as Array<{ binding: string, migrations_dir?: string }>).map(binding => ({
+              binding: binding.binding,
+              path: resolve(root, binding.migrations_dir ?? "migrations"),
+            }))
+            for (let index = 0; index < targets.length; index++) {
+              const target = targets[index]!
+              for (const other of targets.slice(index + 1)) {
+                if (target.path === other.path || target.path.startsWith(`${other.path}${sep}`) || other.path.startsWith(`${target.path}${sep}`)) {
+                  throw new Error(`D1 migration directories overlap for bindings ${target.binding} and ${other.binding}; configure an exclusive migrations_dir for each binding.`)
+                }
+              }
+            }
+            for (const copy of migrationCopies) installNitroCloudflareMigrations(config, copy.source, copy.target)
           }
           mergeNitroDatabaseRuntimeAlias(config, root, runtimeProvider)
         }

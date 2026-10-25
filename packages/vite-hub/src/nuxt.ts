@@ -1292,7 +1292,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const externals = isRecord(config.externals) ? config.externals : {}
     const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
-    config.externals = { ...externals, inline: [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config)
     if (emailPlugin && nuxt.options.dev) {

@@ -3747,6 +3747,15 @@ describe("ViteHub Nuxt integration", () => {
     else expect(nitroConfig.noExternals).toBe(noExternals)
   })
 
+  it("preserves Nitro inline-all policy", async () => {
+    mocks.vitehub.mockReturnValue([])
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const nitroConfig = { externals: { inline: true, trace: false } }
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    await runNitroConfigHook(nitroConfig)
+    expect(nitroConfig.externals).toEqual({ inline: true, trace: false })
+  })
+
   it("does nothing when Nuxt has not initialized", async () => {
     await expect(viteHubNuxtModule({ preset: "node" })).resolves.toBeUndefined()
     expect(mocks.vitehub).not.toHaveBeenCalled()

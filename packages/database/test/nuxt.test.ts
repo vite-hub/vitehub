@@ -670,6 +670,35 @@ describe("Database Nuxt integration", () => {
     }
   })
 
+  it.each([".vitehub/database/migrations/DB_ANALYTICS", ".vitehub/database/migrations/./DB_ANALYTICS", ".vitehub/database/migrations"])("rejects overlapping inherited migration target %s before copying", async (target) => {
+    const rootDir = await mkdtemp(join(process.cwd(), ".vitest-nuxt-inherited-d1-"))
+    const names = ["default", "analytics"]
+    try {
+      await writeFile(join(rootDir, "package.json"), '{"private":true,"type":"module"}')
+      for (const name of names) {
+        const directory = join(rootDir, `server/databases/${name}`)
+        await mkdir(join(directory, "migrations"), { recursive: true })
+        const cloudflare = name === "default" ? "" : "cloudflare: { binding: 'DB_ANALYTICS', databaseId: 'analytics-id', databaseName: 'analytics-db' },"
+        await writeFile(join(directory, "config.ts"), `import { defineDatabase } from '@vite-hub/database'\nexport default defineDatabase({ name: '${name}', ${cloudflare} schema: {} })\n`)
+        await writeFile(join(directory, `migrations/0001_${name}.sql`), `SELECT '${name}';\n`)
+      }
+      const { hooks, nuxt } = createNuxt({
+        database: { driver: "d1", binding: "CONTENT_DB", databaseName: "content-db" },
+        dev: false,
+        nitro: { preset: "cloudflare_module" },
+        rootDir,
+        vite: {},
+      })
+      await hubDb()(undefined, nuxt)
+      const nitroConfig = { cloudflare: { wrangler: { d1_databases: [{ binding: "CONTENT_DB", database_id: "content-id", database_name: "content-db", migrations_dir: target }] } } }
+      await expect(callHook(hooks, "nitro:config", nitroConfig)).rejects.toThrow("D1 migration directories overlap")
+      expect(nitroConfig).not.toHaveProperty("modules")
+    }
+    finally {
+      await rm(rootDir, { recursive: true, force: true })
+    }
+  })
+
   it.each([
     ["default", { databaseId: "configured-id" }, "DATABASE_MISSING_D1_RESOURCE", "cloudflare.databaseName"],
     ["orders", { databaseId: "configured-id" }, "DATABASE_MISSING_D1_RESOURCE", "cloudflare.databaseName"],
