@@ -56,7 +56,10 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
 
   async function revision() {
     if (ctx.revision) return ctx.revision
-    revisionPromise ||= source.resolveRevision?.(ctx) ?? Promise.resolve(undefined)
+    revisionPromise ||= (source.resolveRevision?.(ctx) ?? Promise.resolve(undefined)).catch((error) => {
+      revisionPromise = undefined
+      throw error
+    })
     const resolved = await revisionPromise
     if (resolved) ctx.revision = resolved
     return resolved
@@ -65,7 +68,10 @@ export function createSource(source: Source, context?: Partial<SourceContext>) {
   async function ensurePrepared() {
     await revision()
     if (!source.prepare) return
-    preparePromise ||= source.prepare(ctx)
+    preparePromise ||= source.prepare(ctx).catch((error) => {
+      preparePromise = undefined
+      throw error
+    })
     await preparePromise
   }
 
