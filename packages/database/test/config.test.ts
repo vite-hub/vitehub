@@ -823,7 +823,7 @@ describe("resolveDBViteConfig", () => {
     }
 
     try {
-      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual(connection)
+      expect(resolveDBViteConfig({ connection }, rootDir)?.databases.default.connection).toEqual({ ...connection, url: { ...connection.url, default: "file:.vitehub/data/database/sqlite.db" } })
     }
     finally {
       if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN
@@ -870,6 +870,7 @@ describe("resolveDBViteConfig", () => {
         url: {
           kind: "env-variable",
           source: { kind: "env", name: "ANALYTICS_DATABASE_URL" },
+          default: "file:.vitehub/data/database/sqlite.db",
         },
       })
     }
@@ -906,7 +907,7 @@ describe("resolveDBViteConfig", () => {
     }
   })
 
-  it("uses the local connection fallback when an env-only URL is unset", async () => {
+  it("retains env-only connection declarations when their values are unset", async () => {
     const rootDir = await createTempProject()
     const originalAuthToken = process.env.TURSO_AUTH_TOKEN
     const originalUrl = process.env.TURSO_DATABASE_URL
@@ -921,10 +922,20 @@ describe("resolveDBViteConfig", () => {
         ].join("\n"),
       })
 
-      expect(resolveDBViteConfig(undefined, rootDir)?.databases.default.connection).toEqual({
-        authToken: undefined,
-        url: "file:.vitehub/data/database/sqlite.db",
+      const config = resolveDBViteConfig(undefined, rootDir)!
+      const connection = config.databases.default.connection
+      expect(connection).toEqual({
+        authToken: { kind: "env-variable", source: { kind: "env", name: "TURSO_AUTH_TOKEN" } },
+        url: { kind: "env-variable", source: { kind: "env", name: "TURSO_DATABASE_URL" }, default: "file:.vitehub/data/database/sqlite.db" },
       })
+      const expression = renderDatabaseConfigExpression("default", config, "definition")
+      const generated = new Function("definition", "resolveRuntimeCloudflareConfig", `return (${expression})`)(
+        { connection: { url: undefined } }, resolveRuntimeCloudflareConfig,
+      )
+      expect(resolveConfigValue(generated.connection.url)).toBe("file:.vitehub/data/database/sqlite.db")
+      expect(resolveConfigValue(connection?.url)).toBe("file:.vitehub/data/database/sqlite.db")
+      process.env.TURSO_DATABASE_URL = "libsql://runtime.example.turso.io"
+      expect(resolveConfigValue(connection?.url)).toBe("libsql://runtime.example.turso.io")
     }
     finally {
       if (typeof originalAuthToken === "undefined") delete process.env.TURSO_AUTH_TOKEN

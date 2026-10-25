@@ -1,8 +1,8 @@
-import { handleCacheHeaders, type H3Event } from "h3"
 import { literal, object, parse, string } from "valibot"
 
 import { toArray } from "@vite-hub/internal/arrays"
 import { vitehubOwnedPrefix } from "@vite-hub/internal/owned-paths"
+import { createH3V1ResponseHeaders, isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { blobError, blobResult } from "./errors.ts"
 import { handleBlobMultipartUpload, handleBlobUpload, validateMultipartParts } from "./upload.ts"
@@ -22,6 +22,26 @@ import { resolveBlobImages } from "./media/transformers.ts"
 
 // S3, R2, and Vercel Blob all accept part numbers 1 through 10000.
 const maxPartNumber = 10_000
+
+function normalizeServeEvent(event: Parameters<BlobStorage["serve"]>[0]): BlobServeEvent {
+  if (!isH3V1Event(event)) return event
+  // The accepted Node event type requires its writable response.
+  const response = event.node.res!
+  return {
+    req: toH3V1Request(event),
+    res: {
+      headers: createH3V1ResponseHeaders(response),
+      get status() { return response.statusCode },
+      set status(value) { if (value !== undefined) response.statusCode = value },
+    },
+  }
+}
+
+function matchesETag(condition: string | null, etag: string | undefined): boolean {
+  if (!condition) return false
+  if (condition.trim() === "*") return true
+  return Boolean(etag && condition.match(/(?:W\/)?"[^"]*"/g)?.some(tag => tag.replace(/^W\//, "") === etag.replace(/^W\//, "")))
+}
 
 /** Give a driver's multipart upload the `[error, value]` result contract. */
 export function toBlobMultipartUpload(upload: BlobDriverMultipartUpload, store: string): BlobMultipartUpload {
@@ -294,7 +314,8 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
       if (options.method === "PUT") assertWritablePath(normalizedPathname)
       return blobResult("sign", store, () => driver.sign!(normalizedPathname, options))
     },
-    async serve(event, pathname: string, options = {}) {
+    async serve(input, pathname: string, options = {}) {
+      const event = normalizeServeEvent(input)
       const normalizedPath = normalizePathname(pathname)
       if (isReservedPath(normalizedPath)) return [blobError("BLOB_NOT_FOUND", "serve", store), undefined]
       if (options.variant && !options.transform) {
@@ -339,16 +360,12 @@ export function createBlobStorage(driver: BlobDriverAdapter<any>, store: string 
         const headers = new Headers({ "Cache-Control": cacheControl })
         if (etag) headers.set("ETag", etag)
         if (["GET", "HEAD"].includes(event.req.method)) {
-          const previous = ["etag", "cache-control"].map(name => [name, event.res.headers.get(name)] as const)
-          // SAFETY: h3 reads only the native request headers and mutable response headers/status declared by BlobServeEvent.
-          if (handleCacheHeaders(event as H3Event, { etag, cacheControls: [cacheControl] })) {
+          if (matchesETag(event.req.headers.get("if-none-match"), etag)) {
+            for (const [name, value] of headers) event.res.headers.set(name, value)
+            for (const name of ["content-length", "content-type", "content-encoding", "transfer-encoding"]) event.res.headers.delete(name)
+            event.res.status = 304
             event.res.headers.set("X-Content-Type-Options", "nosniff")
             return null
-          }
-          // h3 writes success headers while checking validators. Restore them before fallible work.
-          for (const [name, value] of previous) {
-            if (value === null) event.res.headers.delete(name)
-            else event.res.headers.set(name, value)
           }
         }
 
