@@ -2,6 +2,7 @@
 title: Migrate from NuxtHub
 description: Move a Nuxt application from NuxtHub KV, Blob, and Database to ViteHub, and see which NuxtHub features have no ViteHub equivalent.
 navigation.order: 6
+navigation.group: Develop and deploy
 icon: i-lucide-arrow-right-left
 ---
 

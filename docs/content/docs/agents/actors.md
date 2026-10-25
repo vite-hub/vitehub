@@ -1,9 +1,10 @@
 ---
 title: Agent Actors
 description: Carry trusted caller identity into one Agent Invocation, normalize Actor fields, and use Actors for access decisions.
-navigation.order: 42
-navigation.group: Connect
+navigation.order: 33
+navigation.group: History and context
 icon: i-lucide-user-check
+navigation.kind: Guides
 ---
 
 An Agent Actor is the trusted identity of the caller for one Invocation.

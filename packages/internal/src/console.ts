@@ -33,7 +33,18 @@ export interface ViteHubConsoleDocumentEditorView {
   notice: string
 }
 
-export type ViteHubConsoleSectionView = ViteHubConsoleDefinitionCatalogView | ViteHubConsoleRecordTableView | ViteHubConsoleDocumentEditorView
+export interface ViteHubConsoleAuthView {
+  kind: "auth-management";
+  notice: string;
+}
+
+export interface ViteHubConsoleAuthSection extends ViteHubConsoleSectionDescriptor<ViteHubConsoleAuthView> {}
+
+export type ViteHubConsoleSectionView =
+  | ViteHubConsoleAuthView
+  | ViteHubConsoleDefinitionCatalogView
+  | ViteHubConsoleRecordTableView
+  | ViteHubConsoleDocumentEditorView;
 
 /**
  * The overview of a document editor section: document counts by state, the changes that wait for a publish, recent
@@ -185,12 +196,14 @@ export interface ViteHubConsoleDocumentEditorSection<TOptions = void> extends Vi
  * `TOptions` is the discovery context that the host passes to `read`.
  */
 export type ViteHubConsoleSectionContribution<TOptions = void> =
+  | ViteHubConsoleAuthSection
   | ViteHubConsoleDefinitionCatalogSection<TOptions>
   | ViteHubConsoleRecordTableSection<TOptions>
   | ViteHubConsoleRuntimeRecordTableSection<TOptions>
   | ViteHubConsoleDocumentEditorSection<TOptions>
 
 export type ViteHubConsoleSectionContent =
+  | { kind: "auth-management" }
   | { definitions: readonly ViteHubDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ViteHubConsoleRecord[] }
   | { collections: readonly ViteHubConsoleDocumentCollection[], kind: "document-editor", setup?: ViteHubConsoleDocumentSetup }
@@ -810,6 +823,7 @@ export async function readViteHubConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: TOptions,
 ): Promise<ViteHubConsoleSectionContent> {
+  if (section.view.kind === "auth-management") return { kind: "auth-management" };
   if (isViteHubConsoleDocumentEditorSection(section)) return { collections: [], kind: "document-editor" }
   if (isViteHubConsoleRuntimeSection(section)) {
     return { kind: "record-table", records: section.read ? [...await section.read(options)] : [] }
@@ -817,5 +831,8 @@ export async function readViteHubConsoleSection<TOptions>(
   if (isDefinitionCatalogSection(section)) {
     return { definitions: [...await section.read(options)], kind: "definition-catalog" }
   }
-  return { kind: "record-table", records: [...await section.read(options)] }
+  return {
+    kind: "record-table",
+    records: "read" in section && section.read ? [...await section.read(options)] : [],
+  };
 }

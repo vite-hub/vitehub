@@ -12,7 +12,7 @@ afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-it("registers generated Agent handlers from the Nuxt build directory", async () => {
+it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals => ({ dev, noExternals }))))("registers Agent handlers and preserves Nitro 2 externals (dev: $dev, noExternals: $noExternals)", async ({ dev, noExternals }) => {
   const rootDir = await mkdtemp(join(tmpdir(), "vitehub-nuxt-agent-root-"))
   roots.push(rootDir)
   const srcDir = join(rootDir, "app")
@@ -36,7 +36,7 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
     options: {
       app: { baseURL: "/portal/" },
       buildDir,
-      dev: false,
+      dev,
       rootDir,
       serverDir,
       srcDir,
@@ -49,9 +49,26 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
     __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/"),
   })
   if (!nitroConfigHook) throw new TypeError("Expected a Nitro config hook.")
-  const nitroConfig: Record<string, unknown> = {}
+  const configuredInline = ["consumer-package", "@vite-hub/agent"]
+  const nitroConfig: Record<string, unknown> = {
+    externals: { inline: configuredInline, external: ["external-package"], trace: false },
+    ...(noExternals === undefined ? {} : { noExternals }),
+  }
   await nitroConfigHook(nitroConfig)
 
+  if (noExternals === undefined) expect(nitroConfig).not.toHaveProperty("noExternals")
+  else expect(nitroConfig.noExternals).toBe(noExternals)
+  expect(nitroConfig.externals).toMatchObject({
+    inline: expect.arrayContaining([
+      "consumer-package",
+      "vite-hub",
+      "@vite-hub/agent",
+      "@t3tools/provider-runtime",
+      ...(noExternals === true ? [] : ["effect", "@effect/platform-node", "@effect/platform-node-shared"]),
+    ]),
+    external: ["external-package"],
+    trace: false,
+  })
   expect(nitroConfig).toMatchObject({
     // Other plugins, including the development RPC, can register handlers too.
     handlers: expect.arrayContaining([
@@ -72,8 +89,30 @@ it("registers generated Agent handlers from the Nuxt build directory", async () 
         middleware: true,
         route: "/**",
       },
+      ...(dev ? [
+        {
+          handler: join(buildDir, "vitehub/agent/invocations-dev-handler.ts"),
+          route: "/_vitehub/agent/invocations/dev",
+        },
+        {
+          handler: join(rootDir, ".vitehub/nitro/workflow/dev-handler.mjs"),
+          route: "/_vitehub/workflow/dev",
+        },
+      ] : []),
     ].map(handler => expect.objectContaining(handler))),
   })
+
+  const expectedExternals = structuredClone(nitroConfig.externals)
+  const { inline } = nitroConfig.externals as { inline: string[] }
+  expect(inline).toEqual([...new Set(inline)])
+  // Development hooks reject an already registered invocation route on the same config.
+  if (!dev) {
+    await nitroConfigHook(nitroConfig)
+    if (noExternals === undefined) expect(nitroConfig).not.toHaveProperty("noExternals")
+    else expect(nitroConfig.noExternals).toBe(noExternals)
+    expect(nitroConfig.externals).toEqual(expectedExternals)
+  }
+  expect(configuredInline).toEqual(["consumer-package", "@vite-hub/agent"])
 })
 
 it("installs the app-wide Agent Invocation journal first in the Nuxt Nitro config", async () => {

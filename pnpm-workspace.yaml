@@ -1,6 +1,7 @@
 packages:
   - ".github/ci-tools"
   - "docs"
+  - "fixtures/tutorials/chat-app"
   - "packages/*"
   - "packages/*/examples/*"
   - "playground/console"
@@ -37,6 +38,7 @@ catalogs:
   ai-v6:
     ai: 6.0.300
   auth:
+    "@better-auth/oauth-provider": 1.7.7
     better-auth: 1.7.7
     jose: ^6.2.12
   browser:

@@ -13,6 +13,8 @@ describe("@vite-hub/auth package contract", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       ".",
       "./agent",
+      "./console",
+      "./console-runtime",
       "./nuxt",
       "./package.json",
       "./presets",
@@ -26,6 +28,8 @@ describe("@vite-hub/auth package contract", () => {
     await verifyBuiltPackageExports(new URL("../", import.meta.url), "@vite-hub/auth", [
       ".",
       "./agent",
+      "./console",
+      "./console-runtime",
       "./nuxt",
       "./presets",
       "./server",

@@ -47,3 +47,10 @@ export type {
   ResolvedAuthViteConfig,
   ViteHubAuth,
 } from "./types.ts"
+
+export type {
+  AuthConsoleOptions,
+  AuthConsoleColumn,
+  AuthConsoleFieldPolicy,
+  AuthConsolePolicy,
+} from "./console-types.ts";

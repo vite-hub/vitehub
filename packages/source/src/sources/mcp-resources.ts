@@ -222,9 +222,11 @@ async function withMcpClient<T>(
   request: McpResourcesRequestOptions | undefined,
   callback: (client: McpResourcesClient, request: McpResourcesRequestOptions) => Promise<T>,
 ) {
-  const signal = ctx.abortSignal
+  const signal = ctx.abortSignal && request?.signal
+    ? AbortSignal.any([ctx.abortSignal, request.signal])
+    : ctx.abortSignal ?? request?.signal
   const requestSignal = signal ?? new AbortController().signal
-  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, ctx))
+  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, { ...ctx, abortSignal: signal }))
   if (isMcpResourcesClient(resolved)) {
     return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
   }
@@ -463,7 +465,7 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       seenCursors.add(cursor)
     }
     const page = parseResourceListPage(await client.listResources(cursor === undefined ? undefined : { cursor }, request))
-    resources.push(...page.resources)
+    for (const resource of page.resources) resources.push(resource)
     cursor = page.nextCursor
   } while (cursor !== undefined)
   return resources

@@ -301,4 +301,44 @@ describe("types", () => {
     // @ts-expect-error maxAge is seconds or a duration with a unit.
     stateless({ maxAge: "7 days" })
   })
-})
+});
+
+describe("Auth Console declarations", () => {
+  it("types computed users and additional field policy", () => {
+    defineAuth({
+      user: { additionalFields: { plan: { type: ["free", "pro"] } } },
+      console: {
+        fields: { plan: { editable: true } },
+        columns: {
+          projects: {
+            type: "number",
+            label: "Projects",
+            read: (users) => Object.fromEntries(users.map((user) => [user.id, 2])),
+          },
+        },
+      },
+    });
+    // @ts-expect-error A numeric column cannot return strings.
+    defineAuth({
+      user: { additionalFields: { plan: { type: "string" } } },
+      console: {
+        columns: { count: { type: "number", label: "Count", read: () => ({ user: "two" }) } },
+      },
+    });
+  });
+});
+
+it("keeps the Console operation error union", async () => {
+  const inspect = {} as import("../src/console-runtime.ts").AuthConsole;
+  const [error, users] = await inspect.users();
+  if (error)
+    expectTypeOf(error.code).toEqualTypeOf<
+      | "AUTH_CONSOLE_INVALID_REQUEST"
+      | "AUTH_CONSOLE_FORBIDDEN"
+      | "AUTH_CONSOLE_NOT_FOUND"
+      | "AUTH_CONSOLE_UNAVAILABLE"
+      | "AUTH_CONSOLE_PROVIDER_FAILED"
+    >();
+  else
+    expectTypeOf(users.items).toEqualTypeOf<import("../src/console-types.ts").AuthConsoleUser[]>();
+});

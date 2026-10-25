@@ -1,13 +1,8 @@
 import { defineDiagnostics } from "nostics"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
-import * as v from "valibot"
 import { agentDiagnosticOptions, dynamicAgentError as dynamicError } from "./agent-diagnostic-options.ts"
 import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-
-const providerErrorEnvelopeSchema = v.object({
-  error: v.object({ message: v.string() }),
-})
 
 const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1006",
@@ -1161,8 +1156,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
         try {
-          const payload = v.safeParse(providerErrorEnvelopeSchema, JSON.parse(reason));
-          if (payload.success) return payload.output.error.message;
+          const payload: unknown = JSON.parse(reason);
+          if (payload !== null && typeof payload === "object" && "error" in payload) {
+            const providerError = payload.error;
+            if (providerError !== null && typeof providerError === "object" && "message" in providerError) {
+              const providerMessage = providerError.message;
+              if (typeof providerMessage === "string") return providerMessage;
+            }
+          }
         } catch {}
         return reason;
       },

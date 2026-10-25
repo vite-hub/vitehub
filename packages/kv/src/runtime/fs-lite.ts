@@ -1,4 +1,4 @@
-import { opendir } from "node:fs/promises"
+import { opendir, stat } from "node:fs/promises"
 import { join, relative, resolve, sep } from "node:path"
 
 import createDriver from "unstorage/drivers/fs-lite"
@@ -9,8 +9,22 @@ import { kvErrorDiagnostics } from "../error-diagnostics.ts"
 import { createKVContinuations } from "./continuations.ts"
 
 export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfig): KVRuntimeDriver {
+  const root = resolve(options.base)
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
+  const hasItem = driver.hasItem
+  driver.hasItem = async (key, operationOptions) => {
+    // Keep the underlying driver's key validation before resolving its file path.
+    if (!await hasItem(key, operationOptions)) return false
+    try {
+      return (await stat(join(root, key.replace(/:/g, "/")))).isFile()
+    }
+    catch (error) {
+      // A key can be removed between the existence check and stat.
+      if (error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) return false
+      throw error
+    }
+  }
   const expired = () => kvErrorDiagnostics.KV_INVALID_CURSOR({ problem: "expired" })
   const continuations = createKVContinuations<AsyncGenerator<string | undefined>>({
     expired,
@@ -22,7 +36,6 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
     finally { await dispose?.call(driver) }
   }
   driver.listKeys = async ({ cursor, limit, prefix = "" }: KVListOptions) => {
-    const root = resolve(options.base)
     const keys: string[] = []
 
     async function* walk(): AsyncGenerator<string | undefined> {

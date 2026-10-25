@@ -2,9 +2,10 @@
 title: Agent presets
 description: Start from a reusable Agent Definition and configure it for your application.
 navigation.title: Overview
-navigation.order: 91
+navigation.order: 90
 navigation.group: Presets
 icon: i-lucide-copy
+navigation.kind: Guides
 ---
 
 An Agent preset is a reusable Agent Definition. It supplies defaults, instructions, and behavior. Your application selects the preset and supplies its model, credentials, and project settings.
@@ -53,13 +54,13 @@ Set workflow settings in `options` and provider settings in `driver`. For exampl
 
 For presets with an instruction slot, place `instructions.md` beside `agent.ts` to supply project guidance. This fills the slot while keeping the preset's workflow instructions. See [Instructions](/docs/agents/instructions) before replacing an entire instruction template.
 
-An extension gets a fresh runtime. Matching Capabilities, Channels, and hooks replace inherited entries by their keys. Other arrays replace inherited arrays, and option callbacks replace inherited callbacks. See [Agent Definitions](/docs/agents/agent-definitions#extend-an-agent) for the composition rules.
+An extension gets a fresh runtime. Matching Capabilities, Channels, and hooks replace inherited entries by their keys. Other arrays replace inherited arrays, and option callbacks replace inherited callbacks. See [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for the composition rules.
 
 ## Share your own preset
 
 Export a definition created with `defineAgent()`. Add typed `options` and a synchronous `configure` callback when consumers need workflow settings. Keep credentials and network calls out of that callback.
 
-Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Named presets](/docs/agents/agent-definitions#named-presets) for the authoring API.
+Publishers must declare `@vite-hub/agent` as a peer dependency and include instruction content and required assets explicitly. Selecting a preset does not discover files inside its package. See [Named presets](/docs/agents/agent-presets#named-presets) for the authoring API.
 
 A preset that needs a long-running Node host attaches one with `withAgentProcessHost()` from `vite-hub/agent/process-host`. List the preset subpath in the `vitehub.agent.processHost` field of your package.json, so that ViteHub starts the host and rejects hosts that cannot run it. List subpaths that select the Codex or Claude Code Driver in `vitehub.agent.providerDriver`, so that Worker builds fail early:
 

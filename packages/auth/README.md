@@ -334,3 +334,9 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
 Read the complete [Auth guide](https://vitehub.dev/docs/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/agents/invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
+
+## Auth Console
+
+The primary Auth Definition adds `/_vitehub/auth` to the ViteHub Console. It lists users, active sessions, organizations, and approved OAuth clients. Better Auth additional fields become columns. Set `console.fields.<name>.editable` to allow edits, `console.columns` for batch computed values, and `console.roles` or `console.actions` for read-only policy with a reason. `console.access` holds short descriptions of the app's sign-in rules.
+
+`getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.

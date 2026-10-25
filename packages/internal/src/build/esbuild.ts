@@ -542,8 +542,8 @@ export async function bundleEsmEntry(
     entryPoints: [entryFile],
     external: options.external,
     format,
-    // Syntax minification can inline functions and classes with inferred names.
-    keepNames: options.minifySyntax,
+    // Syntax and identifier minification can change function and class names.
+    keepNames: options.minifySyntax || options.minifyIdentifiers,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,
