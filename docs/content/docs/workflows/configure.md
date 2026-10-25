@@ -63,7 +63,7 @@ Use Workflow Steps only when the selected provider and definition need independe
 | `native` | `WorkflowHandler` | Provider-native durable entry used by Vercel Workflow DevKit. |
 | `rootStep` | `boolean` | Wraps the handler in a root Workflow Step when the provider supports steps. |
 
-The handler receives a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, and provider-backed `step` or typed `steps` helpers when available.
+The handler receives a `WorkflowExecutionContext` with `name`, `payload`, `provider`, optional run `id`, the provider-backed `step` when available, and a `steps` runner. `steps` has one function for each numbered file in the Workflow folder and is empty when the Workflow has no step files.
 
 ### Add a durable Vercel entry
 
@@ -79,6 +79,7 @@ pnpm add workflow @workflow/builders
 import {
   defineWorkflow,
   type WorkflowExecutionContext,
+  type WorkflowProviderContext,
 } from '@vite-hub/workflow'
 
 interface OnboardPayload {
@@ -97,7 +98,7 @@ async function sendWelcomeEmailStep(email: string) {
   await sendWelcomeEmail(email)
 }
 
-async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayload>) {
   'use workflow'
 
   const user = await createUserStep(payload.email)
@@ -115,5 +116,6 @@ export default defineWorkflow(inlineOnboard, { native: durableOnboard })
 ```
 
 ViteHub transforms the `native` entry when it generates Vercel output. Other
-providers keep using the normal handler. Keep external side effects in `use step`
+providers keep using the normal handler. Vercel calls `native` with a
+`WorkflowProviderContext`, which has no `steps` runner. Keep external side effects in `use step`
 functions and make them idempotent because a step can be retried.
