@@ -10,6 +10,7 @@ import { computed, ref, shallowRef, watch } from "vue";
 import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
 import { consoleMountBase, consoleMountPath } from "../console-route";
 import ConsoleAuthAction from "./console-auth-action.vue";
+import ConsoleAuthUserEvents from "./console-auth-user-events.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ base: string; id?: string; description: AuthConsoleDescription }>();
 const emit = defineEmits<{ close: []; changed: [] }>();
@@ -17,6 +18,7 @@ const detail = shallowRef<AuthConsoleUserDetail>();
 const error = shallowRef<unknown>();
 const loading = ref(false);
 const paging = ref(false);
+const revision = ref(0);
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
 const field = shallowRef<AuthConsoleField>();
@@ -38,7 +40,10 @@ async function refresh() {
   error.value = undefined;
   try {
     const value = await readAuthConsole(props.base, "user", { id: props.id });
-    if (current === sequence) detail.value = value;
+    if (current === sequence) {
+      detail.value = value;
+      revision.value++;
+    }
   } catch (cause) {
     if (current === sequence) error.value = cause;
   } finally {
@@ -67,7 +72,8 @@ function act(name: AuthConsoleAction, id?: string, selectedField?: AuthConsoleFi
 async function changed(name: AuthConsoleAction) {
   emit("changed");
   if (name === "remove") emit("close");
-  else if (name === "impersonate") window.location.assign(consoleMountPath(consoleMountBase(window.location.pathname), "/"));
+  else if (name === "impersonate")
+    window.location.assign(consoleMountPath(consoleMountBase(window.location.pathname), "/"));
   else await refresh();
 }
 async function page(kind: "sessions" | "agents", direction: number) {
@@ -314,6 +320,12 @@ const actions = computed(() => [
             </li>
           </ul>
         </section>
+        <ConsoleAuthUserEvents
+          v-if="description.events.enabled"
+          :base="base"
+          :user-id="detail.user.id"
+          :revision="revision"
+        />
         <section class="space-y-3 p-4" aria-labelledby="auth-user-actions">
           <h2 id="auth-user-actions" class="font-medium text-highlighted">Actions</h2>
           <div v-for="item in actions" :key="item.id">

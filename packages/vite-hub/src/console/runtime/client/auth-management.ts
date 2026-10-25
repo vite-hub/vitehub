@@ -1,5 +1,8 @@
 import type {
   AuthConsoleDescription,
+  AuthConsoleOverview,
+  AuthConsoleActivity,
+  AuthConsoleActivityQuery,
   AuthConsoleList,
   AuthConsoleUser,
   AuthConsoleUserDetail,
@@ -14,6 +17,8 @@ import { ConsoleRequestError } from "./request";
 
 type AuthResults = {
   describe: AuthConsoleDescription;
+  overview: AuthConsoleOverview;
+  activity: AuthConsoleActivity;
   users: AuthConsoleList<AuthConsoleUser>;
   user: AuthConsoleUserDetail;
   sessions: AuthConsoleList<AuthConsoleSession>;
@@ -41,7 +46,7 @@ async function request(base: string, body: unknown, signal?: AbortSignal): Promi
 export async function readAuthConsole<K extends keyof AuthResults>(
   base: string,
   operation: K,
-  input: { query?: AuthConsoleQuery; id?: string } = {},
+  input: { query?: AuthConsoleQuery; activity?: AuthConsoleActivityQuery; id?: string } = {},
   signal?: AbortSignal,
 ): Promise<AuthResults[K]> {
   // The owner and the synthetic fixture share this response contract. Only the selected operation determines its type.

@@ -1,13 +1,27 @@
 import { afterEach, expect, it, vi } from "vitest"
 import { defineAuth, createDatabaseAuthEventStore } from "../src/index.ts"
-import { createBetterAuthOptions, getAuthEvents, handleAuthRequest } from "../src/server.ts"
+import { createBetterAuthOptions, getAuthConsoleForRequest, getAuthEvents, handleAuthRequest } from "../src/server.ts"
 import { readAuthEventConsoleRecords } from "../src/runtime/console.ts"
 import { eventDatabase } from "./event-helpers.ts"
 import type { AuthEventsConfiguration, AuthEventStore } from "../src/events.ts"
 
-const state = vi.hoisted(() => ({ events: false as false | AuthEventsConfiguration }))
-vi.mock("#vitehub/auth/definition", () => ({ default: { options: () => ({ events: state.events }) } }))
-afterEach(() => { state.events = false; vi.restoreAllMocks() })
+const state = vi.hoisted(() => ({ events: false as false | AuthEventsConfiguration, resolved: vi.fn() }))
+vi.mock("#vitehub/auth/definition", () => ({ default: { options: (context: unknown) => { state.resolved(context); return { events: state.events }; } } }))
+afterEach(() => { state.events = false; state.resolved.mockClear(); vi.restoreAllMocks() })
+
+it("resolves events and the provider once with the same Console request context", async () => {
+  const { db, sqlite } = eventDatabase()
+  try {
+    state.events = { store: createDatabaseAuthEventStore({ db }) }
+    const request = new Request("http://localhost:3000/_vitehub/auth/manage")
+    const inspect = getAuthConsoleForRequest(request)
+    const [error, overview] = await inspect.overview()
+    expect(error).toBeUndefined()
+    expect(overview).toMatchObject({ users: null, activeSessions: null, recent: { enabled: true, events: [] } })
+    expect(state.resolved).toHaveBeenCalledOnce()
+    expect(state.resolved).toHaveBeenCalledWith(expect.objectContaining({ request, requestOrigin: "http://localhost:3000" }))
+  } finally { sqlite.close() }
+})
 
 it("exposes the same store through the runtime reader and returns no records when disabled", async () => {
   expect(await readAuthEventConsoleRecords()).toEqual([])

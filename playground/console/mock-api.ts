@@ -870,7 +870,7 @@ export function consoleMockAPI(): Plugin {
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
-            json(response, authFixture(await body(request)));
+            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/connections") {
