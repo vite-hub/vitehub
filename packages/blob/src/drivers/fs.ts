@@ -289,10 +289,8 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
   return files.flat().sort((left, right) => left.localeCompare(right))
 }
 
-async function listEntries(root: string, prefix?: string) {
-  const files = await walkFiles(root)
-  const filtered = prefix ? files.filter(path => path.startsWith(prefix)) : files
-  const entries = await Promise.all(filtered.map(path => readEntry(root, path)))
+async function listEntries(root: string, paths: string[]) {
+  const entries = await Promise.all(paths.map(path => readEntry(root, path)))
   return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
 }
 
@@ -513,18 +511,22 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     async list(options: BlobListOptions = {}): Promise<BlobListResult> {
       const start = decodeCursor(options.cursor)
       try {
-        const entries = await listEntries(root, options.prefix)
+        const files = await walkFiles(root)
+        const paths = options.prefix ? files.filter(path => path.startsWith(options.prefix!)) : files
         if (options.folded) {
-          return foldedList(entries, options, start)
+          return foldedList(await listEntries(root, paths), options, start)
         }
 
         const limit = options.limit ?? 1000
-        const page = entries.slice(start, start + limit)
-        const consumed = start + page.length
+        const page = paths.slice(start, start + limit)
+        const entries = await listEntries(root, page)
+        // Files removed while reading this page must not shift the next live key past the cursor.
+        const consumed = start + entries.length
+        const hasMore = start + page.length < paths.length
         return {
-          blobs: page.map(toBlobObject),
-          cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
-          hasMore: consumed < entries.length,
+          blobs: entries.map(toBlobObject),
+          cursor: hasMore ? encodeCursor(consumed) : undefined,
+          hasMore,
         }
       }
       catch (error) {

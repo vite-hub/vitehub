@@ -95,6 +95,10 @@ export interface AgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig =
   runtime: AgentRuntimeName
 }
 
+/** Runtime Context that a caller passes to `runAgent()`. ViteHub creates a fresh memo cache when `memo` is absent. */
+export type AgentRuntimeContextInput<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
+  Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & Partial<Pick<AgentRuntimeContext<TRuntimeConfig>, "memo">>
+
 export type ResolvedAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig> =
   AgentRuntimeContext<TRuntimeConfig> & {
     capabilities: RuntimeCapabilities
@@ -828,7 +832,8 @@ export interface AgentChannelState extends AgentChannelStateBinding {
    * `T` types the saved value. `R` is inferred from `run`; when `T` is given explicitly, `R` defaults to a trigger result.
    *
    * @example
-   * invoke: (context, change) => context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+   * durableState: true,
+   * invoke: (context, change) => context.channelState.transaction<{ version: number }>(`record:${change.id}`, (record) => {
    *   if (record.value && record.value.version >= change.version) return ignored("stale_update")
    *   record.set({ version: change.version })
    *   return { input: { prompt: change.text }, webhook: { deliveryId: change.eventId, serialize: change.id } }

@@ -67,23 +67,21 @@ Key the editor component by `path`, so opening another document joins another ro
 
 ## Change the carets
 
-Turn off the default carets and add `RealtimeCaret` yourself to change how they render. `selectionRender` returns the decoration attributes for a remote selection, and `render` builds the caret element.
+Pass `carets` options to change how the carets render. `selectionRender` returns the decoration attributes for a remote selection, and `render` builds the caret element. An option that you leave out keeps the default.
 
 ```ts
-import { RealtimeCaret, useRealtimeTiptap } from "vite-hub/realtime/vue";
-import { markRaw } from "vue";
+import { useEditor } from "@tiptap/vue-3";
+import { useRealtimeTiptap } from "vite-hub/realtime/vue";
 
-const realtime = useRealtimeTiptap("docs", path, { carets: false });
-const extensions = [
-  ...realtime.extensions.value,
-  RealtimeCaret.configure({
-    awareness: markRaw(realtime.provider.value!.awareness),
+const realtime = useRealtimeTiptap("docs", path, {
+  carets: {
     selectionRender: user => ({
       class: "ProseMirror-yjs-selection",
       style: `background-color: color-mix(in oklab, ${user.color} 18%, transparent)`,
     }),
-  }),
-];
+  },
+});
+const editor = useEditor({ extensions: realtime.extensions.value });
 ```
 
 ## What to keep

@@ -600,11 +600,13 @@ describe("Blob byte ranges", () => {
     }
   })
 
-  it("answers HEAD with the range headers", async () => {
-    const { request } = await serve({ range: "bytes=0-9" }, "HEAD")
-    expect(request.res.status).toBe(206)
-    expect(request.res.headers.get("content-range")).toBe("bytes 0-9/20")
-    expect(request.res.headers.get("content-length")).toBe("10")
+  it.each(["bytes=0-9", "bytes=25-30"])("ignores Range %s for HEAD", async (range) => {
+    const { request: whole } = await serve(undefined, "HEAD")
+    const { request } = await serve({ range }, "HEAD")
+    expect(request.res.status).toBe(whole.res.status)
+    expect(request.res.headers.get("content-range")).toBeNull()
+    expect(request.res.headers.get("content-length")).toBe("20")
+    expect(request.res.headers.get("accept-ranges")).toBe("bytes")
   })
 
   it("ignores Range for transformed responses", async () => {

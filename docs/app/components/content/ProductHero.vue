@@ -152,9 +152,17 @@ const channelPath = computed(() =>
 
 @media (min-width: 64rem) {
   .vh-hero {
-    grid-template-columns: minmax(18rem, 0.65fr) minmax(0, 1.35fr);
-    gap: 2.5rem;
     padding: 4rem 0 2rem;
+  }
+}
+
+/*
+ * The code goes beside the copy only when its panel fits about 70 characters next to the docs sidebar.
+ * At narrower widths a side panel cut lines such as `vitehub({ ... })` at the edge, behind a hidden scrollbar.
+ */
+@media (min-width: 96rem) {
+  .vh-hero {
+    grid-template-columns: minmax(18rem, 0.65fr) minmax(0, 1.35fr);
   }
 }
 

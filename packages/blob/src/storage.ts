@@ -168,7 +168,8 @@ function normalizeBlobPath(pathname: string, options: BlobPutOptions) {
  * `If-Range`, or a malformed header. Browsers need ranges to seek media, and Safari does not play video without them.
  */
 function selectByteRange(event: BlobServeEvent, etag: string | undefined, size: number): { start: number, end: number } | "unsatisfiable" | undefined {
-  if (!["GET", "HEAD"].includes(event.req.method)) return
+  // RFC 9110 section 14.2 requires ignoring Range on methods other than GET.
+  if (event.req.method !== "GET") return
   const header = event.req.headers.get("range")
   if (!header) return
   const ifRange = event.req.headers.get("if-range")

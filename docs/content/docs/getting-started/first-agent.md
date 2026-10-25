@@ -98,10 +98,10 @@ Create `src/server.ts`. The `/greet` route reads a name from the request and
 passes it as the Agent's prompt. `runAgent()` returns the Driver's result,
 which H3 sends as JSON.
 
-The second argument supplies resources for this request. `memo` lets ViteHub
-reuse a value during one invocation. `waitUntil` handles background tasks.
-This small server creates them explicitly. A framework integration can provide
-these resources for you.
+The second argument supplies resources for this request. `runtime` names the
+host. `waitUntil` handles background tasks. ViteHub creates a fresh memo cache
+for each invocation. A framework integration can provide these resources for
+you.
 
 ```ts [src/server.ts]
 import { createServer } from "node:http"
@@ -111,20 +111,10 @@ import { toNodeHandler } from "h3/node"
 import { runAgent } from "vite-hub/agent"
 import greeting from "../server/agents/greeting"
 
-function createMemo() {
-  const values = new Map<string, unknown>()
-
-  return <T>(key: string, create: () => T): T => {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key) as T
-  }
-}
-
 const app = new H3().post("/greet", async (event) => {
   const body = await readBody<{ name?: string }>(event) || {}
 
   return await runAgent(greeting, {
-    memo: createMemo(),
     runtime: "vite",
     waitUntil: task => { void task.catch(error => console.error(error)) },
   }, {

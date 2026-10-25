@@ -211,7 +211,9 @@ function isSerializedHeaderEntries(value: unknown): value is readonly (readonly 
 
 function isBase64(value: string): boolean {
   const compact = value.replace(/[\t\n\f\r ]/g, "")
-  return /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}(?:==)?|[A-Za-z0-9+/]{3}=?)?$/.test(compact)
+  // Match atob's optional padding without a repeated group that overflows on large bodies.
+  const unpadded = compact.length % 4 === 0 ? compact.replace(/={1,2}$/, "") : compact
+  return unpadded.length % 4 !== 1 && !/[^A-Za-z0-9+/]/.test(unpadded)
 }
 
 function bytesToBase64(bytes: Uint8Array): string {

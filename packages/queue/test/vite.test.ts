@@ -382,6 +382,21 @@ describe("hubQueue", () => {
     }
   })
 
+  it("writes Queue types for the internal import base", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-queue-import-base-"))
+    roots.push(root)
+    await writeFile(join(root, "welcome.queue.ts"), "export default { handler: async () => undefined }\n")
+    const resolved = { queue: {}, root, nitro: { preset: "vercel" } }
+
+    await (hubQueue({}).configResolved as (config: unknown) => Promise<void>)(resolved as never)
+    expect(await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")).toContain('declare module "@vite-hub/queue" {')
+
+    await (hubQueue({}, { importBase: "vite-hub/queue" }).configResolved as (config: unknown) => Promise<void>)(resolved as never)
+    const types = await readFile(join(root, ".vitehub", "queue.d.ts"), "utf8")
+    expect(types).toContain('declare module "vite-hub/queue" {')
+    expect(types).not.toContain("@vite-hub/queue")
+  })
+
   it("infers providers for generated Nitro runtime imports", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-queue-nitro-"))
     roots.push(root)

@@ -10,6 +10,9 @@ import { hubQueue } from "../src/vite.ts"
 it("returns a vite plugin", () => {
   expectTypeOf(hubQueue()).toMatchTypeOf<Plugin>()
   expectTypeOf(hubQueue({ provider: "cloudflare" })).toMatchTypeOf<Plugin>()
+  expectTypeOf(hubQueue({ provider: "vercel" }, { importBase: "vite-hub/queue" })).toMatchTypeOf<Plugin>()
+  // @ts-expect-error The import base is an internal option, not a public Queue option.
+  hubQueue({ importBase: "vite-hub/queue" })
 })
 
 it("infers queue payload types", () => {

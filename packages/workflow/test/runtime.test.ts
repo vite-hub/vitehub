@@ -9,7 +9,7 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import { isSerializedResponse, serializeResponse, toResponse, ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import type { WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
@@ -17,7 +17,7 @@ import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtim
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
-import { createWorkflowSteps } from "../src/runtime/execute.ts"
+import { createWorkflowSteps, runWorkflowHandler } from "../src/runtime/execute.ts"
 
 it("rejects workflow step files that normalize to an empty property name", () => {
   expect(() => createWorkflowSteps({ name: "demo", payload: undefined, provider: "cloudflare" }, [{ name: "01-.ts", run: async () => "ok" }]))
@@ -905,6 +905,25 @@ describe("workflow runtime", () => {
     expect(stepDo).not.toHaveBeenCalled()
   })
 
+  it("gives workflows without step files an empty step runner", async () => {
+    const seen: unknown[] = []
+    const handler = (context: WorkflowExecutionContext) => {
+      seen.push(context.steps)
+      return "done"
+    }
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: {},
+      event: { id: "run-1", payload: "start" },
+      name: "flat",
+      registry: { flat: async () => ({ handler }) },
+    })).resolves.toEqual(await serializeResponse(toResponse("done")))
+    await expect(runWorkflowHandler({ name: "flat", payload: undefined, provider: "openworkflow" }, { handler })).resolves.toBeInstanceOf(Response)
+
+    expect(seen).toEqual([{}, {}])
+  })
+
   it("runs inline folder workflows through generated step wrappers", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -917,7 +936,7 @@ describe("workflow runtime", () => {
       name: "pipeline",
       registry: {
         pipeline: async () => {
-          createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+          createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
           const definition = takeInlineWorkflowDefinition("pipeline")!
           const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
           return {
@@ -2033,7 +2052,7 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       pipeline: async () => {
-        createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+        createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
         const definition = takeInlineWorkflowDefinition("pipeline")!
         const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
         return {

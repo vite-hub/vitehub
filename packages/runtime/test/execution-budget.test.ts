@@ -88,6 +88,37 @@ describe("ExecutionBudget", () => {
     expect(() => budget.recordToolCall()).toThrow("cancelled")
   })
 
+  it.each(["cancel", "external signal"])("propagates parent %s to existing and new descendants only", source => {
+    const external = new AbortController()
+    const root = createExecutionBudget()
+    const parent = root.child({ signal: external.signal })
+    const sibling = root.child()
+    const grandchild = parent.child()
+    const descendant = grandchild.child()
+    const reason = new Error("stop this subtree")
+
+    try {
+      if (source === "cancel") parent.cancel(reason)
+      else external.abort(reason)
+
+      for (const budget of [parent, grandchild, descendant, parent.child(), grandchild.child()]) {
+        expect(budget.signal.aborted).toBe(true)
+        expect(budget.signal.reason).toBe(reason)
+        expect(budget.snapshot().cancelled).toBe(true)
+        expect(() => budget.recordToolCall()).toThrow(reason)
+      }
+      expect(root.snapshot().usage.toolCalls).toBe(0)
+      for (const budget of [root, sibling]) {
+        expect(budget.signal.aborted).toBe(false)
+        expect(() => budget.recordToolCall()).not.toThrow()
+      }
+      expect(root.snapshot().usage.toolCalls).toBe(2)
+    }
+    finally {
+      root.dispose()
+    }
+  })
+
   it("keeps failed compound usage atomic and honors child signals and deadlines", async () => {
     const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 2 })
     expect(() => budget.recordToolCall(4)).toThrow(ExecutionBudgetExceededError)

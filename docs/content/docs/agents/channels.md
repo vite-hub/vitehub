@@ -460,8 +460,9 @@ webhook: defineChannelTrigger({
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
 
 ```ts
+durableState: true,
 invoke: (context, change: { id: string, version: number, text: string }) =>
-  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+  context.channelState.transaction<{ version: number }>(`record:${change.id}`, (record) => {
     if (record.value && record.value.version >= change.version) return ignored('stale_update')
     record.set({ version: change.version })
     return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
@@ -509,7 +510,6 @@ Select the Channel and its destination when the application starts the invocatio
 import { runAgent } from 'vite-hub/agent'
 
 await runAgent(agent, {
-  memo: (_key, create) => create(),
   runtime: 'vite',
   waitUntil: schedule.waitUntil ?? (() => {}),
   run: {

@@ -227,6 +227,25 @@ describe("createMultipartUploader", () => {
     await expect(task.completed).rejects.toThrow("Upload request returned malformed JSON.")
   })
 
+  it.each([1, 3])("rejects a response for part %i when uploading part 2", async returnedPartNumber => {
+    const fetch = vi.fn(async (url: FetchInput) => {
+      const href = String(url)
+      if (href.includes("/create/")) return json({ pathname: "a.bin", uploadId: "u1" })
+      if (href.includes("/upload/")) {
+        const requestedPartNumber = Number(new URL(href, "http://x").searchParams.get("partNumber"))
+        const partNumber = requestedPartNumber === 2 ? returnedPartNumber : requestedPartNumber
+        return json({ part: { etag: `p${partNumber}`, partNumber } })
+      }
+      if (href.includes("/complete/")) return json({ object })
+      return json({ action: "abort" })
+    })
+    const task = createMultipartUploader("/api/multipart", { fetch, partSize: 1 })(new File(["ab"], "a.bin"))
+
+    await expect(task.completed).rejects.toThrow("Upload request returned a part number that does not match the requested part.")
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/complete/"))).toHaveLength(0)
+    expect(fetch.mock.calls.filter(([url]) => String(url).includes("/abort/a.bin?uploadId=u1"))).toHaveLength(1)
+  })
+
   it("rejects malformed complete responses", async () => {
     const fetch = vi.fn()
       .mockResolvedValueOnce(json({ pathname: "a.bin", uploadId: "u1" }))

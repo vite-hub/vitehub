@@ -63,7 +63,6 @@ import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
-import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
 import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
@@ -592,6 +591,26 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-preset",
       enforce: "pre",
+      nitro: {
+        async setup(nitro) {
+          // Keep Nitro's single config load (including dotenv) authoritative.
+          const configured = nitro.options._c12.layers?.some(layer =>
+            layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)
+          if (configured) return
+          const serverDir = resolve(nitro.options.rootDir, "server") + "/"
+          nitro.options.serverDir = serverDir
+          if (!nitro.options.scanDirs.includes(serverDir)) nitro.options.scanDirs.unshift(serverDir)
+          // Nitro has already scanned plugins, tasks and modules at this point.
+          // Reuse the pinned Nitro version's scanners to preserve its ignore rules,
+          // task precedence and module loading/deduplication semantics.
+          const builderUrl = import.meta.resolve("nitro/builder")
+          const { scanAndSyncOptions } = await import(new URL("./_chunks/nitro2.mjs", builderUrl).href)
+          const { installModules } = await import(new URL("./_chunks/nitro.mjs", builderUrl).href)
+          const existingModules = new Set(nitro.options.modules)
+          await scanAndSyncOptions(nitro)
+          await installModules(nitro, (nitro.options.modules ?? []).filter(module => !existingModules.has(module)))
+        },
+      },
       resolveId(source) {
         if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
           if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
@@ -1140,11 +1159,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(hubQueue({
-      importBase: "vite-hub/queue",
-      provider: plan.services.queue.adapter,
-      providerImportAliases,
-    } as QueueModuleOptions))
+    plugins.push(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" }))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
