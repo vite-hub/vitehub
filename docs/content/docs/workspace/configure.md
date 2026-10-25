@@ -37,13 +37,13 @@ The Vite config key is `workspace`.
 | Memory | `{ provider: 'memory' }` | Test or ephemeral runtime storage. |
 | Cloudflare Artifacts | `{ provider: 'cloudflare-artifacts', binding?, namespace?, repo?, repoPrefix?, branch? }` | Opt-in, versioned Git storage. Defaults: binding `WORKSPACE_ARTIFACTS`, namespace `vitehub`, repo prefix `vitehub-workspace-`. |
 | Vercel Blob | `{ provider: 'vercel-blob', token?, prefix?, access? }` | Blob-backed storage. Files live under `_vitehub/workspaces/<workspace>/`. An optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, adds a namespace below `_vitehub/workspaces/` and accepts letters, numbers, underscores, dashes, and single slashes. The Console Blob section hides these files by default. Access defaults to `private`; the token can come from `BLOB_READ_WRITE_TOKEN`. |
-| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token? }` | Repository-backed storage. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. |
+| GitHub | `{ provider: 'github', repo?, repository?, branch?, root?, token?, refs?, database? }` | Repository-backed storage with branches as history refs. Defaults: branch `main`, root `.vitehub/workspaces/<workspace>`. See [GitHub Store](#github-store). |
 | Custom | `WorkspaceStore` | Implement the Workspace Store contract directly. |
 | Blob + Database | `createBlobDatabaseWorkspaceStore({ blob, database, workspace, prefix? })` | Portable retained folder history. Pass the returned Store to a Workspace Definition. |
 
 Vercel Blob writes preserve file bytes and JSON attributes in separate objects. Same-path writes and removals are serialized across Store instances in one process, including failed-write recovery. Readers are not isolated from in-progress writes. Coordinate access across processes or hosts when they share a Workspace; this adapter does not provide distributed transactions. Use the Blob + Database Store when you need atomic publication across replicas.
 
-For a GitHub Store, set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` for credentials. You can set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` for the repository, branch, and root. These are the only GitHub Store location variables.
+For a GitHub Store, set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` for credentials. You can set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` for the repository, branch, and root. These are the only GitHub Store location variables. A missing repository or token fails at the first request, not when the Workspace loads. See [GitHub Store](#github-store).
 
 Without a `store`, development uses Local. Production uses Memory on Cloudflare, Vercel Blob when `BLOB_READ_WRITE_TOKEN` exists, Memory on Vercel without that token, and Local on other hosts. You must select Cloudflare Artifacts or GitHub yourself.
 
@@ -105,6 +105,51 @@ CREATE INDEX workspace_history_timeline ON workspace_history_revisions (workspac
 Call `await dropStore.delete()` after application authorization to delete the workspace and all its history. Deletion first tombstones the identity, then removes objects and catalog rows. It is permanent. Use a new identity to create a replacement workspace. Retry `delete()` after a storage outage or after stopping an abandoned in-flight request. The tombstone prevents late commits from publishing. An interrupted upload can leave bytes that a later deletion sweep removes.
 
 The Store retains every committed revision on every ref. It has no pruning API. Failed or conflicting uploads can leave reusable objects outside retained usage accounting until workspace deletion. See [host storage behavior](/docs/workspace/hosts#blob-database-history).
+
+### GitHub Store
+
+The GitHub Store keeps the Workspace in a repository. Reads and writes use the GitHub API, so it needs a token and a network. It also implements [retained history](/docs/workspace/server-api): each branch is a ref, and each commit is a revision.
+
+```ts [server/workspaces/docs.ts]
+import { defineWorkspace } from 'vite-hub/workspace'
+
+export default defineWorkspace({
+  store: {
+    provider: 'github',
+    repository: 'onmax/docs',
+    branch: 'main',
+    root: '',
+    refs: { published: 'main', draft: 'vitehub/content' },
+  },
+})
+```
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `repository`, `repo` | `string` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. |
+| `branch` | `string` | `VITEHUB_WORKSPACE_GITHUB_BRANCH`, else `main` | The branch of the Workspace files. |
+| `root` | `string` | `VITEHUB_WORKSPACE_GITHUB_ROOT`, else `.vitehub/workspaces/<workspace>` | The folder in the repository. An empty string is the repository root. |
+| `token` | `string` | `VITEHUB_GITHUB_TOKEN`, then `FORGES_GITHUB_TOKEN` | The GitHub token. |
+| `refs` | `{ published?: string, draft?: string }` | none | Branch names for the history refs `published` and `draft`. |
+| `database` | `unknown` | none | A value that the Store target carries for code that keeps its own rows, such as the Drizzle Database of [Content sessions](/docs/content/editing-together). The Store does not use it. |
+
+The Store does not read the repository or the token when it is created. A missing one throws `WORKSPACE_R0072` at the first request, so a build that loads the Workspace Definition needs no token.
+
+#### History on branches
+
+- **Refs.** A history ref is a branch name. With `refs`, a call on `published` or `draft` reads or writes the branch you named, and revisions on that branch report the ref `published` or `draft`. A branch that is literally named `published` or `draft` is hidden while its alias points elsewhere. Calls without `ref` use `main`.
+- **First commit on a missing ref.** `commit({ ref, ifHead: null })` creates the branch. It starts from the `published` branch when `refs.published` is set, else from the default branch of the repository. The new branch has all files of that branch, then your changes. A commit that changes nothing does not create a branch.
+- **Compare and swap.** `ifHead` and `ifHeads` are checked against the branch heads on GitHub right before the commit. A stale value throws `WORKSPACE_CONFLICT`. GitHub updates one branch at a time, so a change between the check and the commit on the other branches of `ifHeads` is still possible.
+- **Commit metadata.** `message` is the commit message. `metadata` is stored in the commit message as a last line, `Vitehub-Metadata: {...}` (one line of JSON). `list`, `head`, `refs`, and `open` read it back, and return the message without that line. Commits made outside ViteHub have no such line and no metadata.
+- **Digests.** File digests are Git blob shas, not SHA-256. `history.digest(bytes)` returns the digest of bytes for the Store, and every revision view lists it as `digest`. Compare digests only with that function.
+- **Paths.** `history.list({ path })` returns only the commits that changed that file or folder.
+- **Head cache.** `history.head()` keeps the head of a branch for 5 seconds. A commit through the same Store instance replaces it at once. A commit by another writer shows within 5 seconds.
+
+#### Limits
+
+- GitHub rate limits apply to every request. A revision view reads the whole tree of its commit.
+- Revisions of a repository root include every file of the repository. Use `rules` to limit writes. For example, `{ '**': { write: false } }` denies all writes, and a more specific rule such as `'content/**/*.md': { write: true }` allows one folder.
+- The Store does not create pull requests. See [CMS preset](/docs/content/cms-preset#github-store) for what Content does on top of it.
 
 ### Local path locks
 
