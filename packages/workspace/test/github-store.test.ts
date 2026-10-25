@@ -559,7 +559,7 @@ describe("GitHub workspace store", () => {
         additions: expect.arrayContaining([
           { path: ".vitehub/workspaces/docs/tasks/todo.md", contents: Buffer.from("ship it\n").toString("base64") },
           {
-            path: ".vitehub/workspaces/docs/.vitehub/file-metadata/tasks/todo.md.json",
+            path: ".vitehub/workspaces/docs/.vitehub/file-metadata/tasks%2Ftodo.md.json",
             contents: Buffer.from('{"mediaType":"text/markdown","metadata":{"source":"agent"}}').toString("base64"),
           },
           { path: ".vitehub/workspaces/docs/.vitehub/meta/loader.json", contents: Buffer.from('{"digest":"abc"}').toString("base64") },
@@ -621,6 +621,57 @@ describe("GitHub workspace store", () => {
     await store.snapshot({ name: "remove notes metadata" });
     expect(fake.commitInputs().at(-1)?.fileChanges.deletions).toContainEqual({
       path: ".vitehub/workspaces/docs/.vitehub/file-metadata/notes.md.json",
+    });
+  });
+
+  it("persists sidecars for suffix-related and escaped paths without tree collisions", async () => {
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = { provider: "github" as const, repository: "onmax/repo", root: "/", token: "token" };
+    const store = createGitHubWorkspaceStore(options, "docs");
+    const paths = ["a", "a.json/b", "x%2Fy", "x/y", "café.txt"];
+    for (const path of paths) {
+      await store.writeFile(path, { path, content: path, metadata: { label: path } });
+    }
+    await store.snapshot();
+    const sidecars = remoteTree.filter(entry => entry.path.includes("/file-metadata/"));
+    expect(sidecars).toHaveLength(paths.length);
+    for (const entry of sidecars) {
+      expect(sidecars.some(other => other.path.startsWith(`${entry.path}/`))).toBe(false);
+    }
+    const reopened = createGitHubWorkspaceStore(options, "docs");
+    for (const path of paths) {
+      await expect(reopened.readFile(path)).resolves.toMatchObject({ metadata: { label: path } });
+    }
+  });
+
+  it("keeps Git-owned attributes authoritative on load and rebase", async () => {
+    seedRemote("target", "current target");
+    seedRemote("link", "target", "120000");
+    seedRemote(".vitehub/file-metadata/link.json", JSON.stringify({
+      metadata: { gitMode: "100644", symlinkTarget: "stale", label: "portable" },
+    }));
+    const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
+    const options = { provider: "github" as const, repository: "onmax/repo", root: "/", token: "token" };
+    const store = createGitHubWorkspaceStore(options, "docs");
+    await expect(store.readFile("link")).resolves.toMatchObject({
+      content: textBytes("current target"),
+      metadata: { gitMode: "120000", symlinkTarget: "target", label: "portable" },
+    });
+    refSha = fakeSha("retargeted");
+    remoteTree = remoteTree.filter(entry => entry.path !== "link");
+    seedRemote("next", "new target");
+    seedRemote("link", "next", "120000");
+    await store.rebase?.({ takeRemote: ["link"] });
+    const file = await store.readFile("link");
+    expect(file).toMatchObject({
+      content: textBytes("new target"),
+      metadata: { gitMode: "120000", symlinkTarget: "next", label: "portable" },
+    });
+    await store.writeFile("link", file!);
+    await store.snapshot();
+    const sidecar = remoteTree.find(entry => entry.path === ".vitehub/file-metadata/link.json")!;
+    expect(JSON.parse(new TextDecoder().decode(fake.blobs.get(sidecar.sha)))).toEqual({
+      metadata: { label: "portable" },
     });
   });
 

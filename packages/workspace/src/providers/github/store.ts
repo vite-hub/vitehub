@@ -70,17 +70,24 @@ function isFileMetadataPath(path: string): boolean {
 }
 
 function fileMetadataPath(path: string): string {
-  return `${fileMetadataPrefix}${path}.json`;
+  return `${fileMetadataPrefix}${encodeURIComponent(path)}.json`;
 }
 
 function filePathFromMetadataPath(path: string): string {
-  return path.slice(fileMetadataPrefix.length, -5);
+  try {
+    return decodeURIComponent(path.slice(fileMetadataPrefix.length, -5));
+  }
+  catch {
+    return "";
+  }
+}
+
+function portableMetadata(metadata: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(metadata).filter(([key]) => key !== "gitMode" && key !== "symlinkTarget"));
 }
 
 function fileAttributesBytes(file: Pick<GitHubWorkspaceStoreFile, "mediaType" | "metadata">): Uint8Array | undefined {
-  const metadata = file.metadata && Object.fromEntries(
-    Object.entries(file.metadata).filter(([key]) => key !== "gitMode"),
-  );
+  const metadata = file.metadata && portableMetadata(file.metadata);
   if (file.mediaType === undefined && (!metadata || Object.keys(metadata).length === 0)) return undefined;
   return contentToBytes(JSON.stringify({
     ...(file.mediaType === undefined ? {} : { mediaType: file.mediaType }),
@@ -96,7 +103,7 @@ function parseFileAttributes(bytes: Uint8Array): { mediaType?: string; metadata?
     const metadata = record.metadata;
     return {
       ...(typeof record.mediaType === "string" ? { mediaType: record.mediaType } : {}),
-      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { metadata: metadata as Record<string, unknown> } : {}),
+      ...(metadata && typeof metadata === "object" && !Array.isArray(metadata) ? { metadata: portableMetadata(metadata as Record<string, unknown>) } : {}),
     };
   }
   catch {
