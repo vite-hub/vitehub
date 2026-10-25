@@ -1,6 +1,7 @@
 import { effectScope, nextTick, ref } from "vue"
 import { describe, expect, it, vi } from "vitest"
 import * as v from "valibot"
+import { normalizeRuntimeDiagnosticError } from "@vite-hub/runtime"
 
 import { defineCollection } from "../src/index.ts"
 import { CollectionAccessError, useCollection } from "../src/client.ts"
@@ -348,7 +349,12 @@ describe("useCollection", () => {
     scope.stop()
   })
 
-  it.each([401, 403] as const)("surfaces a %i response as a CollectionAccessError", async (status) => {
+  it.each([
+    { status: 401, statusField: "status" },
+    { status: 401, statusField: "statusCode" },
+    { status: 403, statusField: "status" },
+    { status: 403, statusField: "statusCode" },
+  ] as const)("preserves a $status $statusField response in public CollectionAccessError JSON", async ({ status, statusField }) => {
     const { calls, request } = controlledRequester()
     const scope = effectScope()
     let collection!: UseCollectionReturn<typeof definition>
@@ -356,12 +362,23 @@ describe("useCollection", () => {
       collection = useCollection("items", { request })
     })
 
-    const failure = Object.assign(new Error(`[GET] "/api/items": ${status}`), { statusCode: status })
+    const failure = Object.assign(new Error(`[GET] "/api/items": ${status}`), { [statusField]: status, token: "private-request-token" })
     calls[0]!.reject(failure)
     await settle()
 
     expect(collection.error.value).toBeInstanceOf(CollectionAccessError)
-    expect(collection.error.value).toMatchObject({ cause: failure, code: "SOURCE_R0026", status })
+    expect(collection.error.value).toMatchObject({ cause: failure, code: "SOURCE_R0026", name: "CollectionAccessError", status })
+    const serialized: unknown = JSON.parse(JSON.stringify(collection.error.value))
+    expect(serialized).toEqual({
+      code: "SOURCE_R0026",
+      docs: "https://vitehub.dev/docs/reference/diagnostics",
+      name: "CollectionAccessError",
+      status,
+      why: status === 401
+        ? "[vitehub] Collection requires a signed-in session."
+        : "[vitehub] Collection access is forbidden.",
+    })
+    expect(normalizeRuntimeDiagnosticError(serialized)?.code).toBe("SOURCE_R0026")
     expect(collection.items.value).toEqual([])
     expect(collection.pending.value).toBe(false)
     scope.stop()

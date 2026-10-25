@@ -11,6 +11,18 @@ export class RealtimeDocumentConflict extends Diagnostic {
     super({ code, docs, fix, why: why ?? "The stored document changed since the realtime room loaded it." }, RealtimeDocumentConflict)
     this.name = "RealtimeDocumentConflict"
   }
+
+  override toJSON() {
+    return {
+      code: this.code,
+      // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
+      data: undefined,
+      docs: this.docs,
+      fix: this.fix,
+      name: this.name,
+      why: this.why,
+    }
+  }
 }
 
 export function isRealtimeDocumentConflict(error: unknown): boolean {
