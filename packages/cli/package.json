@@ -51,6 +51,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

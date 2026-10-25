@@ -9,6 +9,7 @@ import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
 import { createInspectNamespace } from "./inspect.ts"
+import { createOperationNamespaces, loadCliOperations, mergeOperationNamespaces } from "./operations.ts"
 import { createProvisionNamespace } from "./provision.ts"
 
 import type { ConfigEnv, InlineConfig } from "vite"
@@ -68,6 +69,8 @@ export interface RunViteHubCliOptions {
   runtimeFeatures?: ViteHubCliCommandNamespace[]
   /** Optional guard for runtime features that have a project-level opt-out. */
   runtimeFeatureGuard?: (namespace: string, feature: string, cwd: string) => boolean | Promise<boolean>
+  /** Replaces `fetch` in commands that call a running app. */
+  fetch?: typeof fetch
   loadConfig?: (rootDir: string, command: ConfigEnv["command"]) => Promise<ViteHubCliLoadedConfig>
   loadNuxtViteConfig?: (rootDir: string, command: ConfigEnv["command"]) => Promise<{ plugins: readonly unknown[], root?: string } | undefined>
   spawn?: ViteHubCliSpawn
@@ -222,7 +225,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   }
 
   const command = args[0] === "inspect" && args[1] === "provider-output" ? "build" : "serve"
-  const { contribution, plugins, rootDir } = await withStdoutOnStderr(async () => {
+  const { contribution, operations, plugins, rootDir } = await withStdoutOnStderr(async () => {
     const config = await (options.loadConfig || loadViteConfig)(cwd, command)
     const nuxtConfig = config.vitehubConfigResolved
       ? undefined
@@ -230,13 +233,14 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
     const plugins = nuxtConfig?.plugins ?? config.plugins
     return {
       contribution: await collectViteHubCliContribution(plugins),
+      operations: await loadCliOperations(plugins, stderr),
       plugins,
       rootDir: resolve(nuxtConfig?.root || config.root || cwd),
     }
   }, stderr)
   const namespaces = [
-    ...contribution.namespaces.filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
-    createInspectNamespace(plugins),
+    ...mergeOperationNamespaces(contribution.namespaces, createOperationNamespaces(operations)).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
+    createInspectNamespace(plugins, operations),
     createProvisionNamespace(contribution.provision),
     ...(options.runtimeNamespaces ?? []).filter(namespace => !BUILTIN_NAMESPACE_NAMES.has(namespace.name)),
   ]
@@ -244,6 +248,7 @@ export async function runViteHubCli(options: RunViteHubCliOptions = {}): Promise
   const context: ViteHubCliContext = {
     cwd,
     env,
+    ...(options.fetch ? { fetch: options.fetch } : {}),
     rootDir,
     spawn,
     stderr,
