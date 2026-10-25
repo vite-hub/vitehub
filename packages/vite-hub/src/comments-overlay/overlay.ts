@@ -116,7 +116,8 @@ export function mount(options: MountOptions): OverlayHandle {
     const id = options.path()
     if (id !== subject.value.id) subject.value = { id, kind: "page" }
   })
-  watch(() => subject.value.id, id => void lookup(id), { immediate: true })
+  // Only an app with Content has `content.resolve`; without it the call would fail with a 404 on every page.
+  if (options.edit) watch(() => subject.value.id, id => void lookup(id), { immediate: true })
 
   const client = createCommentsClient({
     transport: createRpcTransport({ base: prefix }),

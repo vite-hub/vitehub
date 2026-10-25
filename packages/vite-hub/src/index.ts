@@ -15,7 +15,7 @@ import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubComments } from "@vite-hub/comments/vite"
-import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
+import { contributeContentRealtime, hubContent, usesCmsPreset } from "@vite-hub/content/vite"
 
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
@@ -1261,7 +1261,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const overlayAssets = options.comments?.overlay === false ? undefined : commentsOverlayAssets()
   plugins.push(hubComments({
     ...options.comments,
-    ...(overlayAssets ? { overlayAssets } : {}),
+    ...(overlayAssets ? { overlayAssets, overlayEdit: usesCmsPreset } : {}),
     auth: Boolean(options.auth),
     imports: {
       auth: "vite-hub/auth/server",

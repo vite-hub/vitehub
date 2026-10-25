@@ -40,6 +40,7 @@ describe("the overlay loader tag", () => {
     expect(mountPath("https://cdn.example.com/app/")).toBe("/app")
     expect(mountPath("//evil.example.com/")).toBe("")
     expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
+    expect(loaderUrl("", assets, { edit: true })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&e=1")
     const filtered = loaderUrl("/portal", assets, { exclude: ["/admin/**"], paths: ["/docs/**"] })
     expect(filtered.startsWith("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
     expect(JSON.parse(decodeURIComponent(filtered.split("&o=")[1]!))).toEqual({ exclude: ["/admin/**"], paths: ["/docs/**"] })
@@ -210,6 +211,30 @@ describe("hubComments overlay", () => {
     expect(await readFile(middleware, "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
     expect(indexHtml(plugin)("<body></body>")).toContain('src="/docs/_vitehub/comments/loader.abc123.js')
+  })
+
+  it("tells the loader that the app can edit pages only when the check says so", async () => {
+    const root = await project()
+    const withEdit = hubComments({ overlayAssets: assets, overlayEdit: project => project.projectRoot === root })
+    await configHook(withEdit)({ root })
+    expect(indexHtml(withEdit)("<body></body>")).toContain("overlay.def456.js&amp;e=1")
+    const without = hubComments({ overlayAssets: assets })
+    await configHook(without)({ root })
+    expect(indexHtml(without)("<body></body>")).not.toContain("e=1")
+    const no = hubComments({ overlayAssets: assets, overlayEdit: () => false })
+    await configHook(no)({ root })
+    expect(indexHtml(no)("<body></body>")).not.toContain("e=1")
+  })
+
+  it("moves the served path of the bundle with the resolved base", async () => {
+    const root = await project()
+    const plugin = hubComments({ overlayAssets: assets })
+    const config: Record<string, unknown> = { nitro: { plugins: [] }, root }
+    await configHook(plugin)(config)
+    const nitro = config.nitro as { publicAssets: Array<{ baseURL: string }> }
+    expect(nitro.publicAssets[0]!.baseURL).toBe("/_vitehub/comments")
+    ;(plugin.configResolved as unknown as (config: unknown) => void)({ base: "/docs/", nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
+    expect(nitro.publicAssets[0]!.baseURL).toBe("/docs/_vitehub/comments")
   })
 
   it("serves the bundle from Nitro with a long cache and adds the middleware and the render hook", async () => {

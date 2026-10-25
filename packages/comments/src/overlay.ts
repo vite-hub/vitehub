@@ -38,12 +38,13 @@ export function mountPath(base: string | undefined): string {
   return pathname.replace(/\/+$/, "")
 }
 
-/** The URL of the loader. Its query names the overlay file and carries the page filter. */
-export function loaderUrl(mount: string, assets: Pick<CommentsOverlayAssets, "loader" | "overlay">, options: CommentsOverlayOptions = {}): string {
+/** The URL of the loader. Its query names the overlay file, says whether the app can edit pages, and carries the page filter. */
+export function loaderUrl(mount: string, assets: Pick<CommentsOverlayAssets, "loader" | "overlay">, options: CommentsOverlayOptions & { edit?: boolean } = {}): string {
   const filter = options.paths?.length || options.exclude?.length
     ? `&o=${encodeURIComponent(JSON.stringify({ exclude: options.exclude ?? [], paths: options.paths ?? [] }))}`
     : ""
-  return `${mount}${overlayRoute}/${assets.loader}?f=${encodeURIComponent(assets.overlay)}${filter}`
+  // `e=1`: the app has the Content cms preset, so the overlay may look for the document of a page (the Edit button).
+  return `${mount}${overlayRoute}/${assets.loader}?f=${encodeURIComponent(assets.overlay)}${options.edit ? "&e=1" : ""}${filter}`
 }
 
 /** A nonce is base64 or base64url. Anything else is not put in a tag. */

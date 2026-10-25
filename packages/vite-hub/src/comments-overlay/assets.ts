@@ -1,5 +1,4 @@
 import { existsSync, readdirSync } from "node:fs"
-import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import type { CommentsOverlayAssets } from "@vite-hub/comments/vite"

@@ -1,5 +1,7 @@
 /** What the page tells the loader, in the query of its own URL. */
 export interface LoaderOptions {
+  /** The app has the Content cms preset, so the overlay may look for the document of a page. */
+  edit: boolean
   /** Globs of the pages that get the overlay, relative to the app base. Empty: every page. */
   paths: readonly string[]
   /** Globs of the pages that never get it. */
@@ -16,6 +18,8 @@ export interface OverlaySession {
 export interface MountOptions {
   /** The overlay shows only while this is true: the page is one that the options allow. */
   active: boolean
+  /** Look for the document of each page, for the Edit button. Only an app with Content has `content.resolve`. */
+  edit: boolean
   /** The app base, such as `/` or `/portal/`. */
   base: string
   /** The script nonce of the loader, for the styles the overlay adds itself. */
@@ -164,6 +168,7 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
       control = overlay.mount({
         active: allowed(),
         base: environment.base,
+        edit: options.edit,
         path: environment.path,
         session,
         subscribe: environment.subscribe,
@@ -185,15 +190,17 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
   return { ready: check(), stop }
 }
 
-/** Reads the loader options from the `o` query parameter of the loader URL. */
+/** Reads the loader options from the query of the loader URL: `e=1` for Edit, and `o` for the page filter. */
 export function readLoaderOptions(search: string): LoaderOptions {
+  const query = new URLSearchParams(search)
+  const none: LoaderOptions = { edit: query.get("e") === "1", exclude: [], paths: [] }
   try {
-    const raw = new URLSearchParams(search).get("o")
+    const raw = query.get("o")
     const parsed: unknown = raw ? JSON.parse(raw) : {}
     const list = (value: unknown) => Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : []
-    return isRecord(parsed) ? { exclude: list(parsed.exclude), paths: list(parsed.paths) } : { exclude: [], paths: [] }
+    return isRecord(parsed) ? { ...none, exclude: list(parsed.exclude), paths: list(parsed.paths) } : none
   }
   catch {
-    return { exclude: [], paths: [] }
+    return none
   }
 }

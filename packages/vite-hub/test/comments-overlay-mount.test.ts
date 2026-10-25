@@ -30,11 +30,12 @@ afterEach(() => {
 })
 
 /** Mounts like the loader does: it supplies the page path, the navigation feed, and whether the page is allowed. */
-async function mounted(session: OverlaySession = { canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } }, base = "/", active = true) {
+async function mounted(session: OverlaySession = { canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } }, base = "/", active = true, edit = true) {
   const stops: Array<() => void> = []
   const handle = mount({
     active,
     base,
+    edit,
     path: () => appPathname(location.pathname, base),
     session,
     subscribe: (listener) => {
@@ -120,6 +121,15 @@ describe("the comments overlay", () => {
     resolved = undefined
     history.pushState(null, "", "/elsewhere")
     await vi.waitFor(() => expect(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-edit']")).toBeNull())
+  })
+
+  it("never calls content.resolve for an app without Content", async () => {
+    const { host } = await mounted(undefined, "/", true, false)
+    await vi.waitFor(() => expect(calls.some(call => call.operation === "comments.list")).toBe(true))
+    history.pushState(null, "", "/elsewhere")
+    await vi.waitFor(() => expect(calls.filter(call => call.operation === "comments.list").length).toBeGreaterThan(1))
+    expect(calls.some(call => call.operation === "content.resolve")).toBe(false)
+    expect(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-edit']")).toBeNull()
   })
 
   it("hides the writing tools from a reader who may not write", async () => {

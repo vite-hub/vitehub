@@ -36,7 +36,7 @@ function environment(answer: () => Promise<Response> | Response, start = "/prici
 
 const session = (value: Record<string, unknown>) => () => Response.json({ ok: true, value })
 const readable = session({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
-const none = { exclude: [], paths: [] }
+const none = { edit: false, exclude: [], paths: [] }
 
 describe("the comments loader", () => {
   it("downloads the overlay only when the session may read comments", async () => {
@@ -48,7 +48,7 @@ describe("the comments loader", () => {
     expect(JSON.parse(String(init.body))).toEqual({ input: {}, operation: "comments.session" })
     expect(init.credentials).toBe("same-origin")
     expect(page.load).toHaveBeenCalledWith("/_vitehub/comments/overlay.abc.js")
-    expect(page.mount).toHaveBeenCalledWith(expect.objectContaining({ active: true, base: "/", nonce: "n1", session: { canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } } }))
+    expect(page.mount).toHaveBeenCalledWith(expect.objectContaining({ active: true, base: "/", edit: false, nonce: "n1", session: { canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } } }))
   })
 
   it("downloads nothing more for a visitor who cannot read, is not signed in, or meets a server without comments", async () => {
@@ -69,6 +69,12 @@ describe("the comments loader", () => {
     }
   })
 
+  it("tells the overlay whether the app can edit pages", async () => {
+    const page = environment(readable)
+    await runLoader({ ...none, edit: true }, page.env).ready
+    expect(page.mount).toHaveBeenCalledWith(expect.objectContaining({ edit: true }))
+  })
+
   it("asks once per page load, also after a no, and not again on navigation", async () => {
     const refused = environment(session({ canRead: false, canWrite: false, user: null }))
     await runLoader(none, refused.env).ready
@@ -78,7 +84,7 @@ describe("the comments loader", () => {
   })
 
   it("makes no request on a page the options leave out, and mounts lazily on the first allowed one", async () => {
-    const options = { exclude: ["/admin/**"], paths: ["/docs/**", "/pricing"] }
+    const options = { edit: false, exclude: ["/admin/**"], paths: ["/docs/**", "/pricing"] }
     for (const [pathname, included] of [["/pricing", true], ["/pricing/", true], ["/docs/a/b", true], ["/docs", true], ["/admin/x", false], ["/blog", false]] as const) {
       const page = environment(readable, pathname)
       await runLoader(options, page.env).ready
@@ -101,7 +107,7 @@ describe("the comments loader", () => {
 
   it("hides the overlay on a page the options leave out and shows it again on an allowed one", async () => {
     const page = environment(readable, "/docs/intro")
-    await runLoader({ exclude: ["/docs/private"], paths: [] }, page.env).ready
+    await runLoader({ edit: false, exclude: ["/docs/private"], paths: [] }, page.env).ready
     await page.go("/docs/private")
     expect(page.control.setActive).toHaveBeenLastCalledWith(false)
     await page.go("/docs/other")
@@ -109,7 +115,7 @@ describe("the comments loader", () => {
     expect(page.fetchMock).toHaveBeenCalledOnce()
     // A mount that starts on an excluded page starts hidden.
     const hidden = environment(readable, "/pricing")
-    const loader = runLoader({ exclude: [], paths: ["/pricing"] }, hidden.env)
+    const loader = runLoader({ edit: false, exclude: [], paths: ["/pricing"] }, hidden.env)
     await hidden.go("/nope")
     await loader.ready
     // The page moved on while the session was on its way: the overlay mounts already hidden.
@@ -126,16 +132,19 @@ describe("the comments loader", () => {
   })
 
   it("matches globs by segment and depth, and reads its options from the URL", () => {
-    expect(matchesPath("/a/b", { exclude: [], paths: ["/a/*"] })).toBe(true)
-    expect(matchesPath("/a/b/c", { exclude: [], paths: ["/a/*"] })).toBe(false)
-    expect(matchesPath("/a/b/c", { exclude: [], paths: ["/a/**"] })).toBe(true)
-    expect(matchesPath("/a", { exclude: [], paths: ["/a/**"] })).toBe(true)
-    expect(matchesPath("/a.b", { exclude: [], paths: ["/a.b"] })).toBe(true)
-    expect(matchesPath("/axb", { exclude: [], paths: ["/a.b"] })).toBe(false)
+    expect(matchesPath("/a/b", { edit: false, exclude: [], paths: ["/a/*"] })).toBe(true)
+    expect(matchesPath("/a/b/c", { edit: false, exclude: [], paths: ["/a/*"] })).toBe(false)
+    expect(matchesPath("/a/b/c", { edit: false, exclude: [], paths: ["/a/**"] })).toBe(true)
+    expect(matchesPath("/a", { edit: false, exclude: [], paths: ["/a/**"] })).toBe(true)
+    expect(matchesPath("/a.b", { edit: false, exclude: [], paths: ["/a.b"] })).toBe(true)
+    expect(matchesPath("/axb", { edit: false, exclude: [], paths: ["/a.b"] })).toBe(false)
     expect(matchesPath("/", none)).toBe(true)
-    expect(readLoaderOptions(`?f=x&o=${encodeURIComponent(JSON.stringify({ exclude: ["/x"], paths: ["/y", 3] }))}`)).toEqual({ exclude: ["/x"], paths: ["/y"] })
+    expect(readLoaderOptions(`?f=x&o=${encodeURIComponent(JSON.stringify({ exclude: ["/x"], paths: ["/y", 3] }))}`)).toEqual({ edit: false, exclude: ["/x"], paths: ["/y"] })
     expect(readLoaderOptions("?f=x")).toEqual(none)
     expect(readLoaderOptions("?o=%7Bnot-json")).toEqual(none)
+    expect(readLoaderOptions("?f=x&e=1")).toEqual({ ...none, edit: true })
+    expect(readLoaderOptions("?f=x&e=1&o=%7Bnot-json").edit).toBe(true)
+    expect(readLoaderOptions("?f=x&e=0").edit).toBe(false)
   })
 
   it("takes the app base and trailing slashes off the page path", () => {

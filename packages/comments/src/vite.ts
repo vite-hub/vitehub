@@ -78,6 +78,12 @@ export interface HubCommentsOptions {
   overlay?: false | CommentsOverlayOptions
   /** The prebuilt loader and overlay. `vite-hub` supplies them. Without them there is no overlay. */
   overlayAssets?: CommentsOverlayAssets
+  /**
+   * Whether the app can edit the page behind a URL, which shows the overlay's Edit button. `vite-hub` passes a check
+   * for the Content cms preset. Without it the overlay never asks `content.resolve`, which an app with no Content does
+   * not have.
+   */
+  overlayEdit?: (project: { projectRoot: string, serverDirs?: readonly string[] }) => boolean
   imports?: Partial<CommentsImports>
 }
 
@@ -212,7 +218,8 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
   const assets = options.overlay === false ? undefined : options.overlayAssets
   const overlayOptions: CommentsOverlayOptions = options.overlay || {}
   let mount = ""
-  const overlayUrl = () => assets ? loaderUrl(mount, assets, overlayOptions) : undefined
+  let edit = false
+  const overlayUrl = () => assets ? loaderUrl(mount, assets, { ...overlayOptions, edit }) : undefined
   /** The runtime plugin and the middleware carry the loader URL, which depends on the mount. */
   const writeGenerated = (root: string, entry: string): { middleware?: string, plugin: string } => {
     const url = overlayUrl()
@@ -235,6 +242,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const entry = discover()
         if (!entry) return
+        edit = options.overlayEdit?.({ projectRoot, ...(serverDirs ? { serverDirs } : {}) }) ?? false
         const nitroConfig = Reflect.get(config, "nitro")
         // Nuxt mounts the app below `app.baseURL`, which reaches Nitro as `baseURL`.
         mount = mountPath(viteConfig.base) || mountPath(typeof Reflect.get(Object(nitroConfig), "baseURL") === "string" ? String(Reflect.get(Object(nitroConfig), "baseURL")) : undefined)
@@ -268,6 +276,11 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       if (resolvedMount !== mount) {
         mount = resolvedMount
         writeGenerated(projectRoot ?? process.cwd(), entry)
+        // The served path moves with the base. Nitro reads this entry after the config is resolved.
+        const served = Reflect.get(Object(Reflect.get(config, "nitro")), "publicAssets")
+        if (assets && Array.isArray(served)) {
+          for (const asset of served) if (asset?.dir === assets.dir) asset.baseURL = `${mount}${overlayRoute}`
+        }
       }
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const nitroContext = (config as ResolvedConfig & CommentsPluginConfig)[VITEHUB_NITRO_CONFIG_CONTEXT]
