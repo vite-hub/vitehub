@@ -129,13 +129,18 @@ export type WorkflowStepRunner<TSteps extends Record<string, WorkflowStepFunctio
   [TName in keyof TSteps]: TSteps[TName]
 }
 
-export interface WorkflowExecutionContext<TPayload = unknown> {
+/** Run data that a provider gives to ViteHub before ViteHub adds the step runner. */
+export interface WorkflowProviderContext<TPayload = unknown> {
   id?: string
   name: string
   payload: TPayload
   provider: WorkflowProvider
   step?: WorkflowProviderStep
-  steps?: WorkflowStepRunner
+}
+
+export interface WorkflowExecutionContext<TPayload = unknown> extends WorkflowProviderContext<TPayload> {
+  /** Step functions from the numbered files in the Workflow folder. Empty when the Workflow has no step files. */
+  steps: WorkflowStepRunner
 }
 
 export type WorkflowHandler<TPayload = unknown, TResult = unknown> = (context: WorkflowExecutionContext<TPayload>) => TResult | Promise<TResult>
@@ -158,7 +163,8 @@ export interface WorkflowCreateOptions<TPayload = unknown, TResult = unknown> {
 
 export interface WorkflowDefinitionOptions<TPayload = unknown, TResult = unknown> {
   id?: string
-  native?: WorkflowHandler<TPayload, TResult>
+  /** Vercel native entry. Vercel calls it with the provider context only, so it gets no step runner. */
+  native?: (context: WorkflowProviderContext<TPayload>) => TResult | Promise<TResult>
   rootStep?: boolean
 }
 

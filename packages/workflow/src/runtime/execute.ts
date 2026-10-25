@@ -1,4 +1,4 @@
-import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
+import type { WorkflowDefinition, WorkflowExecutionContext, WorkflowProviderContext, WorkflowProviderStep, WorkflowStepFunction, WorkflowStepOptions } from "../types.ts"
 import { serializeResponse, toResponse, type SerializedResponse } from "@vite-hub/runtime"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
@@ -34,7 +34,7 @@ function toStepPropertyName(file: string): string {
 }
 
 export function createWorkflowSteps(
-  context: WorkflowExecutionContext,
+  context: WorkflowProviderContext,
   stepModules: Array<{ name: string, run: WorkflowStepFunction }>,
 ): Record<string, WorkflowStepFunction> {
   const names = new Map<string, string>()
@@ -63,11 +63,19 @@ export function createWorkflowSteps(
   }))
 }
 
+/**
+ * Gives every handler a step runner. Generated folder Workflows replace this
+ * empty runner with their step files.
+ */
+function toExecutionContext<TPayload>(context: WorkflowProviderContext<TPayload>): WorkflowExecutionContext<TPayload> {
+  return { ...context, steps: {} }
+}
+
 export async function runWorkflowHandler<TPayload, TResult>(
-  context: WorkflowExecutionContext<TPayload>,
+  context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<Response> {
-  const run = () => definition.handler(context)
+  const run = () => definition.handler(toExecutionContext(context))
   const value = definition.options?.rootStep === false
     ? await run()
     : await runProviderStep(context.step, context.name, run)
@@ -77,10 +85,10 @@ export async function runWorkflowHandler<TPayload, TResult>(
 
 /** Encode inside the root step so both checkpoints and final outputs survive replay. */
 export async function runSerializedWorkflowHandler<TPayload, TResult>(
-  context: WorkflowExecutionContext<TPayload>,
+  context: WorkflowProviderContext<TPayload>,
   definition: WorkflowDefinition<TPayload, TResult>,
 ): Promise<SerializedResponse> {
-  const run = async () => serializeResponse(toResponse(await definition.handler(context)))
+  const run = async () => serializeResponse(toResponse(await definition.handler(toExecutionContext(context))))
   return definition.options?.rootStep === false
     ? await run()
     : await runProviderStep(context.step, context.name, run)

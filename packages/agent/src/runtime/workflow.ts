@@ -42,7 +42,7 @@ import type {
   ResolvedAgentRuntimeContext,
 } from "../types.ts"
 
-import type { WorkflowExecutionContext, WorkflowProvider } from "@vite-hub/workflow"
+import type { WorkflowProvider, WorkflowProviderContext } from "@vite-hub/workflow"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 export { workspaceAgentWithSourceRoot }
 
@@ -79,7 +79,7 @@ function workflowRecoveryDelay(attempt: number): { duration: string; millisecond
   return { duration: "30 minutes", milliseconds: 1_800_000 }
 }
 
-async function sleepForWorkflowRecovery(context: WorkflowExecutionContext, attempt: number): Promise<void> {
+async function sleepForWorkflowRecovery(context: WorkflowProviderContext, attempt: number): Promise<void> {
   const delay = workflowRecoveryDelay(attempt)
   if (context.step?.sleep) return await context.step.sleep(`agent-invocation-recovery-${attempt + 1}`, delay.duration)
   await new Promise<void>((resolve) => setTimeout(resolve, delay.milliseconds))
@@ -87,7 +87,7 @@ async function sleepForWorkflowRecovery(context: WorkflowExecutionContext, attem
 
 async function reconcileAgentWorkflowInvocation<TRuntimeConfig extends AgentRuntimeConfig>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: WorkflowExecutionContext,
+  context: WorkflowProviderContext,
   runtimeContext: AgentRuntimeContext<TRuntimeConfig>,
   recovery: NonNullable<AgentWorkflowInvocationPayload["invocationRecovery"]>,
 ): Promise<void> {
@@ -310,7 +310,7 @@ async function portableWorkflowResult(result: unknown): Promise<unknown> {
 
 export async function runAgentWorkflowDefinition<TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig, CALL_OPTIONS = unknown>(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>>,
-  context: WorkflowExecutionContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
+  context: WorkflowProviderContext<AgentWorkflowInvocationPayload<CALL_OPTIONS> | undefined>,
   runAgentInline: AgentWorkflowRunner<TRuntimeConfig, CALL_OPTIONS>,
 ): Promise<Response | AgentRunResult | unknown> {
   const payload = context.payload || {}

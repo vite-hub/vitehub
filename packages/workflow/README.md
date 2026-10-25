@@ -162,7 +162,7 @@ pnpm add workflow @workflow/builders
 ```
 
 ```ts
-import { defineWorkflow, type WorkflowExecutionContext } from "@vite-hub/workflow";
+import { defineWorkflow, type WorkflowExecutionContext, type WorkflowProviderContext } from "@vite-hub/workflow";
 
 interface OnboardPayload {
   email: string;
@@ -174,7 +174,7 @@ async function upsertUserStep(email: string) {
   return await upsertUser(email, { idempotencyKey: `onboard-user:${email}` });
 }
 
-async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayload>) {
   "use workflow";
 
   const user = await upsertUserStep(payload.email);
@@ -189,7 +189,7 @@ async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayloa
 export default defineWorkflow(inlineOnboard, { native: durableOnboard });
 ```
 
-ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Put external side effects in idempotent `use step` functions because a durable step may be retried.
+ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
 
 ## Handle stable failures
 
