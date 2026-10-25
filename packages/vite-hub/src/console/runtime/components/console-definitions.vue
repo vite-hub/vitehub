@@ -133,7 +133,7 @@ function queryValue(): string | undefined {
 
 async function loadDefinitions(): Promise<void> {
   request?.abort();
-  const previousSelection = selectedName.value;
+  const previousSelection = selectedName.value ?? (catalogView.value ? undefined : queryValue());
   content.value = undefined;
   selectedName.value = undefined;
   const controller = new AbortController();

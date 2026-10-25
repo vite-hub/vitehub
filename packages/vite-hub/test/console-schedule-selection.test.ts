@@ -62,10 +62,12 @@ describe("Console Schedule result selection", () => {
 })
 
 describe("Console record selection URL", () => {
-  it.each(["missing", "removed", "retained"])("normalizes the selection when a record is %s", async (scenario) => {
+  it.each(["missing", "removed", "retained", "initial retry", "refresh retry"])("normalizes the selection when a record is %s", async (scenario) => {
     const record = { id: "outbox-3", cells: { subject: "Hello" }, fields: [] }
     const response = (present: boolean) => ({ section: "email", kind: "record-table", records: present ? [record] : [] })
-    mocks.request.mockReset().mockResolvedValueOnce(response(scenario !== "missing"))
+    mocks.request.mockReset()
+    if (scenario === "initial retry") mocks.request.mockRejectedValueOnce(new Error("Request failed"))
+    else mocks.request.mockResolvedValueOnce(response(scenario !== "missing"))
     const router = createRouter({ history: createMemoryHistory(), routes: [
       { path: "/email", component: {} },
     ] })
@@ -81,12 +83,23 @@ describe("Console record selection URL", () => {
       const instance = app.mount({})
       const state = (instance.$ as unknown as { setupState: ScheduleState }).setupState
       await nextTick()
-      if (scenario !== "missing") {
+      if (scenario === "refresh retry") {
+        expect(state.recordOpen).toBe(true)
+        mocks.request.mockRejectedValueOnce(new Error("Request failed"))
+        await state.loadDefinitions()
+      }
+      if (scenario === "initial retry" || scenario === "refresh retry") {
+        expect(state.recordOpen).toBe(false)
+        expect(router.currentRoute.value.query).toEqual({ record: record.id, search: "hello" })
+        mocks.request.mockResolvedValueOnce(response(true))
+        await state.loadDefinitions()
+      }
+      else if (scenario !== "missing") {
         expect(state.recordOpen).toBe(true)
         mocks.request.mockResolvedValueOnce(response(scenario === "retained"))
         await state.loadDefinitions()
       }
-      const retained = scenario === "retained"
+      const retained = scenario === "retained" || scenario === "initial retry" || scenario === "refresh retry"
       expect(state.recordOpen).toBe(retained)
       expect(state.selectedName).toBe(retained ? record.id : undefined)
       await vi.waitFor(() => expect(router.currentRoute.value.query).toEqual({
