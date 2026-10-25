@@ -12,6 +12,25 @@ const user: UIMessage = { id: "u", parts: [{ text: "Hi", type: "text" }], role: 
 const assistant: UIMessage = { id: "a", parts: [{ text: "Hello", type: "text" }], role: "assistant" };
 
 describe("ChatMessage", () => {
+  it("previews relative image files while rejecting executable image URLs", () => {
+    const message: UIMessage = {
+      id: "images",
+      role: "assistant",
+      parts: [
+        { filename: "retained.png", mediaType: "image/png", type: "file", url: "/files/retained-image" },
+        { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "javascript:alert(1)" },
+      ],
+    };
+    const wrapper = mount(ChatMessage, {
+      global: { components: { UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }) } },
+      props: { message },
+    });
+
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["/files/retained-image"]);
+    expect(wrapper.get('[aria-label="Preview retained.png"]').attributes("type")).toBe("button");
+    expect(wrapper.text()).toContain("unsafe.png");
+  });
+
   it("puts the user at the end in a bubble and the assistant at the start without one", () => {
     const userMessage = mount(ChatMessage, { global, props: { message: user } });
     const assistantMessage = mount(ChatMessage, { global, props: { message: assistant } });

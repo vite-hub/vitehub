@@ -19,7 +19,8 @@ export const MessageParts = defineComponent({
         { class: "vh-message-parts", "data-slot": "message-parts", parts: props.parts, streaming: props.streaming },
         {
           markdown: ({ value, streaming }: { value: string; streaming: boolean }) => h(Markdown, { streaming, value }),
-          file: ({ image, name }: { image?: string; name: string }) => (image ? h(ImagePreview, { alt: name, src: image }) : null),
+          file: ({ part, name }: { part: Extract<UIMessage["parts"][number], { type: "file" }>; name: string }) =>
+            part.mediaType.startsWith("image/") ? h(ImagePreview, { alt: name, src: part.url }) : null,
           ...slots,
         },
       );
