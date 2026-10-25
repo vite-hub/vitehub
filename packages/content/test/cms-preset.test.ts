@@ -373,7 +373,7 @@ describe("the cms preset on the GitHub store", () => {
     expect(module).not.toContain("blob")
     const folder = renderCmsWorkspaceModule(resolveCmsPresetPlan({ file, options: { store: "github", root: "content" } }, choices([]), "/app"), imports)
     expect(folder).toContain("root: \"content\",")
-    expect(folder).not.toContain("rules:")
+    expect(folder).toContain("rules: { \"**\": { write: false } },")
     expect(folder).not.toContain("repository:")
   })
 

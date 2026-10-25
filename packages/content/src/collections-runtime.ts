@@ -557,6 +557,24 @@ function revisionTouches(revision: WorkspaceRevision, collection: string, id: st
   return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id)
 }
 
+/**
+ * What a draft commit recorded for each document it changed: the digest that the document had when the draft first
+ * changed it (null when it did not exist), as `content.bases` of the revision metadata. A document that has no entry is
+ * as it was when the draft started, so a difference from `published` there is a change made on `published`.
+ * Undefined when the commit has no record, as on a Store whose draft is a copy of `published`.
+ */
+function draftBases(revision: WorkspaceRevision | null | undefined): Record<string, string | null> | undefined {
+  const content: unknown = revision?.metadata?.content
+  const bases: unknown = content !== null && Object(content) === content ? Reflect.get(Object(content), "bases") : undefined
+  if (bases === null || Object(bases) !== bases || Array.isArray(bases)) return
+  const result: Record<string, string | null> = Object.create(null)
+  for (const [path, digest] of Object.entries(Object(bases))) {
+    if (digest !== null && String(digest) !== digest) return
+    result[path] = digest
+  }
+  return result
+}
+
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
   if (metadata !== undefined && (metadata === null || Object(metadata) !== metadata || Array.isArray(metadata))) {
     throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revision metadata must be an object." })
@@ -620,7 +638,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
     const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
     if (target?.provider === "github") {
-      throw contentErrorDiagnostics.CONTENT_R0015({
+      throw contentErrorDiagnostics.CONTENT_R0016({
         message: `[vitehub] schedule() needs the Blob + Database store, but Workspace ${JSON.stringify(workspaceName)} uses the GitHub store, which keeps no schedules. Publish with content.publish() instead.`,
       })
     }
@@ -740,6 +758,29 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       for (const path of pending.keys()) result.set(path, null)
       return result
     })
+  }
+
+  /**
+   * The `content.bases` for the next draft commit. A document that the draft already changed keeps its base, unless the
+   * draft and `published` are the same now, since publishing made them one. The document of this write gets its base
+   * from the draft, or from the revision that the draft starts from.
+   */
+  async function nextBases(
+    publishedRef: string,
+    draftHead: WorkspaceRevision | null,
+    opened: OpenedRevision | undefined,
+    path: string,
+    current: string | null,
+  ): Promise<Record<string, string | null>> {
+    const retained = await history()
+    const latest = await retained.head({ ref: publishedRef })
+    const latestFiles = latest ? (await openRevision(latest)).files : undefined
+    const next: Record<string, string | null> = {}
+    for (const [carried, base] of Object.entries(draftHead ? draftBases(draftHead) ?? {} : {})) {
+      if ((opened?.files.get(carried) ?? null) !== (latestFiles?.get(carried) ?? null)) next[carried] = base
+    }
+    if (!Object.hasOwn(next, path)) next[path] = current
+    return next
   }
 
   // Seed an empty draft from the published ref so a first save does not drop every published document.
@@ -1016,7 +1057,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           await seedDraft(retained)
           head = await retained.head({ ref: "draft" })
         }
-        // The base of a write is the draft, or the published ref while the draft does not exist.
+        // The base of a write is the draft, or the published ref while the draft does not exist. The new draft starts
+        // from exactly that revision, so `ifDigest` is checked against the files that the draft begins with.
         const base = head ?? (baseRef === undefined ? null : await retained.head({ ref: baseRef }))
         const opened = base ? await openRevision(base) : undefined
         const current = opened?.files.get(path) ?? null
@@ -1035,12 +1077,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const release = await acquireMutation()
           let revision: WorkspaceRevision
           try {
+            const bases = baseRef === undefined ? undefined : await nextBases(baseRef, head, opened, path, current)
             revision = await retained.commit({
               ref: "draft",
               ifHead: head?.id ?? null,
+              ...(!head && base && baseRef !== undefined ? { startFrom: base.id } : {}),
               changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
               message,
-              metadata,
+              metadata: bases ? writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }], bases }) : metadata,
             })
           }
           finally { release() }
@@ -1124,6 +1168,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function status(id?: string): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
       if (id !== undefined) pathFor(id)
       const [draft, published, scheduled] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules()])
+      const bases = (await history().then(retained => retained.forksFrom?.("draft"))) === undefined ? undefined : draftBases(draft.revision)
       const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
       // Issue counts of the drafts, from the parse cache that list() shares.
@@ -1137,9 +1182,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
         if (draftDigest === null && publishedDigest === null) return null
-        const state: ContentDocumentState = draftDigest === null
-          ? "deleted"
-          : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
+        // A document that only `published` changed is not a change of the draft: publish() leaves it alone.
+        const publishedOnly = bases !== undefined && draftDigest !== publishedDigest && !Object.hasOwn(bases, pathFor(documentId))
+        const state: ContentDocumentState = publishedOnly
+          ? publishedDigest === null ? "deleted" : "published"
+          : draftDigest === null
+            ? "deleted"
+            : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
         const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
         const issues = issueCounts.get(documentId)
         if (issues) status.issues = issues
@@ -1338,11 +1387,23 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const remove: string[] = []
       const documents: ContentPublishedDocument[] = []
       const invalid: ContentInvalidDocument[] = []
+      const moved: ContentPublishMismatch[] = []
+      // On a Store whose draft is a branch of its own, only what the draft changed is published (see draftBases()).
+      const bases = (await retained.forksFrom?.("draft")) === undefined ? undefined : draftBases(draftHead)
       for (const { collection, id, path } of targets) {
         const draftDigest = draft.files.get(path)
         const publishedDigest = published?.files.get(path)
         // Unchanged documents, and an expected deletion of a document that was never published, publish nothing.
         if (draftDigest === publishedDigest) continue
+        if (bases) {
+          // The draft did not change this document, so it differs because `published` changed. Leave it as it is.
+          if (!Object.hasOwn(bases, path)) continue
+          // Both sides changed it: refuse, so the edit on `published` is not overwritten or deleted.
+          if ((publishedDigest ?? null) !== bases[path]) {
+            moved.push({ collection: collection.name, id, expected: bases[path] ?? null, actual: publishedDigest ?? null })
+            continue
+          }
+        }
         if (draftDigest === undefined) {
           remove.push(path)
           documents.push({ collection: collection.name, id, change: "delete" })
@@ -1357,6 +1418,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         }
         put[path] = bytes
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
+      }
+      if (moved.length) {
+        const lines = moved.map(({ collection, id, actual }) => `- ${collection}/${id}: ${actual === null ? "deleted on" : "changed on"} the published branch`)
+        throw contentConflict(`[vitehub] These documents changed on the published branch after the draft changed them, so publish() published nothing:\n${lines.join("\n")}\nOpen each document to see the published version, make your change again, save it, and publish again.`, {
+          ref: "published",
+          documents: moved.map(entry => ({ ...entry })),
+        })
       }
       // A draft in progress never reaches `published`. Every invalid document is named, and nothing is published.
       if (invalid.length) throw contentInvalidDocuments("publish", invalid)

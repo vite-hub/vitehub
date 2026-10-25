@@ -32,6 +32,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  vi.useRealTimers()
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
@@ -63,7 +64,7 @@ async function setup(options: { database?: boolean, root?: string } = {}) {
       refs: { published: "main", draft: "vitehub/content" },
       ...(database ? { database } : {}),
     },
-    ...((options.root ?? "") === "" ? { rules: { "**": { write: false } } } : {}),
+    rules: { "**": { write: false } },
   })
   const content = defineContent({
     workspace,
@@ -168,7 +169,7 @@ describe("Content on the GitHub store", () => {
     const { posts, content } = await setup()
     const saved = await posts.save("b", { data: { title: "B" }, body: "" })
     await expect(content.schedule({ at: new Date(Date.now() + 60_000), expect: [{ collection: "posts", id: "b", digest: saved.digest }] }))
-      .rejects.toMatchObject({ code: "CONTENT_R0015", message: expect.stringContaining("needs the Blob + Database store") })
+      .rejects.toMatchObject({ code: "CONTENT_R0016", message: expect.stringContaining("needs the Blob + Database store") })
   })
 
   it("keeps working in a folder of the repository", async () => {
@@ -178,5 +179,77 @@ describe("Content on the GitHub store", () => {
     expect((await posts.list()).items.map(item => item.id)).toEqual(["a"])
     await posts.save("c", { data: { title: "C" }, body: "" })
     expect(fake.tree("vitehub/content").map(entry => entry.path)).toContain("site/content/posts/c.md")
+  })
+
+  describe("with changes made directly on the published branch", () => {
+    /** A commit by someone else on `main`. The Store keeps a branch head for 5 seconds, so time passes too. */
+    function onMain(changes: Record<string, string>) {
+      fake.commit("main", changes)
+      vi.advanceTimersByTime(6_000)
+    }
+
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["Date"] })
+    })
+
+    it("publishes only what the draft changed and leaves edits made on main alone", async () => {
+      const { posts, content } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "New\n" })
+      onMain({ "content/posts/a.md": page("A2"), "content/posts/c.md": page("C") })
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      expect(await posts.status("c")).toMatchObject({ state: "published" })
+      expect(await posts.status("b")).toMatchObject({ state: "draft" })
+      const result = await content.publish()
+      expect(result.documents).toEqual([{ collection: "posts", id: "b", change: "add" }])
+      const tree = new Map(fake.tree("main").map(entry => [entry.path, entry.sha]))
+      expect(tree.get("content/posts/a.md")).toBe(textSha(page("A2")))
+      expect(tree.get("content/posts/c.md")).toBe(textSha(page("C")))
+      expect(tree.has("content/posts/b.md")).toBe(true)
+      expect(fake.head("main")).toBe(result.revision!.id)
+    })
+
+    it("refuses the whole publish when a document changed on both branches", async () => {
+      const { posts, content } = await setup()
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main") })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({
+        code: "WORKSPACE_CONFLICT",
+        message: expect.stringContaining("Open each document to see the published version"),
+        details: { ref: "published", documents: [{ collection: "posts", id: "a", expected: a.digest, actual: textSha(page("A main")) }] },
+      })
+      expect(fake.head("main")).toBe(main)
+      expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
+    })
+
+    it("refuses to delete a document that was deleted or changed on main", async () => {
+      const { posts, content } = await setup()
+      await posts.remove("a")
+      onMain({ "content/posts/a.md": page("A main") })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.tree("main").some(entry => entry.path === "content/posts/a.md")).toBe(true)
+    })
+
+    it("starts the draft from the revision that ifDigest was checked against", async () => {
+      const { posts } = await setup()
+      const first = (await posts.raw("a"))!
+      fake.commit("main", { "content/posts/a.md": page("A2") })
+      // The Store still reports the earlier head for a few seconds, and the draft starts from exactly that one.
+      await posts.save("b", { data: { title: "B" }, body: "" }, { ifDigest: null })
+      const draft = fake.commits.get(fake.head("vitehub/content")!)!
+      expect(draft.parents).toEqual([first.revision])
+      expect(draft.tree.find(entry => entry.path === "content/posts/a.md")!.sha).toBe(first.digest)
+    })
+
+    it("publishes a document again after it was published and edited", async () => {
+      const { posts, content } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await content.publish()
+      await posts.save("b", { data: { title: "B2" }, body: "" })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "b", change: "update" }])
+      expect((await posts.get("b"))?.data).toMatchObject({ title: "B2" })
+    })
   })
 })

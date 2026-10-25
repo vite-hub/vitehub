@@ -126,7 +126,7 @@ The options `repo`, `branch`, `draftBranch`, `root`, and `publish` work only wit
 | --- | --- |
 | Published documents | Files on `branch`, at the paths of your collections. |
 | Drafts | Files on `draftBranch`. A save is one commit there. |
-| Revisions and history | Commits. The commit message holds the Content metadata as a `Vitehub-Metadata:` line. |
+| Revisions and history | Commits. The commit message holds the Content metadata as a `Vitehub-Metadata:` line. Each draft commit also lists, for every document the draft changed, the digest that the document had when the draft first changed it (`bases`). Up to about 600 unpublished changed documents fit in the 64 KiB metadata limit. |
 | Digests | Git blob shas. `ifDigest` and `publish({ expect })` use them. |
 | Editor sessions and leases | The Database table `vitehub_content_sessions`. |
 | Schedules | Not supported. |
@@ -137,14 +137,16 @@ The preset adds `contentSessionsSchema` to the Database, but not `workspaceHisto
 
 - **First save.** The first save of a document creates `draftBranch` from `branch` in the same commit. There is no seed commit. Until then the draft is the published content.
 - **Save and remove.** Each is one commit on `draftBranch` that changes one file. A busy draft branch is retried.
-- **Publish.** `content.publish()` copies the changed documents to `branch` in one commit. The commit checks that `draftBranch` did not move. Other files of the repository stay as they are.
-- **Other files.** At the repository root, the generated Workspace denies every write except to the collection paths. Agents and raw history commits cannot change `package.json` or other files. With a `root` folder, the Workspace sees only that folder.
+- **Publish.** `content.publish()` copies the documents that the draft changed to `branch` in one commit. The commit checks that `draftBranch` did not move. Other files of the repository stay as they are, and so do documents that changed or were added only on `branch`.
+- **Other files.** The generated Workspace denies every write except to the collection paths, for any `root`. Agents and raw history commits cannot change `package.json` or other files, and `main` and `draftBranch` can be written only as `published` and `draft`. With a `root` folder, the Workspace reads and writes files in that folder only.
 
 ### Limits
 
-- `content.schedule()` throws `CONTENT_R0015`. Use `content.publish()`.
+- `content.schedule()` throws `CONTENT_R0016`. Use `content.publish()`.
 - `publish: 'pr'` is not available yet. The build fails with `CONTENT_B0001`. Pull request publishing comes in a follow-up release.
-- The draft branch does not take changes made on `branch` after the draft was created. A document edited in both places keeps the draft text on publish. Merge `branch` into `draftBranch` yourself when needed.
+- The draft branch does not take changes made on `branch` after the draft was created. A document that only `branch` changed or added is never touched by `publish()`: it is not reverted or deleted, and `status()` reports it as `published`. The draft keeps its old copy until you merge `branch` into `draftBranch` yourself.
+- A document that the draft changed and `branch` changed too (or deleted) cannot be published. `publish()` throws `WORKSPACE_CONFLICT` with `ref: 'published'` and the documents, and publishes nothing, not even the other documents. Open the document to see the published version, make your change again, save, and publish again.
+- A draft commit that was not made by Content has no record of what it changed, so `publish()` then compares the draft with `branch` as the Blob + Database store does.
 - Each read and write calls the GitHub API, so GitHub rate limits apply. The head of a branch is cached for 5 seconds.
 
 ## Hosts
@@ -157,7 +159,7 @@ The preset works on every host where both [Blob](/docs/blob/hosts) and [Database
 | --- | --- | --- |
 | `CONTENT_B0001` | The build cannot read the preset selection: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a string literal or is not valid for its option, a GitHub option is used without `store: 'github'`, or `publish` is `'pr'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. |
 | `CONTENT_R0006` | The same checks fail when `defineContent()` runs. | Fix the option that the message names. |
-| `CONTENT_R0015` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
+| `CONTENT_R0016` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
 | `WORKSPACE_R0072` | The GitHub store has no repository or no token at its first request. | Set `repo` or `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, and `VITEHUB_GITHUB_TOKEN`. |
 | `CONTENT_B0002` | The app lacks something the preset needs: Workspace, Database, or Blob (not with `store: 'github'`) is set to `false`, several Databases match and none is `default`, or the named Database or Blob store does not exist. | Follow the message. It names the `vitehub()` setting or the preset option to set. |
 | `WORKSPACE_B0003` | Another Workspace already uses the preset's Workspace name. | Rename one, or pass `[cms, { workspace }]`. |

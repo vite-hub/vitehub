@@ -243,7 +243,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     }
   }
 
-  const usage = "Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { database, blob, workspace }] }) in the exported content Definition."
+  const usage = `Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { ${cmsOptionKeys.join(", ")} }] }) in the exported content Definition.`
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
@@ -425,8 +425,8 @@ function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan,
     `    refs: { published: ${JSON.stringify(github.branch)}, draft: ${JSON.stringify(github.draftBranch)} },`,
     "    database,",
     "  },",
-    // At the repository root the Workspace sees every file. Content allows its collection globs on top of this rule.
-    ...(github.root === "" ? ['  rules: { "**": { write: false } },'] : []),
+    // The Workspace can reach the whole folder, and at the repository root the whole repository. Content allows its collection globs on top of this rule.
+    '  rules: { "**": { write: false } },',
     "})",
     "",
   ].join("\n")
