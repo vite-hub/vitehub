@@ -1,6 +1,6 @@
-import { defineDiagnostics } from "nostics"
+import { defineDiagnostics, Diagnostic } from "nostics"
 
-import type { Diagnostic, DiagnosticCallParams, DiagnosticDefinition, Diagnostics } from "nostics"
+import type { DiagnosticCallParams, DiagnosticDefinition, Diagnostics } from "nostics"
 
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
@@ -37,20 +37,37 @@ export interface DefineErrorsOptions<TCodes extends Record<string, DiagnosticDef
 }
 
 /**
- * Prepares a recognized diagnostic for a result without replacing it or its metadata.
+ * Prepares a recognized diagnostic for a result, keeping its metadata in memory.
+ * Reuses mutable diagnostics; copies diagnostics whose name or serializer cannot be replaced.
  * Sets name to code to match the result contract, including diagnostics renamed by their owner.
  * The caller owns code allowlisting and the public text. JSON includes only the public fields.
  */
 export function toResultError<TCode extends string>(
   error: (Diagnostic<unknown> | ResultError) & { readonly code: TCode },
 ): ResultError<TCode> {
-  Object.defineProperty(error, "name", { configurable: true, value: error.code, writable: true })
-  Object.defineProperty(error, "toJSON", {
+  const canReplace = (key: "name" | "toJSON") => {
+    const descriptor = Object.getOwnPropertyDescriptor(error, key)
+    return descriptor ? descriptor.configurable === true : Object.isExtensible(error)
+  }
+  const result = canReplace("name") && canReplace("toJSON")
+    ? error
+    : new Diagnostic<unknown>({
+      code: error.code,
+      why: error.why,
+      fix: error.fix,
+      docs: error.docs,
+      cause: error.cause,
+      data: error.data,
+      sources: error.sources,
+    })
+  if (result !== error) result.stack = error.stack
+  Object.defineProperty(result, "name", { configurable: true, value: result.code, writable: true })
+  Object.defineProperty(result, "toJSON", {
     configurable: true,
-    value: () => ({ code: error.code, docs: error.docs, fix: error.fix, name: error.name, why: error.why }),
+    value: () => ({ code: result.code, docs: result.docs, fix: result.fix, name: result.name, why: result.why }),
   })
-  // SAFETY: The name/code invariant and public serializer are established above.
-  return error as ResultError<TCode>
+  // SAFETY: The diagnostic retains its code and data; name and public JSON are established above.
+  return result as ResultError<TCode>
 }
 
 /**
