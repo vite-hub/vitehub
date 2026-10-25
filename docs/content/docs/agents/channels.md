@@ -3,8 +3,9 @@ title: Agent Channels
 navigation.title: Channels
 description: Connect an Agent to web chat and messaging platforms without mixing transport with identity.
 navigation.order: 40
-navigation.group: Connect
+navigation.group: Channels
 icon: i-lucide-radio
+navigation.kind: Guides
 ---
 
 A Channel describes where an Agent Invocation came from and how replies return there. It carries transport, event, thread, message, and delivery facts. It does not prove who the caller is.
@@ -882,3 +883,7 @@ A Channel and an Agent Invocation are separate records. One Agent Definition can
 Use verified Channel metadata to identify the Agent Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
 
 To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).
+
+## Next steps
+
+Follow [Build a chat app](/docs/agents/build-a-chat-app) for a complete web client, and [Chat History and sessions](/docs/agents/chat-history-sessions) to choose which prior messages reach the model. Inspect results with [Observability](/docs/agents/observability) and [Test an Agent](/docs/agents/testing).

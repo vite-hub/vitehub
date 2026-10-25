@@ -10,6 +10,7 @@ import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { Chat, Message } from "chat"
+import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
@@ -1931,6 +1932,9 @@ describe("agent Vite plugin", () => {
       expect(gatewayRoute).toContain("runtime: 'vite'")
       expect(gatewayRoute).toContain("waitUntil: waitUntilFromEvent(event)")
       expect(gatewayRoute).toContain("webhookUrl")
+      expect(gatewayRoute).toContain("function requestHeaders(event: H3Event)")
+      expect(gatewayRoute).toContain("headers: requestHeaders(event)")
+      expect(gatewayRoute).not.toContain("headers: getRequestHeaders(event)")
       expect(gatewayRoute).not.toContain("@vite-hub/schedule/runtime")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -2573,6 +2577,19 @@ describe("agent Vite plugin", () => {
         "return await handler(await toRequest(event), { agentIdentity: agentIdentities[agent], cloudflare, runtime: 'vite', event, waitUntil: waitUntilFromEvent(event) })",
       )
       expect(webhookRoute).not.toContain("@vite-hub/schedule/runtime")
+
+      const requestHelpers = webhookRoute.slice(webhookRoute.indexOf("async function toRequest"), webhookRoute.indexOf("type ViteHubGeneratedCloudflare"))
+      const { code } = await transform(requestHelpers, { loader: "ts", format: "esm" })
+      const { createAgentWebhookRequest } = await import("../src/server/internal.ts")
+      // SAFETY: Run the generated request conversion with H3 v1's optional header values.
+      const toRequest = new Function("getRequestHeaders", "getRequestURL", "createAgentWebhookRequest", `${code}\nreturn toRequest`)(
+        () => ({ authorization: "Bearer test-token", "x-empty": "", "x-absent": undefined }),
+        () => new URL("https://example.com/api/agents/support/chat"),
+        createAgentWebhookRequest,
+      ) as (event: { method: string }) => Promise<Request>
+      const request = await toRequest({ method: "GET" })
+      expect([...request.headers]).toEqual([["authorization", "Bearer test-token"], ["x-empty", ""]])
+      expect(webhookRoute).not.toContain("headers: getRequestHeaders(event)")
     } finally {
       await rm(root, { force: true, recursive: true })
     }
@@ -2639,7 +2656,7 @@ describe("agent Vite plugin", () => {
     expect(incomplete.signal.reason).toMatchObject({ name: "AbortError" })
   })
 
-  it("writes generated Nitro handlers that compile with checked indexed access", async () => {
+  it("writes generated Nitro handlers that compile with checked indexed access for H3 v1 and v2", async () => {
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(import.meta.dirname, ".vitehub-agent-routes-types-"))
     try {
@@ -2669,40 +2686,50 @@ export default defineAgent({
 `,
         "utf8",
       )
-      await writeFile(
-        join(root, "tsconfig.json"),
-        `${JSON.stringify(
-          {
-            extends: resolve(import.meta.dirname, "../tsconfig.json"),
-            // Consumers check generated code against the published declarations, not package sources.
-            compilerOptions: { noUncheckedIndexedAccess: true, paths: {} },
-            include: [".vitehub/agent/chat-webhook-route.ts", "server/agents/**/*.ts"],
-          },
-          null,
-          2,
-        )}\n`,
-        "utf8",
-      )
-
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      for (const stateProvider of ["cloudflare", "libsql"] as const) {
+      for (const [stateProvider, command, h3] of [
+        ["cloudflare", "build", "v2"],
+        ["libsql", "build", "v2"],
+        ["libsql", "serve", "v1"],
+        ["libsql", "serve", "v2"],
+      ] as const) {
+        await writeFile(
+          join(root, "tsconfig.json"),
+          `${JSON.stringify(
+            {
+              extends: resolve(import.meta.dirname, "../tsconfig.json"),
+              // Consumers check generated code against the published declarations, not package sources.
+              compilerOptions: {
+                noUncheckedIndexedAccess: true,
+                paths: { h3: [resolve(import.meta.dirname, h3 === "v1" ? "../../vite-hub/node_modules/h3-v1" : "../node_modules/h3")] },
+              },
+              include: [".vitehub/agent/chat-webhook-route.ts", "server/agents/**/*.ts"],
+            },
+            null,
+            2,
+          )}\n`,
+          "utf8",
+        )
+        const routes = {
+          inspection: true,
+          ...(command === "build" ? { aliases: { "/api/telegram/webhook": { agent: "calories", webhook: "telegram" } } } : {}),
+        }
         const plugin = hubAgent(
           stateProvider === "libsql"
             ? {
                 providers: { state: { provider: "libsql" } },
-                routes: { inspection: true, aliases: { "/api/telegram/webhook": { agent: "calories", webhook: "telegram" } } },
+                routes,
               }
-            : { routes: { inspection: true, aliases: { "/api/telegram/webhook": { agent: "calories", webhook: "telegram" } } } },
+            : { routes },
         )
         if (isRuntimeFunction(plugin.configResolved)) {
           // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-          await plugin.configResolved.call({} as never, { command: "build", preset: "cloudflare", root } as never)
+          await plugin.configResolved.call({} as never, { command, preset: "cloudflare", root } as never)
         }
 
         const generatedRoute = await readFile(join(root, ".vitehub/agent/chat-webhook-route.ts"), "utf8")
         expect(generatedRoute).not.toContain("@ts-nocheck")
         expect(generatedRoute).toContain("abortSignal: request.signal")
-        expect(generatedRoute).toContain("runtime: runtimeFromEvent(event)")
+        expect(generatedRoute).toContain(command === "serve" ? "runtime: 'vite'" : "runtime: runtimeFromEvent(event)")
         if (stateProvider === "libsql") {
           expect(generatedRoute).toContain("const viteHubChatStateOptions: Parameters<typeof createLibsqlAgentState>[0] = {}")
           expect(generatedRoute).toContain("let viteHubChatState: ReturnType<typeof createLibsqlAgentState> | undefined")

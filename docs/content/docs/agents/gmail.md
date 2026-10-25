@@ -1,9 +1,10 @@
 ---
 title: Gmail Channel
 description: Run an Agent on each new Gmail message and let hooks label, archive, or trash it.
-navigation.order: 40.5
-navigation.group: Connect
+navigation.order: 42
+navigation.group: Channels
 icon: i-lucide-mail
+navigation.kind: Guides
 ---
 
 `gmail()` connects one Gmail mailbox to an Agent. Gmail sends a Pub/Sub push notification when mail arrives. The Channel verifies the push, reads the new Inbox messages, and starts one Invocation per message. Agent hooks act on the message through `event.message`.

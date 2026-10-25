@@ -2,6 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { parse } from "yaml";
 
 const docsRoot = resolve(import.meta.dirname, "..");
 const fixturesRoot = resolve(docsRoot, "../fixtures/tutorials");
@@ -22,13 +23,13 @@ async function expectPageToUseFixture(pagePath: string, fixture: string, labels:
 
   for (const label of labels) {
     const expected = normalize(await readFile(resolve(fixturesRoot, fixture, label), "utf8"));
-    expect(codeBlocks(page, label), `${pagePath} should include ${label}`).toContain(expected);
+    expect(codeBlocks(page, label), `${pagePath} should include ${label}`).toEqual([expected]);
   }
 }
 
 describe("documentation tutorials", () => {
   it("uses the framework distribution as the only direct ViteHub dependency", async () => {
-    for (const fixture of ["agents", "server-primitives"]) {
+    for (const fixture of ["agents", "first-agent", "server-primitives"]) {
       const manifest = JSON.parse(
         await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"),
       );
@@ -39,20 +40,20 @@ describe("documentation tutorials", () => {
     }
   });
 
-  it("gives every product a tutorial with runnable steps", async () => {
+  it("gives every Server Primitive and UI section a tutorial with runnable steps", async () => {
     const docs = resolve(docsRoot, "content/docs");
     const entries = await readdir(docs, { withFileTypes: true });
     const tutorialPaths: string[] = [];
+    const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
 
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      const path = resolve(docs, entry.name, "get-started.md");
-      try {
-        await readFile(path);
-        tutorialPaths.push(path);
-      } catch {
-        // Some sections, such as Reference, intentionally have no package tutorial.
-      }
+      const navigation: unknown = parse(await readFile(resolve(docs, entry.name, ".navigation.yml"), "utf8"));
+      const isPrimitive = navigation !== null && typeof navigation === "object"
+        && "category" in navigation && typeof navigation.category === "string"
+        && primitiveCategories.has(navigation.category);
+      if (entry.name !== "ui" && !isPrimitive) continue;
+      tutorialPaths.push(resolve(docs, entry.name, "get-started.md"));
     }
 
     expect(tutorialPaths.length).toBeGreaterThanOrEqual(19);
@@ -64,6 +65,15 @@ describe("documentation tutorials", () => {
       expect(source, path).toContain("::tutorial-step");
       expect(source.match(/```[^\n]*\[[^\]]+\]/g)?.length || 0, path).toBeGreaterThan(0);
     }
+  });
+
+  it("routes the Agent learning path through the canonical first Agent and chat tutorials", async () => {
+    const source = await readFile(resolve(docsRoot, "content/docs/agents/get-started.md"), "utf8");
+
+    expect(source).toContain("navigation.title: Learning path");
+    expect(source).not.toContain("layout: tutorial");
+    expect(source).toContain("(/docs/getting-started/first-agent)");
+    expect(source).toContain("(/docs/agents/build-a-chat-app)");
   });
 
   it("covers public packages that live outside a primitive section", async () => {
@@ -131,28 +141,51 @@ describe("documentation tutorials", () => {
     expect(source).toContain('navigateTo("/tutorials", { redirectCode: 301 })');
   });
 
-  it("keeps the standalone quickstarts on their checked fixtures", async () => {
+  it("keeps the first tutorials on their Nitro fixtures", async () => {
     await expectPageToUseFixture(
       "content/docs/getting-started/first-server-primitive.md",
       "server-primitives",
-      ["vite.config.ts", "src/server.ts"],
+      ["vite.config.ts", "server/api/settings.post.ts"],
     );
     await expectPageToUseFixture("content/docs/getting-started/first-agent.md", "first-agent", [
       "vite.config.ts",
       "server/agents/greeting.ts",
-      "src/server.ts",
+      "server/api/greet.post.ts",
     ]);
   });
 
-  it("initializes every standalone tutorial as an ESM package", async () => {
+  it.each(["first-agent", "server-primitives"])("inherits Installation's ESM server setup in %s", async (fixture) => {
+    const installation = await readFile(resolve(docsRoot, "content/docs/getting-started/installation.md"), "utf8");
+    const manifests = codeBlocks(installation, "package.json");
+    expect(manifests).toHaveLength(1);
+    const setup = JSON.parse(manifests[0]!);
+    const manifest = JSON.parse(await readFile(resolve(fixturesRoot, fixture, "package.json"), "utf8"));
+
+    expect(setup.type).toBe("module");
+    expect(manifest.type).toBe(setup.type);
+    expect(setup.scripts).toMatchObject({
+      dev: "vite --port 3000 --strictPort",
+      build: "vite build",
+      start: "node .output/server/index.mjs",
+    });
+    expect(manifest.scripts).toMatchObject(setup.scripts);
+    expect(Object.keys(manifest.dependencies)).toEqual(expect.arrayContaining(["vite-hub", "vite", "nitro", "h3"]));
+
+    await expectPageToUseFixture("content/docs/getting-started/installation.md", fixture, [
+      "server/api/health.get.ts",
+      "tsconfig.json",
+    ]);
+  });
+
+  it("continues both first tutorials in the app from Installation", async () => {
     for (const page of [
       "content/docs/getting-started/first-server-primitive.md",
       "content/docs/getting-started/first-agent.md",
     ]) {
       const source = await readFile(resolve(docsRoot, page), "utf8");
-      expect(source, `${page} should configure Node.js to load the built server as ESM`).toContain(
-        "pnpm pkg set type=module",
-      );
+      expect(source, page).toContain("[Installation](/docs/getting-started/installation)");
+      expect(codeBlocks(source, "commands/dev"), page).toEqual(["pnpm dev"]);
+      expect(codeBlocks(source, "commands/build"), page).toEqual(["pnpm build\npnpm start"]);
     }
   });
 });

@@ -1,6 +1,7 @@
 packages:
   - ".github/ci-tools"
   - "docs"
+  - "fixtures/tutorials/chat-app"
   - "packages/*"
   - "packages/*/examples/*"
   - "playground/console"

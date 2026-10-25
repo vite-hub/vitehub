@@ -1,9 +1,10 @@
 ---
 title: Workspace context
 description: Give an Agent scoped files and Sources with explicit read and write authority.
-navigation.order: 32
-navigation.group: Configure
+navigation.order: 31
+navigation.group: History and context
 icon: i-lucide-folder-search
+navigation.kind: Guides
 ---
 
 Workspace context gives an Agent a named file tree and optional Sources. The Workspace decides what exists; Capabilities and the selected Driver decide how the Agent can access it.
@@ -139,3 +140,7 @@ After the provider finishes, the host can call `checkout.push(cwd)`. This refres
 | Provider working directory | A write-mode Workspace |
 
 Inspect the resolved Workspace, Sources, and access policy through the [CLI](/docs/development/cli) before relying on them in production.
+
+## Next steps
+
+Use [Chat History](/docs/agents/chat-history-sessions) for prior messages. Connect [Channels](/docs/agents/channels) when the Agent should receive messages from a web chat or an external service.
