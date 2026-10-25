@@ -1,3 +1,4 @@
+import { commentsOverlayAssets } from "./comments-overlay/assets.ts"
 import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
@@ -368,7 +369,7 @@ export interface ViteHubOptions {
    * Comments tables and operations. They turn on when `server/comments.ts` exists. Set `database` to choose the
    * Database Definition, and `dialect: "postgresql"` for a Postgres Database.
    */
-  comments?: Pick<HubCommentsOptions, "database" | "dialect">
+  comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -1257,8 +1258,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     },
   }))
   // Comment tables, operations, and the runtime plugin, when the app has `server/comments.ts`. Inert without it.
+  const overlayAssets = options.comments?.overlay === false ? undefined : commentsOverlayAssets()
   plugins.push(hubComments({
     ...options.comments,
+    ...(overlayAssets ? { overlayAssets } : {}),
     auth: Boolean(options.auth),
     imports: {
       auth: "vite-hub/auth/server",

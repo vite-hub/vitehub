@@ -24,6 +24,8 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
+      // A server-rendered page, which Vite's index.html transform does not see.
+      "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
     })
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
@@ -63,6 +65,24 @@ describe("Comments in a built Nitro 3 app", () => {
         return body.value
       }
       const subject = { id: "/pricing", kind: "page" }
+
+      // The overlay: the loader tag is in the SPA page and in a server-rendered page, once, and the loader is served for good.
+      const tag = /<script type="module" src="(\/_vitehub\/comments\/loader\.js\?v=[0-9a-f]{12})"><\/script>/
+      const home = await (await server.fetch("/")).text()
+      const loaderSrc = tag.exec(home)?.[1]
+      expect(loaderSrc).toBeDefined()
+      expect(home.match(/comments\/loader\.js/g)).toHaveLength(1)
+      const rendered = await (await server.fetch("/ssr")).text()
+      expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.js\?v=[0-9a-f]{12}"><\/script><\/body>/)
+      expect(await (await server.fetch("/_vitehub/rpc/__call", { body: JSON.stringify({ input: {}, operation: "comments.session" }), headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })).json()).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: "local", name: "You" } } })
+      for (const file of [loaderSrc!, loaderSrc!.replace("loader.js", "overlay.js")]) {
+        const asset = await server.fetch(file)
+        expect(asset.status, file).toBe(200)
+        expect(asset.headers.get("content-type")).toContain("javascript")
+        expect(asset.headers.get("cache-control")).toMatch(/max-age=31536000/)
+      }
+      // The Console page is HTML too, and gets no overlay.
+      expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.js")
 
       const created = await call<CommentThread>("comments.create", { anchor: { kind: "page" }, body: "Too small.", subject })
       expect(created).toMatchObject({ author: { id: "local", name: "You" }, n: 1, status: "open", subject })

@@ -9,6 +9,8 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { commentsErrorDiagnostics } from "./errors.ts"
+import { injectLoader, loaderTag, loaderUrl, mountPath, overlayRoute, renderOverlayMiddleware } from "./overlay.ts"
+import type { CommentsOverlayAssets, CommentsOverlayOptions } from "./overlay.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -16,11 +18,16 @@ import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 
 export { commentsConsoleSection } from "./console.ts"
+export { injectLoader, loaderTag, loaderUrl, mountPath, overlayRoute, renderOverlayMiddleware } from "./overlay.ts"
+export type { CommentsOverlayAssets, CommentsOverlayOptions } from "./overlay.ts"
 
 export const COMMENTS_VITE_PLUGIN_NAME = "@vite-hub/comments/vite"
 
 /** Generated Nitro plugin that installs the comments runtime, relative to the project root. */
 export const commentsNitroPluginPath = ".vitehub/nitro/comments/plugin.mjs"
+
+/** Generated Nitro middleware that adds the overlay loader to HTML responses, relative to the project root. */
+export const commentsOverlayMiddlewarePath = ".vitehub/comments/inject-overlay.mjs"
 
 /** Generated Database Definition that comments add when the app has none, relative to the project root. */
 export const commentsDatabaseModulePath = ".vitehub/comments/database.ts"
@@ -64,6 +71,13 @@ export interface HubCommentsOptions {
   dialect?: "postgresql" | "sqlite"
   /** Find people through the app Auth for @mentions. Default `false`: the authors that comments know. */
   auth?: boolean
+  /**
+   * The overlay on the pages of the app: a loader that downloads the comment UI only for visitors who may read comments.
+   * `false` turns it off. `paths` and `exclude` are globs relative to the app base. Default: every page.
+   */
+  overlay?: false | CommentsOverlayOptions
+  /** The prebuilt loader and overlay. `vite-hub` supplies them. Without them there is no overlay. */
+  overlayAssets?: CommentsOverlayAssets
   imports?: Partial<CommentsImports>
 }
 
@@ -111,7 +125,7 @@ async function writeIfChanged(file: string, contents: string): Promise<void> {
 }
 
 /** The Nitro plugin that installs the comments runtime in each server process. */
-export function renderCommentsNitroPlugin(options: { auth: boolean, database?: string, entry: string, imports: CommentsImports }): string {
+export function renderCommentsNitroPlugin(options: { auth: boolean, database?: string, entry: string, imports: CommentsImports, overlayTag?: string }): string {
   const name = options.database === undefined ? "undefined" : JSON.stringify(options.database)
   return [
     `import { databases } from ${JSON.stringify(options.imports.database)}`,
@@ -128,7 +142,21 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
     "  return found",
     "}",
     "",
-    "export default function viteHubComments() {",
+    ...(options.overlayTag === undefined
+      ? []
+      : [
+          `const overlayTag = ${JSON.stringify(options.overlayTag)}`,
+          "",
+          "// Nitro 2, under Nuxt, renders pages through a hook. Nitro 3 has the generated middleware instead.",
+          "function addOverlay(nitroApp) {",
+          "  nitroApp?.hooks?.hook?.(\"render:html\", (html) => {",
+          "    if (!html?.bodyAppend?.some?.(part => String(part).includes(\"/_vitehub/comments/loader.js\"))) html?.bodyAppend?.push?.(overlayTag)",
+          "  })",
+          "}",
+          "",
+        ]),
+    `export default function viteHubComments(${options.overlayTag === undefined ? "" : "nitroApp"}) {`,
+    ...(options.overlayTag === undefined ? [] : ["  addOverlay(nitroApp)"]),
     "  installComments(() => {",
     "    const { db, schema } = entry()",
     "    return {",
@@ -153,6 +181,10 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   const discover = () => findCommentsEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
+  const assets = options.overlay === false ? undefined : options.overlayAssets
+  const overlayOptions: CommentsOverlayOptions = options.overlay || {}
+  let mount = ""
+  const overlayTag = () => assets ? loaderTag(loaderUrl(mount, assets, overlayOptions)) : undefined
   return {
     name: COMMENTS_VITE_PLUGIN_NAME,
     enforce: "post",
@@ -166,13 +198,33 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         const entry = discover()
         if (!entry) return
         const file = resolve(projectRoot, commentsNitroPluginPath)
-        await writeIfChanged(file, renderCommentsNitroPlugin({ auth: options.auth === true, imports, entry, ...(options.database === undefined ? {} : { database: options.database }) }))
+        mount = mountPath(viteConfig.base)
+        const tag = overlayTag()
+        await writeIfChanged(file, renderCommentsNitroPlugin({ auth: options.auth === true, imports, entry, ...(options.database === undefined ? {} : { database: options.database }), ...(tag === undefined ? {} : { overlayTag: tag }) }))
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addPlugin(file)
+        if (assets && tag) {
+          const middleware = resolve(projectRoot, commentsOverlayMiddlewarePath)
+          await writeIfChanged(middleware, renderOverlayMiddleware(tag))
+          kit.addHandler({ handler: middleware, middleware: true, route: "/**" })
+          // The URL carries the version, so the files may be cached for good.
+          const served = { baseURL: `${mount}${overlayRoute}`, dir: assets.dir, fallthrough: false, maxAge: 60 * 60 * 24 * 365 }
+          const existing = Reflect.get(kit.config, "publicAssets")
+          Reflect.set(kit.config, "publicAssets", [...(Array.isArray(existing) ? existing.filter(asset => asset?.dir !== assets.dir) : []), served])
+        }
         Reflect.set(config, "nitro", kit.config)
       },
     },
+    // The loader reaches single-page apps through their `index.html`, in development and in the build.
+    transformIndexHtml: {
+      order: "post",
+      handler(html: string) {
+        const tag = discover() ? overlayTag() : undefined
+        return tag ? injectLoader(html, tag) : html
+      },
+    },
     configResolved(config: ResolvedConfig) {
+      mount = mountPath(config.base)
       const entry = discover()
       if (!entry) return
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
