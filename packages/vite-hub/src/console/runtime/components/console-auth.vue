@@ -21,6 +21,7 @@ import ConsoleAuthDetail from "./console-auth-detail.vue";
 import ConsoleAuthOverview from "./console-auth-overview.vue";
 import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ sectionsBase: string; managementBase: string }>();
 const route = useRoute();
@@ -193,7 +194,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <ConsoleFrame active="auth" :sections-base="sectionsBase">
-    <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <UDashboardNavbar title="Auth" :toggle="false"
           ><template #right
@@ -222,17 +223,14 @@ onBeforeUnmount(() => {
             >{{ labels[item as AuthConsolePage] }}</UButton
           >
         </nav>
-        <div
-          v-if="page === 'users'"
-          class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2"
-        >
+        <ConsolePageToolbar v-if="page === 'users'">
           <UInput
             v-model="search"
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
-            variant="none"
-            class="min-w-48 flex-1"
+            size="sm"
+            class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
             aria-label="Filter users"
@@ -247,7 +245,7 @@ onBeforeUnmount(() => {
             size="sm"
             class="w-36"
           />
-        </div>
+        </ConsolePageToolbar>
       </template>
       <template #body>
         <main class="flex min-h-0 flex-1 flex-col" :aria-busy="loading">
@@ -272,21 +270,17 @@ onBeforeUnmount(() => {
           <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">
             Loading {{ labels[page].toLowerCase() }}…
           </p>
-          <template v-else>
-            <div
-              v-if="description?.access.length && page === 'users'"
-              class="border-b border-default px-4 py-3 text-xs text-muted"
-            >
-              <details>
+          <div v-else class="min-h-0 flex-1 overflow-auto">
+            <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
+              <details v-if="description?.access.length && page === 'users'" class="text-xs text-muted">
                 <summary class="cursor-pointer text-toned">Access rules</summary>
                 <ul class="mt-2 list-inside list-disc space-y-1">
                   <li v-for="rule in description.access" :key="rule">{{ rule }}</li>
                 </ul>
               </details>
-            </div>
-            <div class="min-h-0 flex-1 overflow-auto">
+              <div class="overflow-x-auto rounded-md border border-default">
               <table class="w-full text-left text-sm auth-table" :aria-label="labels[page]">
-                <thead>
+                <thead class="bg-elevated/30">
                   <tr v-if="page === 'users'">
                     <th>User</th>
                     <th>Role</th>
@@ -317,10 +311,11 @@ onBeforeUnmount(() => {
                   </tr>
                 </thead>
                 <tbody v-if="page === 'users'">
-                  <tr v-for="user in users" :key="user.id" class="hover:bg-elevated/50">
+                  <tr v-for="user in users" :key="user.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
                     <td>
+                      <!-- The button overlay makes the whole row open the user. Focus shows as the row fill. -->
                       <button
-                        class="flex max-w-72 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        class="flex max-w-72 items-center gap-2 text-left outline-none after:absolute after:inset-0"
                         @click="selectedUser = user.id"
                       >
                         <UAvatar :src="user.image ?? undefined" :alt="user.name" size="sm" /><span
@@ -377,17 +372,16 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
                 <tbody v-else-if="page === 'organizations'">
-                  <tr v-for="org in organizations" :key="org.id">
+                  <tr v-for="org in organizations" :key="org.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
                     <td>
-                      <UButton
-                        color="neutral"
-                        variant="link"
-                        class="p-0"
+                      <button
+                        class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
                         @click="openOrganization(org.id)"
-                        >{{ org.name }}</UButton
                       >
+                        {{ org.name }}
+                      </button>
                     </td>
-                    <td class="text-muted">{{ org.slug }}</td>
+                    <td class="font-mono text-xs text-muted">{{ org.slug }}</td>
                     <td class="text-muted">{{ authDate(org.createdAt) }}</td>
                   </tr>
                 </tbody>
@@ -426,28 +420,28 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
               </table>
-              <p v-if="!total" class="p-8 text-center text-sm text-muted">
+              <p v-if="!total" class="border-t border-default p-8 text-center text-sm text-muted">
                 {{
                   search || filter !== "all"
                     ? "No users match these filters."
                     : `No ${labels[page].toLowerCase()} yet.`
                 }}
               </p>
-            </div>
+              </div>
             <p
               v-if="page === 'agents' && description?.actions.revokeConsent.reason"
-              class="border-t border-default px-4 py-3 text-xs text-muted"
+              class="text-xs text-muted"
             >
               {{ description.actions.revokeConsent.reason }}
             </p>
             <p
               v-if="page === 'sessions' && description?.actions.revokeSession.reason"
-              class="border-t border-default px-4 py-3 text-xs text-muted"
+              class="text-xs text-muted"
             >
               {{ description.actions.revokeSession.reason }}
             </p>
             <footer
-              class="flex items-center justify-between gap-3 border-t border-default px-4 py-2 text-xs text-muted"
+              class="flex items-center justify-between gap-3 text-xs text-muted"
             >
               <span class="tabular-nums"
                 >{{ total ? offset + 1 : 0 }}–{{ Math.min(offset + limit, total) }} of {{ total }}
@@ -471,7 +465,8 @@ onBeforeUnmount(() => {
                 >
               </div>
             </footer>
-          </template>
+            </div>
+          </div>
         </main>
       </template>
     </UDashboardPanel>
@@ -567,15 +562,15 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .auth-table th {
-  padding: 0.75rem 1rem;
+  height: 2.25rem;
+  padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--ui-text-muted);
-  border-bottom: 1px solid var(--ui-border);
   white-space: nowrap;
 }
 .auth-table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--ui-border-muted);
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--ui-border);
 }
 </style>
