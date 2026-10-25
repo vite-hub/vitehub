@@ -20,7 +20,7 @@ export const MessageParts = defineComponent({
         {
           markdown: ({ value, streaming }: { value: string; streaming: boolean }) => h(Markdown, { streaming, value }),
           file: ({ part, name }: { part: Extract<UIMessage["parts"][number], { type: "file" }>; name: string }) =>
-            part.mediaType.startsWith("image/") ? h(ImagePreview, { alt: name, src: part.url }) : null,
+            (part.mediaType === "image" || part.mediaType.startsWith("image/")) ? h(ImagePreview, { alt: name, src: part.url }) : null,
           ...slots,
         },
       );

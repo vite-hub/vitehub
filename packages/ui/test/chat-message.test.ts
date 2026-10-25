@@ -12,13 +12,13 @@ const user: UIMessage = { id: "u", parts: [{ text: "Hi", type: "text" }], role: 
 const assistant: UIMessage = { id: "a", parts: [{ text: "Hello", type: "text" }], role: "assistant" };
 
 describe("ChatMessage", () => {
-  it("previews relative image files while rejecting executable image URLs", () => {
+  it.each(["image/png", "image"])("previews relative %s files while rejecting executable image URLs", (mediaType) => {
     const message: UIMessage = {
       id: "images",
       role: "assistant",
       parts: [
-        { filename: "retained.png", mediaType: "image/png", type: "file", url: "/files/retained-image" },
-        { filename: "unsafe.png", mediaType: "image/png", type: "file", url: "javascript:alert(1)" },
+        { filename: "retained.png", mediaType, type: "file", url: "/files/retained-image" },
+        { filename: "unsafe.png", mediaType, type: "file", url: "javascript:alert(1)" },
       ],
     };
     const wrapper = mount(ChatMessage, {
