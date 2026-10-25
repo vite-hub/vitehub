@@ -8968,8 +8968,11 @@ export async function runAgent<
     && hasRuntimeType(inputOrOptions, "object")
     && "output" in inputOrOptions
     && inputOrOptions.output === "drained"
+  // Preserve standalone precedence for ambiguous drained options. A memo-less context
+  // with option-like input can use the explicit four-argument form.
   const runtimeContextShape = hasRuntimeType(contextOrInput, "object")
     && "runtime" in contextOrInput
+    && "memo" in contextOrInput
     && "waitUntil" in contextOrInput
   const hasContext = arguments.length === 4
     || (inputOrOptions !== undefined && (
