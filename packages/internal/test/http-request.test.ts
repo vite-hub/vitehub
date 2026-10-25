@@ -416,3 +416,33 @@ describe("HTTP request", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 })
+
+
+it("sends a streamed POST body through native Node fetch", async () => {
+  const { createServer } = await import("node:http")
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    response.end(Buffer.concat(chunks))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Missing server address")
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed upload"))
+        controller.close()
+      },
+    })
+    const result = await executeHttpRequest({
+      body,
+      method: "POST",
+      url: `http://127.0.0.1:${address.port}/upload`,
+    }, { responseType: "text" })
+    expect(result.data).toBe("streamed upload")
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
