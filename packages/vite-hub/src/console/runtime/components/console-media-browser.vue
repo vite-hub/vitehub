@@ -110,7 +110,7 @@ const selecting = computed(() => selected.value.length > 0);
 const folderProtected = computed(() => props.client.isProtected?.(folder.value) ?? false);
 const canWrite = computed(() => access.value.write && !folderProtected.value);
 const selectionManageable = computed(() => access.value.manage && !selectedFiles().some(file => props.client.isProtected?.(file.pathname)));
-const canSelect = computed((() => (props.mode === "page" ? access.value.manage : Boolean(props.multiple)));
+const canSelect = computed(() => (props.mode === "page" ? access.value.manage : Boolean(props.multiple)));
 const pickable = (file: ConsoleMediaFile) => props.mode !== "picker" || consoleMediaAccepts(props.accept, file.contentType);
 
 async function load(options: { more?: boolean } = {}): Promise<void> {
