@@ -8,7 +8,24 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Server tables, operations, and the Vite overlay come in later changes.
+- `@vite-hub/comments` also has `defineComments()` and `defineCommentSubject()` for `server/comments.ts`.
+- `@vite-hub/comments/database` (and `/database/postgres`) has the tables, `@vite-hub/comments/operations` the `comments.*` operations, `@vite-hub/comments/rpc` the browser transport, and `@vite-hub/comments/vite` the Vite plugin.
+
+The Vue parts are in `@vite-hub/ui/comments`. The page overlay comes in a later change.
+
+## Server
+
+Add `server/comments.ts` and enable the Database:
+
+```ts
+import { defineComments } from "@vite-hub/comments";
+
+export default defineComments({
+  authorize: ({ user, action }) => Boolean(user) && action !== "delete",
+});
+```
+
+`hubComments()` from `@vite-hub/comments/vite` (the `vite-hub` framework adds it) then contributes the tables, the operations, a Console section, and a Nitro plugin that installs the runtime. Without `authorize` nobody can read or write comments. Read the [docs](https://vitehub.dev/docs/comments) for subjects, mentions, and limits.
 
 ## Anchors
 
@@ -111,3 +128,5 @@ Errors have a stable code, a `why`, and a `fix`.
 | `COMMENTS_R0003` | The message does not exist in the thread. |
 | `COMMENTS_R0004` | Only the author can edit or delete a message. |
 | `COMMENTS_R0005` | A comment needs some text. |
+| `COMMENTS_R0006` to `COMMENTS_R0013` | Server errors: no policy, bad mention, unknown subject, denied, no runtime, busy numbers, no user, no answer. |
+| `COMMENTS_B0001`, `COMMENTS_B0002` | Build errors: no Database, `server/comments.ts` without `defineComments()`. |
