@@ -38,7 +38,7 @@ A thread and its first message are two statements. If the message fails, the thr
 | `COMMENTS_R0011` | 409 | The numbers of the scope stayed busy. Try again. |
 | `COMMENTS_R0012` | 401 | Writing needs a signed-in user. |
 | `COMMENTS_R0013` | 0 | The browser transport got no answer. |
-| `COMMENTS_B0001` | build | The app has `server/comments.ts` and no Database. |
+| `COMMENTS_B0001` | build | The app has `server/comments.ts` and sets `database: false`. |
 | `COMMENTS_B0002` | build | `server/comments.ts` does not default-export `defineComments()`. |
 
 An input that does not match the schema fails with `INTERNAL_R0022` and names the fields.

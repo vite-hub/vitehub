@@ -23,7 +23,7 @@ export default defineComments({
 
 Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, and agents.
 
-- Without `authorize`, nobody can read or write. Calls fail with `COMMENTS_R0006`, and the Console section says **No policy**.
+- Without `authorize`, nobody can read or write. Calls fail with `COMMENTS_R0006`, and the Console list shows that error with its fix.
 - Authors always edit their own messages and delete their own messages. Nobody else edits a message.
 - `delete` covers the comments of other people. `resolve` covers resolving and reopening.
 - `list` asks `read` once without a thread, and again for each thread, and drops the threads you may not read.
@@ -73,10 +73,10 @@ export default defineComments({
 
 ## Database
 
-`vitehub({ database: true })` gives comments the default Database. To choose another:
+With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on and adds an empty default Database Definition (`.vitehub/comments/database.ts`) when the app has none, the way the Content cms preset does. Comments then use the default Database. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
 
 ```ts [vite.config.ts]
-vitehub({ database: true, comments: { database: 'main' } })
+vitehub({ comments: { database: 'main' } })
 ```
 
 For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.

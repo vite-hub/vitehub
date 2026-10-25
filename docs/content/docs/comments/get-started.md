@@ -7,9 +7,9 @@ navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-## Turn on the Database
+## Add vitehub()
 
-Comments live in your Database. Enable it, and add the Console so you can see the threads:
+Comments live in your Database. `vitehub()` turns the Database on when `server/comments.ts` exists and you left `database` unset, and it adds the default Database Definition when the app has none. Add the Console so you can see the threads:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
@@ -18,13 +18,13 @@ import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [
-    vitehub({ database: true, console: { auth: 'app' } }),
+    vitehub({ console: { auth: 'app' } }),
     nitro(),
   ],
 })
 ```
 
-Without a Database the build fails with `COMMENTS_B0001` and tells you to set `database: true`.
+If you set `database: false`, the build fails with `COMMENTS_B0001` and names that setting.
 
 ## Define the policy
 
@@ -56,7 +56,11 @@ pnpm vitehub comments list --json
 pnpm vitehub comments get --id thread_123
 ```
 
-Open the Console at `/_vitehub` and choose **Comments** to see the same threads. A page thread links to `<page>?comment=<n>`.
+Open the Console at `/_vitehub` and choose **Comments**. The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.
+
+### In `vite dev`
+
+With `console: { auth: false }`, or with no `console` option, and nobody signed in, `vite dev` runs every operation as the user `{ id: 'local', name: 'You' }`. `authorize` sees that user, and the comments you create have it as author, so you can try comments without Auth. A production build never does this: there, an unsigned call has no user, and writing fails with `COMMENTS_R0012`.
 
 ## Use it in the browser
 

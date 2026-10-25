@@ -15,6 +15,7 @@ import {
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
+import { hubComments } from "@vite-hub/comments/vite"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
@@ -1637,6 +1638,29 @@ describe("ViteHub Nuxt integration", () => {
       // The standalone page answers every Console path, such as /_vitehub/content/-/media, and its router picks the view.
       expect(nitroHandlerRoutes(nitroOptions(development.nuxt))).toEqual(expect.arrayContaining(["/_vitehub", "/_vitehub/**"]))
       await expect(generatedConsoleSections()).resolves.toContain("content")
+    }
+    finally {
+      await rm(entry, { force: true })
+    }
+  })
+
+  it("turns the Database on for comments and installs the comments Nitro plugin", async () => {
+    const entry = "/tmp/vitehub-nuxt/custom-server/comments.ts"
+    await mkdir(resolve(entry, ".."), { recursive: true })
+    await writeFile(entry, `import { defineComments } from "vite-hub/comments"\nexport default defineComments({ authorize: () => true })\n`)
+    try {
+      mocks.vitehub.mockReturnValue([hubComments()])
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ preset: "node" }, nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: true })
+      const config = nitroOptions(nuxt)
+      await runNitroConfigHook(config)
+      expect(nitroPlugins(nuxt)).toContain("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs")
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("installComments(")
+
+      // An explicit `database: false` is never overridden.
+      await viteHubNuxtModule({ database: false, preset: "node" }, createNuxt().nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: false })
     }
     finally {
       await rm(entry, { force: true })

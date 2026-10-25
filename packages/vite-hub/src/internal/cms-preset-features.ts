@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 
+import { usesComments } from "@vite-hub/comments/vite"
 import { usesCmsPreset } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
@@ -33,7 +34,9 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
  * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
-  return hasUnsetCmsPresetFeature(options) && usesCmsPreset(project) ? withCmsPresetFeatures(options) : options
+  if (hasUnsetCmsPresetFeature(options) && usesCmsPreset(project)) return withCmsPresetFeatures(options)
+  // Comments need the Database only.
+  return options.database === undefined && usesComments(project) ? { ...options, database: true } : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -87,6 +90,13 @@ function applyWhen(option: unknown, when: (config: CmsPresetConfig) => boolean):
   return option
 }
 
+function selectsComments(config: CmsPresetConfig): boolean {
+  const projectRoot = config[VITEHUB_PROJECT_ROOT]
+    ? resolve(config[VITEHUB_PROJECT_ROOT])
+    : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
+  return usesComments({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+}
+
 /**
  * One plugin that is the plain or the `cms` preset instance of the same plugin. Vite decides through `apply`, and
  * every other property reads from the chosen instance. Before Vite decides, it reads from the plain instance.
@@ -113,62 +123,80 @@ function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, s
 }
 
 /**
- * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the Content `cms` preset in
- * `server/content.ts` turns it on. The project root is known only once Vite filters plugins, so each plugin that both
- * cases share becomes one plugin that reads from the matching instance, and plugins of only one case get an `apply`
- * that keeps them for that case. An explicit `false` is never overridden.
+ * Merges two builds of the plugin list into one that Vite filters by `selects(config)`. `alt` is the build with more
+ * features on. Each plugin that both builds share becomes one plugin that reads from the matching instance, and plugins
+ * of only one build get an `apply` that keeps them for that case.
  */
-export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
-  if (resolvedFeatureOptions.has(options) || !hasUnsetCmsPresetFeature(options)) return create(options)
-  let cmsPlugins: unknown[]
-  try {
-    cmsPlugins = flattenPluginOptions(create(withCmsPresetFeatures(options)), [])
-  }
-  catch (error) {
-    // An invalid combination with the preset's features fails only in apps that use the preset.
-    cmsPlugins = [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
-  }
-  // Built last, so it reports invalid options as before and is the latest instance of each integration.
-  const plain = flattenPluginOptions(create(options), [])
+function composeVariants(plain: unknown[], alt: unknown[], selects: (config: CmsPresetConfig) => boolean): unknown[] {
   const selection = { cms: false }
   const plainByKey = new Map<string, Plugin>()
   const plainSeen = new Map<string, number>()
   for (const option of plain) if (isPluginObject(option)) plainByKey.set(pluginKey(option, plainSeen), option)
   const pairs = new Map<Plugin, Plugin>()
-  const cmsSeen = new Map<string, number>()
-  for (const option of cmsPlugins) {
+  const altSeen = new Map<string, number>()
+  for (const option of alt) {
     if (!isPluginObject(option)) continue
-    const match = plainByKey.get(pluginKey(option, cmsSeen))
+    const match = plainByKey.get(pluginKey(option, altSeen))
     if (match) pairs.set(match, option)
   }
   const paired = new Set(pairs.values())
 
   // Keep the order of both lists: each shared plugin is preceded by the plugins of either case that came before it.
   const merged: unknown[] = []
-  let cmsIndex = 0
-  const flushCms = (until?: Plugin) => {
-    while (cmsIndex < cmsPlugins.length && cmsPlugins[cmsIndex] !== until) {
-      const option = cmsPlugins[cmsIndex++]
+  let altIndex = 0
+  const flushAlt = (until?: Plugin) => {
+    while (altIndex < alt.length && alt[altIndex] !== until) {
+      const option = alt[altIndex++]
       // The plain list's Nitro serves both cases.
       if (isIncludedNitroList(option)) continue
-      if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selectsCmsPreset))
+      if (!isPluginObject(option) || !paired.has(option)) merged.push(applyWhen(option, selects))
     }
-    if (until) cmsIndex++
+    if (until) altIndex++
   }
   for (const option of plain) {
     if (isIncludedNitroList(option)) {
       merged.push(option)
       continue
     }
-    const cms = isPluginObject(option) ? pairs.get(option) : undefined
-    if (!cms || !isPluginObject(option)) {
-      merged.push(applyWhen(option, config => !selectsCmsPreset(config)))
+    const other = isPluginObject(option) ? pairs.get(option) : undefined
+    if (!other || !isPluginObject(option)) {
+      merged.push(applyWhen(option, config => !selects(config)))
       continue
     }
-    flushCms(cms)
-    merged.push(option === cms ? option : switchPlugin(option, cms, selection, selectsCmsPreset))
+    flushAlt(other)
+    merged.push(option === other ? option : switchPlugin(option, other, selection, selects))
   }
-  flushCms()
-  // SAFETY: The merged list holds the Vite plugin options of both cases.
+  flushAlt()
+  return merged
+}
+
+/**
+ * Builds the plugin list for `options`. When `database`, `blob`, or `workspace` is unset, the Content `cms` preset in
+ * `server/content.ts` turns it on. When `database` is unset, `server/comments.ts` turns it on. The project root is known
+ * only once Vite filters plugins, so each build of the list is merged into one that Vite filters, as `composeVariants()`
+ * does. An explicit `false` is never overridden.
+ */
+export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
+  if (resolvedFeatureOptions.has(options)) return create(options)
+  const cmsUnset = hasUnsetCmsPresetFeature(options)
+  const commentsUnset = options.database === undefined
+  if (!cmsUnset && !commentsUnset) return create(options)
+  const attempt = (variant: T): unknown[] | { error: unknown } => {
+    try {
+      return flattenPluginOptions(create(variant), [])
+    }
+    catch (error) {
+      return { error }
+    }
+  }
+  // An invalid combination with a variant's features fails only in apps that select it.
+  const failing = (error: unknown): unknown[] => [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
+  const cms = cmsUnset ? attempt(withCmsPresetFeatures(options)) : undefined
+  const comments = commentsUnset ? attempt({ ...options, database: true }) : undefined
+  // Built last, so it reports invalid options as before and is the latest instance of each integration.
+  let merged = flattenPluginOptions(create(options), [])
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsComments(config) && !(cmsUnset && selectsCmsPreset(config)))
+  if (cms) merged = composeVariants(merged, "error" in cms ? failing(cms.error) : cms, selectsCmsPreset)
+  // SAFETY: The merged list holds the Vite plugin options of every build.
   return merged as PluginOption[]
 }

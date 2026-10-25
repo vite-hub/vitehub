@@ -1263,6 +1263,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     imports: {
       auth: "vite-hub/auth/server",
       database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
       databaseSchema: "vite-hub/comments/database",
       runtime: "vite-hub/comments/server",
     },

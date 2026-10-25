@@ -57,8 +57,8 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Check the connection and the app URL, then try again.",
     },
     COMMENTS_B0001: {
-      why: ({ file }: { file: string }) => `${file} needs a Database, and vitehub() has none.`,
-      fix: "Set vitehub({ database: true }) in your Vite config, or define a Database in server/databases/config.ts.",
+      why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
+      fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",
     },
     COMMENTS_B0002: {
       why: ({ file }: { file: string }) => `${file} must default-export defineComments().`,
