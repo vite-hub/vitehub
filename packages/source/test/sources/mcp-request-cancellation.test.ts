@@ -13,8 +13,10 @@ it("does not resolve a server when the configured request signal is already abor
   expect(server).not.toHaveBeenCalled()
 })
 
-it("interrupts server initialization when the configured request signal aborts", async () => {
+it.each(["request", "context"] as const)("interrupts server initialization when the %s signal aborts", async (origin) => {
   const controller = new AbortController()
+  const contextController = new AbortController()
+  let factorySignal: AbortSignal | undefined
   let resolveServer!: () => void
   const ready = new Promise<void>((resolve) => { resolveServer = resolve })
   let markStarted!: () => void
@@ -22,18 +24,22 @@ it("interrupts server initialization when the configured request signal aborts",
   const listResources = vi.fn(async () => ({ resources: [] }))
   const source = mcpResources({
     request: { signal: controller.signal },
-    server: async () => {
+    server: async (ctx) => {
+      factorySignal = ctx.abortSignal
       markStarted()
       await ready
       return { listResources, async readResource() { return { contents: [] } } }
     },
   })
   const reason = new Error("Request canceled")
-  const operation = source.getKeys({ rootDir: process.cwd() })
+  const operation = source.getKeys({ rootDir: process.cwd(), abortSignal: contextController.signal })
   const rejection = expect(operation).rejects.toBe(reason)
   await started
-  controller.abort(reason)
+  const canceled = origin === "request" ? controller : contextController
+  canceled.abort(reason)
   resolveServer()
   await rejection
+  expect(factorySignal?.aborted).toBe(true)
+  expect(factorySignal?.reason).toBe(reason)
   expect(listResources).not.toHaveBeenCalled()
 })

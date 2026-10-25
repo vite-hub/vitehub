@@ -226,7 +226,7 @@ async function withMcpClient<T>(
     ? AbortSignal.any([ctx.abortSignal, request.signal])
     : ctx.abortSignal ?? request?.signal
   const requestSignal = signal ?? new AbortController().signal
-  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, ctx))
+  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, { ...ctx, abortSignal: signal }))
   if (isMcpResourcesClient(resolved)) {
     return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
   }
