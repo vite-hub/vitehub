@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -43,6 +43,7 @@ Available namespaces:
   content     Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
+  rate-limit  Read and reset Rate Limit counters in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
