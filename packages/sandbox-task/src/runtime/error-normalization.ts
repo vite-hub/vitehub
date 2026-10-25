@@ -40,7 +40,7 @@ export function toSandboxTaskError(error: unknown) {
       code: sandboxTaskCode(metadata?.code),
       provider: metadata?.provider,
       details: metadata?.details,
-      cause: metadata?.cause ?? error,
+      cause: error,
     })
   }
 
@@ -48,7 +48,16 @@ export function toSandboxTaskError(error: unknown) {
     code: sandboxTaskCode(metadata?.code),
     provider: metadata?.provider,
     details: metadata?.details,
-    cause: metadata?.cause ?? error,
+    cause: error,
+  })
+}
+
+export function combineSandboxTaskErrors(error: unknown, cleanupError: unknown) {
+  const primary = toSandboxTaskError(error)
+  return sandboxTaskError(primary.message, {
+    code: primary.code,
+    details: primary.details,
+    cause: new AggregateError([error, cleanupError], 'Sandbox execution and cleanup failed.'),
   })
 }
 

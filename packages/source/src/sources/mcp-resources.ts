@@ -463,7 +463,7 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       seenCursors.add(cursor)
     }
     const page = parseResourceListPage(await client.listResources(cursor === undefined ? undefined : { cursor }, request))
-    resources.push(...page.resources)
+    for (const resource of page.resources) resources.push(resource)
     cursor = page.nextCursor
   } while (cursor !== undefined)
   return resources

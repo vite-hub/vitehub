@@ -57,7 +57,8 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
             yield undefined
             continue
           }
-          if (entry.isFile()) yield relative(root, path)
+          // Skipped entries still consume directory traversal work.
+          yield entry.isFile() ? relative(root, path) : undefined
         }
       }
     }

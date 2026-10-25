@@ -94,29 +94,37 @@ function ownObject(value: unknown): Record<PropertyKey, unknown> | undefined {
     : undefined
 }
 
-export function getCloudflareEnv(event: unknown, options: { fallback?: boolean } = {}): CloudflareWorkerEnv | undefined {
-  const target = ownObject(event)
+/** The objects where H3 1, H3 2, and Nitro hosts put Cloudflare `env` and `context`, in lookup order. */
+function cloudflareOwners(target: Record<PropertyKey, unknown> | undefined): Array<Record<PropertyKey, unknown> | undefined> {
   const context = ownObject(ownValue(target, "context"))
-  const cloudflare = ownObject(ownValue(context, "cloudflare"))
   const platform = ownObject(ownValue(context, "_platform"))
-  const platformCloudflare = ownObject(ownValue(platform, "cloudflare"))
   const req = ownObject(ownValue(target, "req"))
-  const reqRuntime = ownObject(ownValue(req, "runtime"))
-  const reqCloudflare = ownObject(ownValue(reqRuntime, "cloudflare"))
   const node = ownObject(ownValue(target, "node"))
   const nodeReq = ownObject(ownValue(node, "req"))
-  const nodeRuntime = ownObject(ownValue(nodeReq, "runtime"))
-  const nodeCloudflare = ownObject(ownValue(nodeRuntime, "cloudflare"))
-  for (const candidate of [
-    ownValue(target, "env"),
-    ownValue(cloudflare, "env"),
-    ownValue(platformCloudflare, "env"),
-    ownValue(reqCloudflare, "env"),
-    ownValue(nodeCloudflare, "env"),
-  ]) {
+  return [
+    ownObject(ownValue(context, "cloudflare")),
+    ownObject(ownValue(platform, "cloudflare")),
+    ownObject(ownValue(ownObject(ownValue(req, "runtime")), "cloudflare")),
+    ownObject(ownValue(ownObject(ownValue(nodeReq, "runtime")), "cloudflare")),
+  ]
+}
+
+export function getCloudflareEnv(event: unknown, options: { fallback?: boolean } = {}): CloudflareWorkerEnv | undefined {
+  const target = ownObject(event)
+  for (const candidate of [ownValue(target, "env"), ...cloudflareOwners(target).map(owner => ownValue(owner, "env"))]) {
     if (candidate) return candidate as CloudflareWorkerEnv
   }
   return options.fallback === false ? undefined : getActiveCloudflareEnv()
+}
+
+/** Return the Cloudflare Worker execution context of a request event, if the host provides one. */
+export function getCloudflareExecutionContext(event: unknown): CloudflareWorkerExecutionContext | undefined {
+  for (const owner of cloudflareOwners(ownObject(event))) {
+    const context = ownObject(ownValue(owner, "context"))
+    // SAFETY: Cloudflare hosts store the Worker ExecutionContext as the `context` of their cloudflare object.
+    if (context) return context as CloudflareWorkerExecutionContext
+  }
+  return undefined
 }
 
 type WaitUntilFn = (promise: Promise<unknown>) => void
