@@ -553,12 +553,29 @@ function withoutDeploymentOutput(options: readonly unknown[]): unknown[] {
   })
 }
 
+/** Translate Nitro 3 package lists before Nuxt's Nitro 2 resolves its preset defaults. */
+function normalizeNuxtNitroExternals(config: Record<string, unknown>, incomingNoExternals: boolean | undefined): void {
+  if (Array.isArray(config.noExternals)) {
+    const externals = isRecord(config.externals) ? config.externals : {}
+    const inline = Array.isArray(externals.inline) ? externals.inline : []
+    config.externals = {
+      ...externals,
+      inline: [...new Set([...inline, ...config.noExternals])],
+    }
+    // Nitro 2 treats even an empty array as true. Leave defaults to the host and preset.
+    delete config.noExternals
+  }
+  // Vite config hooks can replace an explicit boolean with a package list.
+  if (incomingNoExternals !== undefined) config.noExternals = incomingNoExternals
+}
+
 async function applyNitroConfig(
   plugins: Plugin[],
   nitroConfig: Record<string, unknown>,
   nuxt: NuxtLike,
   projectRoot: string,
 ) {
+  const incomingNoExternals = typeof nitroConfig.noExternals === "boolean" ? nitroConfig.noExternals : undefined
   const environment = {
     command: nuxt.options.dev ? "serve" : "build",
     isPreview: false,
@@ -666,6 +683,8 @@ async function applyNitroConfig(
   if (config.nitro) {
     installVitePluginNitroModules(config.nitro, plugins)
     Object.assign(nitroConfig, config.nitro)
+    normalizeNuxtNitroExternals(nitroConfig, incomingNoExternals)
+    config.nitro = nitroConfig
   }
   return { config, hasReplayedDatabaseDiscoveryRoot, replayedDatabaseDiscoveryRoot }
 }

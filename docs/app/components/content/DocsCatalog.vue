@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useIntersectionObserver } from "@vueuse/core";
 import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
-import { docsRootSectionId, getDocsCatalog, getDocsSectionKind } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
+import { getDocsCatalog, getDocsSectionKind } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 type CatalogTile = {
   description: string | null;
@@ -44,25 +44,11 @@ const scenes = new Map([
 ]);
 
 const rows = computed<CatalogRow[]>(() => {
-  const catalogRows = getDocsCatalog(docsManifest.sections).map((group) => {
-    const startSection = group.category === "Start"
-      ? group.sections.find(section => section.id === docsRootSectionId)
-      : null;
-
-    // The Start row lists the ungrouped pages of the Start section. Every other row lists one tile per product.
-    const tiles: CatalogTile[] = startSection
-      ? startSection.pages
-          .filter(page => page.navigation !== false && !page.group)
-          .map(page => ({
-            description: page.description,
-            icon: sidebarPageIcon(page),
-            kind: "Getting started",
-            key: page.path,
-            scene: null,
-            title: page.sourceTitle || page.title,
-            to: page.path,
-          }))
-      : group.sections.map(section => ({
+  return getDocsCatalog(docsManifest.sections)
+    .filter(group => group.category !== "Start")
+    .map((group) => ({
+      category: group.category,
+      tiles: group.sections.map(section => ({
           description: section.description,
           icon: sidebarSectionIcon(section),
           kind: getDocsSectionKind(section),
@@ -70,32 +56,8 @@ const rows = computed<CatalogRow[]>(() => {
           scene: scenes.get(section.id) ?? null,
           title: section.title,
           to: section.path,
-        }));
-
-    return { category: group.category, tiles };
-  });
-
-  const startSection = docsManifest.sections.find(section => section.id === docsRootSectionId);
-  const learnTiles = startSection?.pages
-    .filter(page => page.navigation !== false && ["Concepts", "AI resources"].includes(page.group || ""))
-    .map(page => ({
-      description: page.description,
-      icon: sidebarPageIcon(page),
-      kind: page.group || "Learn",
-      key: page.path,
-      scene: null,
-      title: page.sourceTitle || page.title,
-      to: page.path,
-    })) || [];
-
-  if (!learnTiles.length) return catalogRows;
-  const startIndex = catalogRows.findIndex(row => row.category === "Start");
-  const insertAt = startIndex < 0 ? 0 : startIndex + 1;
-  return [
-    ...catalogRows.slice(0, insertAt),
-    { category: "Learn", tiles: learnTiles },
-    ...catalogRows.slice(insertAt),
-  ];
+        })),
+    }));
 });
 
 const catalog = useTemplateRef<HTMLElement>("catalog");

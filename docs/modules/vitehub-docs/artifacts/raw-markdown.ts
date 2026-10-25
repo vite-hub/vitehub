@@ -800,6 +800,8 @@ function cardListsOutsideFences(source: string) {
 }
 
 const presentationDirectives = new Set([
+  // The navigation layout changes presentation; the links are authored Markdown.
+  "docs-learning-paths",
   // The site renders nothing for `agent-only`; agents get its content unwrapped.
   "agent-only",
   // The support matrix is interactive on the site; raw artifacts keep its Markdown tables.

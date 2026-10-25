@@ -1,8 +1,9 @@
 ---
 title: Server Primitives
-description: Add storage, queues, schedules, email, and other server APIs to a Vite app on any supported host.
+description: Choose storage, background work, or another server API for your Vite or Nuxt app.
 navigation.title: Server Primitives
-navigation.order: 1.5
+navigation.order: 5
+navigation.group: Next steps
 icon: i-lucide-server-cog
 ---
 
@@ -10,6 +11,7 @@ Server Primitives are APIs for storage, background work, auth, and other
 server features. Call them from your routes, handlers, or jobs. Each package
 has its own configuration and server API.
 
+Set up your Vite or Nuxt app with [Installation](/docs/getting-started/installation).
 Follow [your first Server Primitive](/docs/getting-started/first-server-primitive)
 to save and read a value locally. Then choose the feature your app needs.
 You can add Agents later if your product needs them.
@@ -42,7 +44,12 @@ You can add Agents later if your product needs them.
 
 Most primitives expose the same application import on every host. ViteHub connects that import to the selected provider during the build.
 
+This example assumes the Nitro or Nuxt app from Installation with KV enabled.
+Both frameworks discover this file at `PUT /api/settings`. Import the H3
+helpers explicitly when you copy the route.
+
 ```ts [server/api/settings.put.ts]
+import { defineEventHandler, readBody } from 'h3'
 import { kv } from 'vite-hub/kv'
 
 export default defineEventHandler(async (event) => {
@@ -52,11 +59,9 @@ export default defineEventHandler(async (event) => {
 })
 ```
 
-This route uses Nuxt/Nitro's auto-imported `defineEventHandler` and `readBody`.
-In a plain Vite server, import those helpers from `h3` and connect the handler
-to your server entry. The ViteHub primitive import stays the same.
-
-The route doesn't need to know whether KV uses local files, Cloudflare, Vercel, or another driver.
+The route uses the configured KV driver. The
+[KV tutorial](/docs/kv/get-started) includes the configuration, a read after
+the write, and a request you can run.
 
 ## Add a Definition when the feature needs one
 
