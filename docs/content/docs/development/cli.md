@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent`, `channels`, and `conversations` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -40,6 +40,7 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
+  conversations  Export Channel conversations.
   content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
@@ -72,9 +73,7 @@ Available namespaces:
 | `vitehub blob del` | Available | Blob Package | Delete one blob and print what changed. |
 | `vitehub blob media` | Available | Blob Package | Show the media record of one blob: dimensions, hash, alt text, focal point, and crops. |
 | `vitehub blob variants` | Available | Blob Package | List the cached image variants of one blob. |
-| `vitehub channels list` | Available | Agent Package | List the Channels of the Agents with their provider and how long each keeps its history. |
-| `vitehub channels threads` | Available | Agent Package | List the conversation threads of one Channel. |
-| `vitehub channels conversation` | Available | Agent Package | Read the messages of one thread in order. |
+| `vitehub channels export` | Available | Agent Package | Alias for `conversations export`: export one conversation as Markdown or JSON, with optional attachments. |
 | `vitehub conversations export` | Available | Agent Package | Export one conversation as Markdown or JSON, to stdout or to a directory with its attachments. `channels export` is the same command. |
 | `vitehub channels history` | Available | Agent Package | Download one deployed conversation and its attachments with the webhook secret. It writes the same archive as `conversations export --format json --output`. |
 | `vitehub channels sync` | Available | Agent Package | Inspect or apply provider-owned webhook registrations for a deployed stage. |
@@ -309,6 +308,8 @@ Telegram exposes the registered URL and delivery errors through `getWebhookInfo`
 `channels sync` owns only the provider's mechanical registration. The first Telegram synchronizer subscribes to message updates because that is the built-in Channel's supported inbound event. Admission rules, allowed users, secrets, and additional update types remain in the application. An app that needs a custom adapter, certificate, fixed IP, or connection policy must keep the provider lifecycle application-owned; an app-owned `adapter` is not a synchronization target.
 
 ## Export a Channel conversation
+
+The generated operation commands `vitehub channels list`, `vitehub channels threads`, and `vitehub channels conversation` list Channels and their retention, list a Channel's threads, and read one thread's messages in order. They are available when the app contributes the corresponding Channel operations.
 
 `conversations export` calls the `conversations.export` [operation](/docs/development/operations) of the running dev server, or of the app at `--url` with the credentials of [Run any operation](#run-any-operation). It needs no webhook secret, only Console access to the `channels` section.
 
