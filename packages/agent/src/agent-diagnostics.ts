@@ -1,5 +1,7 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
 import * as v from "valibot"
+import { agentDiagnosticOptions, dynamicAgentError as dynamicError } from "./agent-diagnostic-options.ts"
+import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
 
 const providerErrorEnvelopeSchema = v.object({
@@ -452,13 +454,9 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0938",
 ])
 
-const dynamicError = {
-  why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
-}
-
 // Throw-only diagnostics. The CLI and model adapters choose how to report them.
-export const agentDiagnostics = defineDiagnostics({
-  docsBase: () => "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors",
+const agentDiagnosticHandles = defineDiagnostics({
+  ...agentDiagnosticOptions,
   codes: {
     AGENT_R0907: dynamicError,
     AGENT_R0908: dynamicError,
@@ -1101,29 +1099,6 @@ export const agentDiagnostics = defineDiagnostics({
     AGENT_R0642: dynamicError,
     AGENT_R0643: dynamicError,
     // AGENT_R0644 and AGENT_R0645 are retired with scheduled Agent turn reauthorization. Do not reuse them.
-    AGENT_R0646: dynamicError,
-    AGENT_R0647: dynamicError,
-    AGENT_R0648: dynamicError,
-    AGENT_R0649: dynamicError,
-    AGENT_R0650: dynamicError,
-    AGENT_R0651: dynamicError,
-    AGENT_R0652: dynamicError,
-    AGENT_R0653: dynamicError,
-    AGENT_R0654: dynamicError,
-    AGENT_R0655: dynamicError,
-    AGENT_R0656: dynamicError,
-    AGENT_R0657: dynamicError,
-    AGENT_R0658: dynamicError,
-    AGENT_R0659: dynamicError,
-    AGENT_R0660: dynamicError,
-    AGENT_R0661: dynamicError,
-    AGENT_R0662: dynamicError,
-    AGENT_R0663: dynamicError,
-    AGENT_R0664: dynamicError,
-    AGENT_R0665: dynamicError,
-    AGENT_R0666: dynamicError,
-    AGENT_R0667: dynamicError,
-    AGENT_R0668: dynamicError,
     AGENT_R0669: dynamicError,
     AGENT_R0670: dynamicError,
     AGENT_R0671: dynamicError,
@@ -1547,6 +1522,8 @@ export const agentDiagnostics = defineDiagnostics({
     },
   },
 })
+
+export const agentDiagnostics = { ...agentDiagnosticHandles, ...messageDiagnostics }
 
 /** Preserves input-error HTTP status for application TypeErrors and Agent diagnostics. */
 export function isAgentTypeDiagnostic(error: unknown): boolean {
