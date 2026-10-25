@@ -222,11 +222,16 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 - Document bodies are untrusted data. The tool descriptions tell the model so, but an `authorize` policy is the actual boundary.
 - Content collections need a Workspace with retained history, which needs a Database. The Capability is not available in standalone Agent builds without a host runtime.
 
+## Other operations
+
+`content()` has tools that are written for a model. To give an agent any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. It exposes each operation as a tool named after it (`content_publish`), checks `content.can()` with the same user and actor, and asks for approval for destructive operations.
+
 ## Related pages
 
 - [Content configuration](/docs/content/configure)
 - [Content server API](/docs/content/server-api)
 - [Scheduling](/docs/content/scheduling)
+- [Operations](/docs/development/operations)
 - [Editing together](/docs/content/editing-together)
 - [Agent Actors](/docs/agents/actors)
 - [Official capabilities](/docs/agents/capabilities/official)

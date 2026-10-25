@@ -1,9 +1,6 @@
-import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Readable, Writable } from "node:stream"
-import { pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
@@ -11,19 +8,18 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "../src/dev.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents, singleton } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
-import { handleContentDevRequest } from "../src/runtime/dev.ts"
-import { contentDevRuntimeUnavailableMessage, hubContent } from "../src/vite.ts"
+import { contentOperations } from "../src/operations.ts"
+import { hubContent } from "../src/vite.ts"
 
-import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ContentCliOptions } from "../src/cli.ts"
 
 const migration = [
@@ -88,11 +84,19 @@ function stream() {
   }
 }
 
-/** A fake Vite + Nitro dev server: `GET` discovery, `POST` straight into the Nitro dev handler. */
+/**
+ * A fake dev server: it answers the operation RPC with the Content operations, as the Console does. The local policy
+ * is the one `vite dev` installs, so `content.can()` is not asked for a user the CLI does not have.
+ */
 function devServer(content: unknown) {
-  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-    ? await handleContentDevRequest(new Request(input, init), content)
-    : Response.json({ root: rootDir, runtime: "nitro" }))
+  const registry = createOperationRegistry([{ operations: contentOperations }])
+  Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ content }) })
+  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+  return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    return Response.json(result, { status: result.ok ? 200 : result.status })
+  })
 }
 
 function cli(content: unknown, options: ContentCliOptions = {}) {
@@ -571,23 +575,17 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(JSON.parse((await run("sitemap", "--json")).stdout)).toMatchObject({ entries: [{ collection: "posts", id: "hello", loc: "https://example.com/blog/hello" }] })
   })
 
-  it("explains when no Vite + Nitro Development Server is reachable", async () => {
-    const run = async (fetch: typeof globalThis.fetch, ...args: string[]) => {
-      const stdout = stream()
-      const stderr = stream()
-      const code = await runContentCli(args, { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch })
-      return { code, stderr: stderr.output(), stdout: stdout.output() }
-    }
-    const offline = await run(vi.fn(async () => { throw new TypeError("fetch failed") }), "status")
-    expect(offline.code).toBe(1)
-    expect(offline.stderr).toContain("No Compatible Vite Development Server found at http://localhost:5173.")
-    expect(offline.stderr).toContain("Nuxt, plain Vite, and deployed apps are not supported.")
-
-    const unavailable = await run(vi.fn(async () => Response.json({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })), "status", "--json")
-    expect(JSON.parse(unavailable.stdout)).toEqual({ error: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage } })
+  it("explains when the app is unreachable and when it has no Content", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const offline = vi.fn(async () => { throw new TypeError("fetch failed") })
+    const code = await runContentCli(["status"], { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch: offline })
+    expect(code).toBe(1)
+    expect(stderr.output()).toContain("The request to http://localhost:5173 failed")
+    expect(stderr.output()).toContain("Fix: Start the dev server")
 
     const undefinedContent = await cli(undefined).run("collections", "--json")
-    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED" } })
+    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED", fix: expect.stringContaining("server/content.ts") } })
   })
 
   it("prints help and contributes the content namespace", async () => {
@@ -595,7 +593,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     const help = await run("publish", "--help")
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
-    expect(help.stdout).toContain("It does not reach a deployed app.")
+    expect(help.stdout).toContain("With --url it calls a deployed app")
     expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
@@ -603,68 +601,47 @@ describe("vitehub content", { timeout: 30_000 }, () => {
   })
 })
 
-describe("Content dev handler", () => {
-  it("rejects requests without the guard header, from another host, or with another method", async () => {
-    const url = `http://localhost:5173${contentDevRuntimeRoute}`
-    const json = { "content-type": "application/json" }
-    expect((await handleContentDevRequest(new Request(url, { body: "{}", headers: json, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(`http://attacker.test${contentDevRuntimeRoute}`, { body: "{}", headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(url, { headers: { [contentDevHeader]: contentDevHeaderValue } }), undefined)).status).toBe(405)
+describe("Content operations", () => {
+  it("rejects a publish that does not pin the digests of a dry run", async () => {
     const { content } = await setup()
-    const post = (body: unknown) => handleContentDevRequest(new Request(url, { body: JSON.stringify(body), headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), content)
-    expect((await post({ operation: "clear" })).status).toBe(400)
-    // A publish must pin the digests a dry run listed.
-    for (const body of [
-      { operation: "publish" },
-      { operation: "publish", collection: "posts" },
-      { operation: "publish", expect: [] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello" }] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello", digest: null }], collection: "posts" },
-      { operation: "publish", dryRun: true, expect: [{ collection: "posts", id: "hello", digest: null }] },
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    for (const input of [
+      {},
+      { collection: "posts" },
+      { expect: [] },
+      { expect: [{ collection: "posts", id: "hello" }] },
+      { collection: "posts", expect: [{ collection: "posts", digest: null, id: "hello" }] },
+      { dryRun: true, expect: [{ collection: "posts", digest: null, id: "hello" }] },
     ]) {
-      const response = await post(body)
-      expect(response.status, JSON.stringify(body)).toBe(400)
+      const result = await run(input)
+      expect(result, JSON.stringify(input)).toMatchObject({ ok: false, status: 400 })
     }
   })
+
+  it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ action, user }) => action === "read" || user?.id === "editor",
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const text = "---\ntitle: Hello\n---\n\nHi\n"
+    const as = (id: string | undefined) => ({ access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: id ? { id } : null })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("reader"))).toMatchObject({ code: "CONTENT_FORBIDDEN", fix: expect.stringContaining("authorize"), ok: false, status: 403 })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("editor"))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, as(undefined))).toMatchObject({ ok: true, value: { items: [{ id: "hello" }] } })
+    // A deployed app without a signed-in user is not the trusted dev CLI.
+    expect(await runOperation(registry, "content.publish", { dryRun: true }, as(undefined))).toMatchObject({ ok: true })
+  })
 })
-
-/** Fake Vite dev server parts that the dev endpoint registration uses. */
-function fakeServer() {
-  const middlewares: Array<(req: IncomingMessage, res: ServerResponse, next: () => void) => void> = []
-  return {
-    middlewares,
-    server: {
-      config: { root: rootDir, server: {} },
-      environments: {},
-      middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => middlewares.push(handler) },
-      resolvedUrls: { local: ["http://localhost:5173/"] },
-    },
-  }
-}
-
-async function call(middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => void, init: { body?: string, headers?: Record<string, string>, method: string }) {
-  const req = Object.assign(Readable.from(init.body ? [Buffer.from(init.body)] : []), {
-    headers: { host: "localhost:5173", ...init.headers },
-    method: init.method,
-    url: contentDevRoute,
-  }) as unknown as IncomingMessage
-  const done = new EventEmitter()
-  const chunks: Buffer[] = []
-  const res = Object.assign(new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(Buffer.from(chunk))
-      callback()
-    },
-    final(callback) {
-      done.emit("end")
-      callback()
-    },
-  }), { setHeader() {}, statusCode: 200 })
-  const ended = new Promise(resolve => done.once("end", resolve))
-  middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
-  await ended
-  return { body: Buffer.concat(chunks).toString("utf8"), status: res.statusCode }
-}
 
 describe("hubContent", () => {
   type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<void>
@@ -684,21 +661,15 @@ describe("hubContent", () => {
     return root
   }
 
-  it("adds the Nitro dev handler for the Content Definition only in serve mode", async () => {
+  it("adds no dev endpoint and contributes the Content operations", async () => {
     const root = await project(true)
-    const plugin = hubContent({ importBase: "vite-hub/_internal/content" })
-    const build: Record<string, unknown> = { nitro: { handlers: [] }, root }
-    await configHook(plugin)(build, { command: "build", mode: "production" })
-    expect(build.nitro).toEqual({ handlers: [] })
-
+    const plugin = hubContent()
     const serve: Record<string, unknown> = { nitro: { handlers: [] }, root }
     await configHook(plugin)(serve, { command: "serve", mode: "development" })
-    const handler = join(root, ".vitehub/nitro/content/dev-handler.ts")
-    expect(serve.nitro).toEqual({ handlers: [{ handler, route: contentDevRuntimeRoute }], plugins: [] })
-    const source = await readFile(handler, "utf8")
-    expect(source).toContain("import { handleContentDevRequest } from \"vite-hub/_internal/content/runtime/dev\"")
-    expect(source).toContain(`import * as definition from ${JSON.stringify(pathToFileURL(join(root, "server", "content.ts")).href)}`)
-    expect(source).toContain("handleContentDevRequest(event.req, definition.content)")
+    expect(serve.nitro).toEqual({ handlers: [] })
+    expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "contentOperations", module: "@vite-hub/content/operations" })])
+    const [entry] = plugin.vitehub.operations
+    expect(await entry!.load!()).toBe(contentOperations)
   })
 
   it("contributes the CLI namespace and the Content inspector only when the app defines Content", async () => {
@@ -722,15 +693,5 @@ describe("hubContent", () => {
     expect(serve.nitro).toEqual({ handlers: [] })
     expect(await (without.vitehub.cli as () => Promise<unknown>)()).toBeUndefined()
     expect(await (without.vitehub.inspect as () => Promise<unknown>)()).toBeUndefined()
-  })
-
-  it("registers a guarded endpoint that reports hosts without an in-process Nitro environment", async () => {
-    const { middlewares, server } = fakeServer()
-    const plugin = hubContent()
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer(server)
-    expect((await call(middlewares[0]!, { method: "GET" })).status).toBe(403)
-    const discovery = await call(middlewares[0]!, { headers: { [contentDevHeader]: contentDevHeaderValue }, method: "GET" })
-    expect(JSON.parse(discovery.body)).toEqual({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })
   })
 })

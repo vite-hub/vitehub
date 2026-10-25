@@ -40,7 +40,7 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
-  content     Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.
+  content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
@@ -434,7 +434,7 @@ Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `
 
 ## Edit and publish Content
 
-Start the app's Vite Development Server, then run `vitehub content` from another terminal. The commands call the app's `server/content.ts` in the Nitro dev environment, so they see the same drafts and published documents as the app.
+Start the app's Vite Development Server, then run `vitehub content` from another terminal. Each command runs a `content.*` [operation](/docs/development/operations) that uses the app's `server/content.ts`, so it sees the same drafts and published documents as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -445,9 +445,27 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. With `--url`, the command calls a deployed app that enables the Console, with the credentials from [the table below](#run-a-schedule-on-demand). Read [Content CLI](/docs/content/cli) for each command's output.
 
-The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
+## Run any operation
+
+Every [operation](/docs/development/operations) that a package contributes is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section and the command is its verb, so `agents.list` is `vitehub agents list`. Run `vitehub <namespace> <command> --help` to see the input.
+
+```bash [Terminal]
+pnpm vitehub invocations list --limit 10
+pnpm vitehub invocations get ainv_123 --json
+pnpm vitehub invocations delete ainv_123 --yes
+pnpm vitehub invocations list --url https://app.example.com
+```
+
+| Option | Use it for |
+| --- | --- |
+| `--json` | Print JSON, also for a failure: `{ "error": { "code", "message", "fix" } }`. |
+| `--yes` | Run an operation that deletes or publishes without asking. On a terminal the command asks first. Without a terminal it fails. A dry run (`--dry-run`) needs no `--yes`. |
+| `--url <origin>` | Call a deployed app. Without it, the command calls the dev server at `VITEHUB_DEV_SERVER_URL` or `http://localhost:5173`. |
+| `--timeout <ms>` | Wait this long for the answer. |
+
+A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. `vitehub inspect definitions --kind operation` lists the operations of the app. A package can also write a command by hand. When a hand-written command has the same name as a generated one, the hand-written one runs, as `vitehub content edit` does.
 
 ## Run a Schedule on demand
 
@@ -760,6 +778,7 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
+| `INTERNAL_R0018` from an operation command | The command could not reach the app, or the app asked for sign-in. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or the Cloudflare Access variables. |
 | `vitehub schedule` reports that the host is not supported | The Development Server is plain Vite without Nitro, or Nuxt with Nitro 2, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app or Nuxt with Nitro 3. |
 | `vitehub schedule run` exits with status 1 | The Definition does not set `manual: true`, is not in the registry, or its handler failed. | Read the printed error or run record, then set `manual: true` or fix the handler. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |

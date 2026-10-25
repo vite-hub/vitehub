@@ -1,0 +1,124 @@
+import { installedOperationRegistry, operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
+import * as v from "valibot"
+
+import { agentDiagnostics } from "../agent-diagnostics.ts"
+import { defineCapability } from "../capability-runtime.ts"
+import { isRuntimeRecord } from "../internal/runtime-type.ts"
+import { defineInternalTool, primitiveHandle } from "./internal.ts"
+
+import type { AnyOperation, OperationKind, OperationRegistry, OperationUser } from "@vite-hub/internal/operations"
+import type { AgentActor, AgentCapabilityContext, AgentCapabilityDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "../types.ts"
+
+/** Which operations need approval before an Agent runs them. */
+export type OperationsApproval = "all" | "destructive" | "never" | "write" | readonly string[] | ((operation: { kind: OperationKind, name: string }) => boolean)
+
+export interface OperationsCapabilityOptions {
+  /** Operation names, or a section with a star, such as `content.*`. `*` exposes every operation. */
+  include: readonly string[]
+  /** Operations that wait for approval. Default: `destructive`. */
+  approve?: OperationsApproval
+  /**
+   * Map the Invocation's Actor to the user that the operations see. Default: the Auth user the Actor stands for when Auth
+   * is configured, otherwise null.
+   */
+  user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
+  /** The operations to use. Default: the ones the app installed. Tests pass their own. */
+  registry?: OperationRegistry
+}
+
+const optionsSchema = v.object({
+  approve: v.optional(v.union([v.picklist(["all", "destructive", "never", "write"]), v.array(v.string()), v.custom<(operation: { kind: OperationKind, name: string }) => boolean>(value => value instanceof Function)])),
+  include: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1)),
+  registry: v.optional(v.custom<OperationRegistry>(value => isRuntimeRecord(value) && value.get instanceof Function && value.list instanceof Function)),
+  user: v.optional(v.custom<NonNullable<OperationsCapabilityOptions["user"]>>(value => value instanceof Function)),
+})
+
+function matches(pattern: string, name: string): boolean {
+  if (pattern === "*") return true
+  return pattern.endsWith(".*") ? name.startsWith(pattern.slice(0, -1)) : pattern === name
+}
+
+function needsApproval(approve: OperationsApproval, operation: Pick<AnyOperation, "kind" | "name">): boolean {
+  if (approve === "all") return true
+  if (approve === "never") return false
+  if (approve === "write") return operation.kind !== "read"
+  if (approve === "destructive") return operation.kind === "destructive"
+  return approve instanceof Function ? approve(operation) : approve.includes(operation.name)
+}
+
+/** The tool name of an operation: dots become underscores, since providers reject dots. */
+export function operationToolName(name: string): string {
+  return name.replace(/\./g, "_")
+}
+
+/** The Auth user as an operation user. A value without an id is no user. */
+function operationUser(value: unknown): OperationUser | null {
+  return isRuntimeRecord(value) && String(value.id) === value.id ? { ...value, id: value.id } : null
+}
+
+async function authUser(context: AgentCapabilityContext): Promise<OperationUser | null> {
+  const auth = primitiveHandle(context, "auth")
+  if (!context.actor || !isRuntimeRecord(auth) || !(auth.user instanceof Function)) return null
+  return operationUser(await auth.user(context.actor))
+}
+
+function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, include: readonly string[], registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): AgentToolSet {
+  const registry = options.registry ?? installedOperationRegistry()
+  if (!registry) {
+    throw agentDiagnostics.AGENT_R1013({ message: "[vitehub] operations() found no operations. The app installs them when the Console or `vite dev` runs." })
+  }
+  for (const pattern of options.include) {
+    if (!registry.list().some(operation => matches(pattern, operation.name))) {
+      throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] operations({ include }) names ${JSON.stringify(pattern)}, which matches no operation of this app.` })
+    }
+  }
+  const selected = registry.list().filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
+  // Resolve the Actor's Auth user once per Invocation.
+  let user: Promise<OperationUser | null> | undefined
+  const callerUser = () => user ??= (async () => {
+    return options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
+  })()
+  const tools: AgentToolSet = {}
+  for (const operation of selected) {
+    const policy: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"
+    tools[operationToolName(operation.name)] = defineInternalTool({
+      description: operation.description,
+      execute: async (input) => {
+        const result = await runOperation(registry, operation.name, input, {
+          // The operation decides what the user may do. Agents have no Console session.
+          access: { mode: "agent", sections: "all" },
+          ...(context.actor ? { actor: context.actor } : {}),
+          surface: "agent",
+          user: await callerUser(),
+        })
+        if (result.ok) return result.value
+        // Input, access, and conflict failures are results the model can act on. Server failures stay errors.
+        if (result.status < 500) return { error: { code: result.code, ...(result.details ? { details: result.details } : {}), ...(result.fix ? { fix: result.fix } : {}), message: result.message }, ok: false as const }
+        throw Object.assign(new Error(result.message), { code: result.code })
+      },
+      inputSchema: operationInputJsonSchema(operation),
+      metadata: { operations: { kind: operation.kind, name: operation.name } },
+      name: operationToolName(operation.name),
+      policy,
+      title: operation.description,
+    })
+  }
+  return tools
+}
+
+/**
+ * Tools for the operations of the app, such as `content.*`. Each operation becomes a tool named after it, with dots as
+ * underscores (`content.publish` is `content_publish`). The operation checks access with the user the Actor stands for.
+ * Destructive operations wait for approval unless `approve` says otherwise.
+ */
+export function operations(options: OperationsCapabilityOptions): AgentCapabilityDefinition {
+  const parsed = v.safeParse(optionsSchema, options)
+  if (!parsed.success) throw agentDiagnostics.AGENT_C0013()
+  const { approve = "destructive", include, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
+  return defineCapability({
+    id: "operations",
+    metadata: { approve: typeof approve === "string" ? approve : Array.isArray(approve) ? approve : "custom", include: [...include] },
+    mode: "write",
+    tools: context => operationTools(context, { approve, include, registry, user }),
+  })
+}
