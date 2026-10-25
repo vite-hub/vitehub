@@ -13,6 +13,12 @@ describe("forwarded host authority", () => {
     expect(origin(host)).toBe("http://internal.local")
   })
 
+  it.each([0x01, 0x08, 0x0E, 0x1F])("rejects trailing C0 control %i preserved by Headers", (code) => {
+    const host = `public.example${String.fromCharCode(code)}`
+    expect(new Headers({ "x-forwarded-host": host }).get("x-forwarded-host")).toBe(host)
+    expect(origin(host)).toBe("http://internal.local")
+  })
+
   it.each([
     ["public.example", "https://public.example"],
     ["public.example:8443", "https://public.example:8443"],
