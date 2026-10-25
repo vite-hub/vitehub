@@ -175,17 +175,20 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
 
   if (parsed.json) {
     const provisionPath = relative(context.rootDir, resolve(context.rootDir, PROVISION_STATE_FILE)) || "."
-    const provisionState = readProvisionStateSync(context.rootDir)
-    const provisionStateOutput = Object.fromEntries(Object.entries(provisionState).map(([provider, categories]) => [
-      provider,
-      Object.fromEntries(Object.entries(categories ?? {}).map(([category, ids]) => [
-        category,
-        Object.fromEntries(Object.entries(ids ?? {}).map(([key, id]) => [key, redactInspectionValue(id)])),
-      ])),
-    ]))
-    const providerOutput = reports.map(report => report.path === provisionPath && report.exists && report.owner === "cli" && report.type === "file" && report.content !== "[unreadable JSON]"
-      ? { ...report, content: provisionStateOutput }
-      : redactInspectionValue(report))
+    const providerOutput = reports.map(report => {
+      if (report.path === provisionPath && report.exists && report.owner === "cli" && report.type === "file" && report.content !== "[unreadable JSON]") {
+        const provisionState = readProvisionStateSync(context.rootDir)
+        const provisionStateOutput = Object.fromEntries(Object.entries(provisionState).map(([provider, categories]) => [
+          provider,
+          Object.fromEntries(Object.entries(categories ?? {}).map(([category, ids]) => [
+            category,
+            Object.fromEntries(Object.entries(ids ?? {}).map(([key, id]) => [key, redactInspectionValue(id)])),
+          ])),
+        ]))
+        return { ...report, content: provisionStateOutput }
+      }
+      return redactInspectionValue(report)
+    })
     context.stdout.write(`${JSON.stringify({ providerOutput }, null, 2)}\n`)
     return 0
   }

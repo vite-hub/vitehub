@@ -2,9 +2,10 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { mergeProvisionState, readProvisionedId, readProvisionState, writeProvisionState } from "../src/provision-state.ts"
+import { createProvisionNamespace } from "../../cli/src/provision.ts"
+import { getProvisionStatePath, mergeProvisionState, readProvisionedId, readProvisionState, readProvisionStateSync, writeProvisionState } from "../src/provision-state.ts"
 
 const directories: string[] = []
 
@@ -17,6 +18,66 @@ async function createTempDir() {
   directories.push(rootDir)
   return rootDir
 }
+
+async function createStateFile(raw: string) {
+  const rootDir = await createTempDir()
+  const path = getProvisionStatePath(rootDir)
+  await mkdir(join(rootDir, ".vitehub"))
+  await writeFile(path, raw)
+  return { path, rootDir }
+}
+
+const invalidState = '{"cloudflare":{"d1":{"primary":"existing-id"}},}'
+
+describe.each([
+  ["async", readProvisionState],
+  ["sync", readProvisionStateSync],
+] as const)("%s provision state reader", (_, read) => {
+  it("returns empty state when the file is missing", async () => {
+    const rootDir = await createTempDir()
+    expect(await read(rootDir)).toEqual({})
+    await mkdir(join(rootDir, ".vitehub"))
+    expect(await read(rootDir)).toEqual({})
+  })
+
+  it.each([invalidState, ""])("rejects invalid JSON %j with its path and original cause", async (raw) => {
+    const { path, rootDir } = await createStateFile(raw)
+    await expect(async () => read(rootDir)).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      message: expect.stringContaining(path),
+      cause: expect.any(SyntaxError),
+    })
+    expect(await readFile(path, "utf8")).toBe(raw)
+  })
+
+  it("rejects filesystem errors other than ENOENT", async () => {
+    const rootDir = await createTempDir()
+    const path = getProvisionStatePath(rootDir)
+    await writeFile(join(rootDir, ".vitehub"), "obstruction")
+    await expect(async () => read(rootDir)).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      message: expect.stringContaining(path),
+      cause: expect.objectContaining({ code: "ENOTDIR" }),
+    })
+  })
+
+  it.each(["null", "[]", "42", '"value"'])("keeps the empty-state policy for a valid non-object root %s", async (raw) => {
+    const { rootDir } = await createStateFile(raw)
+    expect(await read(rootDir)).toEqual({})
+  })
+
+  it("keeps valid IDs while filtering unsupported shapes", async () => {
+    const { rootDir } = await createStateFile(JSON.stringify({
+      cloudflare: { d1: { primary: "id-1", invalid: 42 }, kv: [], empty: { invalid: null } },
+      vercel: { blob: { assets: "id-2" }, invalid: null },
+      unknown: { resource: { name: "id-3" } },
+    }))
+    expect(await read(rootDir)).toEqual({
+      cloudflare: { d1: { primary: "id-1" } },
+      vercel: { blob: { assets: "id-2" } },
+    })
+  })
+})
 
 describe("provision state", () => {
   it("merges ids without dropping existing entries", () => {
@@ -38,6 +99,30 @@ describe("provision state", () => {
     const state = await readProvisionState(rootDir)
     expect(readProvisionedId(state, "cloudflare", "d1", "primary")).toBe("id-1")
     expect(readProvisionedId(state, "cloudflare", "d1", "analytics")).toBe("id-2")
+    await writeProvisionState(rootDir, { vercel: { blob: { assets: "id-3" } } })
+    expect(await readProvisionState(rootDir)).toEqual({ ...state, vercel: { blob: { assets: "id-3" } } })
+  })
+
+  it.each([invalidState, ""])("refuses to overwrite invalid state %j", async (raw) => {
+    const { path, rootDir } = await createStateFile(raw)
+    const original = await readFile(path)
+    await expect(writeProvisionState(rootDir, { vercel: { blob: { assets: "new-id" } } })).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      cause: expect.any(SyntaxError),
+    })
+    expect(await readFile(path)).toEqual(original)
+  })
+
+  it("refuses writes after a read error and preserves the obstruction", async () => {
+    const rootDir = await createTempDir()
+    const path = join(rootDir, ".vitehub")
+    await writeFile(path, "existing bytes")
+    const original = await readFile(path)
+    await expect(writeProvisionState(rootDir, { vercel: { blob: { assets: "new-id" } } })).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      cause: expect.objectContaining({ code: "ENOTDIR" }),
+    })
+    expect(await readFile(path)).toEqual(original)
   })
 
   it("only persists the non-secret ids it is given", async () => {
@@ -76,5 +161,58 @@ describe("provision state", () => {
 
     const state = await readProvisionState(rootDir)
     expect(readProvisionedId(state, "cloudflare", "__proto__", "__proto__")).toBe("id-prototype")
+  })
+})
+
+describe("provision status", () => {
+  function createStatus(rootDir: string) {
+    const plan = vi.fn(async () => [])
+    const status = createProvisionNamespace([{ id: "test", provider: "cloudflare", plan }]).features.find(feature => feature.name === "status")!
+    const context = {
+      cwd: rootDir,
+      env: { CLOUDFLARE_ACCOUNT_ID: "test-account", CLOUDFLARE_API_TOKEN: "test-token" },
+      rootDir,
+      spawn: vi.fn(),
+      stderr: { write: vi.fn() },
+      stdout: { write: vi.fn() },
+    }
+    return { context, plan, status }
+  }
+
+  it.each([{ mode: "human", options: [] }, { mode: "JSON", options: ["--json"] }])("rejects corrupt state before reporting or planning in $mode mode", async ({ options }) => {
+    const { path, rootDir } = await createStateFile(invalidState)
+    const original = await readFile(path)
+    const { context, plan, status } = createStatus(rootDir)
+    await expect(status.run(["--provider", "cloudflare", ...options], context)).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      message: expect.stringContaining(path),
+      cause: expect.any(SyntaxError),
+    })
+    expect(context.stdout.write).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+    expect(await readFile(path)).toEqual(original)
+  })
+
+  it("rejects a state read error before reporting or planning", async () => {
+    const rootDir = await createTempDir()
+    await writeFile(join(rootDir, ".vitehub"), "obstruction")
+    const { context, plan, status } = createStatus(rootDir)
+    await expect(status.run(["--provider", "cloudflare", "--json"], context)).rejects.toMatchObject({
+      code: "INTERNAL_R0014",
+      cause: expect.objectContaining({ code: "ENOTDIR" }),
+    })
+    expect(context.stdout.write).not.toHaveBeenCalled()
+    expect(plan).not.toHaveBeenCalled()
+  })
+
+  it("reports missing state and persisted IDs", async () => {
+    const rootDir = await createTempDir()
+    const { context, status } = createStatus(rootDir)
+    const args = ["--provider", "cloudflare", "--json"]
+    expect(await status.run(args, context)).toBe(0)
+    expect(JSON.parse(context.stdout.write.mock.lastCall![0])).toMatchObject({ recorded: {} })
+    await writeProvisionState(rootDir, { cloudflare: { d1: { primary: "id-1" } } })
+    expect(await status.run(args, context)).toBe(0)
+    expect(JSON.parse(context.stdout.write.mock.lastCall![0])).toMatchObject({ recorded: { d1: { primary: "id-1" } } })
   })
 })

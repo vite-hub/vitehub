@@ -259,13 +259,17 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxTaskDefinition", () => {
-  it("tracks inner execution until cleanup finishes after cancellation returns", async () => {
+  it.each([false, true])("tracks inner execution after cancellation when cleanup rejects=%s", async (rejectCleanup) => {
     const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
+    const cleanupError = new Error("cleanup failed")
     let finishCleanup!: () => void
     const cleanup = new Promise<void>(resolve => { finishCleanup = resolve })
     const exec = sandbox.exec.bind(sandbox)
     sandbox.exec = vi.fn(async (command, args, options) => {
-      if (command === "rm") await cleanup
+      if (command === "rm") {
+        await cleanup
+        if (rejectCleanup) throw cleanupError
+      }
       return await exec(command, args, options)
     })
     let trackedExecution: Promise<unknown> | undefined
@@ -282,7 +286,12 @@ describe("executeSandboxTaskDefinition", () => {
     await expect(run).rejects.toBe(reason)
     let settled = false
     const completion = trackedExecution!.catch(error => {
-      expect(error).toBe(reason)
+      if (rejectCleanup) {
+        expect(error.cause).toBeInstanceOf(AggregateError)
+        expect(error.cause.errors[0]).toBe(reason)
+        expect(error.cause.errors[1].cause).toBe(cleanupError)
+      }
+      else expect(error).toBe(reason)
       settled = true
     })
     await Promise.resolve()

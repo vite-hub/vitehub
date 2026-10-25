@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -185,31 +185,47 @@ describe("vitehub inspect", () => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
     await writeFile(join(rootDir, ".vitehub/provision.json"), JSON.stringify({
-      vercel: { blob: { api_key: "resource-id" } },
+      vercel: { blob: { api_key: "resource-id", invalid: 42, credentials: "https://user:secret@example.com/store" } },
     }))
     const result = await run(rootDir, ["inspect", "provider-output", "--json"])
 
     expect(result.exitCode).toBe(0)
     const parsed = JSON.parse(result.stdout)
-    expect(parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")).toMatchObject({
-      content: { vercel: { blob: { api_key: "resource-id" } } },
-      exists: true,
-      owner: "cli",
+    const report = parsed.providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")
+    expect(report).toMatchObject({ exists: true, owner: "cli" })
+    expect(report.content).toEqual({
+      vercel: { blob: { api_key: "resource-id", credentials: "[redacted]" } },
     })
+    expect(result.stdout).not.toContain("user:secret")
   })
 
-  it("preserves the corruption diagnostic for malformed provision-state JSON", async () => {
+  it.each(["{invalid", ""])("preserves the corruption diagnostic for invalid provision-state JSON %j", async (raw) => {
     const rootDir = await createTempDir()
     await mkdir(join(rootDir, ".vitehub"), { recursive: true })
-    await writeFile(join(rootDir, ".vitehub/provision.json"), "{invalid")
+    const path = join(rootDir, ".vitehub/provision.json")
+    await writeFile(path, raw)
     const result = await run(rootDir, ["inspect", "provider-output", "--json"])
 
     expect(result.exitCode).toBe(0)
+    expect(result.stderr).toBe("")
     expect(JSON.parse(result.stdout).providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")).toMatchObject({
       content: "[unreadable JSON]",
       exists: true,
       owner: "cli",
     })
+    expect(await readFile(path, "utf8")).toBe(raw)
+  })
+
+  it("reports a directory at the provision-state path without reading it as state", async () => {
+    const rootDir = await createTempDir()
+    await mkdir(join(rootDir, ".vitehub/provision.json"), { recursive: true })
+    const result = await run(rootDir, ["inspect", "provider-output", "--json"])
+
+    expect(result.exitCode).toBe(0)
+    expect(result.stderr).toBe("")
+    const report = JSON.parse(result.stdout).providerOutput.find((entry: { path: string }) => entry.path === ".vitehub/provision.json")
+    expect(report).toMatchObject({ exists: true, owner: "cli", type: "directory" })
+    expect(report).not.toHaveProperty("content")
   })
 
   it("rejects unknown arguments", async () => {

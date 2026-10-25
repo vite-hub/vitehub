@@ -44,8 +44,9 @@ Choose the result that matches the application you are building:
 Both guides use `vite-hub`, include complete files and commands, and need no provider credentials. Do not treat the configuration fragment above as a successful runtime check by itself.
 
 Custom H3 and Nuxt routes can import `getRuntimeContext` from
-`vite-hub/runtime/h3`. Call it once per invocation to normalize event bindings,
-host `waitUntil`, and memo storage. Without a real host lifetime API, await the
+`vite-hub/runtime/h3`. Call it once per invocation to read the event's
+Standard Context (`event["~standard"]`): request, bindings, host `waitUntil`,
+and a fresh memo cache. Without a real host lifetime API, await the
 returned `flushWaitUntil()` before responding. See the
 [Runtime Context guide](https://vitehub.dev/docs/reference/runtime-context).
 

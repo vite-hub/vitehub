@@ -74,6 +74,8 @@ describe("Result types", () => {
   })
 
   it("keeps the Runtime catalog keys and parameters", () => {
+    runtimeErrorDiagnostics.RUNTIME_R0015({ message: "Invalid request." })
+    runtimeErrorDiagnostics.RUNTIME_R0016({ message: "Invalid context." })
     runtimeErrorDiagnostics.RUNTIME_R0001()
     runtimeErrorDiagnostics.RUNTIME_R0001({ message: "Invalid input.", cause: new Error("cause"), sources: ["input.ts:1:1"] })
     // @ts-expect-error Unknown codes are not callable.
