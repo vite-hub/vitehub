@@ -1,5 +1,5 @@
 // Framework-neutral `<picture>` and `<img>` attributes for a media record.
-import { defaultResponsiveWidths, focalCropRegion, focalPointToObjectPosition, imageVariantUrl, parseAspectRatio } from "./variant.ts"
+import { defaultResponsiveWidths, focalCropRegion, focalPointToObjectPosition, imageVariantUrl, parseAspectRatio, snapImageSize } from "./variant.ts"
 
 import type { MediaCrop, MediaCropReplacement } from "./types.ts"
 import type { BlobImageFormat, MediaFocalPoint } from "./variant.ts"
@@ -37,6 +37,8 @@ export interface ResponsiveImageOptions {
   fetchpriority?: "auto" | "high" | "low"
   /** Defaults to `webp`. */
   format?: BlobImageFormat
+  /** Allowed variant sizes. Must match `blob.images.sizes` when the server overrides the defaults. */
+  imageSizes?: readonly number[]
   /** Defaults to `lazy`. */
   loading?: "eager" | "lazy"
   quality?: number
@@ -44,7 +46,7 @@ export interface ResponsiveImageOptions {
   sizes?: string
   /** Overrides the record URL. */
   url?: string
-  /** Candidate widths. Defaults to 640 through 3840. Widths above the source are dropped. */
+  /** Candidate widths. Defaults to 640 through 3840. Snaps to allowed sizes and caps at the source width. */
   widths?: readonly number[]
 }
 
@@ -102,8 +104,12 @@ function candidates(input: ResponsiveImageInput, url: string, crop: string | und
     naturalWidth = region.width
     naturalHeight = Math.round(region.width / aspect)
   }
-  const widths = [...(options.widths ?? defaultResponsiveWidths)].sort((left, right) => left - right)
-  const offered = naturalWidth ? [...widths.filter(width => width < naturalWidth!), naturalWidth] : widths
+  const widths = [...(options.widths ?? defaultResponsiveWidths)]
+  if (naturalWidth) widths.push(naturalWidth)
+  const offered = [...new Set(widths.map((width) => {
+    const snapped = snapImageSize(width, options.imageSizes)
+    return naturalWidth ? Math.min(snapped, naturalWidth) : snapped
+  }))].sort((left, right) => left - right)
   const variant = (width: number) => imageVariantUrl(url, {
     ...(named && aspect ? { crop } : {}),
     format,
