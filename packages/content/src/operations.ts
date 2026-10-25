@@ -296,6 +296,38 @@ const list = defineOperation({
   section: "content",
 })
 
+/** `/blog/hello/` and `/blog/hello` are the same page. */
+function normalizeUrl(value: string): string {
+  const path = value.split(/[?#]/, 1)[0] ?? value
+  return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path
+}
+
+const resolveDocument = defineOperation({
+  cli: { command: "resolve", positional: ["path"] },
+  description: "Find the document whose public URL is a path, for the Edit button of the comments overlay. Null when no readable document has it.",
+  input: v.strictObject({ path: v.pipe(v.string(), v.minLength(1), v.maxLength(2_000)) }),
+  kind: "read",
+  name: "content.resolve",
+  run: async (input, context): Promise<{ collection: string, id: string } | null> => attempt(async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const wanted = normalizeUrl(input.path)
+    for (const collection of await readableCollections(content, access)) {
+      let cursor: string | undefined
+      // A bounded scan: collections that are routable list their public URL with each item.
+      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
+        const page = await collection.list({ limit: 100, ref: "draft", ...(cursor === undefined ? {} : { cursor }) })
+        const found = page.items.find(item => item.url !== undefined && item.url !== null && normalizeUrl(item.url) === wanted)
+        if (found && (await access.readable(collection.name, [found.id])).has(found.id)) return { collection: collection.name, id: found.id }
+        if (!page.nextCursor) break
+        cursor = page.nextCursor
+      }
+    }
+    return null
+  }),
+  section: "content",
+})
+
 /** The field issues of a stored document: `issues` of a draft, or the `CONTENT_INVALID` details of any other read. */
 async function issuesOf(collection: AnyContentCollection, id: string, selectedRef: "draft" | "published"): Promise<ContentFieldIssue[] | undefined> {
   try {
@@ -593,4 +625,4 @@ const sitemap = defineOperation({
 })
 
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]

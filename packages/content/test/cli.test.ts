@@ -631,6 +631,33 @@ describe("Content operations", () => {
     }
   })
 
+  it("finds the document at a public path for the comments overlay, and nothing else", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ action, id, user }) => action === "read" ? id !== "secret" : user?.id === "editor",
+      collections: {
+        pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+      },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello world", { data: { title: "Hello" } })
+    await content.collection("pages").save("about", { data: { title: "About" } })
+    await content.collection("pages").save("secret", { data: { title: "Secret" } })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/blog/hello%20world")).toEqual({ ok: true, value: { collection: "posts", id: "hello world" } })
+    expect(await resolve("/blog/hello%20world/")).toMatchObject({ value: { id: "hello world" } })
+    expect(await resolve("/about?ref=1")).toEqual({ ok: true, value: { collection: "pages", id: "about" } })
+    // A document the reader may not read, and a path without a document, both answer null.
+    expect(await resolve("/secret")).toEqual({ ok: true, value: null })
+    expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
+  })
+
   it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
