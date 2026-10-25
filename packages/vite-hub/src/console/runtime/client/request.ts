@@ -83,12 +83,24 @@ export function consoleErrorFields(value: unknown): ConsoleErrorFields {
   }
 }
 
+function consoleFailureFields(value: unknown): { code?: string, details?: Record<string, unknown> } {
+  const body = record(value)
+  return {
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
+    code: typeof body?.code === "string" ? body.code : undefined,
+    details: record(body?.details),
+  }
+}
+
 /** Read a failed response into a `ConsoleRequestError`. A short plain-text body, such as one from host middleware, becomes the why. */
 export async function consoleResponseError(response: Response, fallback: ConsoleErrorFields = {}): Promise<ConsoleRequestError> {
   const text = await response.text().catch(() => "")
   let fields: ConsoleErrorFields = {}
+  let failure: ReturnType<typeof consoleFailureFields> = {}
   try {
-    fields = consoleErrorFields(JSON.parse(text))
+    const body: unknown = JSON.parse(text)
+    fields = consoleErrorFields(body)
+    failure = consoleFailureFields(body)
   }
   catch {
     const plain = response.headers.get("content-type")?.startsWith("text/plain") ? text.trim() : ""
@@ -99,7 +111,7 @@ export async function consoleResponseError(response: Response, fallback: Console
     docs: fields.docs ?? fallback.docs,
     fix: fields.fix ?? fallback.fix,
     message: fields.message ?? fallback.message,
-  })
+  }, failure)
 }
 
 /** The media upload route under the application mount of a Console API path. */
@@ -210,13 +222,7 @@ export async function requestConsole(
   if (result?.ok === true) return result.value
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
   const status = typeof result?.status === "number" && result.status >= 400 ? result.status : response.ok ? 502 : response.status
-  const failure: { code?: string, details?: Record<string, unknown> } = {}
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  if (typeof result?.code === "string") failure.code = result.code
-  const details = record(result?.details)
-  if (details) failure.details = details
-  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON.
-  throw new ConsoleRequestError(status, consoleErrorFields(result), failure)
+  throw new ConsoleRequestError(status, consoleErrorFields(result), consoleFailureFields(result))
 }
 
 export function appendUniqueConsoleKeys(existing: string[], page: string[]): string[] {
