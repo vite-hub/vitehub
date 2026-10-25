@@ -37,6 +37,12 @@
       "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.js",
+      "default": "./dist/testing.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {

@@ -1,7 +1,8 @@
 /** A person. The signed-in user and every author have this shape. */
 export interface CommentUser {
   id: string
-  name: string
+  /** Shown when there is one, else the `id`. */
+  name?: string
   image?: string
 }
 
@@ -110,7 +111,8 @@ export interface CommentListQuery {
   mentions?: boolean
 }
 
-export type CommentGetInput = { id: string } | { n: number, scope?: string }
+/** By id, or by number inside its scope, as `?comment=<n>` names it. */
+export type CommentGetInput = { id: string } | { scope: string, n: number }
 
 export interface CommentCreateInput {
   subject: CommentSubject
@@ -152,6 +154,8 @@ export interface CommentUsersInput {
 export type CommentEvent =
   | { type: "thread", thread: CommentThread }
   | { type: "deleted", threadId: string }
+  // The transport lost its connection and has it again. The events in between are gone, so the client lists the threads again.
+  | { type: "reconnected" }
 
 /**
  * The seam between the browser and the server. Each method has the name and the input of one `comments.*` operation.

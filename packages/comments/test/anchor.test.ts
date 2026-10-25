@@ -54,6 +54,24 @@ describe("createAnchor selectors", () => {
     expect(createAnchor(second)).toMatchObject({ selector: "#plans > div > p:nth-of-type(2)" })
   })
 
+  it.each([":r1:", "«r2»", "_r_3_", "radix-:r4:-trigger", "headlessui-menu-button-5", "v-1", "data-v-7ba5bd90", "3f9c2e1b7a4d", "12345678", "ember123"])(
+    "does not use the generated id %s",
+    (id) => {
+      page(`<section><div id="${id}"><p>A</p><p>B</p></div></section>`)
+      const second = document.querySelectorAll("p")[1]!
+      const anchor = createAnchor(second)
+      expect(anchor).toMatchObject({ selector: "p:nth-of-type(2)" })
+      expect(JSON.stringify(anchor)).not.toContain(id)
+      expect(createAnchor(document.getElementById(id)!)).toMatchObject({ selector: "div" })
+    },
+  )
+
+  it("still uses an id that a person chose", () => {
+    page(`<div id="pricing-table"><p>A</p></div>`)
+    expect(createAnchor(document.querySelector("p")!)).toMatchObject({ selector: "p" })
+    expect(createAnchor(document.getElementById("pricing-table")!)).toMatchObject({ selector: "#pricing-table" })
+  })
+
   it("stops the path as soon as it is unique", () => {
     page(`<main><nav><a href="/">Home</a></nav><footer><small>Hi</small></footer></main>`)
     expect(createAnchor(document.querySelector("small")!)).toMatchObject({ selector: "small" })
@@ -227,5 +245,71 @@ describe("text anchors", () => {
 
     copy.textContent = "New words"
     expect(resolveAnchor(anchor)).toEqual({ detached: true })
+  })
+})
+
+describe("ambiguous and clipped anchors", () => {
+  it("detaches an element anchor whose selector names more than one element", () => {
+    page(`<p class="a">One</p><p class="b">Two</p>`)
+    for (const element of document.querySelectorAll("p")) place(element, { left: 0, top: 0, width: 10, height: 10 })
+    expect(resolveAnchor({ kind: "element", selector: "p", x: 0, y: 0 })).toEqual({ detached: true })
+    expect(resolveAnchor({ kind: "area", selector: "p", x: 0, y: 0, width: 100, height: 100 })).toEqual({ detached: true })
+    expect(resolveAnchor({ kind: "image", selector: "p", x: 0, y: 0 })).toEqual({ detached: true })
+  })
+
+  it("tries every element of a text selector and takes the one that holds the quote", () => {
+    page(`<p>Nothing here</p><p>Look: the quick fox</p>`)
+    for (const element of document.querySelectorAll("p")) place(element, { left: 5, top: 5, width: 100, height: 10 })
+    const position = resolveAnchor({ kind: "text", selector: "p", exact: "quick fox", prefix: "the ", suffix: "" })
+    expect(resolved(position).element).toBe(document.querySelectorAll("p")[1])
+  })
+
+  it("marks a spot that a scroll container clips", () => {
+    page(`<div id="list" style="overflow: auto"><div id="row"></div></div>`)
+    const list = document.getElementById("list")!
+    const row = document.getElementById("row")!
+    place(list, { left: 0, top: 0, width: 200, height: 100 })
+    place(row, { left: 0, top: 0, width: 200, height: 40 })
+    const anchor = createAnchor(row)
+    expect(resolved(resolveAnchor(anchor)).clipped).toBe(false)
+
+    // The list scrolled, so the row is above its top edge.
+    place(row, { left: 0, top: -300, width: 200, height: 40 })
+    expect(resolved(resolveAnchor(anchor)).clipped).toBe(true)
+  })
+
+  it("does not mark a spot as clipped when no ancestor clips", () => {
+    page(`<div id="box"><div id="row"></div></div>`)
+    place(document.getElementById("box")!, { left: 0, top: 0, width: 10, height: 10 })
+    place(document.getElementById("row")!, { left: 0, top: 500, width: 200, height: 40 })
+    expect(resolved(resolveAnchor({ kind: "element", selector: "#row", x: 0, y: 0 })).clipped).toBe(false)
+  })
+})
+
+describe("quote matching", () => {
+  function quote(text: string, anchor: { exact: string, prefix: string, suffix: string }) {
+    page(`<p id="copy">${text}</p>`)
+    place(document.getElementById("copy")!, { left: 0, top: 0, width: 100, height: 20 })
+    return resolveAnchor({ kind: "text", selector: "#copy", ...anchor })
+  }
+
+  it("finds a quote that occurs once, even when the text around it changed", () => {
+    expect(quote("A whole new sentence with fox in it.", { exact: "fox", prefix: "the quick ", suffix: " jumps" }).detached).toBe(false)
+  })
+
+  it("detaches a short word that now occurs only elsewhere and more than once", () => {
+    // The comment was on "it" in "Ship it today". That sentence is gone, and "it" is inside other words.
+    const position = quote("Admit it. Permit it. Submit it.", { exact: "it", prefix: "Ship ", suffix: " today" })
+    expect(position).toEqual({ detached: true })
+  })
+
+  it("accepts a repeated quote when enough of its context still matches", () => {
+    const position = quote("Go now. Stop now. Go later.", { exact: "Go", prefix: "now. Stop now. ", suffix: " later." })
+    expect(resolved(position).x).toBe(0)
+    expect(position.detached).toBe(false)
+  })
+
+  it("detaches a repeated quote that has no context to tell the copies apart", () => {
+    expect(quote("Go. Go. Go.", { exact: "Go", prefix: "", suffix: "" })).toEqual({ detached: true })
   })
 })

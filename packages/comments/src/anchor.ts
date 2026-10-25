@@ -31,6 +31,8 @@ export interface CreateAnchorOptions {
 
 export interface ResolvedAnchor {
   detached: false
+  /** A scroll container or an `overflow: hidden` ancestor cuts the spot off. Hide the pin. */
+  clipped: boolean
   kind: CommentAnchor["kind"]
   /** The pin position in client coordinates. For a `page` anchor it is `0, 0`. */
   x: number
@@ -82,13 +84,33 @@ function isOnly(root: ParentNode, selector: string, element: Element): boolean {
   return found.length === 1 && found[0] === element
 }
 
+// Ids that a framework or a build makes up change between renders and releases, so they name nothing.
+const autoIds = [
+  /^:[\w-]+:$/, // React useId: `:r1:`
+  /^«[^»]*»$/, // React 19.1 useId: `«r1»`
+  /^_r_[\w-]+_$/, // React 19.2 useId
+  /^radix-/,
+  /^headlessui-/,
+  /^reka-/,
+  /^v-\d/, // Vue useId
+  /^data-v-/,
+  /^ember\d/,
+  /^[\da-f-]{8,}$/i, // UUIDs and hashes
+]
+
+function isAutoId(id: string): boolean {
+  if (autoIds.some(pattern => pattern.test(id))) return true
+  const digits = id.replace(/\D/g, "").length
+  return id.length >= 6 && digits / id.length > 0.5
+}
+
 // Order: `data-comment-id`, `id`, `data-testid`. A value that is not unique in the root does not name the element.
 function stableSelector(element: Element, root: ParentNode): string | undefined {
   const candidates: string[] = []
   const commentId = element.getAttribute("data-comment-id")
   if (commentId) candidates.push(`[data-comment-id=${attr(commentId)}]`)
   const id = element.getAttribute("id")
-  if (id) candidates.push(/^[A-Za-z][\w-]*$/.test(id) ? `#${id}` : `[id=${attr(id)}]`)
+  if (id && !isAutoId(id)) candidates.push(/^[A-Za-z][\w-]*$/.test(id) ? `#${id}` : `[id=${attr(id)}]`)
   const testId = element.getAttribute("data-testid")
   if (testId) candidates.push(`[data-testid=${attr(testId)}]`)
   return candidates.find(candidate => isOnly(root, candidate, element))
@@ -234,10 +256,18 @@ export function createAnchor(target: AnchorTarget, options: CreateAnchorOptions 
   return boxAnchor(element, options, target)
 }
 
-// Chooses among equal quotes by how well the text around them matches the stored prefix and suffix.
-function findQuote(text: string, anchor: TextAnchor): number {
-  let best = -1
-  let bestScore = -1
+interface QuoteMatch {
+  start: number
+  /** How many characters around the quote match the stored prefix and suffix. */
+  score: number
+}
+
+const minimumContext = 4
+
+// Chooses among equal quotes by how well the text around them matches the stored prefix and suffix. A quote that
+// occurs once is the quote. When it occurs more than once, a match with no context to tell them apart does not count.
+function findQuote(text: string, anchor: TextAnchor): QuoteMatch | undefined {
+  const matches: QuoteMatch[] = []
   for (let at = text.indexOf(anchor.exact); at !== -1; at = text.indexOf(anchor.exact, at + 1)) {
     const before = text.slice(0, at)
     const after = text.slice(at + anchor.exact.length)
@@ -245,13 +275,12 @@ function findQuote(text: string, anchor: TextAnchor): number {
     while (score < anchor.prefix.length && before.at(-1 - score) === anchor.prefix.at(-1 - score)) score++
     let tail = 0
     while (tail < anchor.suffix.length && after[tail] === anchor.suffix[tail]) tail++
-    score += tail
-    if (score > bestScore) {
-      best = at
-      bestScore = score
-    }
+    matches.push({ start: at, score: score + tail })
   }
-  return best
+  if (matches.length === 1) return matches[0]
+  const needed = Math.min(minimumContext, anchor.prefix.length + anchor.suffix.length)
+  const best = matches.reduce<QuoteMatch | undefined>((top, match) => (!top || match.score > top.score ? match : top), undefined)
+  return best && needed > 0 && best.score >= needed ? best : undefined
 }
 
 function boundary(nodes: Text[], offset: number, end: boolean): { node: Text, offset: number } | undefined {
@@ -269,11 +298,17 @@ function visible(rect: AnchorRect): boolean {
   return rect.width > 0 || rect.height > 0
 }
 
-function resolveText(anchor: TextAnchor, element: Element): ResolvedAnchor | undefined {
+interface TextResolution {
+  position: ResolvedAnchor
+  score: number
+}
+
+function resolveText(anchor: TextAnchor, element: Element): TextResolution | undefined {
   const nodes = textNodes(element)
   const text = nodes.map(node => node.data).join("")
-  const start = findQuote(text, anchor)
-  if (start === -1) return undefined
+  const match = findQuote(text, anchor)
+  if (!match) return undefined
+  const start = match.start
   const from = boundary(nodes, start, false)
   const to = boundary(nodes, start + anchor.exact.length, true)
   const own = boxOf(element)
@@ -292,29 +327,53 @@ function resolveText(anchor: TextAnchor, element: Element): ResolvedAnchor | und
     first = line && visible(line) ? { left: line.left, top: line.top, width: line.width, height: line.height } : rect
   }
   if (!visible(rect)) return undefined
-  return { detached: false, kind: "text", x: first.left, y: first.top, width: rect.width, height: rect.height, element }
+  const x = first.left
+  const y = first.top
+  return {
+    position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
+    score: match.score,
+  }
+}
+
+// A scroll container or a box with `overflow: hidden` cuts off what lies outside of it. A pin there would float over the page.
+function isClipped(element: Element, x: number, y: number): boolean {
+  const view = element.ownerDocument.defaultView
+  if (!view) return false
+  for (let node = element.parentElement; node; node = node.parentElement) {
+    const { overflow, overflowX, overflowY } = view.getComputedStyle(node)
+    const clips = [overflow, overflowX, overflowY].some(value => value !== "" && value !== "visible")
+    if (!clips) continue
+    const box = boxOf(node)
+    if (!visible(box)) continue
+    if (x < box.left - 1 || x > box.left + box.width + 1 || y < box.top - 1 || y > box.top + box.height + 1) return true
+  }
+  return false
 }
 
 /**
  * Finds an anchor on the page again. It returns the pin position in client coordinates, or `{ detached: true }`
- * when the element is gone, hidden, or no longer holds the quote.
+ * when the element is gone, hidden, ambiguous, or no longer holds the quote. A selector that names more than one
+ * element is ambiguous, so a pin never lands on the wrong one. A text anchor tries every match and takes the one
+ * that holds the quote best.
  */
 export function resolveAnchor(anchor: CommentAnchor, root: ParentNode = document): AnchorPosition {
-  if (anchor.kind === "page") return { detached: false, kind: "page", x: 0, y: 0, width: 0, height: 0 }
-  const element = lookup(root, anchor.selector)[0]
+  if (anchor.kind === "page") return { clipped: false, detached: false, kind: "page", x: 0, y: 0, width: 0, height: 0 }
+  const found = lookup(root, anchor.selector)
+  if (anchor.kind === "text") {
+    let best: TextResolution | undefined
+    for (const element of found) {
+      const resolution = resolveText(anchor, element)
+      if (resolution && (!best || resolution.score > best.score)) best = resolution
+    }
+    return best?.position ?? { detached: true }
+  }
+  const element = found.length === 1 ? found[0] : undefined
   if (!element) return { detached: true }
-  if (anchor.kind === "text") return resolveText(anchor, element) ?? { detached: true }
   const box = boxOf(element)
   if (!visible(box)) return { detached: true }
   const width = "width" in anchor && anchor.width ? anchor.width / 1000 * box.width : 0
   const height = "height" in anchor && anchor.height ? anchor.height / 1000 * box.height : 0
-  return {
-    detached: false,
-    kind: anchor.kind,
-    x: box.left + anchor.x / 1000 * box.width,
-    y: box.top + anchor.y / 1000 * box.height,
-    width,
-    height,
-    element,
-  }
+  const x = box.left + anchor.x / 1000 * box.width
+  const y = box.top + anchor.y / 1000 * box.height
+  return { clipped: isClipped(element, x, y), detached: false, kind: anchor.kind, x, y, width, height, element }
 }

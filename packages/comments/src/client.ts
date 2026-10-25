@@ -24,8 +24,6 @@ export type {
   ResolvedAnchor,
 } from "./anchor.ts"
 export { commentsErrorDiagnostics } from "./errors.ts"
-export { createMemoryTransport } from "./memory.ts"
-export type { MemoryTransport, MemoryTransportOptions } from "./memory.ts"
 export type * from "./types.ts"
 
 export type CommentsClientStatus = "idle" | "loading" | "ready" | "error"
@@ -68,6 +66,9 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const { transport } = options
   const listeners = new Set<() => void>()
   const byId = new Map<string, CommentThread>()
+  // What changed while a list was on its way. The list answers for the time it was asked, so it must not undo these.
+  let changed = new Set<string>()
+  let removed = new Set<string>()
   let threads: readonly CommentThread[] = []
   let status: CommentsClientStatus = "idle"
   let error: unknown
@@ -81,26 +82,44 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     threads = [...byId.values()].sort((a, b) => a.n - b.n)
     notify()
   }
+  // A thread older than the one that the client holds is a late answer or a late event. It does not replace it.
   const upsert = (thread: CommentThread): CommentThread => {
+    const stored = byId.get(thread.id)
+    if (removed.has(thread.id) || (stored && stored.updatedAt > thread.updatedAt)) return stored ?? thread
     byId.set(thread.id, thread)
+    changed.add(thread.id)
     publish()
     return thread
   }
-  const apply = (event: CommentEvent): void => {
-    if (event.type === "thread") upsert(event.thread)
-    else if (byId.delete(event.threadId)) publish()
+  const drop = (threadId: string): void => {
+    removed.add(threadId)
+    changed.delete(threadId)
+    if (byId.delete(threadId)) publish()
   }
 
   const refresh = async (): Promise<readonly CommentThread[]> => {
     const current = ++generation
+    changed = new Set()
+    removed = new Set()
     status = "loading"
     notify()
     try {
       const list = await transport.list(query)
       // A newer refresh, or a query change, makes this answer stale.
       if (current !== generation) return threads
+      const next = new Map<string, CommentThread>()
+      for (const thread of list) {
+        const local = byId.get(thread.id)
+        if (removed.has(thread.id)) continue
+        next.set(thread.id, local && local.updatedAt > thread.updatedAt ? local : thread)
+      }
+      // A thread that someone made or changed while the list was on its way is not in the list yet.
+      for (const id of changed) {
+        const local = byId.get(id)
+        if (local && !next.has(id)) next.set(id, local)
+      }
       byId.clear()
-      for (const thread of list) byId.set(thread.id, thread)
+      for (const [id, thread] of next) byId.set(id, thread)
       status = "ready"
       error = undefined
       publish()
@@ -113,6 +132,15 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       throw cause
     }
     return threads
+  }
+
+  const refreshQuietly = (): void => {
+    refresh().catch(() => undefined)
+  }
+  const apply = (event: CommentEvent): void => {
+    if (event.type === "thread") upsert(event.thread)
+    else if (event.type === "deleted") drop(event.threadId)
+    else refreshQuietly()
   }
 
   return {
@@ -142,7 +170,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     delete: async input => {
       const next = await transport.delete(input)
       if (next) upsert(next)
-      else if (byId.delete(input.threadId)) publish()
+      else drop(input.threadId)
       return next
     },
     resolve: async input => upsert(await transport.resolve(input)),
@@ -155,16 +183,14 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       }
     },
     start() {
-      refresh().catch(() => undefined)
+      // Subscribe first, so an event that comes while the list is on its way is not lost.
       const stops: Array<() => void> = []
       if (transport.subscribe) stops.push(transport.subscribe(apply))
       else if (options.refreshOnFocus !== false && typeof window !== "undefined") {
-        const onFocus = (): void => {
-          refresh().catch(() => undefined)
-        }
-        window.addEventListener("focus", onFocus)
-        stops.push(() => window.removeEventListener("focus", onFocus))
+        window.addEventListener("focus", refreshQuietly)
+        stops.push(() => window.removeEventListener("focus", refreshQuietly))
       }
+      refreshQuietly()
       return () => {
         for (const stop of stops.splice(0)) stop()
       }

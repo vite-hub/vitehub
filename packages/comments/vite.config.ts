@@ -9,7 +9,7 @@ export default defineConfig({
       neverBundle: ["nostics"],
       onlyBundle: false,
     },
-    entry: ["src/index.ts", "src/client.ts"],
+    entry: ["src/index.ts", "src/client.ts", "src/testing.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,

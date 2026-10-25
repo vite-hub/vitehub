@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, createMemoryTransport, type CommentUser } from "../src/client.ts"
+import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
+import { createMemoryTransport } from "../src/testing.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const ben: CommentUser = { id: "ben", name: "Ben Soto" }
@@ -80,8 +81,8 @@ describe("createCommentsClient", () => {
     expect(await list({ status: "resolved" })).toEqual([1])
     expect(await list({ mine: true })).toEqual([1, 2])
     expect(await list({ mentions: true })).toEqual([3])
-    expect(await client.get({ n: 3 })).toMatchObject({ id: expect.any(String), n: 3 })
-    expect(await client.get({ n: 9 })).toBeNull()
+    expect(await client.get({ n: 3, scope: "site" })).toMatchObject({ id: expect.any(String), n: 3 })
+    expect(await client.get({ n: 9, scope: "site" })).toBeNull()
   })
 
   it("finds users for mentions", async () => {
@@ -139,5 +140,111 @@ describe("createCommentsClient", () => {
     window.dispatchEvent(new Event("focus"))
     await vi.waitFor(() => expect(client.threads).toHaveLength(1))
     stop()
+  })
+
+  describe("races", () => {
+    // A transport whose list answers when the test says so, with what the server knew when it was asked.
+    function slowList() {
+      const store = createMemoryTransport({ user: ana })
+      const pending: Array<{ answer: () => void }> = []
+      const transport = {
+        ...store,
+        list: (query: Parameters<typeof store.list>[0]) =>
+          store.list(query).then(
+            threads => new Promise<CommentThread[]>(resolve => pending.push({ answer: () => resolve(threads) })),
+          ),
+      }
+      return { pending, store, transport }
+    }
+
+    it("keeps a thread that was created while the list was on its way", async () => {
+      const { pending, transport } = slowList()
+      const client = createCommentsClient({ transport })
+      const loading = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+      const created = await client.create({ subject, anchor, body: "Made during the list" })
+      pending[0]!.answer()
+      await loading
+
+      expect(client.threads.map(thread => thread.id)).toEqual([created.id])
+    })
+
+    it("does not bring back a thread that was deleted while the list was on its way", async () => {
+      const { pending, store, transport } = slowList()
+      const old = await store.create({ subject, anchor, body: "Old" })
+      const client = createCommentsClient({ transport })
+      const loading = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+      pending[0]!.answer()
+      await loading
+      expect(client.threads).toHaveLength(1)
+
+      const again = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(2))
+      await client.delete({ threadId: old.id })
+      pending[1]!.answer()
+      await again
+      expect(client.threads).toEqual([])
+    })
+
+    it("keeps the local thread when the list holds an older copy", async () => {
+      const { pending, store, transport } = slowList()
+      const thread = await store.create({ subject, anchor, body: "First" })
+      const client = createCommentsClient({ transport })
+      const loading = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+      // The list was cut before the reply, and the reply comes back after it.
+      await new Promise(resolve => setTimeout(resolve, 5))
+      await client.reply({ threadId: thread.id, body: "Second" })
+      pending[0]!.answer()
+      await loading
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second"])
+    })
+
+    it("applies an event that arrives while start() is still listing, and ignores an older one", async () => {
+      const { pending, store, transport } = slowList()
+      const client = createCommentsClient({ transport })
+      const stop = client.start()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+
+      const theirs = await store.as(ben).create({ subject, anchor, body: "While listing" })
+      expect(client.threads.map(thread => thread.id)).toEqual([theirs.id])
+
+      pending[0]!.answer()
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(client.threads.map(thread => thread.id)).toEqual([theirs.id])
+
+      const newer = await store.as(ben).reply({ threadId: theirs.id, body: "Newer" })
+      expect(client.threads[0]!.messages).toHaveLength(2)
+      // A copy of the thread from before the reply came late. It must not undo the reply.
+      const stale: CommentThread = { ...newer, messages: newer.messages.slice(0, 1), updatedAt: newer.updatedAt - 1000 }
+      const listeners: Array<(event: { type: "thread", thread: CommentThread }) => void> = []
+      const pushing = createCommentsClient({
+        transport: { ...store, subscribe: listener => { listeners.push(listener); return () => undefined } },
+      })
+      pushing.start()
+      await vi.waitFor(() => expect(pushing.status).toBe("ready"))
+      listeners[0]!({ type: "thread", thread: newer })
+      listeners[0]!({ type: "thread", thread: stale })
+      expect(pushing.threads[0]!.messages).toHaveLength(2)
+      stop()
+    })
+
+    it("lists again once after the transport reconnects", async () => {
+      const store = createMemoryTransport({ user: ana })
+      const list = vi.spyOn(store, "list")
+      const client = createCommentsClient({ transport: store })
+      const stop = client.start()
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(list).toHaveBeenCalledTimes(1)
+
+      await store.create({ subject, anchor, body: "Missed while offline" })
+      store.reconnect()
+      await vi.waitFor(() => expect(client.threads).toHaveLength(1))
+      expect(list).toHaveBeenCalledTimes(2)
+      stop()
+    })
   })
 })

@@ -28,6 +28,8 @@ export interface MemoryTransport extends CommentsTransport {
   subscribe: NonNullable<CommentsTransport["subscribe"]>
   /** Another person on the same store, to test what each one sees and may change. */
   as: (user: CommentUser) => MemoryTransport
+  /** Tells every listener that the connection came back, as a Realtime transport does after it reconnects. */
+  reconnect: () => void
 }
 
 interface Store {
@@ -116,13 +118,14 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       return [...store.threads.values()].map(copy)
     },
     as: other => view(store, other),
+    reconnect: () => emit(store, { type: "reconnected" }),
     async list(query) {
       return [...store.threads.values()].filter(item => matches(item, query)).sort((a, b) => a.n - b.n).map(copy)
     },
     async get(input) {
       const found = "id" in input
         ? store.threads.get(input.id)
-        : [...store.threads.values()].find(item => item.n === input.n && (input.scope === undefined || item.scope === input.scope))
+        : [...store.threads.values()].find(item => item.n === input.n && item.scope === input.scope)
       return found ? copy(found) : null
     },
     async create(input) {
@@ -191,7 +194,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     async users(input) {
       const query = input.query.trim().toLowerCase()
       return store.users
-        .filter(person => person.name.toLowerCase().includes(query))
+        .filter(person => (person.name ?? person.id).toLowerCase().includes(query))
         .slice(0, input.limit ?? 5)
         .map(copy)
     },
