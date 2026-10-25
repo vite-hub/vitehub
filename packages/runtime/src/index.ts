@@ -41,6 +41,7 @@ export { consoleInvocationUrl, registerPublicUrlAgentName, resetPublicUrlAgentNa
 
 export {
   formatRuntimeDiagnosticError,
+  isRuntimeDiagnostic,
   normalizeRuntimeDiagnosticError,
   type RuntimeDiagnosticError,
   type RuntimeDiagnosticErrorOptions,
@@ -67,6 +68,7 @@ export {
 
 export {
   defineErrors,
+  toResultError,
   type DefineErrorsOptions,
   type ErrorCatalog,
   type Result,

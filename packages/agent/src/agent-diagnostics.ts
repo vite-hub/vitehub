@@ -1,4 +1,5 @@
-import { defineDiagnostics, Diagnostic } from "nostics"
+import { defineDiagnostics } from "nostics"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 import { agentDiagnosticOptions, dynamicAgentError as dynamicError } from "./agent-diagnostic-options.ts"
 import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
@@ -1529,7 +1530,7 @@ export const agentDiagnostics = { ...agentDiagnosticHandles, ...messageDiagnosti
 /** Preserves input-error HTTP status for application TypeErrors and Agent diagnostics. */
 export function isAgentTypeDiagnostic(error: unknown): boolean {
   try {
-    return error instanceof TypeError || error instanceof Diagnostic && agentTypeDiagnosticCodes.has(error.code)
+    return error instanceof TypeError || isRuntimeDiagnostic(error) && agentTypeDiagnosticCodes.has(error.code)
   }
   catch {
     return false
