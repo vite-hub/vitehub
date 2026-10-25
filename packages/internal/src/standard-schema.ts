@@ -40,7 +40,7 @@ export function standardJsonSchema(
   const project = readOwn(jsonSchema, direction)
   if (!(project instanceof Function)) return
   try {
-    const result: unknown = project(libraryOptions ? { target, libraryOptions } : { target })
+    const result: unknown = project.call(jsonSchema, libraryOptions ? { target, libraryOptions } : { target })
     return isRecord(result) ? result : undefined
   }
   catch {

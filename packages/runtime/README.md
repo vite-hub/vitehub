@@ -302,6 +302,11 @@ if (error) error.code // "KV_INVALID_LIMIT"
 
 A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`, so code can return it from a route or an Agent tool without the `cause` or the stack.
 
+`toResultError()` gives an allowed diagnostic this public serializer. It keeps the
+same object when its `name` and `toJSON` properties can be replaced. Otherwise it
+creates a new diagnostic with the same code, text, cause, data, sources, and stack,
+and leaves the original unchanged. The caller owns code allowlisting and public text.
+
 ### Developer diagnostics
 
 Runtime-owned API and contract defects use Nostics diagnostics with stable `RUNTIME_R####` codes. Packages that do not follow the error contract yet keep the `ViteHubError` public contract for expected portable failures. See [Errors and diagnostics](https://vitehub.dev/docs/reference/errors-diagnostics).
@@ -316,6 +321,8 @@ Use `formatRuntimeDiagnosticError(error)` for terminal output or Agent tool erro
 text. It prints the code, message, fix, source locations, and documentation link
 with Nostics formatting. It omits causes and stacks. Plain errors return their
 message. Both helpers accept `unknown` and handle failed property reads.
+
+Use `isRuntimeDiagnostic(error)` to recognize a live Nostics error from another bundled copy. It checks the native Error and diagnostic fields without requiring the same `Diagnostic` constructor. It rejects serialized records; use `normalizeRuntimeDiagnosticError()` to inspect those. Recognition does not make diagnostic text safe for a public response. Keep the owning package's code allowlist and public error mapping.
 
 These helpers produce developer diagnostics. They do not make arbitrary errors
 safe for public responses. Use the `ViteHubError` public contract at that boundary.
