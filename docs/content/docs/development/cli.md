@@ -159,6 +159,7 @@ Every command accepts `--store <name>`, `--json`, `--url <url>` for a deployed a
 - `put` uploads a file relative to the current directory. Without `--content-type`, the Blob storage detects the type from the pathname. The output says if the blob was created or replaced. The created/replaced label is best-effort because it is based on a metadata read immediately before the write; eventual consistency and concurrent writers can make it stale.
 - `media` prints the [media record](/docs/blob/media) of one blob. A missing record is built from the object and stored, as `blob.media.get()` does. A missing blob exits with status 1.
 - `variants` lists the cached image variants of one blob and its crop replacements, with each transform key, type, and size.
+- `put` and `del` refuse the paths under `_vitehub/` (`BLOB_RESERVED_PATH`), which ViteHub keeps for itself; `get` and `head` read them. The Console asks before it replaces a blob that exists (`overwrite: false` makes `blob.put` fail with `BLOB_EXISTS`); the CLI replaces without asking.
 - `del` says if the blob existed. Deleting a missing blob changes nothing and exits with status 0. The existed/missing label is best-effort for the same reason, and a concurrent writer can change the object between the metadata read and delete.
 
 The operations carry a file as base64 in a JSON call, so `put` accepts files up to 8 MiB and `get` returns files up to 8 MiB. The CLI checks the size of an upload before it reads the file. A larger blob fails with `BLOB_UPLOAD_TOO_LARGE` or `BLOB_DOWNLOAD_TOO_LARGE`: use the application or the tools of your provider. There is no `sign` command. `list` shows every object, also the ones that ViteHub keeps under `_vitehub/`, which the Console hides by default.
@@ -187,12 +188,12 @@ Read or reset the counter of one key of a Rate Limit that `requireRateLimit()` e
 
 ```bash [Terminal]
 pnpm vitehub rate-limit peek <id> <key>
-pnpm vitehub rate-limit reset <id> <key>
+pnpm vitehub rate-limit reset <id> <key> [--yes]
 ```
 
 `<id>` is the stable ID of `requireRateLimit()`, and `<key>` is the limited key, such as a client IP or a user ID. Use `--` before a key that starts with a dash. Both commands accept `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, they call the dev server of this project. With `--url https://app.example.com`, they call a deployed app that enables the [Console](/docs/development/console), with the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
 
-The commands run the `rate-limit.peek` and `rate-limit.reset` operations in the `rate-limits` Console section. `peek` reads and `reset` writes. The memory provider keeps counters in the server process, so a command sees only the counters of the process that answers it. The Cloudflare binding exposes only `limit()`, which consumes a token, so both commands report `unsupported` and exit with status 1. The Console **Rate Limits** page reads and resets the counter of a key through the same operations.
+The commands run the `rate-limit.peek` and `rate-limit.reset` operations in the `rate-limits` Console section. `peek` reads. `reset` is destructive: `vitehub rate-limit reset` asks for confirmation on a terminal and refuses elsewhere, so scripts pass `--yes`. The memory provider keeps counters in the server process, so a command sees only the counters of the process that answers it. The Cloudflare binding exposes only `limit()`, which consumes a token, so both commands report `unsupported` and exit with status 1. The Console **Rate Limits** page reads and resets the counter of a key through the same operations.
 
 ## Inspect Server Env
 

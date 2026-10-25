@@ -362,6 +362,10 @@ export default defineConsoleAuthorize(({ user }) => {
 
 A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins.
 
+::warning
+Breaking change: a section grant now includes the write actions of its section. `{ sections: ['kv'] }` lets a user set and delete keys, `'blob'` lets them upload and delete blobs, and `'rate-limits'` lets them reset counters, where these pages only read before. Use `'<section>:read'`, for example `{ sections: ['kv:read', 'blob:read'] }`, for a read-only role.
+::
+
 Section ids are the ids in the Console URL, such as `env`, `connections`, `agents`, `usage`, `content`, `blob`, `databases`, `kv`, `workspaces`, `workflows`, `queues`, and `schedules`. Each Console route and RPC operation declares its section, and the server returns `403` for a section outside the list. Write actions follow the section that owns them: Env management needs `env`, Connections management needs `connections`, Agent Invocations and Channel replay need `agents`, Schedule runs need `schedules`, and Content saves and publishes need `content`. Content then checks `content.can()` for the signed-in user, so `{ sections: ['content'] }` gives an editor the section, and `defineContent({ authorize })` decides which collections and actions they get. The Console navigation shows only the allowed sections. That is a convenience. The server check is the security boundary.
 
 ### How each mode checks a request
@@ -510,7 +514,7 @@ The Agent Console uses an invocation journal configured on the discovered Agent 
 
 When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Cloudflare, Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
 
-The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST body of a KV value read names the key without putting it in the URL. KV writes use the same route with an `action` (`set`, `del`), and Blob uploads and deletes with `put` and `del`; those run the `kv.set`, `kv.del`, `blob.put`, and `blob.del` operations. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
