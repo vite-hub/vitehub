@@ -295,6 +295,17 @@ export interface ContentPublishResult {
   pending?: true
 }
 
+/** The document that an app path shows. */
+export interface ContentResolved<TName extends string = string> {
+  collection: TName
+  id: string
+}
+
+export interface ContentResolveOptions {
+  /** The ref to look in. Defaults to `published`, which is what the site shows. */
+  ref?: ContentRef
+}
+
 export interface ContentRevisionsOptions {
   /** `draft` (default) for saves, or `published` for publishes. */
   ref?: ContentRef
@@ -345,8 +356,10 @@ export interface ContentCollection<TFields extends ContentFields = ContentFields
   readonly kind: "documents"
   /** Name of one document, such as `Person`, when the definition sets `label: { singular, plural }`. */
   readonly singularLabel?: string
-  /** The collection glob, such as `posts/**\/*.md`. */
+  /** The collection glob, such as `posts/**\/*.md`. A collection with several globs lists them, separated by a comma. */
   readonly path: string
+  /** Every glob of the collection, in definition order. */
+  readonly paths: readonly string[]
   /** Comark components that bodies may use, keyed by tag. Editors offer them in their insert menu. */
   readonly components: Readonly<Record<string, DocumentComponent>>
   /** List documents with filters, search, sort, facets, and a total. Reads `published`, or `draft` in a preview request, unless `ref` says otherwise. */
@@ -384,6 +397,8 @@ export interface ContentSingleton<TFields extends ContentFields = ContentFields>
   readonly kind: "singleton"
   /** The Workspace path of the file, such as `settings.json`. */
   readonly path: string
+  /** The path of the file, as a list. */
+  readonly paths: readonly string[]
   /** The document id: the file name without the extension, such as `settings`. */
   readonly id: string
   /** List the document when it exists on the ref, with the same options as a collection. */
@@ -521,6 +536,12 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   readonly collections: ReadonlyMap<string, AnyContentCollection>
   collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
+  /**
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
+   * path with its `route` (by default the id after a slash, without a trailing `/index`). A query string, a hash, and a
+   * trailing slash are ignored. When two collections give one path, the first collection defined wins.
+   */
+  resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved | null>
   /** Revisions of one document. `id` may be omitted for a singleton. */
   revisions(collection: string, id: string | undefined, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Content revisions of every collection on one ref, newest first. */
@@ -640,6 +661,17 @@ function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   }
 }
 
+/** An app path without its query string, hash, and trailing slash, and with a leading slash. */
+function normalizeRoute(path: string): string {
+  const clean = path.split(/[?#]/, 1)[0]!.replace(/^\/+|\/+$/g, "")
+  return `/${clean}`
+}
+
+/** The default app path of a document: its id after a slash, without a trailing `/index`. */
+function defaultRoute(id: string): string {
+  return `/${id === "index" ? "" : id.replace(/\/index$/, "")}`
+}
+
 /** Set while Content's own `publish()` commits, the one writer that may delete documents from `published`. */
 const contentPublishes = new AsyncLocalStorage<true>()
 
@@ -699,7 +731,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
-      await Promise.all((await view.list("", { recursive: true })).map(async (entry) => {
+      // Document paths are under the folders of the collection globs, so only those folders are listed.
+      const listed = scope === "all" ? [""] : documentFolders()
+      await Promise.all((await Promise.all(listed.map(folder => view.list(folder, { recursive: true })))).flat().map(async (entry) => {
         if (entry.type !== "file" || (scope === "documents" && !isDocumentPath(entry.path))) return
         files.set(entry.path, entry.digest ?? await sha256(await view.readFile(entry.path)))
       }))
@@ -725,6 +759,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   const updatedAtMaps = new BoundedCache<Promise<ReadonlyMap<string, string | null>>>(16)
+
+  /** The folders that hold documents: the folder of each glob, without a folder inside another. "" is the Workspace root. */
+  function documentFolders(): string[] {
+    const folders = [...new Set([...collections.values()].flatMap(collection => collection.compiled.bases.map(base => base.replace(/\/$/, ""))))]
+    if (folders.includes("")) return [""]
+    return folders.filter(folder => !folders.some(other => other !== folder && folder.startsWith(`${other}/`)))
+  }
 
   function isDocumentPath(path: string): boolean {
     for (const collection of collections.values()) {
@@ -969,7 +1010,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     // A rule for each collection glob. A Workspace at a repository root denies every other path with a `**` rule, and
     // the more specific glob of a collection wins over it.
     get rules() {
-      return Object.fromEntries(Object.values(options.collections).map(definition => [definition.path, { write: true }]))
+      return Object.fromEntries(Object.values(options.collections).flatMap(definition => definition.paths.map(path => [path, { write: true }] as const)))
     },
     hooks: {
       // Every Workspace writer, including Agents, Sessions, and other history commits, goes through this check.
@@ -1007,7 +1048,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   function createCollection(name: string, definition: ContentCollectionDefinition) {
     const single = definition.kind === "singleton" ? compileSingletonPath(definition.path) : undefined
-    const compiled: CompiledDocumentsPath = single ?? compileDocumentsPath(definition.path)
+    const compiled: CompiledDocumentsPath = single ?? compileDocumentsPath(definition.paths)
     const format = compiled.format
     const fieldNames = new Set(Object.keys(definition.fields))
     const schema = fieldsJsonSchema(definition.fields)
@@ -1401,6 +1442,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         ...shared,
         kind: "singleton",
         path: single.path,
+        paths: [single.path],
         id,
         get: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? get(first, second) : get(id, first)) as ContentSingleton["get"],
         raw: ((first?: string | ContentReadOptions, second?: ContentReadOptions) => isId(first) ? raw(first, second) : raw(id, first)) as ContentSingleton["raw"],
@@ -1417,10 +1459,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     else {
       const components = (definition.kind === "documents" ? definition.components : undefined) ?? {}
       const singularLabel = definition.kind === "documents" ? definition.singularLabel : undefined
-      collection = { ...shared, kind: "documents", path: definition.path, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
+      collection = { ...shared, kind: "documents", path: definition.path, paths: definition.paths, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
     }
 
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, sessionCollection }
+    const route = definition.kind === "documents" ? definition.route ?? defaultRoute : undefined
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, route, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1699,6 +1742,21 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
   }
 
+  async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
+    if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
+    const target = normalizeRoute(path)
+    const state = await refState(assertRef(resolveOptions.ref, "published"))
+    if (!state.opened) return null
+    for (const collection of collections.values()) {
+      if (!collection.route) continue
+      for (const id of collection.entries(state.opened.files).keys()) {
+        const route: unknown = collection.route(id)
+        if (String(route) === route && normalizeRoute(route) === target) return { collection: collection.name, id }
+      }
+    }
+    return null
+  }
+
   /** Walks one ref newest first and keeps the revisions that `matches` accepts, scanning at most 1,000 per call. */
   async function scanRevisions(revisionOptions: ContentRevisionsOptions, matches: (revision: WorkspaceRevision) => boolean): Promise<ContentRevisionsResult> {
     const ref = assertRef(revisionOptions.ref, "draft")
@@ -1827,6 +1885,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
+    resolve,
     schedule: async (scheduleOptions) => {
       await requireScheduleStore()
       return await schedules.schedule(scheduleOptions)

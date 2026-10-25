@@ -90,16 +90,41 @@ export const content = defineContent({
 
 | `documents()` option | Type | Description |
 | --- | --- | --- |
-| `path` | `string` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). |
+| `path` | `string \| string[]` | Workspace glob for the collection's files. Use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md` or `authors/*.json`. The folder before the first wildcard is the collection folder, and the extension sets the [format](#data-files). A list takes files from [several folders](#several-folders). |
 | `fields` | `Record<string, StandardSchema>` | One validator per frontmatter field. |
 | `label` | `string \| { singular, plural }` | Display name, such as `'Posts'`. Pass `{ singular: 'Person', plural: 'People' }` when the plural is not the singular plus `s`, so the Console shows **New person**. Defaults to the collection name in title case. |
 | `titleField` | `string` | The string field that names a document in lists, search, and the editor title. Defaults to the first of `title`, `name`, `label`, and `heading` that is a string field, then to the first required string field. |
 | `search` | `string[]` | Fields that `list({ search })` matches. Defaults to every string field plus the body. |
 | `components` | `Record<string, DocumentComponent>` | Comark components that bodies may use, keyed by tag, such as `alert` for `::alert`. The Console editor offers them in its `/` menu. Each takes `kind` (`block` or `inline`, default `block`), `label`, `description`, and `props` as `{ type: 'string' \| 'number' \| 'boolean' \| 'json', default? }`. Content stores the Markdown as written and does not check component use. |
 | `url` | `string \| ({ id, data }) => string \| null` | The public URL of each document, such as `'/blog/:id'`. Reads carry `document.url`, and sitemaps and canonical links use it. See [Document URLs](/docs/content/seo#document-urls). |
+| `route` | `(id) => string` | The app path of a document, such as `id => \`/blog/${id}\``. [`content.resolve(path)`](#find-the-document-of-a-page) uses it. Defaults to the id after a slash, without a trailing `/index`. |
 | `editing` | `{ lease?: boolean }` | `lease: false` lets several sessions edit a document at once. By default one session at a time holds the edit lease. See [Editing together](/docs/content/editing-together#opt-out-per-collection). |
 
 A document id is the file path below the collection folder, without the extension. `posts/hello.md` is `hello`, and `posts/2026/launch.md` is `2026/launch`. The Markdown body after the frontmatter is the document `body`.
+
+### Several folders
+
+Pass a list of globs when documents of one collection live in different folders. All globs share one extension.
+
+```ts [server/content.ts]
+pages: documents({
+  path: ['content/guides/**/*.md', 'content/news/*.md'],
+  fields: { title: z.string() },
+})
+```
+
+A document id is the path below the folder that all globs share, without the extension: `content/news/launch.md` is `news/launch`. When the globs share no folder, the id is the whole path without the extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. A glob of one collection may overlap a glob of another collection only if no file can match both: each pair of globs is checked, and `defineContent()` throws `CONTENT_R0006` when two collections overlap. Content lists only the folders before the first wildcard of each glob when it reads a revision, so other files in a large repository are not read.
+
+### Find the document of a page
+
+`content.resolve(path)` maps an app path to the document that the page shows, for example to link a page to an Edit button. It returns `{ collection, id }`, or `null`.
+
+```ts
+const route = await content.resolve('/blog/hello?utm=x')
+// { collection: 'posts', id: 'hello' }
+```
+
+Each `documents()` collection maps an id to a path with `route`. By default the path is the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. `resolve()` reads `published`; pass `{ ref: 'draft' }` to include documents that are not published. It lists the ids of each collection on every call, so cache the result for hot paths. Singletons have no route.
 
 ### Fields
 
