@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
 
 import {
   comarkJsonSchema,
@@ -449,11 +449,6 @@ function memoize<TValue>(cache: BoundedCache<Promise<TValue>>, key: string, load
   return promise
 }
 
-async function sha256(text: string): Promise<string> {
-  const hash = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
-  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
 async function mapLimit<TItem, TResult>(items: readonly TItem[], limit: number, run: (item: TItem) => Promise<TResult>): Promise<TResult[]> {
   const results: TResult[] = Array.from({ length: items.length })
   let next = 0
@@ -611,13 +606,37 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return historyPromise
   }
 
-  async function openRevision(revision: WorkspaceRevision | string): Promise<OpenedRevision> {
+  /** The digest of a document's text, as the Store of the Workspace reports digests: SHA-256, or the Git blob sha on GitHub. */
+  async function sha256(text: string): Promise<string> {
+    const bytes = new TextEncoder().encode(text)
+    const retained = await history()
+    if (retained.digest) return await retained.digest(bytes)
+    const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes)
+    return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("")
+  }
+
+  /** Schedules are files on a `schedules` ref of the Workspace, which the GitHub Store does not keep. */
+  async function requireScheduleStore(): Promise<void> {
+    // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
+    const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
+    if (target?.provider === "github") {
+      throw contentErrorDiagnostics.CONTENT_R0015({
+        message: `[vitehub] schedule() needs the Blob + Database store, but Workspace ${JSON.stringify(workspaceName)} uses the GitHub store, which keeps no schedules. Publish with content.publish() instead.`,
+      })
+    }
+  }
+
+  /**
+   * Only the document paths of collections: a repository root holds many other files that Content never reads. The
+   * `schedules` ref holds files that are not documents, so schedules open every file.
+   */
+  async function openRevision(revision: WorkspaceRevision | string, scope: "documents" | "all" = "documents"): Promise<OpenedRevision> {
     const id = hasRuntimeType(revision, "string") ? revision : revision.id
-    return await memoize(revisions, id, async () => {
+    return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
       await Promise.all((await view.list("", { recursive: true })).map(async (entry) => {
-        if (entry.type !== "file") return
+        if (entry.type !== "file" || (scope === "documents" && !isDocumentPath(entry.path))) return
         files.set(entry.path, entry.digest ?? await sha256(await view.readFile(entry.path)))
       }))
       return { revision: view.revision, view, files }
@@ -727,8 +746,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   async function seedDraft(retained: WorkspaceRetainedHistory): Promise<void> {
     const published = await retained.head({ ref: "published" })
     if (!published) return
-    const opened = await openRevision(published)
-    const files = Object.fromEntries(await mapLimit([...opened.files.keys()], 8, async path => [path, await opened.view.readFile(path, { encoding: "binary" })] as const))
+    const view = await retained.open(published.id)
+    const paths = (await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
+    const files = Object.fromEntries(await mapLimit(paths, 8, async path => [path, await view.readFile(path, { encoding: "binary" })] as const))
     try {
       await retained.commit({ ref: "draft", ifHead: null, files, message: "Start the draft from published content", metadata: { content: { action: "seed", from: published.id } } })
     }
@@ -749,6 +769,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
   const plugin = registerWorkspacePlugin(workspaceName, {
     id: "vitehub.content",
+    // A rule for each collection glob. A Workspace at a repository root denies every other path with a `**` rule, and
+    // the more specific glob of a collection wins over it.
+    get rules() {
+      return Object.fromEntries(Object.values(options.collections).map(definition => [definition.path, { write: true }]))
+    },
     hooks: {
       // Every Workspace writer, including Agents, Sessions, and other history commits, goes through this check.
       "write:validate": async (input) => {
@@ -983,13 +1008,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (holder) throw contentLeaseHeld(name, id, holder)
       }
       const retained = await history()
+      // A Store that starts a missing draft from the published ref needs no seed commit: the first save creates it.
+      const baseRef = await retained.forksFrom?.("draft")
       for (let attempt = 1; ; attempt++) {
         let head = await retained.head({ ref: "draft" })
-        if (!head) {
+        if (!head && baseRef === undefined) {
           await seedDraft(retained)
           head = await retained.head({ ref: "draft" })
         }
-        const opened = head ? await openRevision(head) : undefined
+        // The base of a write is the draft, or the published ref while the draft does not exist.
+        const base = head ?? (baseRef === undefined ? null : await retained.head({ ref: baseRef }))
+        const opened = base ? await openRevision(base) : undefined
         const current = opened?.files.get(path) ?? null
         if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== current) {
           throw contentConflict(`[vitehub] Content document ${JSON.stringify(`${name}/${id}`)} changed on the draft.`, {
@@ -1460,7 +1489,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   const schedules = createContentSchedules({
     history,
     open: async (revision) => {
-      const opened = await openRevision(revision)
+      const opened = await openRevision(revision, "all")
       return { files: opened.files, read: path => readText(opened, path) }
     },
     expectations: (method, expect) => expectationTargets(method, expect).map(({ collection, id, digest }) => ({ collection: collection.name, id, digest: digest ?? null })),
@@ -1528,7 +1557,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
-    schedule: schedules.schedule,
+    schedule: async (scheduleOptions) => {
+      await requireScheduleStore()
+      return await schedules.schedule(scheduleOptions)
+    },
     schedules: schedules.schedules,
     unschedule: schedules.unschedule,
     publishDue: schedules.publishDue,
