@@ -32,6 +32,13 @@ const placeholders: Record<CommentComposerVariant, string> = {
   reply: "Reply",
 };
 
+/** The name of the send button. A comment on a page is sent as a comment, and an answer in a thread as a reply. */
+const sendLabels: Record<CommentComposerVariant, string> = {
+  comment: "Comment",
+  edit: "Save",
+  reply: "Reply",
+};
+
 const labels: Record<CommentComposerVariant, string> = {
   comment: "Comment",
   edit: "Edit comment",
@@ -225,6 +232,7 @@ export const CommentComposer = defineComponent({
               attachments: false,
               modelValue: props.modelValue,
               placeholder: props.placeholder ?? placeholders[props.variant],
+              submitLabel: sendLabels[props.variant],
               onSubmit: submit,
               "onUpdate:modelValue": (value: string) => emit("update:modelValue", value),
             }),

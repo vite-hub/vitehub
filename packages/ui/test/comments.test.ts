@@ -10,12 +10,14 @@ import { flushPromises, mount, type VueWrapper } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { defineComponent, h, ref } from "vue";
 import {
+  CommentComposer,
   CommentFilters,
   CommentLayer,
   CommentList,
   CommentReply,
   CommentThread,
   CommentToolbar,
+  PromptInput,
   useComments,
 } from "../src/index.ts";
 
@@ -157,6 +159,23 @@ describe("comment mode", () => {
     press("c");
     await flushPromises();
     expect(active()).toBe("true");
+  });
+
+  it("names the send button for what it sends: a comment, a reply, or a saved edit", async () => {
+    for (const [variant, name] of [["comment", "Comment"], ["reply", "Reply"], ["edit", "Save"]] as const) {
+      const wrapper = mount(CommentComposer, { attachTo: document.body, global, props: { modelValue: "Text", variant } });
+      mounted.push(wrapper);
+      await flushPromises();
+      expect(wrapper.find(`button[aria-label="${name}"]`).exists(), variant).toBe(true);
+      expect(wrapper.find('button[aria-label="Send prompt"]').exists(), variant).toBe(false);
+    }
+    // Other users of the part keep its name, and a status other than ready keeps its own.
+    const prompt = mount(PromptInput, { global, props: { modelValue: "Text" } });
+    expect(prompt.find('button[aria-label="Send prompt"]').exists()).toBe(true);
+    const named = mount(PromptInput, { global, props: { modelValue: "Text", submitLabel: "Post" } });
+    expect(named.find('button[aria-label="Post"]').exists()).toBe(true);
+    const streaming = mount(PromptInput, { global, props: { modelValue: "Text", status: "streaming", submitLabel: "Post" } });
+    expect(streaming.find('button[aria-label="Stop response"]').exists()).toBe(true);
   });
 
   it("drops a numbered pin with the avatar and focuses the composer", async () => {
