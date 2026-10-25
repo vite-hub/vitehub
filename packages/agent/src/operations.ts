@@ -1,19 +1,29 @@
 import { defineOperation } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { channelsConsoleHost, ChannelUnknownError } from "./channels-console-host.ts"
+import {
+  ChannelAdapterUnavailableError,
+  ChannelArchiveTooLargeError,
+  channelsConsoleHost,
+  ChannelStateUnavailableError,
+  ChannelThreadUnknownError,
+  ChannelUnknownError,
+} from "./channels-console-host.ts"
 import {
   channelAuthorName,
   channelConversationArchive,
+  channelMessageCursor,
   channelMessageTime,
+  decodeChannelCursor,
+  encodeChannelCursor,
   materializeChannelArchive,
+  pageAfterChannelCursor,
   renderChannelConversationMarkdown,
-  summarizeChannelConversation,
 } from "./internal/channel-conversation.ts"
 
 import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
 import type { ChannelsConsoleHost } from "./channels-console-host.ts"
-import type { ChannelArchiveMedia, ChannelConversationMessage } from "./internal/channel-conversation.ts"
+import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
 
 class ChannelsOperationError extends Error {
@@ -30,48 +40,87 @@ class ChannelsOperationError extends Error {
 }
 
 const maximumMediaBytes = 25 * 1024 * 1024
+const maximumArchiveBytes = 35 * 1024 * 1024
 const defaultThreads = 25
 const maximumThreads = 100
 const defaultMessages = 100
 const maximumMessages = 500
+const stateFix = "Give the Agent a State that can read lists: libSQL with `VITEHUB_AGENT_STATE_URL` or `agent.providers.state`, or a Cloudflare Durable Object State (`agent.providers.state: \"cloudflare\"`). The generated webhook route installs the reader when the server starts."
 
 function host(): ChannelsConsoleHost {
   const installed = channelsConsoleHost()
   if (!installed) {
-    throw new ChannelsOperationError(
-      503,
-      "CHANNELS_HOST_UNAVAILABLE",
-      "The Channel webhook routes of this app have not started in this process.",
-      "Use an app with a persistent libSQL Agent State (the default in `vite dev`). It installs the Channel reader when the server starts.",
-    )
+    throw new ChannelsOperationError(503, "CHANNELS_HOST_UNAVAILABLE", "The Channel webhook routes of this app have not started in this process, or the Agent State cannot read conversations.", stateFix)
   }
   return installed
 }
 
-function agentOf(installed: ChannelsConsoleHost, agent: string) {
+function handlerOf(installed: ChannelsConsoleHost, agent: string) {
   const handler = installed.handlers[agent]
-  const definition = installed.agents[agent]
-  if (!handler || !definition) throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", `The app has no Agent named ${JSON.stringify(agent)} with Channels.`, "Run `vitehub channels list` to see the Agents and Channels.")
-  return { definition, handler }
+  if (!handler) throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", `The app has no Agent named ${JSON.stringify(agent)} with Channels.`, "Run `vitehub channels list` to see the Agents and Channels.")
+  return handler
 }
 
 function requestOf(context: OperationContext): Request {
   return context.request ?? new Request("http://vitehub.local/_vitehub/channels")
 }
 
+/** The failure of a read as a coded operation failure. */
+function failureOf(error: unknown): Error {
+  if (error instanceof ChannelsOperationError) return error
+  if (error instanceof ChannelUnknownError) return new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", error.message, "Run `vitehub channels list` to see the Channels that keep conversations.")
+  if (error instanceof ChannelThreadUnknownError) return new ChannelsOperationError(404, "CHANNELS_THREAD_UNKNOWN", error.message, "Run `vitehub channels threads <agent> <channel>` to see the threads of the Channel.")
+  if (error instanceof ChannelAdapterUnavailableError) return new ChannelsOperationError(500, "CHANNELS_ADAPTER_MISSING", error.message, "Configure the Chat adapter of the Channel, such as its bot token, so the provider history can be read.")
+  if (error instanceof ChannelArchiveTooLargeError) return new ChannelsOperationError(413, "CHANNELS_EXPORT_TOO_LARGE", error.message, "Export without media, or read the conversation page by page with `channels conversation`.")
+  if (error instanceof ChannelStateUnavailableError) return new ChannelsOperationError(503, "CHANNELS_HOST_UNAVAILABLE", error.message, stateFix)
+  return new ChannelsOperationError(502, "CHANNELS_PROVIDER_FAILED", `The provider history could not be read: ${error instanceof Error ? error.message : String(error)}`)
+}
+
+/** The ids that tell whether the caller is a person of a thread: the user, the Actor, and the Auth user of the Actor. */
+function callerIds(context: OperationContext): string[] {
+  const meta: unknown = context.actor?.meta
+  const authUserId = meta !== null && typeof meta === "object" ? Reflect.get(meta, "authUserId") : undefined
+  return [context.user?.id, context.actor?.id, authUserId].filter((value): value is string => typeof value === "string" && value !== "")
+}
+
+/**
+ * What the caller may read. A person on the Console, CLI, or MCP has the section. An Agent has only what
+ * `operations({ conversations })` gave it: nothing when it is unset, the threads it takes part in with `participant`.
+ */
+function conversationAccess(context: OperationContext): "all" | "participant" {
+  if (context.surface !== "agent") return "all"
+  if (!context.conversations) {
+    throw new ChannelsOperationError(403, "CHANNELS_FORBIDDEN", "An Agent can read Channel conversations only when its operations() capability sets `conversations`.", "Create the capability with `operations({ conversations: \"participant\" })` to let it read the threads it takes part in.")
+  }
+  return context.conversations
+}
+
+function assertParticipant(context: OperationContext, participants: readonly string[]): void {
+  const ids = callerIds(context)
+  if (ids.some(id => participants.includes(id))) return
+  throw new ChannelsOperationError(
+    403,
+    "CHANNELS_FORBIDDEN",
+    ids.length ? "The Actor is not a participant of this thread." : "The Actor has no identity that can be matched to the people of this thread.",
+    "Read the thread the Agent is answering in, or create the capability with `conversations: \"all\"`.",
+  )
+}
+
 async function readConversation(context: OperationContext, input: { agent: string, attachmentBytes?: number, channel: string, thread: string }): Promise<AgentChannelConversation> {
   const installed = host()
-  const { handler } = agentOf(installed, input.agent)
+  const handler = handlerOf(installed, input.agent)
+  const mode = conversationAccess(context)
+  let conversation: AgentChannelConversation
   try {
-    return await handler.conversation(requestOf(context), { attachmentBytes: input.attachmentBytes ?? 0, channel: input.channel, threadId: input.thread }, installed.options(input.agent))
+    // An Agent never gets media, whatever the caller asked for.
+    const attachmentBytes = context.surface === "agent" ? 0 : input.attachmentBytes ?? 0
+    conversation = await handler.conversation(requestOf(context), { attachmentBytes, channel: input.channel, threadId: input.thread }, installed.options(input.agent, context.env))
   }
   catch (error) {
-    if (error instanceof ChannelUnknownError) {
-      throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", error.message, "Run `vitehub channels list` to see the Channels that keep conversations.")
-    }
-    if (error instanceof ChannelsOperationError) throw error
-    throw new ChannelsOperationError(502, "CHANNELS_PROVIDER_FAILED", `The provider history of thread ${JSON.stringify(input.thread)} could not be read: ${error instanceof Error ? error.message : String(error)}`)
+    throw failureOf(error)
   }
+  if (context.surface === "agent" && mode === "participant") assertParticipant(context, conversation.participants)
+  return conversation
 }
 
 /** How long a Channel keeps its history, as the operations report it. */
@@ -101,11 +150,11 @@ function retentionOf(retention: AgentChannelRetention): ChannelRetentionView {
 const text = v.pipe(v.string(), v.minLength(1))
 const page = (maximum: number) => v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(maximum)))
 
-function offsetOf(cursor: string | undefined): number {
-  if (cursor === undefined) return 0
-  const offset = Number(cursor)
-  if (!Number.isInteger(offset) || offset < 0) throw new ChannelsOperationError(400, "CHANNELS_CURSOR_INVALID", "The cursor is not valid.", "Use the nextCursor of the previous page.")
-  return offset
+function cursorOf(value: string | undefined): ChannelCursor | undefined {
+  if (value === undefined) return undefined
+  const cursor = decodeChannelCursor(value)
+  if (!cursor) throw new ChannelsOperationError(400, "CHANNELS_CURSOR_INVALID", "The cursor is not valid.", "Use the nextCursor of the previous page.")
+  return cursor
 }
 
 const channelsList = defineOperation({
@@ -117,14 +166,13 @@ const channelsList = defineOperation({
     const installed = host()
     const channels = []
     for (const [agent, handler] of Object.entries(installed.handlers)) {
-      for (const channel of await handler.channels(requestOf(context), installed.options(agent))) {
+      for (const channel of await handler.channels(requestOf(context), installed.options(agent, context.env))) {
         channels.push({ agent, channel: channel.id, conversations: channel.conversations, provider: channel.provider, retention: retentionOf(channel.retention) })
       }
     }
     return { channels }
   },
   section: "channels",
-  user: false,
 })
 
 const channelsThreads = defineOperation({
@@ -135,67 +183,44 @@ const channelsThreads = defineOperation({
   name: "channels.threads",
   run: async (input, context) => {
     const installed = host()
-    const { definition } = agentOf(installed, input.agent)
-    const channel = (await agentOf(installed, input.agent).handler.channels(requestOf(context), installed.options(input.agent))).find(entry => entry.id === input.channel)
+    const handler = handlerOf(installed, input.agent)
+    const mode = conversationAccess(context)
+    const options = installed.options(input.agent, context.env)
+    const channel = (await handler.channels(requestOf(context), options).catch((error: unknown) => { throw failureOf(error) })).find(entry => entry.id === input.channel)
     if (!channel) throw new ChannelsOperationError(404, "CHANNELS_NOT_FOUND", `The Agent ${JSON.stringify(input.agent)} has no Channel ${JSON.stringify(input.channel)}.`, "Run `vitehub channels list` to see the Channels.")
     if (!channel.conversations) throw new ChannelsOperationError(400, "CHANNELS_NO_CONVERSATIONS", `Channel ${JSON.stringify(input.channel)} has its own history collection and no per-thread conversation.`, "Use `vitehub channels replay` to work with its history.")
-    const threads = new Map<string, { invocationCount: number, lastActivity: string, participants: Set<string>, title?: string, titleAt?: string }>()
-    const invocations = definition.invocations
-    let cursor: string | undefined
-    if (invocations) {
-      do {
-        const list = await invocations.list({ agentName: input.agent, ...(cursor ? { cursor } : {}), limit: 1000 })
-        for (const summary of list.invocations) {
-          if (summary.origin !== channel.origin || !summary.threadId) continue
-          const thread = threads.get(summary.threadId) ?? { invocationCount: 0, lastActivity: summary.updatedAt, participants: new Set<string>() }
-          thread.invocationCount += 1
-          if (summary.updatedAt > thread.lastActivity) thread.lastActivity = summary.updatedAt
-          const label = summary.annotations?.triggeredBy
-          if (typeof label === "string" && label.trim()) thread.participants.add(label.trim())
-          if (summary.title && (!thread.titleAt || summary.createdAt > thread.titleAt)) {
-            thread.title = summary.title
-            thread.titleAt = summary.createdAt
-          }
-          threads.set(summary.threadId, thread)
-        }
-        cursor = list.cursor
-      } while (cursor)
+    const cursor = cursorOf(input.cursor)
+    let threads
+    try {
+      threads = await handler.threads(requestOf(context), { channel: input.channel, invokers: context.surface === "agent" && mode === "participant" }, options)
     }
-    const ordered = [...threads.entries()].sort((left, right) => right[1].lastActivity.localeCompare(left[1].lastActivity))
-    const offset = offsetOf(input.cursor)
+    catch (error) {
+      throw failureOf(error)
+    }
+    // An Agent that reads only its own threads sees the ones that its Actor started an Invocation in.
+    const ids = callerIds(context)
+    const visible = context.surface === "agent" && mode === "participant" ? threads.filter(thread => thread.invokerIds.some(id => ids.includes(id))) : threads
+    const key = (thread: { lastActivity: string, thread: string }) => ({ i: thread.thread, t: new Date(thread.lastActivity).getTime() })
+    const ordered = [...visible].sort((left, right) => key(right).t - key(left).t || (left.thread < right.thread ? -1 : 1))
+    const rest = pageAfterChannelCursor(ordered, cursor, key, (thread, from) => key(thread).t < from.t || (key(thread).t === from.t && key(thread).i > from.i))
     const size = input.limit ?? defaultThreads
-    const selected = ordered.slice(offset, offset + size)
-    const rows = await Promise.all(selected.map(async ([thread, summary]) => {
-      const row: Record<string, unknown> = {
-        invocationCount: summary.invocationCount,
-        lastMessageAt: summary.lastActivity,
-        participants: [...summary.participants],
-        thread,
-        ...(summary.title ? { title: summary.title } : {}),
-      }
-      try {
-        const conversation = await readConversation(context, { agent: input.agent, channel: input.channel, thread })
-        const { lastMessageAt, participants } = summarizeChannelConversation(conversation.messages)
-        row.messageCount = conversation.messages.length
-        if (lastMessageAt) row.lastMessageAt = lastMessageAt
-        if (participants.length) row.participants = participants
-      }
-      catch (error) {
-        row.error = error instanceof Error ? error.message : String(error)
-      }
-      return row
-    }))
+    const selected = rest.slice(0, size)
     return {
       agent: input.agent,
       channel: input.channel,
-      ...(offset + size < ordered.length ? { nextCursor: String(offset + size) } : {}),
+      ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(key(selected.at(-1)!)) } : {}),
       provider: channel.provider,
       retention: retentionOf(channel.retention),
-      threads: rows,
+      threads: selected.map(thread => ({
+        invocationCount: thread.invocationCount,
+        lastMessageAt: thread.lastActivity,
+        participants: thread.labels,
+        thread: thread.thread,
+        ...(thread.title ? { title: thread.title } : {}),
+      })),
     }
   },
   section: "channels",
-  user: false,
 })
 
 function messageView(message: ChannelConversationMessage) {
@@ -231,22 +256,24 @@ const channelsConversation = defineOperation({
   kind: "read",
   name: "channels.conversation",
   run: async (input, context) => {
+    const cursor = cursorOf(input.cursor)
     const conversation = await readConversation(context, input)
-    const offset = offsetOf(input.cursor)
+    const rest = pageAfterChannelCursor(conversation.messages, cursor, channelMessageCursor, (message, from) => channelMessageCursor(message).t > from.t)
     const size = input.limit ?? defaultMessages
+    const selected = rest.slice(0, size)
     return {
       agent: conversation.agent,
       channel: conversation.channel,
       messageCount: conversation.messages.length,
-      messages: conversation.messages.slice(offset, offset + size).map(messageView),
-      ...(offset + size < conversation.messages.length ? { nextCursor: String(offset + size) } : {}),
+      messages: selected.map(messageView),
+      ...(rest.length > size && selected.length ? { nextCursor: encodeChannelCursor(channelMessageCursor(selected.at(-1)!)) } : {}),
       provider: conversation.provider,
       retention: retentionOf(conversation.retention),
       thread: conversation.threadId,
+      ...(conversation.truncated ? { truncated: true } : {}),
     }
   },
   section: "channels",
-  user: false,
 })
 
 function slug(value: string): string {
@@ -262,6 +289,8 @@ export interface ConversationExport {
   mimeType: string
   retention: ChannelRetentionView
   text: string
+  /** True when the transcript limit cut the oldest messages. */
+  truncated?: boolean
 }
 
 const conversationsExport = defineOperation({
@@ -286,37 +315,27 @@ const conversationsExport = defineOperation({
     const archive = channelConversationArchive(conversation)
     const { archive: files, media } = materializeChannelArchive({ ...archive, messages: conversation.messages as readonly Record<string, unknown>[] })
     const retention = retentionOf(conversation.retention)
-    if (input.format === "json") {
-      return {
-        filename: "history.json",
-        format: "json",
-        media,
-        messageCount: conversation.messages.length,
-        mimeType: "application/json",
-        retention,
-        text: `${JSON.stringify(files, null, 2)}\n`,
-      }
+    const exported: Omit<ConversationExport, "text"> = input.format === "json"
+      ? { filename: "history.json", format: "json", media, messageCount: conversation.messages.length, mimeType: "application/json", retention }
+      : { filename: `${slug(conversation.threadId)}.md`, format: "markdown", media, messageCount: conversation.messages.length, mimeType: "text/markdown", retention }
+    const body = input.format === "json"
+      ? `${JSON.stringify(files, null, 2)}\n`
+      : renderChannelConversationMarkdown({
+          agent: conversation.agent,
+          channel: conversation.channel,
+          exportedAt: new Date().toISOString(),
+          messages: files.messages,
+          provider: conversation.provider,
+          retention: conversation.retention,
+          threadId: conversation.threadId,
+          truncated: conversation.truncated,
+        })
+    if (new TextEncoder().encode(body).length + media.reduce((total, file) => total + file.size, 0) > maximumArchiveBytes) {
+      throw new ChannelsOperationError(413, "CHANNELS_EXPORT_TOO_LARGE", "The conversation is larger than the 35 MiB limit of an export.", "Export without media, or read the conversation page by page with `channels conversation`.")
     }
-    return {
-      filename: `${slug(conversation.threadId)}.md`,
-      format: "markdown",
-      media,
-      messageCount: conversation.messages.length,
-      mimeType: "text/markdown",
-      retention,
-      text: renderChannelConversationMarkdown({
-        agent: conversation.agent,
-        channel: conversation.channel,
-        exportedAt: new Date().toISOString(),
-        messages: files.messages,
-        provider: conversation.provider,
-        retention: conversation.retention,
-        threadId: conversation.threadId,
-      }),
-    }
+    return { ...exported, text: body, ...(conversation.truncated ? { truncated: true } : {}) }
   },
   section: "channels",
-  user: false,
 })
 
 /** The Channel operations of `@vite-hub/agent`. The section is `channels`. */

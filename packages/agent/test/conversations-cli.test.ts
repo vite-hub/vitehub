@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -76,6 +76,17 @@ describe("vitehub conversations export", () => {
       stdout: { write: () => true },
     })
     expect(again).toBe(1)
+  })
+
+  it("refuses a file name or a media path that leaves the output directory, and writes nothing", async () => {
+    for (const bad of [{ filename: "../escape.md" }, { filename: "/tmp/absolute.md" }, { media: [{ base64: photo, path: "media/../../escape.png" }] }, { media: [{ base64: photo, path: "../escape.png" }] }, { filename: "" }]) {
+      const result = await run(["support", "telegram", "t", "--output", "out", "--url", "https://app.example.com"], () => Response.json({ ok: true, value: { ...exported, ...bad } }))
+      expect(result.code, JSON.stringify(bad)).toBe(1)
+      expect(result.stderr).toContain("outside the output directory")
+      await expect(readFile(join(result.cwd, "out", "telegram-456.md"))).rejects.toThrow()
+      await expect(readFile(join(result.cwd, "..", "escape.md"))).rejects.toThrow()
+      await expect(readdir(result.cwd)).resolves.toEqual([])
+    }
   })
 
   it("reports a coded failure with its fix, and refuses attachments without a directory", async () => {

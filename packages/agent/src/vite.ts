@@ -1711,13 +1711,24 @@ function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string
   ]
 }
 
-/** Lets the Console read Channel conversations through the same handlers, State, and identities as the webhook routes. */
-function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string }, runtimeRouteOption = ""): string[] {
+/**
+ * Lets the Console read Channel conversations through the same handlers, State, and identities as the webhook routes. A
+ * Durable Object State needs the Cloudflare environment of the call, which the Console passes in.
+ */
+function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string }, runtimeRouteOption = "", cloudflare = false): string[] {
   return [
     "installChannelsConsoleHost({",
     "  agents,",
     "  handlers: webhookHandlers,",
-    `  options: name => ({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`,
+    ...(cloudflare
+      ? [
+          "  options: (name, env) => {",
+          "    const cloudflare = env ? { env } : undefined",
+          "    const state = chatStateFromCloudflare(cloudflare)",
+          `    return { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}cloudflare, state, webhookState: state }`,
+          "  },",
+        ]
+      : [`  options: name => ({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`]),
     "})",
     "",
   ]
@@ -2040,6 +2051,7 @@ async function generateAgentWebhookRouteHandler(
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2069,7 +2081,7 @@ async function generateAgentWebhookRouteHandler(
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
     ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
-    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : []),
+    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : options.cloudflareState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption, true) : []),
     ...(options.processDiscordGateway
       ? [
           "function hasDiscordGatewayChannel(agent: unknown): boolean {",

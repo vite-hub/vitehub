@@ -177,6 +177,7 @@ import type {
   QueueEntry,
   StateAdapter,
   Thread,
+  TranscriptsConfig,
   WebhookOptions,
 } from "chat"
 import type { UIMessage } from "ai"
@@ -185,8 +186,8 @@ import type { AgentInvocations } from "../invocations.ts"
 import type { AgentChannelDeliveryTracker, AgentChannelDeliveryWorkflowBinding } from "../internal/channel-delivery.ts"
 import type { ResumableChatProcessClaim } from "../internal/resumable-chat.ts"
 import { agentDiagnostics, isAgentTypeDiagnostic } from "../agent-diagnostics.ts"
-import { ChannelUnknownError } from "../channels-console-host.ts"
-import { channelConversationArchive, stitchChannelConversation, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
+import { ChannelAdapterUnavailableError, ChannelArchiveTooLargeError, ChannelStateUnavailableError, ChannelThreadUnknownError, ChannelUnknownError } from "../channels-console-host.ts"
+import { channelConversationArchive, channelConversationPeople, stitchChannelConversation, stripChannelModelHeader, type ChannelConversationInvocation, type ChannelConversationMessage, type ChannelTranscriptEntry } from "../internal/channel-conversation.ts"
 
 interface ViteAgentRouteRuntimeConfig extends AgentRuntimeConfig {
   agent?: unknown
@@ -235,10 +236,16 @@ export interface AgentChannelWebhookRouteHandler {
   channels(request: Request, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelInfo[]>
   /**
    * Read one thread of a Channel as a conversation: the provider messages, the durable transcripts, and the Invocations
-   * that answered, stitched in time order. It checks nothing about the caller, so only trusted code may call it.
+   * that answered, stitched in time order. It checks nothing about the caller, so only trusted code may call it, but
+   * it refuses a thread that the Channel does not know (`ChannelThreadUnknownError`).
    * `attachmentBytes` bounds the attachment data in the answer; 0 returns attachment metadata only.
    */
   conversation(request: Request, input: { attachmentBytes?: number, channel: string, signal?: AbortSignal, threadId: string }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelConversation>
+  /**
+   * The threads that the Invocation journal knows for a Channel. `invokers` also reads who started each one, which costs
+   * a journal read for every Invocation.
+   */
+  threads(request: Request, input: { channel: string, invokers?: boolean }, options?: AgentChannelWebhookRouteOptions): Promise<AgentChannelThread[]>
   deliveries(request: Request, webhook?: string, options?: AgentChannelWebhookRouteOptions & { limit?: number }): Promise<AgentChannelDeliveryInspection[]>
   resume(options?: AgentChannelWebhookResumeOptions): () => Promise<void>
   /**
@@ -712,8 +719,22 @@ function getAgentChatOptions(agent: unknown): AgentChatOptions | undefined {
 function getChannelChatOptions(agent: unknown, channelId: string | undefined, options: AgentChatOptions | undefined): AgentChatOptions | undefined {
   if (!channelId || !isRecord(agent) || !isRecord(agent.channels)) return options
   const channel = agent.channels[channelId]
-  if (!isRecord(channel) || !isRecord(channel.messages)) return options
-  return { ...options, ...channel.messages }
+  if (!isRecord(channel)) return options
+  const merged = isRecord(channel.messages) ? { ...options, ...channel.messages } : options
+  // `channels.<name>.transcripts` sets the transcripts of this Channel only.
+  return channel.transcripts === undefined ? merged : { ...merged, transcripts: channel.transcripts as AgentChatOptions["transcripts"] }
+}
+
+/**
+ * The transcripts of a chat Channel. ViteHub keeps every inbound and outbound message in Chat SDK's transcript store
+ * when the State is durable, `false` turns it off, and a config sets the limits. Without a durable State and without a
+ * config, nothing is kept.
+ */
+function effectiveTranscripts(options: AgentChatOptions | undefined, state: StateAdapter): TranscriptsConfig | undefined {
+  const configured = options?.transcripts
+  if (configured === false) return undefined
+  if (configured) return configured
+  return isDurableAgentState(state) ? {} : undefined
 }
 
 function hasExplicitNonStreamingMessages(agent: unknown, channelId?: string): boolean {
@@ -7394,7 +7415,8 @@ function createChatSdkMessageThread(
     : configuredPlaceholderText === null
       ? null
       : undefined
-  return new ThreadImpl({
+  const recorder = transcriptRecorders.get(chat)
+  const created = new ThreadImpl({
     adapter,
     channelId: adapter.channelIdFromThreadId(message.threadId),
     channelVisibility: adapter.getChannelVisibility?.(message.threadId),
@@ -7409,6 +7431,7 @@ function createChatSdkMessageThread(
     // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
     threadHistory: chatThreadHistoryCache(source) as never,
   })
+  return recorder ? recordTranscriptsOfThread(created, recorder) : created
 }
 
 async function serialMessageDeliveryKind(thread: Thread, message: ChatSdkMessage, options: AgentChatOptions | undefined): Promise<AgentMessageDeliveryKind | undefined> {
@@ -7556,6 +7579,141 @@ async function handleChatSdkMessages(
   }
 }
 
+/** Appends the messages of a chat Channel to Chat SDK's transcript store, for the people who wrote them. */
+interface TranscriptRecorder {
+  chat?: Chat
+  inbound(thread: Thread, message: ChatSdkMessage, context?: MessageContext): Promise<void>
+  /** The person a reply in a thread answers: the author of the last message that the Channel saw there. */
+  keys: Map<string, string>
+  outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string): Promise<void>
+}
+
+function createTranscriptRecorder(): TranscriptRecorder {
+  const recorder: TranscriptRecorder = {
+    async inbound(thread, message, context) {
+      const history = recorder.chat?.history.user
+      if (!history) return
+      for (const entry of [...(context?.skipped ?? []), message]) {
+        // A transcript failure never stops a delivery.
+        try {
+          await history.append(thread, entry)
+          if (entry.userKey) recorder.keys.set(thread.id, entry.userKey)
+        }
+        catch {}
+      }
+    },
+    keys: new Map(),
+    async outbound(adapter, threadId, id, text) {
+      const history = recorder.chat?.history.user
+      const userKey = recorder.keys.get(threadId)
+      if (!history || !userKey || !text) return
+      try {
+        // SAFETY: The transcript store reads the adapter name and the id of the thread, which this stand-in has.
+        await history.append({ adapter, id: threadId } as unknown as Thread, { ...(id ? { platformMessageId: id } : {}), role: "assistant", text }, { userKey })
+      }
+      catch {}
+    },
+  }
+  return recorder
+}
+
+const transcriptRecorders = new WeakMap<Chat, TranscriptRecorder>()
+
+function sentText(sent: unknown): string {
+  return isRecord(sent) && isRuntimeString(sent.text) ? sent.text : ""
+}
+
+/** A message that the thread sent. Editing it records the new text under the same id. */
+function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string, recorder: TranscriptRecorder): T {
+  if (!isRecord(sent) || !isRuntimeFunction(sent.edit)) return sent
+  return new Proxy(sent as object, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (property === "edit" && isRuntimeFunction(value)) {
+        return async (content: unknown) => {
+          const edited = await value.call(target, content)
+          await recorder.outbound(adapter, threadId, isRuntimeString(Reflect.get(target, "id")) ? String(Reflect.get(target, "id")) : undefined, postableText(content) || sentText(edited))
+          return edited
+        }
+      }
+      return isRuntimeFunction(value) ? value.bind(target) : value
+    },
+  }) as T
+}
+
+/**
+ * The thread, recording each message that it posts as an assistant message in the transcripts. The adapter of the thread
+ * records what ViteHub posts or edits through it, such as a placeholder and its final text. An edit appends the message
+ * again with the same id, and the reader keeps the last one.
+ */
+function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder): Thread {
+  return new Proxy(thread, {
+    get(target, property) {
+      if (property === "post" || property === "reply") {
+        return async (...args: unknown[]) => {
+          const sent = await (Reflect.get(target, property, target) as (...input: unknown[]) => Promise<unknown>).apply(target, args)
+          await recorder.outbound(target.adapter, target.id, isRecord(sent) && isRuntimeString(sent.id) ? sent.id : undefined, postableText(args.at(-1)) || sentText(sent))
+          return recordTranscriptsOfSent(sent, target.adapter, target.id, recorder)
+        }
+      }
+      if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, recorder)
+      const value = Reflect.get(target, property, target)
+      return isRuntimeFunction(value) ? value.bind(target) : value
+    },
+  })
+}
+
+function postableText(message: unknown): string {
+  if (isRuntimeString(message)) return message
+  if (!isRecord(message)) return ""
+  for (const key of ["markdown", "raw"]) if (isRuntimeString(message[key])) return message[key]
+  return ""
+}
+
+/**
+ * The adapter, recording each message that it posts or edits as an assistant message of the thread. An edit appends the
+ * message again with the same id, and the reader keeps the last one. A stream is recorded when it ends.
+ */
+function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecorder): Adapter {
+  return new Proxy(adapter, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target)
+      if (!isRuntimeFunction(value)) return value
+      if (property === "postMessage") {
+        return async (threadId: string, message: unknown) => {
+          const sent = await target.postMessage(threadId, message as never)
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message))
+          return sent
+        }
+      }
+      if (property === "editMessage") {
+        return async (threadId: string, messageId: string, message: unknown) => {
+          const sent = await target.editMessage(threadId, messageId, message as never)
+          await recorder.outbound(target, threadId, messageId, postableText(message))
+          return sent
+        }
+      }
+      if (property === "stream") {
+        return async (threadId: string, textStream: AsyncIterable<unknown>, options?: unknown) => {
+          let streamed = ""
+          const collected = (async function* () {
+            for await (const chunk of textStream) {
+              if (isRuntimeString(chunk)) streamed += chunk
+              else if (isRecord(chunk) && chunk.type === "markdown_text" && isRuntimeString(chunk.text)) streamed += chunk.text
+              yield chunk
+            }
+          })()
+          // SAFETY: The adapter declares `stream` for the same arguments that this wrapper forwards.
+          const sent = await (target.stream as (...args: unknown[]) => Promise<{ id?: string }>)(threadId, collected, options)
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed)
+          return sent
+        }
+      }
+      return value.bind(target)
+    },
+  })
+}
+
 async function createChannelChat(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
@@ -7574,7 +7732,15 @@ async function createChannelChat(
 ): Promise<Chat> {
   const resolvedState = providedState || (await resolveChatState(options, context, registration, handlerOptions))
   const lockTracker = createChatLockTracker(resolvedState.state)
+  const transcripts = effectiveTranscripts(options, resolvedState.state)
+  if (options && options.transcripts !== transcripts) options = { ...options, transcripts }
+  else if (!options && transcripts) options = { transcripts }
+  const recorder = transcripts ? createTranscriptRecorder() : undefined
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, lockTracker.state, options))
+  if (recorder) {
+    recorder.chat = chat
+    transcriptRecorders.set(chat, recorder)
+  }
   const state = {
     keyPrefix: resolvedState.titleKeyPrefix,
     state: resolvedState.state,
@@ -7582,8 +7748,10 @@ async function createChannelChat(
     workflowCustodySupported: "workflowCustodySupported" in resolvedState ? resolvedState.workflowCustodySupported : undefined,
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
-  chat.onDirectMessage(async (thread, message, _channel, messageContext) =>
-    handleChatSdkMessages(
+  chat.onDirectMessage(async (chatThread, message, _channel, messageContext) => {
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    await recorder?.inbound(thread, message, messageContext)
+    return handleChatSdkMessages(
       agent,
       await deliveryContext(),
       registration,
@@ -7597,9 +7765,11 @@ async function createChannelChat(
       lockTracker,
       messageContext,
       maximumInvocationDeadline,
-    ),
-  )
-  chat.onNewMention(async (thread, message, messageContext) => {
+    )
+  })
+  chat.onNewMention(async (chatThread, message, messageContext) => {
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    await recorder?.inbound(thread, message, messageContext)
     const messageRuntimeContext = await deliveryContext()
     if (chatSdkOption<string>(options, "concurrency") !== "serial") {
       await thread.subscribe().catch(() => undefined)
@@ -7636,8 +7806,10 @@ async function createChannelChat(
       maximumInvocationDeadline,
     )
   })
-  chat.onSubscribedMessage(async (thread, message, messageContext) =>
-    handleChatSdkMessages(
+  chat.onSubscribedMessage(async (chatThread, message, messageContext) => {
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    await recorder?.inbound(thread, message, messageContext)
+    return handleChatSdkMessages(
       agent,
       await deliveryContext(),
       registration,
@@ -7651,8 +7823,8 @@ async function createChannelChat(
       lockTracker,
       messageContext,
       maximumInvocationDeadline,
-    ),
-  )
+    )
+  })
 
   return chat
 }
@@ -8077,8 +8249,6 @@ async function createCollectionChannelHistoryResponse(
   return new Response(serialized, { headers: { "cache-control": "no-store", "content-type": "application/json" } })
 }
 
-class ChannelAdapterUnavailableError extends Error {}
-
 export interface AgentChannelRetention {
   /** True when the Channel keeps transcripts in durable Agent State, so history outlives the provider window. */
   durable: boolean
@@ -8099,18 +8269,36 @@ export interface AgentChannelInfo {
   retention: AgentChannelRetention
 }
 
+/** A thread that the Invocation journal knows. */
+export interface AgentChannelThread {
+  /** The ids of the people who started its Invocations. Read only when asked for. */
+  invokerIds: string[]
+  invocationCount: number
+  labels: string[]
+  lastActivity: string
+  thread: string
+  title?: string
+}
+
 export interface AgentChannelConversation {
   agent: string
   channel: string
   messages: ChannelConversationMessage[]
+  /** The ids of the people in the thread: the authors, the transcript keys, and the starters of its Invocations. */
+  participants: string[]
   provider: string
   retention: AgentChannelRetention
   threadId: string
+  /** True when the transcript limit cut the oldest messages. */
+  truncated: boolean
 }
+
+/** The most transcript entries that the reader takes for one person. */
+const channelTranscriptReadLimit = 500
 
 function channelRetention(chatOptions: AgentChatOptions | undefined, state: StateAdapter): AgentChannelRetention {
   const configuredHistory = isRecord(chatOptions?.threadHistory) ? chatOptions.threadHistory : {}
-  const transcripts = Boolean(chatOptions?.transcripts)
+  const transcripts = effectiveTranscripts(chatOptions, state) !== undefined
   return {
     durable: transcripts && isDurableAgentState(state),
     maxMessages: isRuntimeNumber(configuredHistory.maxMessages) ? configuredHistory.maxMessages : 100,
@@ -8119,53 +8307,107 @@ function channelRetention(chatOptions: AgentChatOptions | undefined, state: Stat
   }
 }
 
+type JournalObservations = { observations: readonly { name: string, attributes?: Record<string, unknown> }[] }
+
 /** The text of the message that started an Invocation, without the header line that ViteHub adds for the model. */
-function channelInvocationPrompt(record: { observations: readonly { name: string, attributes?: Record<string, unknown> }[] }): string | undefined {
+function channelInvocationPrompt(record: JournalObservations): string | undefined {
   const start = record.observations.find(observation => observation.name === "agent.invocation.start")
   const messages = start?.attributes?.["input.messages"]
   if (!Array.isArray(messages)) return undefined
   const last = messages.findLast(message => isRecord(message) && message.role === "user")
   if (!isRecord(last) || !Array.isArray(last.parts)) return undefined
   const body = last.parts.flatMap(part => isRecord(part) && part.type === "text" && isRuntimeString(part.text) ? [part.text] : []).join("\n")
-  return body.replace(/^\[[^\]\n]*\]\n?/, "").trim() || undefined
+  return stripChannelModelHeader(body).trim() || undefined
 }
 
+/** How many replies an Invocation delivered to its thread. The journal keeps their text only when it keeps content. */
+function channelInvocationDeliveryCount(record: JournalObservations): number {
+  return record.observations.filter(observation => observation.name === "agent.channel.delivery.effect" && observation.attributes?.["channel.effect.kind"] === "reply").length
+}
+
+async function* channelJournalSummaries(agent: AgentInput<ViteAgentRouteRuntimeContext>, context: ViteAgentRouteRuntimeContext) {
+  if (!agent.invocations) return
+  const agentName = routeAgentInvocationName(agent, context.agentIdentity)
+  let cursor: string | undefined
+  do {
+    const page = await agent.invocations.list({ ...(agentName ? { agentName } : {}), ...(cursor ? { cursor } : {}), limit: 1000 })
+    for (const summary of page.invocations) yield summary
+    cursor = page.cursor
+  } while (cursor)
+}
+
+/**
+ * The Invocations of one thread. A journal that cannot be read gives none: a conversation is read without it, and the
+ * signed `channels history` route never fails because of it.
+ */
 async function channelConversationInvocations(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   origin: string,
   threadId: string,
-): Promise<ChannelConversationInvocation[]> {
-  const result: ChannelConversationInvocation[] = []
-  if (!agent.invocations) return result
-  const agentName = routeAgentInvocationName(agent, context.agentIdentity)
-  let cursor: string | undefined
-  do {
-    const page = await agent.invocations.list({ ...(agentName ? { agentName } : {}), ...(cursor ? { cursor } : {}), limit: 1000 })
-    for (const summary of page.invocations) {
+): Promise<{ invocations: ChannelConversationInvocation[], readable: boolean }> {
+  const invocations: ChannelConversationInvocation[] = []
+  if (!agent.invocations) return { invocations, readable: true }
+  try {
+    for await (const summary of channelJournalSummaries(agent, context)) {
       // A chat Invocation records the adapter name of its Channel as its origin.
       if (summary.origin !== origin || summary.threadId !== threadId) continue
       const record = await agent.invocations.get(summary.id)
       if (!record) continue
       const start = record.observations.find(observation => observation.name === "agent.invocation.start")
       const source = start?.attributes?.["channel.delivery.source.id"]
+      const invoker = start?.attributes?.["agent.invoker.id"]
       const deliveries = channelHistoryInvocationDeliveries(record).map(delivery => delivery.text)
       const finished = channelHistoryInvocationText(record)
       const prompt = channelInvocationPrompt(record)
-      result.push({
+      // The result text is only a reply when the Invocation delivered one to the thread.
+      const replies = record.status !== "completed" ? [] : deliveries.length ? deliveries : finished && channelInvocationDeliveryCount(record) > 0 ? [finished] : []
+      invocations.push({
         createdAt: record.createdAt,
         id: record.id,
+        ...(isRuntimeString(invoker) && invoker ? { invokerId: invoker } : {}),
         ...(prompt ? { prompt } : {}),
-        replies: record.status === "completed" ? (deliveries.length ? deliveries : finished ? [finished] : []) : [],
+        replies,
         ...(isRuntimeString(source) && source ? { sourceMessageId: source } : {}),
         status: record.status,
         ...(record.title ? { title: record.title } : {}),
         updatedAt: record.updatedAt,
       })
     }
-    cursor = page.cursor
-  } while (cursor)
-  return result
+  }
+  catch {
+    return { invocations: [], readable: false }
+  }
+  return { invocations, readable: true }
+}
+
+/** The threads that the journal knows for a Channel, one row each. Throws when the journal cannot be read. */
+async function channelJournalThreads(
+  agent: AgentInput<ViteAgentRouteRuntimeContext>,
+  context: ViteAgentRouteRuntimeContext,
+  origin: string,
+  withInvokers: boolean,
+): Promise<AgentChannelThread[]> {
+  const threads = new Map<string, AgentChannelThread & { titleAt?: string }>()
+  for await (const summary of channelJournalSummaries(agent, context)) {
+    if (summary.origin !== origin || !summary.threadId) continue
+    const thread = threads.get(summary.threadId) ?? { invokerIds: [], invocationCount: 0, labels: [], lastActivity: summary.updatedAt, thread: summary.threadId }
+    thread.invocationCount += 1
+    if (summary.updatedAt > thread.lastActivity) thread.lastActivity = summary.updatedAt
+    const label = summary.annotations?.triggeredBy
+    if (isRuntimeString(label) && label.trim() && !thread.labels.includes(label.trim())) thread.labels.push(label.trim())
+    if (summary.title && (!thread.titleAt || summary.createdAt > thread.titleAt)) {
+      thread.title = summary.title
+      thread.titleAt = summary.createdAt
+    }
+    if (withInvokers) {
+      const record = await agent.invocations?.get(summary.id)
+      const invoker = record?.observations.find(observation => observation.name === "agent.invocation.start")?.attributes?.["agent.invoker.id"]
+      if (isRuntimeString(invoker) && invoker && !thread.invokerIds.includes(invoker)) thread.invokerIds.push(invoker)
+    }
+    threads.set(summary.threadId, thread)
+  }
+  return [...threads.values()].map(({ titleAt: _titleAt, ...thread }) => thread)
 }
 
 function channelTranscriptEntry(value: unknown): ChannelTranscriptEntry | undefined {
@@ -8183,17 +8425,22 @@ function channelTranscriptEntry(value: unknown): ChannelTranscriptEntry | undefi
   }
 }
 
+type UserHistory = { list: (query: Record<string, unknown>) => Promise<unknown[]> }
+
 /**
  * Read one thread of a chat Channel as a stitched conversation: the provider messages (with attachment data within
- * `attachmentBytes`), the durable transcripts of the people in the thread, and the Invocations that answered. Throws
- * when the provider history cannot be read.
+ * `attachmentBytes`), the durable transcripts of the people in the thread, and the Invocations that answered.
+ *
+ * With `requireKnown`, the thread must be one that the Channel knows: an Invocation of the Agent and Channel started in
+ * it, or a transcript holds it. Any other thread is refused before the provider is asked, so the bot token cannot be
+ * used to read a chat that the Agent never joined.
  */
 async function readChannelConversation(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
   options: AgentChannelWebhookRouteOptions,
-  input: { attachmentBytes: number, signal: AbortSignal, threadId: string },
+  input: { attachmentBytes: number, requireKnown: boolean, signal: AbortSignal, threadId: string },
 ): Promise<AgentChannelConversation> {
   const baseChatOptions = getAgentChatOptions(agent)
   const adapters = await resolveChatAdapters(baseChatOptions, context)
@@ -8202,8 +8449,50 @@ async function readChannelConversation(
   if (!adapter) throw new ChannelAdapterUnavailableError("Channel history export could not resolve the configured Chat adapter.")
   const chatOptions = getChannelChatOptions(agent, registration.channelId, baseChatOptions)
   const state = await resolveChatState(chatOptions, context, registration, options)
-  await state.state.connect()
+  try {
+    await state.state.connect()
+  }
+  catch (error) {
+    throw new ChannelStateUnavailableError(`The Agent State could not be read: ${error instanceof Error ? error.message : String(error)}`)
+  }
   const chat = await createChannelChat(agent, context, registration, adapterName!, adapter, chatOptions, options, undefined, state)
+  const retention = channelRetention(chatOptions, state.state)
+  // SAFETY: Chat SDK exposes the history API on every instance; its `user` member throws when transcripts are off.
+  const userHistory = (): UserHistory | undefined => retention.transcripts ? (chat as unknown as { history?: { user?: UserHistory } }).history?.user : undefined
+  const identity = chatOptions?.identity
+  const telegram = adapter.name === "telegram" || registration.provider === "telegram"
+  // In a Telegram direct message the chat is the person, so their transcript is found without the provider window.
+  const directKeys = (): string[] => {
+    const chatPart = input.threadId.split(":")[1]
+    return !identity && telegram && chatPart && adapter.isDM?.(input.threadId) !== false ? [`${adapterName}:${chatPart}`] : []
+  }
+  const readTranscripts = async (keys: Iterable<string>, limit: number) => {
+    const entries: ChannelTranscriptEntry[] = []
+    let truncated = false
+    const history = userHistory()
+    if (!history) return { entries, truncated }
+    for (const userKey of keys) {
+      let listed: unknown[]
+      try {
+        listed = await history.list({ limit, threadId: input.threadId, userKey })
+      }
+      catch (error) {
+        throw new ChannelStateUnavailableError(`The transcripts could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+      }
+      if (listed.length >= limit) truncated = true
+      for (const entry of listed) {
+        const parsed = channelTranscriptEntry(entry)
+        if (parsed) entries.push({ ...parsed, userKey: parsed.userKey ?? userKey })
+      }
+    }
+    return { entries, truncated }
+  }
+  const origin = adapterName!
+  const journal = await channelConversationInvocations(agent, context, origin, input.threadId)
+  if (input.requireKnown && !journal.invocations.length) {
+    const known = (await readTranscripts(directKeys(), 1)).entries.length > 0
+    if (!known) throw new ChannelThreadUnknownError(`The Channel has no Invocation and no transcript for the thread ${JSON.stringify(input.threadId)}.`)
+  }
   const messages: Record<string, unknown>[] = []
   const chatMessages: ChatSdkMessage[] = []
   const attachmentBudget = { remaining: input.attachmentBytes }
@@ -8225,7 +8514,7 @@ async function readChannelConversation(
       const message = result.value
       const archivedMessage = await channelHistoryMessage(message, adapter, attachmentBudget, input.signal)
       const messageBytes = boundedJsonByteLength(archivedMessage, channelHistoryArchiveMaxBytes - archiveBytes)
-      if (messageBytes === undefined) throw agentDiagnostics.AGENT_R0838({ message: "Channel history archive exceeds the 35 MiB response limit." })
+      if (messageBytes === undefined) throw new ChannelArchiveTooLargeError("Channel history archive exceeds the 35 MiB response limit.")
       archiveBytes += messageBytes
       messages.push(archivedMessage)
       chatMessages.push(message)
@@ -8238,44 +8527,30 @@ async function readChannelConversation(
       } catch {}
     }
   }
-  const retention = channelRetention(chatOptions, state.state)
-  const transcripts: ChannelTranscriptEntry[] = []
+  const keys = new Set<string>(directKeys())
   if (retention.transcripts) {
-    // SAFETY: Chat SDK exposes the history API on every instance; its `user` member throws when transcripts are off.
-    const history = (chat as unknown as { history?: { user?: { list: (query: Record<string, unknown>) => Promise<unknown[]> } } }).history
-    const identity = chatOptions?.identity
-    const keys = new Set<string>()
-    const remember = async (author: unknown, message: unknown) => {
-      if (!isRecord(author) || author.isBot === true || author.isMe === true) return
+    for (const message of chatMessages) {
+      const author: unknown = message.author
+      if (!isRecord(author) || author.isBot === true || author.isMe === true) continue
       try {
         const key = identity ? await identity({ adapter: adapterName!, author: author as never, message: message as never }) : isRuntimeString(author.userId) ? `${adapterName}:${author.userId}` : null
         if (isRuntimeString(key) && key) keys.add(key)
       }
       catch {}
     }
-    for (const message of chatMessages) await remember(message.author, message)
-    // In a direct message the chat is the person, so their transcript is found after the provider window has passed.
-    const chatPart = input.threadId.split(":")[1]
-    if (!identity && chatPart && adapter.isDM?.(input.threadId) !== false) keys.add(`${adapterName}:${chatPart}`)
-    for (const userKey of keys) {
-      try {
-        const entries = await history?.user?.list({ limit: 500, threadId: input.threadId, userKey })
-        for (const entry of entries ?? []) {
-          const parsed = channelTranscriptEntry(entry)
-          if (parsed) transcripts.push({ ...parsed, userKey: parsed.userKey ?? userKey })
-        }
-      }
-      catch {}
-    }
   }
-  const invocations = await channelConversationInvocations(agent, context, adapterName!, input.threadId)
+  const transcripts = await readTranscripts(keys, channelTranscriptReadLimit)
+  const stitched = stitchChannelConversation({ invocations: journal.invocations, provider: messages, threadId: input.threadId, transcripts: transcripts.entries })
+  const participants = new Set<string>([...channelConversationPeople(stitched), ...journal.invocations.flatMap(invocation => invocation.invokerId ? [invocation.invokerId] : []), ...keys])
   return {
     agent: context.agentIdentity?.name || "agent",
     channel: registration.channelId || registration.id || registration.provider,
-    messages: stitchChannelConversation({ invocations, provider: messages, threadId: input.threadId, transcripts }),
+    messages: stitched,
+    participants: [...participants],
     provider: registration.provider,
     retention,
     threadId: input.threadId,
+    truncated: transcripts.truncated,
   }
 }
 
@@ -8296,8 +8571,10 @@ async function createChannelHistoryResponse(
   }
   let conversation: AgentChannelConversation
   try {
+    // The caller holds the webhook secret, so the thread need not be one that the journal knows.
     conversation = await readChannelConversation(agent, context, registration, options, {
       attachmentBytes: channelHistoryAttachmentMaxBytes,
+      requireKnown: false,
       signal: request.signal,
       threadId: body.threadId.trim(),
     })
@@ -9707,25 +9984,37 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       return [...channels.values()]
     })
   }
+  const channelContext = async (request: Request, handlerOptions: AgentChannelWebhookRouteOptions) => createRuntimeContext(
+    request,
+    undefined,
+    await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
+    handlerOptions.cloudflare,
+    handlerOptions.runtime,
+    handlerOptions.capabilities,
+    routeAgentIdentity(handlerOptions),
+  )
+  const channelRegistration = async (context: ViteAgentRouteRuntimeContext, channel: string) => {
+    const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === channel)
+    if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(channel)}.`)
+    if (agentChannelOptions(agent)[channel]?.history) throw new ChannelUnknownError(`Channel ${JSON.stringify(channel)} has its own history collection and no per-thread conversation.`)
+    return match.registration
+  }
   handler.conversation = async (request, input, handlerOptions = {}) => {
-    const context = createRuntimeContext(
-      request,
-      undefined,
-      await resolveRuntimeWaitUntil(handlerOptions.waitUntil),
-      handlerOptions.cloudflare,
-      handlerOptions.runtime,
-      handlerOptions.capabilities,
-      routeAgentIdentity(handlerOptions),
-    )
+    const context = await channelContext(request, handlerOptions)
+    return await runWithRuntimeCloudflareEnv(context, async () => await readChannelConversation(agent, context, await channelRegistration(context, input.channel), handlerOptions, {
+      attachmentBytes: Math.max(0, Math.min(input.attachmentBytes ?? 0, channelHistoryAttachmentMaxBytes)),
+      requireKnown: true,
+      signal: input.signal ?? request.signal,
+      threadId: input.threadId,
+    }))
+  }
+  handler.threads = async (request, input, handlerOptions = {}) => {
+    const context = await channelContext(request, handlerOptions)
     return await runWithRuntimeCloudflareEnv(context, async () => {
-      const match = (await agentWebhookRegistrations(agent, context)).find(({ registration }) => (registration.channelId || registration.id || registration.provider) === input.channel)
-      if (!match) throw new ChannelUnknownError(`Unknown Channel ${JSON.stringify(input.channel)}.`)
-      if (agentChannelOptions(agent)[input.channel]?.history) throw new ChannelUnknownError(`Channel ${JSON.stringify(input.channel)} has its own history collection and no per-thread conversation.`)
-      return await readChannelConversation(agent, context, match.registration, handlerOptions, {
-        attachmentBytes: Math.max(0, Math.min(input.attachmentBytes ?? 0, channelHistoryAttachmentMaxBytes)),
-        signal: input.signal ?? request.signal,
-        threadId: input.threadId,
-      })
+      const registration = await channelRegistration(context, input.channel)
+      const adapters = await resolveChatAdapters(getAgentChatOptions(agent), context)
+      const origin = resolveChatAdapterName(adapters, registration) ?? registration.provider
+      return await channelJournalThreads(agent, context, origin, input.invokers === true)
     })
   }
   handler.deliveries = async (request, webhook, handlerOptions = {}) => {

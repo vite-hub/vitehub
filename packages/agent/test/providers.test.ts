@@ -12783,6 +12783,11 @@ describe("server helpers", () => {
       const miniDiscordTranscripts = miniDiscord._chatInstance()!.transcripts
       const miniSlackTranscripts = miniSlack._chatInstance()!.transcripts
       const coordinatorTranscripts = coordinatorDiscord._chatInstance()!.transcripts
+      // ViteHub keeps the messages of a Channel with transcripts by itself, for the identity of the person.
+      const savedByMini = await miniSlackTranscripts.count({ userKey: "account:verified" })
+      const savedByCoordinator = await coordinatorTranscripts.count({ userKey: "account:verified" })
+      expect(savedByMini).toBeGreaterThanOrEqual(2)
+      expect(savedByCoordinator).toBeGreaterThanOrEqual(1)
       await miniDiscordTranscripts.append(
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
         { adapter: { name: "discord" }, id: "discord:456" } as never,
@@ -12803,17 +12808,17 @@ describe("server helpers", () => {
         { userKey: "account:verified" },
       )
 
-      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(2)
-      await expect(miniSlackTranscripts.list({ userKey: "account:verified" })).resolves.toMatchObject([
-        { platform: "discord", text: "discord" },
-        { platform: "slack", text: "slack" },
-      ])
-      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(2)
-      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(1)
+      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(savedByMini + 2)
+      await expect(miniSlackTranscripts.list({ limit: 200, userKey: "account:verified" })).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ platform: "discord", text: "discord" }),
+        expect.objectContaining({ platform: "slack", text: "slack" }),
+      ]))
+      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(savedByMini + 2)
+      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(savedByCoordinator + 1)
       await expect(state.getList("chat:mini:discord:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(state.getList("chat:mini:slack:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(miniSlackTranscripts.delete({ userKey: "account:verified" })).resolves.toEqual({
-        deleted: 2,
+        deleted: savedByMini + 2,
       })
       await expect(miniDiscordTranscripts.list({ userKey: "account:verified" })).resolves.toEqual([])
     } finally {
@@ -24430,7 +24435,8 @@ describe("server helpers", () => {
       get(target, property, receiver) {
         if (property !== "appendToList") return Reflect.get(target, property, receiver)
         return async (...args: Parameters<typeof state.appendToList>) => {
-          eventAppends += 1
+          // Only the delivery journal fails. The transcripts are a separate list.
+          if (!String(args[0]).includes("transcripts:user:")) eventAppends += 1
           if (eventAppends > 2) throw new Error("journal unavailable")
           return await state.appendToList(...args)
         }

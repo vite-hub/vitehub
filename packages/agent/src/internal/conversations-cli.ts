@@ -1,5 +1,5 @@
 import { access, mkdir, mkdtemp, rename, rm, writeFile } from "node:fs/promises"
-import { dirname, basename, join, resolve } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
 import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { callOperation } from "@vite-hub/internal/operations"
@@ -21,6 +21,16 @@ interface Parsed {
 }
 
 class UsageError extends Error {}
+
+/** The absolute path of a file that the server named, or an error when it leaves the directory. The server is not trusted with paths. */
+function insideDirectory(directory: string, path: unknown): string {
+  const resolved = typeof path === "string" && path && !path.includes("\0") ? resolve(directory, path) : undefined
+  const relation = resolved ? relative(directory, resolved) : undefined
+  if (!resolved || !relation || relation === ".." || relation.startsWith(`..${sep}`) || isAbsolute(relation)) {
+    throw new UsageError(`The server named a file outside the output directory: ${JSON.stringify(path)}.`)
+  }
+  return resolved
+}
 
 function parse(args: readonly string[]): Parsed {
   const parsed: Parsed = { format: "markdown", help: false }
@@ -92,10 +102,13 @@ export async function runConversationsExportCli(args: string[], context: Pick<Vi
     if (exists) throw new UsageError(`The output directory already exists: ${directory}`)
     const staging = await mkdtemp(join(dirname(directory), `.${basename(directory)}-`))
     try {
-      await writeFile(join(staging, exported.filename), exported.text)
-      for (const file of exported.media) {
-        await mkdir(join(staging, dirname(file.path)), { recursive: true })
-        await writeFile(join(staging, file.path), Buffer.from(file.base64, "base64"))
+      // Resolve every path first, so a bad one writes nothing.
+      const target = insideDirectory(staging, exported.filename)
+      const files = exported.media.map(file => ({ bytes: Buffer.from(file.base64, "base64"), path: insideDirectory(staging, file.path) }))
+      await writeFile(target, exported.text)
+      for (const file of files) {
+        await mkdir(dirname(file.path), { recursive: true })
+        await writeFile(file.path, file.bytes)
       }
       await rename(staging, directory)
     }
