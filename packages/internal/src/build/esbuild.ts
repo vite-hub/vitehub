@@ -16,6 +16,7 @@ interface BundleEsmEntryOptions {
   format?: "esm" | "cjs"
   mainFields?: string[]
   minifyIdentifiers?: boolean
+  minifySyntax?: boolean
   minifyWhitespace?: boolean
   packages?: "bundle" | "external"
   platform?: "browser" | "node" | "neutral"
@@ -541,10 +542,13 @@ export async function bundleEsmEntry(
     entryPoints: [entryFile],
     external: options.external,
     format,
+    // Syntax minification can inline functions and classes with inferred names.
+    keepNames: options.minifySyntax,
     logLevel: "silent",
     mainFields: options.mainFields ?? (platform === "neutral" ? ["module", "main"] : undefined),
     resolveExtensions: options.extensions,
     minifyIdentifiers: options.minifyIdentifiers,
+    minifySyntax: options.minifySyntax,
     minifyWhitespace: options.minifyWhitespace,
     outfile,
     packages: options.packages,
