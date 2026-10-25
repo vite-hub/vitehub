@@ -1,0 +1,6 @@
+.env
+.data/
+.nuxt/
+.output/
+.vitehub/
+node_modules/

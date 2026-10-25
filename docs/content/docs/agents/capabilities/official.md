@@ -2,52 +2,16 @@
 title: Official capabilities
 description: Choose an official Capability by what the Agent needs to do, such as Blob, Browser, Email, MCP, Sandbox, or Channel delivery.
 navigation.title: Official capabilities
-navigation.order: 102
-navigation.group: Capabilities
+navigation.order: 22
+navigation.group: Instructions and tools
 icon: i-lucide-list-checks
+navigation.kind: Reference
 ---
 
 ViteHub exports its built-in Capabilities from `@vite-hub/agent/capabilities`.
 Choose a Capability by what the Agent needs to do. Each linked page shows how to configure it, what the Agent receives, and how to verify it.
 
-```ts [server/agents/support.ts]
-import {
-  access,
-  blob,
-  browser,
-  budget,
-  chat,
-  channelDelivery,
-  chatSummary,
-  content,
-  title,
-  db,
-  email,
-  fetch,
-  forge,
-  git,
-  gmail,
-  inputCommands,
-  kv,
-  llmGate,
-  llmRoute,
-  mcp,
-  memory,
-  openapi,
-  otlp,
-  papercuts,
-  progressSummary,
-  rateLimit,
-  sandbox,
-  schedule,
-  skills,
-  transcribe,
-  usage,
-  diagnostics,
-  webSearch,
-  workspaceShell,
-} from 'vite-hub/agent/capabilities'
-```
+Import the selected factory from `vite-hub/agent/capabilities`. [Attach a Capability](/docs/agents/capabilities#attach-a-capability) shows a complete definition. Each Server Primitive keeps its Capability contract beside its server API; the links below go to that owner.
 
 ## Catalog
 

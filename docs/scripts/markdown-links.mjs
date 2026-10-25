@@ -79,7 +79,7 @@ function withoutHtmlComments(value) {
 }
 
 function htmlTags(value) {
-  return withoutHtmlComments(value).match(/<[a-z][^'">]*(?:"[^"]*"|'[^']*'|[^'">]*)*>/gi) ?? [];
+  return withoutHtmlComments(value).match(/<[a-z](?:"[^"]*"|'[^']*'|[^'">])*>/gi) ?? [];
 }
 
 function sourceSetLinks(value) {
@@ -495,7 +495,7 @@ function vueLinkProperties(source) {
   const voidElements = new Set([
     "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr",
   ]);
-  const tags = templateSource.match(/<\/?[a-z][^'">]*(?:"[^"]*"|'[^']*'|[^'">]*)*>/gi) ?? [];
+  const tags = templateSource.match(/<\/?[a-z](?:"[^"]*"|'[^']*'|[^'">])*>/gi) ?? [];
   for (const tag of tags) {
     if (tag.startsWith("</")) {
       scopes.pop();

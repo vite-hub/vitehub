@@ -407,6 +407,32 @@ describe("Schedule Run bookkeeping", () => {
     })
   })
 
+  it.each([
+    ["a null-prototype object", () => Object.create(null)],
+    ["an unprintable object", () => ({ toString() { throw new Error("cannot stringify") } })],
+    ["an unreadable Error", () => Object.defineProperty(new Error(), "message", { get() { throw new Error("cannot read message") } })],
+  ])("records failure when the handler throws %s", async (_label, createThrown) => {
+    const thrown: unknown = createThrown()
+    const execution = executeStaticSchedule({
+      cron: "0 9 * * *",
+      definition: { cron: "0 9 * * *", handler: () => { throw thrown } },
+      name: "report",
+      scheduledAt: new Date("2026-05-23T09:00:00.000Z"),
+    })
+    // Capture the rejection without asking the test reporter to inspect the thrown value.
+    const rejected = await execution.then(() => false, error => error === thrown)
+    const [run] = await getScheduleRunStore().listRuns()
+    expect(run).toMatchObject({
+      completedAt: expect.any(Date),
+      error: { message: "[unprintable thrown value]" },
+      status: "failed",
+    })
+    expect(await getScheduleRunStore().listAttempts(run!.id)).toEqual([
+      expect.objectContaining({ completedAt: expect.any(Date), error: run!.error, status: "failed" }),
+    ])
+    expect(rejected).toBe(true)
+  })
+
   it("isolates stored run errors from returned object mutation", async () => {
     await expect(executeStaticSchedule({
       cron: "0 9 * * *",
@@ -427,6 +453,17 @@ describe("Schedule Run bookkeeping", () => {
 })
 
 describe("Manual Schedule runs", () => {
+  it("returns a failed run for an unprintable handler rejection", async () => {
+    const run = await runSchedule("sync", {
+      registry: {
+        sync: async () => defineSchedule("0 9 * * *", () => {
+          throw Object.create(null)
+        }, { manual: true }),
+      },
+    })
+    expect(run).toMatchObject({ error: { message: "[unprintable thrown value]" }, status: "failed" })
+  })
+
   it("runs a manual Static Schedule Definition with a run id that cron runs cannot use", async () => {
     const calls: unknown[] = []
     const run = await runSchedule("sync", {

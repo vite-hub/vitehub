@@ -1,18 +1,30 @@
 ---
 title: Capabilities
 description: Give an Agent tools and behavior without handing it unrestricted server access.
-navigation.title: Overview
-navigation.order: 101
-navigation.group: Capabilities
+navigation.title: Capabilities
+navigation.order: 21
+navigation.group: Instructions and tools
 icon: i-lucide-blocks
+navigation.kind: Concepts
 ---
 
 Capabilities give an Agent a named ability through `defineAgent({ capabilities })`.
 They can add tools, triggers, input processing, output metadata, and checks that run before an invocation.
 
-A Capability is not a server primitive.
-Server primitives give trusted app code authority.
-Capabilities decide which operations an Agent Invocation can use.
+Server Primitives give trusted app code authority. Capabilities select which operations an Agent Invocation can use. Start with [Instructions](/docs/agents/instructions) for behavior, then attach the tools that behavior needs.
+
+## Choose a Capability by task
+
+| Task | Start with |
+| --- | --- |
+| Read project files | [Workspace tools](/docs/workspace/agent-capability) and [Skills](/docs/agents/capabilities/skills) |
+| Query application data | [Database](/docs/database/agent-capability), [KV](/docs/kv/agent-capability), or [Blob](/docs/blob/agent-capability) |
+| Search or call an external service | [Web search](/docs/agents/capabilities/web-search), [Fetch](/docs/agents/capabilities/fetch), [OpenAPI](/docs/agents/capabilities/openapi), or [MCP](/docs/agents/capabilities/mcp) |
+| Continue a conversation | [Chat](/docs/agents/capabilities/chat), [Chat History](/docs/agents/chat-history-sessions), and [Memory](/docs/agents/capabilities/memory) |
+| Restrict work | [Access](/docs/agents/capabilities/access), [Budget](/docs/agents/capabilities/budget), and [Rate Limit](/docs/rate-limit/agent-capability) |
+| Inspect cost and results | [Usage](/docs/agents/capabilities/usage), [Diagnostics](/docs/agents/capabilities/diagnostics), and [OTLP](/docs/agents/capabilities/otlp) |
+
+The [official catalog](/docs/agents/capabilities/official) lists the remaining tasks. Use [custom Capabilities](/docs/agents/capabilities/custom) when an application needs its own tools.
 
 ## Choose the API by its caller
 
@@ -27,33 +39,25 @@ Installing a Server Primitive does not give an Agent access to it. Attach a Capa
 
 A Capability does not expose the full Runtime Context or unrestricted host access. Its tools, requirements, policy, and metadata define what the Agent can inspect and use. Application code can still call the same Server Primitives through their server APIs.
 
-## Capability lifecycle
-
-ViteHub applies Capabilities in the order listed or returned by the Agent Definition.
-It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
-
-`access()` is the only official Capability with a fixed position rule.
-Place it first so later Capabilities receive the restricted Workspace and tool access.
-
 ## Attach a Capability
 
-Import official factories from `@vite-hub/agent/capabilities`.
-Import the factory from the Capabilities entry point:
+Import only the factories the Agent needs from `vite-hub/agent/capabilities`, or `@vite-hub/agent/capabilities` in a standalone package:
 
 ```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 import { workspaceShell } from 'vite-hub/agent/capabilities'
+import { file } from 'vite-hub/workspace'
 
 export default defineAgent({
-  driver: { model },
-  workspace,
+  driver: { model: 'openai/gpt-5.1-mini' },
+  workspace: { sources: { policy: file('support.md') } },
   capabilities: [
     workspaceShell({ mode: 'read' }),
   ],
 })
 ```
 
-Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`. Set `policy: 'require-approval'` or `policy: 'deny'` when a tool needs another runtime check. Modes, scopes, allowlists, requirements, and input validation still restrict the operation before policy runs.
+Create `support.md` in the project root before running this example. Attaching a Capability opts the Agent into that ability. Model-facing tool policy defaults to `allow`. Set `policy: 'require-approval'` or `policy: 'deny'` when a tool needs another runtime check. Modes, scopes, allowlists, requirements, and input validation still restrict the operation before policy runs.
 
 Use a callback when invocation context decides the Agent Definition's Capability list. ViteHub calls it once after resolving the Agent Invoker and before Capability setup; Capabilities contributed by the active Channel still compose normally.
 
@@ -68,6 +72,53 @@ export default defineAgent({
 ```
 
 Return only invocation-scoped behavior from the callback. Capabilities that contribute Agent Triggers, chat admission, or static Workspace Sources must stay in a static list because ViteHub registers those contributions before an invocation exists.
+
+## What Capabilities can contribute
+
+| Contribution | What it changes |
+| --- | --- |
+| Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
+| Tools | Model-facing operations exposed only to compatible Agent Drivers. |
+| Provider tools | Provider-native tool requests, such as model web search mode. |
+| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger API. |
+| Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
+| Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
+| Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
+
+Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
+
+Use `defineCapability({ finish })` for metadata read by evals, finish hooks, or channel delivery code after an invocation.
+Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
+
+## Finish without the Driver
+
+A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
+
+```ts [server/agents/labeller.ts]
+export default defineAgent({
+  data: email,
+  intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
+  driver: { model, output: { schema: modelLabel } },
+})
+```
+
+Read [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the-driver) for hooks, traces, and layer rules.
+
+## Driver support
+
+A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
+A provider-backed Agent Driver receives Agent tools through the private MCP bridge and scoped Workspace behavior. Provider-backed Drivers do not support model-specific Capability Provider Tool contributions such as `webSearch({ mode: 'model' })`.
+A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
+
+Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.
+
+## Capability lifecycle
+
+ViteHub applies Capabilities in the order listed or returned by the Agent Definition.
+It validates duplicate ids, checks runtime requirements, applies Capability Trigger Contributions, and then runs configure, prepare, bind, input, resolve, and output phases for each invocation.
+
+`access()` is the only official Capability with a fixed position rule.
+Place it first so later Capabilities receive the restricted Workspace and tool access.
 
 ## Use an Eve extension
 
@@ -109,47 +160,10 @@ The bridge preserves tool input and output schemas, `toModelOutput` including co
 
 This bridge is not yet a complete Eve runtime. Tool and approval contexts do not support `getSandbox()`, `getToken()`, or `requireAuth()`; using one throws at runtime. Accepted older contracts retain a `getSkill()` diagnostic stub; Eve removed that accessor in version 0.66. ViteHub does not mount Eve dynamic skill contributions. Session authentication fields remain `null`. Eve auth providers and sandbox access are not connected to ViteHub Connections or the Sandbox primitive. Use ViteHub Workspace Skills where the Agent Driver supports them.
 
-## What Capabilities can contribute
-
-| Contribution | What it changes |
-| --- | --- |
-| Requirements | Primitive, Workspace mode, Workspace path, or policy checks that must pass before the Capability applies. |
-| Tools | Model-facing operations exposed only to compatible Agent Drivers. |
-| Provider tools | Provider-native tool requests, such as model web search mode. |
-| Agent Triggers | Product events that start Agent Invocations through the Agent Package trigger API. |
-| Input behavior | Pre-invocation input transforms, transcription, decisions, gates, and rate limits. |
-| Output behavior | Stream renderers, finish extensions, usage records, titles, and summaries. |
-| Metadata | Inspectable configuration for runtime diagnostics and CLI inspection. |
-
-Capability metadata appears under the Capability id in Agent inspection output. ViteHub keeps JSON values, sorts object keys and Capability ids, drops unsupported or cyclic values, and redacts keys shaped like auth, API keys, credentials, passwords, secrets, or tokens. Metadata must describe configuration or an explicit check result; it must not include Env values, authentication material, or credentials.
-
-Use `defineCapability({ finish })` for metadata read by evals, finish hooks, or channel delivery code after an invocation.
-Agent Evals expose those values through `observation.extensions.get(capabilityId)` and the `hasCapabilityExtension(capabilityId)` scorer.
-
-## Finish without the Driver
-
-A Capability `input` phase can finish an Invocation only with a `Response`. When app code decides the result for some inputs, such as mail rules that label an email before a model runs, use `defineAgent({ data, intercept })` instead. `intercept` returns a typed value that becomes the Invocation output, and `runAgent()` types its output as the union of that value and the Driver output.
-
-```ts [server/agents/labeller.ts]
-export default defineAgent({
-  data: email,
-  intercept: ({ data }) => data.from.endsWith('@github.com') ? { source: 'rule' as const, label: 'GitHub' } : undefined,
-  driver: { model, output: { schema: modelLabel } },
-})
-```
-
-Read [Finish before the Driver](/docs/agents/agent-definitions#finish-before-the-driver) for hooks, traces, and layer rules.
-
-## Driver support
-
-A model-backed Agent Driver can consume model-facing tools and Provider Tool contributions.
-A provider-backed Agent Driver receives Agent tools through the private MCP bridge and scoped Workspace behavior. Provider-backed Drivers do not support model-specific Capability Provider Tool contributions such as `webSearch({ mode: 'model' })`.
-A custom-run-backed Agent Driver receives prepared input and invocation context; the `driver.run` implementation decides which Capability outputs to read.
-
-Free-form guidance about when and why to use a Capability belongs in Agent Driver Instructions or deterministic imported instruction Markdown. Tool descriptions and schemas remain part of the model-facing tool contract.
-
 ## Next steps
 
 - [Official capabilities](/docs/agents/capabilities/official)
 - [Custom capabilities](/docs/agents/capabilities/custom)
-- [Agent definitions](/docs/agents/agent-definitions)
+- [Instructions](/docs/agents/instructions)
+- [Chat History and sessions](/docs/agents/chat-history-sessions)
+- [Workspace context](/docs/agents/workspace-context)
