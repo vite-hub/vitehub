@@ -15,6 +15,16 @@ describe("KV inspection values", () => {
     expect(inspectKVValue(new Uint8Array([0, 127, 255]))).toEqual({ encoding: "base64", type: "bytes", value: "AH//" })
   })
 
+  it.each([0, 1, 2, 3, 65_535, 65_536, 65_537])("encodes a %i-byte subarray with standard Base64 padding", (length) => {
+    const source = Uint8Array.from({ length: length + 17 }, (_, index) => index % 256)
+    const value = source.subarray(7, 7 + length)
+    expect(inspectKVValue(value)).toEqual({
+      encoding: "base64",
+      type: "bytes",
+      value: Buffer.from(value).toString("base64"),
+    })
+  })
+
   it("recognizes byte arrays from another JavaScript realm", () => {
     const value = vm.runInNewContext("new Uint8Array([0, 127, 255])")
     expect(value).not.toBeInstanceOf(Uint8Array)
