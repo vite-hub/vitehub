@@ -92,6 +92,33 @@ describe("durable Response representation", () => {
     expect(new Uint8Array(await restored.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
   })
 
+  it("round trips a multi-megabyte body without overflowing Base64 validation", async () => {
+    const body = new Uint8Array(4 * 1024 * 1024).fill(255)
+    const serialized = await serializeResponse(new Response(body))
+
+    expect(isSerializedResponse(serialized)).toBe(true)
+    const restored = new Uint8Array(await deserializeResponse(serialized).arrayBuffer())
+    expect(restored.byteLength).toBe(body.byteLength)
+    expect(restored.every(byte => byte === 255)).toBe(true)
+    expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: `${serialized.body.data}!` } })).toBe(false)
+  })
+
+  it.each(["", "YQ", "YQ==", "YWI", "YWI=", "YWJj", " Y\tQ\n=\r=\f"])("accepts native Base64 representation %j", async (data) => {
+    const serialized = await serializeResponse(new Response(""))
+    const record = { ...serialized, body: { ...serialized.body, data } }
+
+    expect(isSerializedResponse(record)).toBe(true)
+    expect(await deserializeResponse(record).text()).toBe(atob(data))
+  })
+
+  it.each(["Y", "YQ=", "YWI==", "YWJj=", "=YQ=", "YQ===", "====", "YQ-_", "YQ\u00a0=="])("rejects malformed Base64 representation %j", async (data) => {
+    const serialized = await serializeResponse(new Response(""))
+    const record = { ...serialized, body: { ...serialized.body, data } }
+
+    expect(isSerializedResponse(record)).toBe(false)
+    expect(() => deserializeResponse(record)).toThrow(TypeError)
+  })
+
   it.each([null, new Uint8Array()])("preserves body presence for %s", async (body) => {
     const restored = deserializeResponse(await serializeResponse(new Response(body)))
     expect(restored.body === null).toBe(body === null)
