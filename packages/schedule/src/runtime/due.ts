@@ -11,6 +11,7 @@ const dayMinutes = 24 * hourMinutes
 const timeZoneFormatters = new Map<string, Intl.DateTimeFormat>()
 
 type ScheduleCron = ReturnType<typeof parseCronExpression>
+const parsedScheduleCrons = new WeakMap<ScheduleCronRecord, { expression: string, cron: ScheduleCron }>()
 
 /** The cron fields of one Schedule that the process checks. `timeZone` defaults to UTC. */
 export interface ScheduleCronRecord {
@@ -47,8 +48,13 @@ function scheduleDateFields(scheduledAt: Date, timeZone: string | undefined): Sc
 }
 
 function parseScheduleCron(schedule: ScheduleCronRecord): ScheduleCron {
-  if (schedule.cron.trim().split(/\s+/).length !== 5) throw scheduleErrorDiagnostics.SCHEDULE_R0023({ message: `Schedule "${schedule.id}" must use a five-field cron expression.` })
-  return parseCronExpression(schedule.cron)
+  const expression = schedule.cron
+  const cached = parsedScheduleCrons.get(schedule)
+  if (cached?.expression === expression) return cached.cron
+  if (expression.trim().split(/\s+/).length !== 5) throw scheduleErrorDiagnostics.SCHEDULE_R0023({ message: `Schedule "${schedule.id}" must use a five-field cron expression.` })
+  const cron = parseCronExpression(expression)
+  parsedScheduleCrons.set(schedule, { expression, cron })
+  return cron
 }
 
 function matchesCronHour(cron: ScheduleCron, fields: ScheduleDateFields): boolean {
