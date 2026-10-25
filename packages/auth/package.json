@@ -50,6 +50,18 @@
       "require": "./dist/cli.js",
       "default": "./dist/cli.js"
     },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js",
+      "require": "./dist/console.js",
+      "default": "./dist/console.js"
+    },
+    "./console-runtime": {
+      "types": "./dist/console-runtime.d.ts",
+      "import": "./dist/console-runtime.js",
+      "require": "./dist/console-runtime.js",
+      "default": "./dist/console-runtime.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -119,7 +131,8 @@
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "@better-auth/oauth-provider": "catalog:auth"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",

@@ -12,6 +12,46 @@ icon: i-lucide-bot
   :::
 ::
 
+## Start here
+
+- [First Agent](/docs/getting-started/first-agent) is the shortest proof. Run an Agent without an API key.
+- [Learning path](/docs/agents/get-started) connects the first run to models, tools, and a complete application.
+- [Build a chat app](/docs/agents/build-a-chat-app) connects a model, a streaming route, and a Vue chat UI in one project.
+
+## Define and run
+
+An Agent Definition selects a Driver. An Invocation runs that definition with one input. This example works without a model or credentials:
+
+```ts
+import { defineAgent, runAgent } from 'vite-hub/agent'
+
+const greeting = defineAgent({
+  runtime: false,
+  driver: {
+    run({ prompt }) {
+      const name = typeof prompt === 'string' ? prompt : 'friend'
+      return { text: `Hello, ${name}!` }
+    },
+  },
+})
+
+const [error, result] = await runAgent(greeting, { prompt: 'Ada' })
+if (error) throw error
+console.log(result) // { text: 'Hello, Ada!' }
+```
+
+`runtime: false` selects inline execution. The two-argument `runAgent()` form returns an error/result tuple. For model output, provider Drivers, and streaming, follow [Invocations](/docs/agents/invocations).
+
+## Learn in order
+
+1. [Define an Agent](/docs/agents/agent-definitions) and [choose its Driver](/docs/agents/agent-drivers).
+2. [Run or stream an Invocation](/docs/agents/invocations).
+3. [Write instructions](/docs/agents/instructions) and [attach tools through Capabilities](/docs/agents/capabilities).
+4. [Select Chat History](/docs/agents/chat-history-sessions) and [add Workspace context](/docs/agents/workspace-context).
+5. [Connect a Channel](/docs/agents/channels) when messages arrive from another service or a web chat.
+6. [Inspect events](/docs/agents/observability), [test contracts](/docs/agents/testing), and [evaluate model behavior](/docs/agents/evals).
+
+When the Agent works, use [presets and inheritance](/docs/agents/agent-presets) to share configuration and [Invocation storage](/docs/agents/invocation-storage) to retain run evidence. [Ready-made presets](/docs/agents/presets) provide complete workflows with their own setup requirements.
 
 ::product-features
   :::product-feature-item{title="Choose what does the work" icon="i-lucide-cpu" to="/docs/agents/agent-drivers"}

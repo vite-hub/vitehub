@@ -50,3 +50,9 @@ export type {
 
 export { authEventTypes, createDatabaseAuthEventStore, defaultAuthEventRetention } from "./events.ts"
 export type { AuthDevice, AuthEvent, AuthEventActor, AuthEventAggregates, AuthEventCounts, AuthEventListInput, AuthEventMetadata, AuthEventPage, AuthEventRetention, AuthEventsConfiguration, AuthEventStore, AuthEventType, AuthEventWindow } from "./events.ts"
+export type {
+  AuthConsoleOptions,
+  AuthConsoleColumn,
+  AuthConsoleFieldPolicy,
+  AuthConsolePolicy,
+} from "./console-types.ts";

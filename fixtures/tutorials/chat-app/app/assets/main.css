@@ -1,0 +1,4 @@
+@import "tailwindcss";
+@import "@nuxt/ui";
+
+body { margin: 0; font-family: system-ui, sans-serif; }

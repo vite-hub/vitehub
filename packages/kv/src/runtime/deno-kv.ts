@@ -47,6 +47,7 @@ function toDenoExpireIn(ttl: unknown): { expireIn: number } | undefined {
 export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = { driver: "deno-kv" }): KVRuntimeDriver {
   let kvPromise: Promise<DenoKV> | undefined
   let disposed = false
+  let disposal: Promise<void> | undefined
   // Keep history with the continuation cursor that carries it. Consuming the
   // entry before awaiting Deno lets concurrent traversals remain independent.
   const cursorNamespace = `deno-kv:${options.path ?? "default"}`
@@ -91,20 +92,22 @@ export default function createDenoKVDriver(options: ResolvedDenoKVStoreConfig = 
         await kv.delete(key)
       }
     },
-    async dispose() {
-      disposed = true
-      cursorHistories.clear()
-      try {
-        if (kvPromise) {
-          const kv = await kvPromise
-          kv.close?.()
-          kvPromise = undefined
-        }
-      }
-      finally {
-        // An in-flight listing can finish after the provider teardown.
+    dispose() {
+      return disposal ??= (async () => {
+        disposed = true
         cursorHistories.clear()
-      }
+        try {
+          if (kvPromise) {
+            const kv = await kvPromise
+            kv.close?.()
+            kvPromise = undefined
+          }
+        }
+        finally {
+          // An in-flight listing can finish after the provider teardown.
+          cursorHistories.clear()
+        }
+      })()
     },
     async getItem(key) {
       const entry = await (await open()).get(toDenoKey(key))

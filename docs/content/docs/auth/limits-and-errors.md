@@ -37,3 +37,23 @@ console.log(error.toJSON())
 | `AUTH_C####`, `AUTH_B####`, `AUTH_R####` | Missing APIs, malformed responses, invalid Auth Definitions, invalid `authenticated()` configuration, and invalid custom callback results. |
 
 Existing ViteHub errors and structural `AbortError` objects keep their identity.
+
+## AUTH_CONSOLE_INVALID_REQUEST
+
+The request has an invalid field value, filter, or page size. Use the field type from `describe()` and a page size from 1 to 100.
+
+## AUTH_CONSOLE_FORBIDDEN
+
+App policy or the Better Auth session denies the action. Read `describe(request)` for the action reason. Console access does not grant app admin rights.
+
+## AUTH_CONSOLE_NOT_FOUND
+
+The record or plugin is unavailable. Refresh the list and check the Auth Definition's plugins.
+
+## AUTH_CONSOLE_UNAVAILABLE
+
+The operation needs a database adapter or plugin API. Configure them in the primary Auth Definition.
+
+## AUTH_CONSOLE_PROVIDER_FAILED
+
+Better Auth or a computed column reader failed. Inspect the error cause in server code. Do not send that cause to clients.

@@ -44,7 +44,7 @@ for (const [code, run, expectedMessage] of cases) {
     assert.equal(error.name, code)
     assert.equal(error.message, expectedMessage)
     assert.equal(error.why, expectedMessage)
-    assert.equal(error.docs, "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors")
+    assert.equal(error.docs, "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics")
     assert.equal(error.fix, undefined)
     return true
   })

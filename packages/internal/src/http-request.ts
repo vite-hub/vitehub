@@ -193,12 +193,18 @@ async function fetchOnce(
       try {
         const headers = new Headers(definition.headers)
         applyCookies(headers, definition.cookies)
+        const body = serializeRequestBody(definition.body, headers)
         response = await send(urlWithQuery(definition).toString(), {
-          body: serializeRequestBody(definition.body, headers),
+          body,
+          ...(body instanceof ReadableStream ? { duplex: "half" as const } : {}),
           headers,
           method: definition.method,
           signal: controller.signal,
         })
+        if (controller.signal.aborted) {
+          cancelResponseBody(response)
+          controller.signal.throwIfAborted()
+        }
       }
       catch (cause) {
         return { failure: { cause, retryable: retryFetchError(cause) } }

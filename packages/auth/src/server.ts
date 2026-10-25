@@ -1,3 +1,5 @@
+import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
+import type { AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { betterAuth } from "better-auth"
@@ -937,4 +939,18 @@ export async function aggregateAuthEvents(window: AuthEventWindow, definition?: 
   const store = getAuthEvents(definition)
   if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
   return store.aggregate(window)
+}
+
+/** Resolve the primary Definition once, with the same request context for the provider and Console policy. */
+export function getAuthConsoleForRequest(request: Request, event?: unknown): AuthConsole {
+  const definition = resolveDefaultDefinition()
+  const resolved = resolveAuthOptions(definition, {
+    request,
+    event,
+    env: envResolverFor(definition),
+  });
+  return createAuthConsole(
+    createAuthenticationProvider(resolved.providerOptions),
+    resolved.options.console as AuthConsoleOptions | undefined,
+  );
 }

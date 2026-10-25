@@ -346,3 +346,9 @@ Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vit
 For `vitehub auth events`, configure `events.authorize`. The read endpoint requires a session and an explicit `true` result. Give the CLI the Auth base URL with `--url`, and the session cookie through `VITEHUB_AUTH_COOKIE`.
 
 Event writes are separate from auth mutations. Storage failures warn with `AUTH_EVENT_WRITE_FAILED` and do not reject a completed auth action. Read [Auth event log](https://vitehub.dev/docs/auth/events) for the event list, metric definitions, privacy rules, retention, and coverage limits.
+
+## Auth Console
+
+The primary Auth Definition adds `/_vitehub/auth` to the ViteHub Console. It lists users, active sessions, organizations, and approved OAuth clients. Better Auth additional fields become columns. Set `console.fields.<name>.editable` to allow edits, `console.columns` for batch computed values, and `console.roles` or `console.actions` for read-only policy with a reason. `console.access` holds short descriptions of the app's sign-in rules.
+
+`getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.
