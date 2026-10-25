@@ -447,7 +447,7 @@ const record = await invocations.appendObservation(invocationId, {
 
 The observation ID is required, must be at most 512 characters, and makes retries idempotent within that Invocation. The store assigns the sequence atomically.
 
-This operation does not change Invocation status or its active lease, and it applies the configured content policy. The result is the stored record, or `undefined` when the Invocation does not exist. A failed write or full observation capacity throws. If `redact` drops the observation or fails, the method returns the existing record without appending. A caller that requires delivery evidence must confirm its observation ID in the returned record. 
+This operation does not change Invocation status or its active lease, and it applies the configured content policy. The result is the stored record, or `undefined` when the Invocation does not exist. A failed write or full observation capacity throws. If `redact` drops the observation or fails, the method returns the existing record without appending. A caller that requires delivery evidence must confirm its observation ID in the returned record.
 
 An append uses the observation limits saved with the record, including after restart. It rejects before changing the record if count, byte, or provider row capacity would remove evidence. Accepted appends remain intact under later trace pressure until the whole Invocation is removed by retention. Keep the same observation ID when retrying a write whose result is unknown. Custom stores must implement the `appendObservation` field on `AgentInvocationStoreUpdateInput`; a store that ignores it fails explicitly.
 
