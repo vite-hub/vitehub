@@ -302,7 +302,7 @@ if (error) error.code // "KV_INVALID_LIMIT"
 
 A `ResultError` is a Nostics diagnostic with `code`, `why`, `fix`, `docs`, and `cause`. Catalog definitions can also provide static or computed `data`. `defineErrors()` infers that data for each code; `ResultError<Code, Data>` can name its type explicitly. A bare `ResultError` or `ResultError<Code>` keeps data as `unknown` so it can accept any catalog error. Codes without data infer `undefined`.
 
-Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`. The code and name keep their literal types. Cause, stack, sources, and diagnostic data stay in memory and are absent from public JSON.
+Its `toJSON()` returns only `name`, `code`, `why`, `fix`, and `docs`. The code and name keep their literal types. For compatibility with Nostics consumers such as `formatDiagnostic()`, its return type retains Nostics serializer fields, including required `data`; those metadata fields are not present at runtime. Read metadata from the error itself. Cause, stack, sources, and diagnostic data stay in memory and are absent from public JSON.
 
 `toResultError()` gives an allowed diagnostic this public serializer. It keeps the
 same object when its `name` and `toJSON` properties can be replaced. Otherwise it

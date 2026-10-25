@@ -32,7 +32,7 @@ if (error) {
 
 `Result<T, Code>` and `ResultError<Code>` from `vite-hub/runtime` type this tuple. Packages define their codes with `defineErrors()` from `@vite-hub/runtime`. Each code has a `why` and a `fix`, and a heading on the `limits-and-errors` page of the package, so `error.docs` opens the right section. See [KV errors](/docs/kv/limits-and-errors), [Email errors](/docs/email/limits-and-errors), and [Queue errors](/docs/queue/limits-and-errors).
 
-Catalog definitions can provide static or computed `data`. Each factory infers its data type; `ResultError<Code, Data>` names it explicitly. Without a data type, `ResultError` keeps `data` as `unknown`. Diagnostic data stays in memory. The `toJSON()` type describes only the public fields and preserves the literal code and name.
+Catalog definitions can provide static or computed `data`. Each factory infers its data type; `ResultError<Code, Data>` names it explicitly. Without a data type, `ResultError` keeps `data` as `unknown`. Diagnostic data stays in memory. The `toJSON()` type preserves the literal code and name and remains compatible with Nostics `Diagnostic`, so catalog errors can be passed directly to `formatDiagnostic()`. Nostics 1.3 requires `data` in its serializer type: this inherited type does not describe redaction. Read metadata from the error itself; runtime JSON still omits it.
 
 ## Diagnostic codes
 

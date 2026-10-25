@@ -1,6 +1,6 @@
 import { defineDiagnostics, Diagnostic } from "nostics"
 
-import type { DiagnosticCallParams, DiagnosticDefinition, Diagnostics } from "nostics"
+import type { DiagnosticCallParams, DiagnosticDefinition, DiagnosticJSON, Diagnostics } from "nostics"
 
 /**
  * Error of a ViteHub operation. It is a Nostics diagnostic with a typed `code`.
@@ -12,10 +12,11 @@ import type { DiagnosticCallParams, DiagnosticDefinition, Diagnostics } from "no
  * - `cause` keeps the lower-level error, for example the provider error.
  * - `data` keeps catalog metadata in memory. Its type is inferred by `defineErrors()`.
  */
-export interface ResultError<TCode extends string = string, TData = unknown> extends Omit<Diagnostic<TData>, "toJSON"> {
+export interface ResultError<TCode extends string = string, TData = unknown> extends Diagnostic<TData> {
   readonly code: TCode
   readonly name: TCode
-  toJSON(): {
+  /** Retains the Nostics serializer type for compatibility; runtime JSON is redacted. */
+  toJSON(): DiagnosticJSON<TData> & {
     code: TCode
     name: TCode
     why: string

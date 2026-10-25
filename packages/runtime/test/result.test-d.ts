@@ -1,3 +1,4 @@
+import { formatDiagnostic, type Diagnostic, type DiagnosticJSON } from "nostics"
 import { describe, expectTypeOf, it } from "vitest"
 
 import { defineErrors, runtimeErrorDiagnostics, type Result, type ResultError } from "@vite-hub/runtime"
@@ -55,25 +56,21 @@ describe("Result types", () => {
     errors.EXAMPLE_RETRY({ key: "settings", delay: 10 })
   })
 
-  it("types only the public serialized fields", () => {
+  it("preserves Nostics consumers and literal serialized codes", () => {
     const error = errors.EXAMPLE_RETRY({ key: "settings", delay: 10, attempt: 1 })
+    expectTypeOf(error).toMatchTypeOf<Diagnostic<{ attempt: number }>>()
+    expectTypeOf(errors.EXAMPLE_FAILED()).toMatchTypeOf<Diagnostic<undefined>>()
+    expectTypeOf(errors.EXAMPLE_BUSY()).toMatchTypeOf<Diagnostic<{ readonly retryAfter: 10 }>>()
+    expectTypeOf(formatDiagnostic(error)).toEqualTypeOf<string>()
     const json = error.toJSON()
     expectTypeOf<ReturnType<typeof error.toJSON>>().toEqualTypeOf<typeof json>()
-    expectTypeOf(json).toEqualTypeOf<{
+    expectTypeOf(json).toEqualTypeOf<DiagnosticJSON<{ attempt: number }> & {
       code: "EXAMPLE_RETRY"
       name: "EXAMPLE_RETRY"
       why: string
       fix: string | undefined
       docs: string | undefined
     }>()
-    // @ts-expect-error Diagnostic data stays in memory.
-    void json.data
-    // @ts-expect-error Causes stay in memory.
-    void json.cause
-    // @ts-expect-error Source locations stay in memory.
-    void json.sources
-    // @ts-expect-error Stacks stay in memory.
-    void json.stack
   })
 
   it("keeps the Runtime catalog keys and parameters", () => {

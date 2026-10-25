@@ -35,9 +35,7 @@ describe("defineErrors", () => {
       name: "EXAMPLE_NOT_FOUND",
       why: "The key \"settings\" does not exist.",
     })
-    if (error instanceof Diagnostic) {
-      expect(formatDiagnostic(error)).toContain("fix: Write the key before you read it.")
-    }
+    expect(formatDiagnostic(error)).toContain("fix: Write the key before you read it.")
   })
 
   it("serializes the public fields without cause or stack", () => {
