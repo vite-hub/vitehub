@@ -484,6 +484,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       }
       root = resolve(config.root || process.cwd())
       const configured: ConsoleOptions | undefined = resolveConsoleOptions(options.console) ?? (environment.command === "serve" ? localDevelopmentConsole : undefined)
+      // Without Console options the RPC is development-only. Vite skips the plugin outside `serve`, but Nuxt calls this hook itself.
+      if (!configured && options.rpcOnly) return
       // The root integration does not add this plugin without Console options, so this only guards direct use.
       if (!configured) throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: '[vitehub] console.auth is required. Set console: { auth: false } for no sign-in, or console: { auth: "app" } to use your app Auth.' })
       resolvedConsoleConfiguration = configured
