@@ -479,6 +479,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: collection.label,
           path: collection.path,
+          paths: [...collection.paths],
           kind: collection.kind,
           format: collection.format,
           schema,

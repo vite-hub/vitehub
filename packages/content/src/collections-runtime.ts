@@ -302,7 +302,7 @@ export interface ContentResolved<TName extends string = string> {
 }
 
 export interface ContentResolveOptions {
-  /** The ref to look in. Defaults to `published`, which is what the site shows. */
+  /** The ref to look in. Defaults to what a read without `ref` uses: `published`, or `draft` in a preview request. */
   ref?: ContentRef
 }
 
@@ -661,10 +661,17 @@ function textOf(content: WorkspaceWriteInput["content"]): string | undefined {
   }
 }
 
-/** An app path without its query string, hash, and trailing slash, and with a leading slash. */
+/** An app path without its query string, hash, and trailing slash, percent-decoded, with a leading slash. */
 function normalizeRoute(path: string): string {
-  const clean = path.split(/[?#]/, 1)[0]!.replace(/^\/+|\/+$/g, "")
-  return `/${clean}`
+  const raw = path.split(/[?#]/, 1)[0]!
+  let decoded = raw
+  try {
+    decoded = decodeURIComponent(raw)
+  }
+  catch {
+    // A path with a stray % stays as written.
+  }
+  return `/${decoded.replace(/^\/+|\/+$/g, "")}`
 }
 
 /** The default app path of a document: its id after a slash, without a trailing `/index`. */
@@ -1742,19 +1749,42 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
   }
 
+  /** The routes of one ref head: app path to document, the first collection winning. Built once per head. */
+  const routeIndexes = new BoundedCache<Promise<ReadonlyMap<string, ContentResolved>>>(8)
+  const warnedRoutes = new Set<string>()
+
   async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
     if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
     const target = normalizeRoute(path)
-    const state = await refState(assertRef(resolveOptions.ref, "published"))
+    const state = await refState(assertRef(resolveOptions.ref, defaultRef()))
     if (!state.opened) return null
-    for (const collection of collections.values()) {
-      if (!collection.route) continue
-      for (const id of collection.entries(state.opened.files).keys()) {
-        const route: unknown = collection.route(id)
-        if (String(route) === route && normalizeRoute(route) === target) return { collection: collection.name, id }
+    const opened = state.opened
+    const index = await memoize(routeIndexes, opened.revision.id, async () => {
+      const routes = new Map<string, ContentResolved>()
+      for (const collection of collections.values()) {
+        if (!collection.route) continue
+        for (const id of collection.entries(opened.files).keys()) {
+          let route: unknown
+          try {
+            route = collection.route(id)
+          }
+          catch (error) {
+            // One document with a failing route does not hide the others.
+            if (!warnedRoutes.has(collection.name)) {
+              warnedRoutes.add(collection.name)
+              console.warn(`[vitehub] The route of Content collection ${JSON.stringify(collection.name)} threw for document ${JSON.stringify(id)}. resolve() skips documents whose route throws: ${error instanceof Error ? error.message : String(error)}`)
+            }
+            continue
+          }
+          if (String(route) !== route) continue
+          const key = normalizeRoute(route)
+          if (!routes.has(key)) routes.set(key, { collection: collection.name, id })
+        }
       }
-    }
-    return null
+      return routes
+    })
+    const found = index.get(target)
+    return found ? { ...found } : null
   }
 
   /** Walks one ref newest first and keeps the revisions that `matches` accepts, scanning at most 1,000 per call. */

@@ -3,6 +3,7 @@ import { z } from "zod"
 
 import { documents, singleton } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
+import { createContentConsoleActions } from "../src/runtime/console.ts"
 import { historyWorkspace } from "./history-workspace.ts"
 
 const cleanup: Array<() => Promise<void> | void> = []
@@ -112,6 +113,22 @@ describe("collections with several globs", () => {
   })
 })
 
+describe("Console collections with several globs", () => {
+  it("send every glob", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const content = defineContent({
+      workspace,
+      collections: { pages: documents({ path: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], fields }), notes: documents({ path: "notes/*.md", fields }) },
+      authorize: () => true,
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const collections = await createContentConsoleActions({ content }).collections({ user: { id: "ada" } } as never)
+    expect(collections.find(entry => entry.name === "pages")).toMatchObject({ path: "docs/pages/**/*.md, packages/*/docs/**/*.md", paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"] })
+    expect(collections.find(entry => entry.name === "notes")).toMatchObject({ paths: ["notes/*.md"] })
+  })
+})
+
 describe("content.resolve()", () => {
   async function setup() {
     const workspace = await historyWorkspace(cleanup)
@@ -176,6 +193,42 @@ describe("content.resolve()", () => {
     await content.collection("first").save("y", { data: { title: "Y" }, body: "" })
     await content.publish()
     await expect(content.resolve("/same")).resolves.toEqual({ collection: "first", id: "y" })
+  })
+
+  it("decodes the path and builds the routes once per revision", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const route = vi.fn((id: string) => `/cafe/${id}`)
+    const content = defineContent({ workspace, collections: { cafes: documents({ path: "cafes/*.md", fields, route }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    await content.collection("cafes").save("café", { data: { title: "Café" }, body: "" })
+    await content.publish()
+    await expect(content.resolve("/cafe/caf%C3%A9")).resolves.toEqual({ collection: "cafes", id: "café" })
+    await expect(content.resolve("/cafe/caf%E9")).resolves.toBeNull()
+    await expect(content.resolve("/cafe/café?x=1")).resolves.toEqual({ collection: "cafes", id: "café" })
+    expect(route).toHaveBeenCalledTimes(1)
+    // A new revision builds the map again.
+    await content.collection("cafes").save("tea", { data: { title: "Tea" }, body: "" })
+    await content.publish()
+    await expect(content.resolve("/cafe/tea")).resolves.toEqual({ collection: "cafes", id: "tea" })
+    expect(route.mock.calls.length).toBeGreaterThan(1)
+  })
+
+  it("skips a document whose route throws and warns once", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const content = defineContent({
+      workspace,
+      collections: { pages: documents({ path: "pages/*.md", fields, route: (id) => { if (id === "broken") throw new Error("no route"); return `/${id}` } }) },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const id of ["broken", "fine", "other"]) await content.collection("pages").save(id, { data: { title: id }, body: "" })
+    await content.publish()
+    await expect(content.resolve("/fine")).resolves.toEqual({ collection: "pages", id: "fine" })
+    await expect(content.resolve("/broken")).resolves.toBeNull()
+    await expect(content.resolve("/other")).resolves.toEqual({ collection: "pages", id: "other" })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0]![0]).toContain("threw for document \"broken\"")
   })
 
   it("requires a string path", async () => {

@@ -113,7 +113,11 @@ pages: documents({
 })
 ```
 
-A document id is the path below the folder that all globs share, without the extension: `content/news/launch.md` is `news/launch`. When the globs share no folder, the id is the whole path without the extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. A glob of one collection may overlap a glob of another collection only if no file can match both: each pair of globs is checked, and `defineContent()` throws `CONTENT_R0006` when two collections overlap. Content lists only the folders before the first wildcard of each glob when it reads a revision, so other files in a large repository are not read.
+The Console new-document form offers a folder for each glob (the folder before its first wildcard) and builds the path in the folder you pick. A document id is the path below the folder that all globs share, without the extension: `content/news/launch.md` is `news/launch`. When the globs share no folder, the id is the whole path without the extension (`posts/a.md` is `posts/a`). Saving an id that no glob matches throws `CONTENT_R0008`. A glob of one collection may overlap a glob of another collection only if no file can match both: each pair of globs is checked, and `defineContent()` throws `CONTENT_R0006` when two collections overlap. Content lists only the folders before the first wildcard of each glob when it reads a revision, so other files in a large repository are not read.
+
+::warning
+Adding a glob can change the ids of the documents you already have. Ids are relative to the folder that all globs share, so a glob in another folder moves that folder up: `posts/**/*.md` has ids like `hello`, and `['posts/**/*.md', 'news/*.md']` has ids like `posts/hello`. Schedules, saved `expect` entries, and links that use ids then point at other documents. Ids stay the same when the new glob is inside the folder you already use, such as `['posts/**/*.md', 'posts/archive/**/*.md']`. Otherwise, change the `route` of the collection so that the URLs stay the same with the new ids, publish or cancel pending schedules first, and expect a document's revision history under its new id.
+::
 
 ### Find the document of a page
 
@@ -124,7 +128,7 @@ const route = await content.resolve('/blog/hello?utm=x')
 // { collection: 'posts', id: 'hello' }
 ```
 
-Each `documents()` collection maps an id to a path with `route`. By default the path is the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. `resolve()` reads `published`; pass `{ ref: 'draft' }` to include documents that are not published. It lists the ids of each collection on every call, so cache the result for hot paths. Singletons have no route.
+Each `documents()` collection maps an id to a path with `route`. By default the path is the id after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`. A query string, a hash, and a trailing slash are ignored. When two collections give the same path, the first one defined wins. The path is percent-decoded, so `/caf%C3%A9` finds `café`. `resolve()` reads what a read without `ref` reads (`published`, or `draft` in a preview request); pass `{ ref: 'draft' }` to include documents that are not published. Content builds the map from routes to documents once per revision of the ref and keeps it, so a call costs a lookup until the ref changes. A `route` that throws for one document skips that document, with one warning per collection. Singletons have no route.
 
 ### Fields
 
