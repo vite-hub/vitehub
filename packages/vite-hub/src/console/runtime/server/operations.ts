@@ -160,6 +160,7 @@ const envGet = defineConsoleOperation({
 })
 
 const invocationsList = defineConsoleOperation({
+  cli: { namespace: "invocations" },
   description: "List Agent Invocations, newest first.",
   input: v.strictObject({ agent: optionalText, capability: optionalText, cursor: optionalText, id: v.optional(v.array(text)), limit: optionalCount, triggeredBy: optionalText }),
   kind: "read",
@@ -169,7 +170,7 @@ const invocationsList = defineConsoleOperation({
 })
 
 const invocationsGet = defineConsoleOperation({
-  cli: { positional: ["id"] },
+  cli: { namespace: "invocations", positional: ["id"] },
   description: "Read one Agent Invocation with its observations.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)), observationCount: optionalCount, observationCursor: optionalText }),
   kind: "read",
@@ -179,7 +180,7 @@ const invocationsGet = defineConsoleOperation({
 })
 
 const invocationsCancel = defineConsoleOperation({
-  cli: { positional: ["id"] },
+  cli: { namespace: "invocations", positional: ["id"] },
   description: "Ask a running Agent Invocation to stop.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "write",
@@ -189,7 +190,7 @@ const invocationsCancel = defineConsoleOperation({
 })
 
 const invocationsDelete = defineConsoleOperation({
-  cli: { positional: ["id"] },
+  cli: { namespace: "invocations", positional: ["id"] },
   description: "Delete one finished Agent Invocation.",
   input: v.strictObject({ id: v.pipe(text, v.minLength(1)) }),
   kind: "destructive",
@@ -199,6 +200,7 @@ const invocationsDelete = defineConsoleOperation({
 })
 
 const invocationsCapabilities = defineConsoleOperation({
+  cli: { namespace: "invocations" },
   description: "List the capabilities of an Agent Invocation setup.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",
@@ -208,7 +210,7 @@ const invocationsCapabilities = defineConsoleOperation({
 })
 
 const invocationsWorkspace = defineConsoleOperation({
-  cli: { positional: ["id"] },
+  cli: { namespace: "invocations", positional: ["id"] },
   description: "Read the Workspace files and history of one Agent Invocation.",
   input: v.strictObject({ cursor: optionalText, history: v.optional(v.boolean()), id: v.pipe(text, v.minLength(1)), path: optionalText, ref: optionalText, revision: optionalText }),
   kind: "read",
@@ -281,6 +283,7 @@ const sectionsList = defineConsoleOperation({
 })
 
 const statusGet = defineConsoleOperation({
+  cli: { command: "status", namespace: "agents" },
   description: "Read the status of an Agent: its setup and what it can do.",
   input: v.strictObject({ agent: optionalText }),
   kind: "read",

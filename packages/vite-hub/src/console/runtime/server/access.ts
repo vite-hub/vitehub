@@ -1,3 +1,4 @@
+import { installOperationSectionResolver } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
@@ -84,9 +85,18 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
     globalThis.console?.warn(consoleOpenAccessWarning)
   }
   scope[policyKey] = Object.freeze({ ...policy })
+  installOperationSectionResolver(async ({ user }) => {
+    if (policy.mode === "local" || !policy.authorize) return "all"
+    // Agents have no browser request, so `authorize` gets one without headers and the user that the Actor stands for.
+    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    const result: unknown = await policy.authorize(user ? { request, user: user as ConsoleUser } : { request })
+    if (result === true) return "all"
+    return isRuntimeResponse(result) ? [] : authorizedSections(result) ?? []
+  })
 }
 
-function developmentRuntime(): boolean {
+/** Whether this server process runs `vite dev`. */
+export function developmentRuntime(): boolean {
   return globalThis.process?.env?.NODE_ENV === "development"
 }
 

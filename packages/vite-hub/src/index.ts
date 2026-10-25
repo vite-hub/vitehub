@@ -43,6 +43,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
@@ -1035,6 +1036,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 
+  plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
   const devOperationsOnly = options.console === undefined
   if (options.console || devOperationsOnly) {

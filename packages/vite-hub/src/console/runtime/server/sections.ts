@@ -1,3 +1,4 @@
+import { installConsoleProjectRoot } from "./operation-contributions.ts"
 import { installConsoleBuildScope, installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth, resolveConsoleBuild, resolveConsoleProjectName, resolveConsoleSections } from "../../internal.ts"
 
 import type { ConsoleAuthMode } from "../../internal.ts"
@@ -13,6 +14,7 @@ export function installConsoleSections(projectRoot: string, sections: readonly C
 }
 
 export function installConsoleProjectName(projectRoot: string, projectName: string): string {
+  installConsoleProjectRoot(projectRoot)
   return installConsoleProjectNameScope(projectRoot, projectName)
 }
 

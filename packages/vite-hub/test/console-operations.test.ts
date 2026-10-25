@@ -1,12 +1,13 @@
 import * as v from "valibot"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { defineOperation } from "@vite-hub/internal/operations"
 
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
+import { installedOperationRegistry, operationRootHeader, projectRootHash } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 // A plugin of the app contributes this operation, as `@vite-hub/content` contributes `content.*`.
@@ -30,8 +31,8 @@ const secret = defineOperation({
   section: "fixture",
 })
 
-function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}) {
-  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+function call(operation: string, input: unknown = {}, headers: Record<string, string> = {}, url = "http://vitehub.local/_vitehub/rpc/__call") {
+  return handleConsoleRpcRequest(new Request(url, {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
@@ -39,6 +40,7 @@ function call(operation: string, input: unknown = {}, headers: Record<string, st
 }
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
 })
@@ -94,5 +96,81 @@ describe("contributed operations over the Console RPC", () => {
       .rejects.toMatchObject({ code: "INTERNAL_B0048", message: expect.stringContaining("first and second") })
     const builtin = defineOperation({ ...greet, name: "agents.list" })
     await expect(assertUniqueOperationNames([contribution("shadow", builtin)])).rejects.toMatchObject({ code: "INTERNAL_B0048" })
+  })
+
+  it("installs the registry at startup, so agent tools need no prior RPC call", () => {
+    const registry = installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    expect(installedOperationRegistry()).toBe(registry)
+    expect(registry.get("fixture.greet")).toBeDefined()
+    expect(registry.get("agents.list")).toBeDefined()
+  })
+
+  it("builds the registry once when nothing is installed", () => {
+    Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.operations"))
+    expect(installedRegistry()).toBe(installedRegistry())
+  })
+
+  it("serves a development server without sign-in only to this machine", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    vi.stubEnv("NODE_ENV", "development")
+    for (const mode of ["local", "open"] as const) {
+      installConsoleAccess({ mode })
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc/__call")).status).toBe(200)
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://127.0.0.1:5173/_vitehub/rpc/__call")).status).toBe(200)
+      expect((await call("fixture.greet", { name: "Ada" }, {}, "http://[::1]:5173/_vitehub/rpc/__call")).status).toBe(200)
+      const lan = await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")
+      expect(lan.status).toBe(403)
+      await expect(lan.json()).resolves.toMatchObject({ code: "CONSOLE_LOOPBACK_ONLY", fix: expect.stringContaining("console.auth"), ok: false })
+      const tunnel = await call("fixture.greet", { name: "Ada" }, { "x-forwarded-host": "abc.trycloudflare.com" }, "http://localhost:5173/_vitehub/rpc/__call")
+      expect(tunnel.status).toBe(403)
+      const rebound = await call("fixture.greet", { name: "Ada" }, { host: "attacker.example" }, "http://localhost:5173/_vitehub/rpc/__call")
+      expect(rebound.status).toBe(403)
+    }
+  })
+
+  it("checks the peer address when the host exposes it, and leaves production alone", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    const handle = (remoteAddress: string) => handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input: { name: "Ada" }, operation: "fixture.greet" }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }), { remoteAddress })
+    vi.stubEnv("NODE_ENV", "development")
+    expect((await handle("::1")).status).toBe(200)
+    expect((await handle("::ffff:127.0.0.1")).status).toBe(200)
+    expect((await handle("203.0.113.9")).status).toBe(403)
+    // A production server with `console: { auth: false }` is open by choice and serves any host.
+    vi.stubEnv("NODE_ENV", "production")
+    expect((await call("fixture.greet", { name: "Ada" }, {}, "https://app.example.com/_vitehub/rpc/__call")).status).toBe(200)
+  })
+
+  it("does not apply the loopback rule to a signed-in Console", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    vi.stubEnv("NODE_ENV", "development")
+    installConsoleAccess({ check: async () => undefined, mode: "auth" })
+    expect((await call("fixture.greet", { name: "Ada" }, {}, "http://192.168.1.20:5173/_vitehub/rpc/__call")).status).toBe(200)
+  })
+
+  it("names the project of the local dev RPC in a response header", async () => {
+    installConsoleOperations([{ operations: [greet], plugin: "fixture-plugin" }])
+    installConsoleProjectRoot("/work/app")
+    installConsoleAccess({ mode: "local" })
+    vi.stubEnv("NODE_ENV", "development")
+    const local = await call("fixture.greet", { name: "Ada" }, {}, "http://localhost:5173/_vitehub/rpc/__call")
+    expect(local.headers.get(operationRootHeader)).toBe(projectRootHash("/work/app"))
+    installConsoleAccess({ mode: "open" })
+    expect((await call("fixture.greet", { name: "Ada" })).headers.has(operationRootHeader)).toBe(false)
+  })
+
+  it("gives the section resolver the sections that console.authorize allows for a user", async () => {
+    const { installedOperationSectionResolver } = await import("@vite-hub/internal/operations")
+    const authorize = vi.fn(({ user }: { user?: { id: string } }) => user?.id === "editor" ? { sections: ["content"] } : false)
+    installConsoleAccess({ authorize: authorize as never, mode: "open" })
+    const resolve = installedOperationSectionResolver()!
+    expect(await resolve({ user: { id: "editor" } })).toEqual(["content"])
+    expect(await resolve({ user: { id: "viewer" } })).toEqual([])
+    expect(await resolve({ user: null })).toEqual([])
+    installConsoleAccess({ mode: "open" })
+    expect(await installedOperationSectionResolver()!({ user: null })).toBe("all")
   })
 })

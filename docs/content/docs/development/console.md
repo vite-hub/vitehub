@@ -400,6 +400,8 @@ vitehub({
 
 Every user that passes the Console access policy with the `connections` section can then manage every Connection. Restrict the policy to the people who own the provider accounts.
 
+In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, or whose peer address is not loopback, gets `403` with `CONSOLE_LOOPBACK_ONLY`. Production servers are not affected, so set `console.auth` or `console.authorize` for them.
+
 Console RPC requests must come from the same origin. The RPC route rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the RPC route compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
 
 Browsers can omit both headers on HTTP origins. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. A foreign browser page cannot add this header without a CORS preflight, which the RPC route rejects. The built-in Console client adds it automatically. Server clients must add it when they send RPC calls without origin headers. The marker is not a credential. All requests still require the configured authentication and authorization.

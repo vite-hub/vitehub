@@ -1,18 +1,17 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createOperationRegistry, installOperationRegistry, operationSection, operationSurfaceHeader, parseOperationInput } from "@vite-hub/internal/operations"
+import { operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, developmentRuntime, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
-import { consoleOperations } from "./operations.ts"
-import { installedConsoleOperations } from "./operation-contributions.ts"
+import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 
 import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
-import type { OperationContext, OperationRegistry } from "@vite-hub/internal/operations"
+import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
@@ -33,6 +32,8 @@ interface ConsoleRpcContext {
   /** The checked access of the RPC request. Each operation runs with it. */
   access: ConsoleAccess
   env?: Record<string, unknown>
+  /** The address of the peer, when the host exposes it. */
+  remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
 }
 
@@ -81,17 +82,7 @@ async function result(resolve: () => unknown | Promise<unknown>): Promise<Consol
   }
 }
 
-let registry: { built: OperationRegistry, source: unknown } | undefined
-
-/** The operations of this app by name: the ones `vite-hub` owns, then the ones plugins contribute. */
-export function consoleOperationRegistry(): OperationRegistry {
-  const contributed = installedConsoleOperations() ?? []
-  if (registry?.source === contributed) return registry.built
-  const built = createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }, ...contributed])
-  registry = { built, source: contributed }
-  installOperationRegistry(built)
-  return built
-}
+export { consoleOperationRegistry }
 
 /** The Console section of each RPC operation, for inspection and tests. `false` marks an operation that every Console user may call. */
 export function consoleRpcOperationSection(name: string, input: unknown = {}): string | false | undefined {
@@ -173,9 +164,34 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
   }
 }
 
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
+
+function isLoopbackHost(host: string | null): boolean {
+  if (!host) return false
+  const name = (host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "")).toLowerCase()
+  return loopbackHosts.has(name) || name.endsWith(".localhost")
+}
+
+function isLoopbackAddress(address: string): boolean {
+  return address === "::1" || address === "127.0.0.1" || address.startsWith("127.") || address.startsWith("::ffff:127.")
+}
+
+/**
+ * `vite dev` with no sign-in (the `local` or `open` access) trusts anyone who can reach it, so it serves only this
+ * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
+ */
+function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
+  if ((context.access.mode !== "local" && context.access.mode !== "open") || !developmentRuntime()) return
+  const hostHeader = request.headers.get("host") ?? url.host
+  const forwarded = request.headers.get("x-forwarded-host")
+  if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
+  throw consoleRequestError(403, "The development Console without sign-in accepts only requests from this machine. Set console.auth to open it to others.", "CONSOLE_LOOPBACK_ONLY")
+}
+
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  assertLoopbackWithoutSignIn(request, url, context)
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
@@ -224,12 +240,31 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
 export async function handleConsoleRpcRequest(request: Request, context: ConsoleRpcContext): Promise<Response> {
   const response: ConsoleOperationContext["response"] = {}
   const body = await result(() => callConsoleOperation(request, { ...context, response }))
-  return Response.json(body, { headers: responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
+  // The local dev RPC names its project, so a command can tell that it reached the wrong dev server.
+  const root = context.access.mode === "local" ? installedConsoleProjectRoot() : undefined
+  return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
+}
+
+function readPath(value: unknown, ...path: string[]): unknown {
+  let current = value
+  for (const key of path) current = current instanceof Object ? Reflect.get(current, key) : undefined
+  return current
+}
+
+/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
+function eventRemoteAddress(event: H3Event): string | undefined {
+  const candidates = [
+    readPath(event, "req", "ip"),
+    readPath(event, "req", "context", "clientAddress"),
+    readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
+    readPath(event, "node", "req", "socket", "remoteAddress"),
+  ]
+  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }
 
 const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
+  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
 }, { anySection: true }))
 

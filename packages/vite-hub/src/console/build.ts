@@ -116,7 +116,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
-  const contributed = collectOperationContributions(await flattenPluginOptions(options.plugins))
+  const contributed = await collectOperationContributions(await flattenPluginOptions(options.plugins))
   await assertUniqueOperationNames(contributed)
   const operations = contributed.filter(contribution => contribution.runtime !== false)
   return { agents, content, documents, manualSchedules, operations }

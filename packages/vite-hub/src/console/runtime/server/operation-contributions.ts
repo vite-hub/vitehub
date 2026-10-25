@@ -1,6 +1,8 @@
 import { createOperationRegistry, installOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
 
-import type { AnyOperation } from "@vite-hub/internal/operations"
+import { consoleOperations } from "./operations.ts"
+
+import type { AnyOperation, OperationRegistry } from "@vite-hub/internal/operations"
 
 export interface ConsoleOperationContribution {
   /** The export of the contributed module: one operation or a list of them. */
@@ -14,16 +16,36 @@ interface InstalledContribution {
 }
 
 const contributionKey: unique symbol = Symbol.for("vitehub.console.operations")
-const scope = globalThis as typeof globalThis & { [contributionKey]?: readonly InstalledContribution[] }
+const rootKey: unique symbol = Symbol.for("vitehub.console.project-root")
+const scope = globalThis as typeof globalThis & { [contributionKey]?: { contributed: readonly InstalledContribution[], registry: OperationRegistry }, [rootKey]?: string }
 
-/** Install the operations that Vite plugins contribute. Generated Console output calls this. */
-export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[]): void {
+let builtin: OperationRegistry | undefined
+
+/**
+ * Install the operations of the app: the ones `vite-hub` owns and the ones that Vite plugins contribute. The generated
+ * Console plugin calls this when the server starts, so agent tools see the operations before any RPC call.
+ */
+export function installConsoleOperations(contributed: readonly ConsoleOperationContribution[] = []): OperationRegistry {
   const installed = contributed.map(entry => ({ operations: operationsOf(entry.operations), ...(entry.plugin ? { plugin: entry.plugin } : {}) }))
-  scope[contributionKey] = installed
-  // Agent capabilities that run before the first RPC call read the contributed operations from here.
-  installOperationRegistry(createOperationRegistry(installed))
+  const registry = createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }, ...installed])
+  scope[contributionKey] = { contributed: installed, registry }
+  installOperationRegistry(registry)
+  return registry
 }
 
-export function installedConsoleOperations(): readonly InstalledContribution[] | undefined {
-  return scope[contributionKey]
+/** The installed operations. Without an install, the operations of `vite-hub`, built once. */
+export function consoleOperationRegistry(): OperationRegistry {
+  const installed = scope[contributionKey]
+  if (installed) return installed.registry
+  builtin ??= createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }])
+  return builtin
+}
+
+/** Record the project root that this server runs. The local dev RPC names it in a response header. */
+export function installConsoleProjectRoot(projectRoot: string): void {
+  scope[rootKey] = projectRoot
+}
+
+export function installedConsoleProjectRoot(): string | undefined {
+  return scope[rootKey]
 }

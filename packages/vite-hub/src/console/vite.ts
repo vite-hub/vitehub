@@ -8,9 +8,10 @@ import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
+import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import type { ViteHubCliContributingPlugin } from "@vite-hub/internal/cli"
 import type { OperationContributingPlugin } from "@vite-hub/internal/operations"
-import type { Environment, Plugin, ResolvedConfig } from "vite"
+import type { Environment, Plugin, ResolvedConfig, ViteDevServer } from "vite"
 import { isConsoleConnectionsEnabled, type ConsoleSectionId } from "./runtime/sections.ts"
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
@@ -804,6 +805,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       },
     },
     configureServer(server) {
+      publishDevServer(server)
       if (fixture) server.watcher.add(fixture)
       if (consoleAuthHandlers?.clientSources.length) server.watcher.add(consoleAuthHandlers.clientSources)
       const refresh = async (path: string) => {
@@ -838,6 +840,37 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     },
   }
   return plugin
+}
+
+/**
+ * Tell `vitehub` commands where this dev server listens: `.vitehub/dev-server.json` in the project root, removed when
+ * the server closes. A host that runs Vite in middleware mode has no listening server and writes nothing.
+ */
+function publishDevServer(server: ViteDevServer): void {
+  const http = server.httpServer
+  if (!http) return
+  const root = resolve(server.config.root)
+  const write = () => {
+    const url = server.resolvedUrls?.local[0]
+    if (!url) return
+    try {
+      writeViteHubDevServerFile(root, { root, url })
+    }
+    catch {
+      // A read-only project root only means commands must pass --url.
+    }
+  }
+  const remove = () => {
+    try {
+      removeViteHubDevServerFile(root)
+    }
+    catch {
+      // The file is advisory.
+    }
+  }
+  if (http.listening) write()
+  else http.once("listening", write)
+  http.once("close", remove)
 }
 
 function normalizeModuleId(id: string): string {
