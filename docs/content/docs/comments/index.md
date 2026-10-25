@@ -1,0 +1,32 @@
+---
+title: Comments
+navigation.title: Overview
+description: Store the comment threads of your running app, check who may read and write them, and read them from the Console, the CLI, and agents.
+navigation.order: 1
+icon: i-lucide-message-square
+---
+
+Comments let a signed-in team member leave a numbered note on any spot of your own running app, and let the team reply. This package is the server half: tables, access rules, and the `comments.*` [operations](/docs/development/operations). The browser half is in [UI comments](/docs/ui/comments).
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+export default defineComments({
+  authorize: ({ user }) => Boolean(user),
+})
+```
+
+Add the file and ViteHub does the rest:
+
+- It adds the `vitehub_comment_threads` and `vitehub_comment_messages` tables to your Database.
+- It adds the operations `comments.list`, `get`, `create`, `reply`, `edit`, `delete`, `resolve`, `reopen`, and `users`. The Console, `vitehub comments list`, the [MCP endpoint](/docs/development/mcp), and the browser client call the same code.
+- It adds a **Comments** section to the [Console](/docs/development/console) with every thread of the site and a link to its page.
+
+Comments are private. Without an `authorize` policy nobody can read or write them, and the Console says so.
+
+## Next steps
+
+- [Get started](/docs/comments/get-started) adds comments to an app.
+- [Configure](/docs/comments/configure) covers `authorize`, subjects, mentions, and the Database.
+- [Server API](/docs/comments/server-api) lists the operations and the browser transport.
+- [Limits and errors](/docs/comments/limits-and-errors) lists the limits and the error codes.

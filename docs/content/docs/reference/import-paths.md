@@ -54,6 +54,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. |
+| `vite-hub/comments`, `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, `vite-hub/comments/database`, and `vite-hub/comments/database/postgres` | Comment policy and subjects, the client and anchors, the browser transport, the runtime, and the tables. See [Comments](/docs/comments). |
 | `vite-hub/content`, `vite-hub/content/client`, `vite-hub/content/database`, `vite-hub/content/editor`, and `vite-hub/content/realtime` | Comark Content definition, editable document collections and every field helper (`image()`, `file()`, `seo()`, `optional()`), Source adaptation, generated runtime handler, typed client, editor codecs, realtime collaboration, and the sessions table schema. |
 | `vite-hub/content/presets/cms` | The `cms` preset that stores document collections on a contributed Workspace. |
 | `vite-hub/auth` and `vite-hub/auth/server` | Auth Definitions and server runtime helpers. |
@@ -171,6 +172,8 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/comments`, `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, `@vite-hub/comments/database`, and `@vite-hub/comments/database/postgres` | Comments Package | Comment policy and subjects, the client and anchors, the browser transport, the runtime, and the tables. |
+| `@vite-hub/comments/operations` and `@vite-hub/comments/runtime/console` | Comments Package | The `comments.*` operations and the Console inbox reader. The framework distribution imports them for you. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
 | `@vite-hub/content/presets/cms` | Content Package | The `cms` preset that stores document collections on a contributed Workspace. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
@@ -228,6 +231,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
 | `@vite-hub/connections/vite` | Register Connection Definition discovery and the generated runtime module. |
+| `@vite-hub/comments/vite` | Register the comment tables, the `comments.*` operations, the Console section, and the runtime plugin. |
 | `@vite-hub/content/vite` | Register the `vitehub content` commands, the Content operations, and the Content inspector. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Configure one built-in Email provider and generate its runtime binding. |
