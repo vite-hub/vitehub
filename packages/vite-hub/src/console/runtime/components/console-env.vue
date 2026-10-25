@@ -141,6 +141,7 @@ async function refresh(includeStatus = false) {
     if (current.signal.aborted) return;
     if (includeStatus && entries.value.length) {
       statuses.value = undefined;
+      attentionOnly.value = false;
       statusFailed.value = true;
     }
     else failed.value = cause;
