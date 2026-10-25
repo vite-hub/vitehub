@@ -281,6 +281,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * `schema`. Narrow an entry with `kind`. Empty without `collections`.
    */
   collections(): AnyContentCollection[]
+  /** The revision id at the head of a ref, or null before the first revision. It changes with every save and publish. */
+  head(ref: ContentRef): Promise<string | null>
   /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
   collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
@@ -519,6 +521,7 @@ export function defineContent<
       })
     },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+    head: async ref => documentsRuntime ? await documentsRuntime.head(ref) : null,
     // SAFETY: Each method forwards its arguments unchanged, so the overloads of ContentSessions hold.
     sessions: {
       report: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.report, undefined, args),

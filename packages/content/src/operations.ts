@@ -33,7 +33,7 @@ import type {
 } from "./results.ts"
 
 /** The parts of a `defineContent()` runtime that the operations use. */
-type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
+type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
 
 const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
@@ -302,6 +302,45 @@ function normalizeUrl(value: string): string {
   return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path
 }
 
+/**
+ * The pattern of a `url` string as a regular expression over the encoded path. A `:name` token is any text, and an id may
+ * hold slashes. A `url()` function can produce any path, so it has no pattern.
+ */
+function routePattern(collection: AnyContentCollection): RegExp | null {
+  if (collection.urlPattern === undefined) return null
+  const source = collection.urlPattern.split(/(:[A-Za-z_$][\w$]*)/).map((part, index) => index % 2 ? ".+" : part.replaceAll(/[$()*+.?[\\\]^{|}]/g, "\\$&")).join("")
+  return new RegExp(`^${source}$`)
+}
+
+/** Paths of the documents of one collection, as of one draft head. Rebuilt only when the head moves. */
+interface PathIndex {
+  byPath: Map<string, string>
+  head: string
+}
+
+const pathIndexes = new WeakMap<object, Map<string, PathIndex>>()
+
+/** Every document of the collection with a URL, from full pages of summaries (no bodies). One list per head. */
+async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection): Promise<Map<string, string>> {
+  // A stand-in runtime without head() builds the index each time.
+  const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.("draft") ?? null
+  const cached = pathIndexes.get(content)?.get(collection.name)
+  if (head !== null && cached?.head === head) return cached.byPath
+  const byPath = new Map<string, string>()
+  let cursor: string | undefined
+  do {
+    const page = await collection.list({ limit: 1_000, ref: "draft", ...(cursor === undefined ? {} : { cursor }) })
+    for (const item of page.items) if (item.url !== undefined && item.url !== null) byPath.set(normalizeUrl(item.url), item.id)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
+  if (head !== null) {
+    const indexes = pathIndexes.get(content) ?? new Map<string, PathIndex>()
+    indexes.set(collection.name, { byPath, head })
+    pathIndexes.set(content, indexes)
+  }
+  return byPath
+}
+
 const resolveDocument = defineOperation({
   cli: { command: "resolve", positional: ["path"] },
   description: "Find the document whose public URL is a path, for the Edit button of the comments overlay. Null when no readable document has it.",
@@ -312,16 +351,11 @@ const resolveDocument = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const wanted = normalizeUrl(input.path)
-    for (const collection of await readableCollections(content, access)) {
-      let cursor: string | undefined
-      // A bounded scan: collections that are routable list their public URL with each item.
-      for (let pageIndex = 0; pageIndex < 20; pageIndex++) {
-        const page = await collection.list({ limit: 100, ref: "draft", ...(cursor === undefined ? {} : { cursor }) })
-        const found = page.items.find(item => item.url !== undefined && item.url !== null && normalizeUrl(item.url) === wanted)
-        if (found && (await access.readable(collection.name, [found.id])).has(found.id)) return { collection: collection.name, id: found.id }
-        if (!page.nextCursor) break
-        cursor = page.nextCursor
-      }
+    // A collection whose `url` pattern cannot produce the path is not listed at all.
+    const candidates = (await readableCollections(content, access)).filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
+    for (const collection of candidates) {
+      const id = (await pathIndexOf(content, collection)).get(wanted)
+      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
     }
     return null
   }),
