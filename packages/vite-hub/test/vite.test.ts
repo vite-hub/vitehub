@@ -280,7 +280,7 @@ describe("vitehub", () => {
     expect(config.nitro).toMatchObject({ serverDir: "server" })
   })
 
-  it.each(["custom-server", false])("preserves file-based Nitro serverDir %s", async (serverDir) => {
+  it.each(["custom-server", false] as const)("preserves file-based Nitro serverDir %s", async (serverDir) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-server-dir-"))
     try {
       await writeFile(join(root, "nitro.config.ts"), `export default { serverDir: ${JSON.stringify(serverDir)} }`)
