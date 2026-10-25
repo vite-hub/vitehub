@@ -123,7 +123,7 @@ describe("task operations", () => {
   it("names task.list and task.run under `vitehub task`", () => {
     expect(taskOperations.map(({ kind, name, section }) => ({ kind, name, section }))).toEqual([
       { kind: "read", name: "task.list", section: "tasks" },
-      { kind: "write", name: "task.run", section: "tasks" },
+      { kind: "destructive", name: "task.run", section: "tasks" },
     ])
     expect(taskOperations.map(operationCliPath)).toEqual([{ command: "list", namespace: "task" }, { command: "run", namespace: "task" }])
   })

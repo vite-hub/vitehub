@@ -103,6 +103,12 @@ export interface OperationDefinition<Input, Output> {
     format?: (output: Output) => string
     /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
     default?: boolean
+    /**
+     * Route of the app that takes a signed dispatch of this operation, such as `/_vitehub/schedules/run`. With `--url`
+     * and a dispatch key in the environment (`VITEHUB_DISPATCH_KEY`), the command signs the input and posts it there, so
+     * a CI job needs no Console credentials. Without a key it calls the RPC.
+     */
+    dispatch?: string
   }
   /** Largest request body in bytes. It can raise the 64 KiB default but not lower it. */
   maxRequestBytes?: number
@@ -113,13 +119,18 @@ export interface OperationDefinition<Input, Output> {
   readOnlyWhen?: (input: Input) => boolean
   /** `false`: the operation never reads `context.user`, so the Console skips the session lookup for it. */
   user?: false
+  /**
+   * The operation runs code of the app, such as a workflow, a job, a task, or a schedule. The Console registers it only
+   * when `console.invoke` is on, which is the default in development and off in a production build.
+   */
+  invoke?: true
   run: (input: Input, context: OperationContext) => Output | Promise<Output>
 }
 
 /** An operation of any input and output, as a registry holds it. */
 export interface AnyOperation extends Omit<OperationDefinition<unknown, unknown>, "cli" | "input" | "output" | "readOnlyWhen" | "run" | "section"> {
   readOnlyWhen?: (input: never) => boolean
-  cli?: { namespace?: string, command?: string, default?: boolean, positional?: string[], format?: (output: never) => string }
+  cli?: { namespace?: string, command?: string, default?: boolean, dispatch?: string, positional?: string[], format?: (output: never) => string }
   input: StandardSchemaV1
   output?: StandardSchemaV1
   run: (input: never, context: OperationContext) => unknown

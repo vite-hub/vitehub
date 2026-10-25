@@ -43,6 +43,11 @@ describe("schedule operations", () => {
     ])
   })
 
+  it("lets `schedule run --url` sign a dispatch, and only that operation runs app code", () => {
+    expect(scheduleOperations.find(operation => operation.name === "schedule.run")?.cli?.dispatch).toBe("/_vitehub/schedules/run")
+    expect(scheduleOperations.filter(operation => operation.invoke).map(operation => operation.name)).toEqual(["schedule.run"])
+  })
+
   it("list runs newest first with a limit and redact error messages", async () => {
     const handler = () => {
       throw new Error("Request to https://user:hunter2@example.test failed")
@@ -55,6 +60,8 @@ describe("schedule operations", () => {
     expect(result).toMatchObject({ ok: true, value: { runs: [{ scheduledAt: "2026-05-22T09:00:00.000Z", status: "failed" }] } })
     expect(JSON.stringify(result)).not.toContain("hunter2")
     expect(await call("runs", { id: "digest", limit: 0 })).toMatchObject({ ok: false, status: 400 })
+    expect(await call("runs", { id: "digest", limit: 101 })).toMatchObject({ ok: false, status: 400 })
+    expect(await call("runs", { id: "digest", limit: 100 })).toMatchObject({ ok: true })
     expect(await call("runs", {})).toMatchObject({ ok: false, status: 400 })
   })
 

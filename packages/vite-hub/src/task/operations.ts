@@ -28,7 +28,9 @@ const run = defineTaskOperation<{ name: string, payload?: Record<string, unknown
     name: v.pipe(v.string(), v.minLength(1)),
     payload: v.optional(v.record(v.string(), v.unknown())),
   }),
-  kind: "write",
+  invoke: true,
+  // A task can be a seed or a reset, so the CLI asks for `--yes` and agents need approval.
+  kind: "destructive",
   name: "task.run",
   run: async ({ name, payload }) => (await runtime()).runNamedTask(name, payload),
 })

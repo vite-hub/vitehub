@@ -22,6 +22,7 @@ const start = defineWorkflowOperation<{ payload?: unknown, workflow: string }, W
   cli: { positional: ["workflow"] },
   description: "Start a Workflow run by name. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), workflow: name }),
+  invoke: true,
   kind: "write",
   maxRequestBytes,
   name: "workflow.start",

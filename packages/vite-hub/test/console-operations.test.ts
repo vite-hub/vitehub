@@ -45,6 +45,39 @@ afterEach(() => {
   installConsoleOperations([])
 })
 
+describe("operations that run app code", () => {
+  const start = defineOperation({
+    description: "Start a job.",
+    input: v.strictObject({}),
+    invoke: true,
+    kind: "write",
+    name: "fixture.start",
+    run: () => ({ started: true }),
+    section: "fixture",
+  })
+
+  it("registers them only when console.invoke is on", async () => {
+    installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: false })
+    expect(consoleOperationRegistry().list().map(operation => operation.name)).toEqual(expect.arrayContaining(["fixture.greet"]))
+    expect(consoleOperationRegistry().get("fixture.start")).toBeUndefined()
+    const refused = await call("fixture.start")
+    expect(refused.status).toBe(404)
+
+    installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
+    expect(consoleOperationRegistry().get("fixture.start")).toBeDefined()
+    await expect((await call("fixture.start")).json()).resolves.toEqual({ ok: true, value: { started: true } })
+  })
+
+  it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
+    const { workflowOperations } = await import("@vite-hub/workflow/operations")
+    const { queueOperations } = await import("@vite-hub/queue/operations")
+    const { scheduleOperations } = await import("@vite-hub/schedule/operations")
+    const { taskOperations } = await import("../src/task/operations.ts")
+    const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
+    expect(invoking).toEqual(["queue.send", "schedule.run", "task.run", "workflow.start"])
+  })
+})
+
 describe("contributed operations over the Console RPC", () => {
   it("runs an operation that a plugin contributed", async () => {
     installConsoleOperations([{ operations: [greet, secret], plugin: "fixture-plugin" }])

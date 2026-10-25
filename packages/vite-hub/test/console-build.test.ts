@@ -77,7 +77,7 @@ describe("Console build id", () => {
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
       expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`)
-      expect(await readFile(file, "utf8")).toContain("installConsoleOperations([])")
+      expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
       await rm(root, { force: true, recursive: true })

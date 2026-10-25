@@ -32,6 +32,7 @@ const send = defineQueueOperation<QueueSendOperationInput, QueueSendOperationRes
     payload: v.unknown(),
     queue: v.pipe(v.string(), v.minLength(1)),
   }),
+  invoke: true,
   kind: "write",
   name: "queue.send",
   run: async input => (await runtime()).sendToQueue(input),

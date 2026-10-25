@@ -113,5 +113,5 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
 /** Only a signed dispatch runs here. A person or a CLI runs a Schedule through the `schedule.run` operation. */
 const dispatchHandler = async (event: H3Event): Promise<Response> => hasViteHubDispatch(event.req.headers)
   ? await handleDispatchScheduleRunRequest(event.req, getCloudflareEnv(event, { fallback: false }))
-  : failure("This route takes signed dispatches only. Run a Schedule with `vitehub schedule run <name>`, or sign the request with VITEHUB_DISPATCH_KEY.", 401)
+  : failure("This route takes signed dispatches only. Sign the request with VITEHUB_DISPATCH_KEY (`vitehub secret derive vitehub:dispatch` prints it), or run the Schedule through the Console RPC with Console credentials. `vitehub schedule run <name> --url <origin>` does either.", 401)
 export default dispatchHandler

@@ -48,7 +48,7 @@ function defineScheduleOperation<Input, Output>(definition: Omit<OperationDefini
 const runs = defineScheduleOperation<{ id: string, limit?: number }, ScheduleRunsResult>({
   cli: { command: "runs", format: formatRuns, namespace: "schedule", positional: ["id"] },
   description: "List the recorded runs of one Schedule Definition, newest first.",
-  input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))) }),
+  input: v.object({ id, limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100))) }),
   kind: "read",
   name: "schedule.runs",
   run: async input => await (await runtime()).runScheduleRuns(input),
@@ -64,9 +64,10 @@ const attempts = defineScheduleOperation<{ id: string }, ScheduleAttemptsResult>
 })
 
 const run = defineScheduleOperation<{ name: string }, ScheduleRunResult>({
-  cli: { command: "run", format: formatRun, namespace: "schedule", positional: ["name"] },
+  cli: { command: "run", dispatch: "/_vitehub/schedules/run", format: formatRun, namespace: "schedule", positional: ["name"] },
   description: "Run a Static Schedule Definition now. The definition must set `manual: true`.",
   input: v.object({ name: id }),
+  invoke: true,
   kind: "write",
   name: "schedule.run",
   run: async input => await (await runtime()).runScheduleNow(input),

@@ -83,7 +83,7 @@ describe("Console data route contract", () => {
     const route = (await import("../src/console/runtime/server/schedule-run.ts")).default
     const response = await route(event() as never)
     expect(response.status).toBe(401)
-    await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("signed dispatches only") })
+    await expect(response.json()).resolves.toMatchObject({ message: expect.stringMatching(/signed dispatches only.*VITEHUB_DISPATCH_KEY.*Console credentials/) })
   })
 })
 
