@@ -39,7 +39,7 @@ export function authEventDevice(agent: string | null | undefined): AuthDevice {
 }
 
 /** Compose with Better Auth's own hook pipeline, including direct auth.api calls. */
-export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin & { captureOutcome: (ctx: GenericEndpointContext) => void } {
+export function createAuthEventsPlugin(options: AuthEventsConfiguration): BetterAuthPlugin & { captureOutcome: (ctx: unknown) => void } {
   const outcomes = new WeakMap<object, unknown>()
   const challenges = new WeakSet<object>()
   const wrappedAdapters = new WeakSet<object>()
@@ -61,7 +61,11 @@ export function createAuthEventsPlugin(options: AuthEventsConfiguration): Better
   }
   return {
     id: "vitehub-auth-events",
-    captureOutcome(ctx) { outcomes.set(ctx.context, ctx.context.returned) },
+    captureOutcome(ctx) {
+      // Better Auth passes dispatch state to after-hooks outside the public middleware input type.
+      const context = record(ctx).context
+      if (context !== null && typeof context === "object") outcomes.set(context, record(context).returned)
+    },
     init: () => ({ options: { databaseHooks: {
       user: {
         create: { async after(user, ctx) {

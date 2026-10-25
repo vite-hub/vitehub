@@ -341,7 +341,7 @@ Opt in with `events: { store: createDatabaseAuthEventStore({ db }) }` in `define
 
 The default retention is 90 days and 100,000 records, with cleanup after each append. Override `retention.maxAgeMs` or `retention.maxRecords`, or use `retention: false`. IP addresses are discarded. User agents become a coarse device class. Admin updates store field names, not secret values.
 
-Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vite-hub/auth/server`, or use the store directly. Lists use cursor pagination and one SQL query after initialization. Aggregates use two queries and count distinct users over the whole window. `@vite-hub/auth/runtime/console` exports these readers and `readAuthEventConsoleRecords` for the Console. No Console UI is added.
+Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vite-hub/auth/server`, or use the store directly. Lists use cursor pagination and one SQL query after initialization. Aggregates use one statement for a consistent snapshot and count distinct users over the whole window. `@vite-hub/auth/runtime/console` exports these readers and `readAuthEventConsoleRecords` for the Console. No Console UI is added.
 
 For `vitehub auth events`, configure `events.authorize`. The read endpoint requires a session and an explicit `true` result. Give the CLI the Auth base URL with `--url`, and the session cookie through `VITEHUB_AUTH_COOKIE`.
 

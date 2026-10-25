@@ -61,7 +61,7 @@ Pass an Auth Definition as the second argument when it is not discovered by Vite
 
 `list()` accepts `type`, `userId`, `actor`, `from`, `to`, `cursor`, and `limit`. Combine filters with AND. `from` is inclusive and `to` is exclusive. Times are ISO timestamps, returned in UTC. Keep the same filters on each page. The default limit is 50, and the maximum is 200. Events are ordered by time and then ID, newest first. The cursor contains both values, so it still works after retention removes its event. New events do not shift later pages.
 
-After initialization, a list call runs one SQL query. An aggregate call runs two. Neither loads user records. Indexes cover time, type, subject user, and actor. Aggregates accept a window of at most 366 days and return UTC days, including days with zero events, plus totals for the full window:
+After initialization, a list call runs one SQL query. An aggregate call runs one statement so all counts share a snapshot. Neither loads user records. Indexes cover time, type, subject user, and actor. Aggregates accept a window of at most 366 days and return UTC days, including days with zero events, plus totals for the full window:
 
 ```ts
 {

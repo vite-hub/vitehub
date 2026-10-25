@@ -76,7 +76,7 @@ function stripViteHubOptions(
         // Capture the endpoint outcome before application/plugin after-hooks replace it.
         eventPlugin.captureOutcome(args[0])
         return after(...args)
-      }, { options: after.options }) },
+      }, after) },
     } : {}),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),

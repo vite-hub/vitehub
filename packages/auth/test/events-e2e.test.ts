@@ -130,7 +130,21 @@ describe("auth events with real Better Auth and Node SQLite", () => {
   it.each([false, true])("records secondary-storage deletions once (database: %s)", async (storeSessionInDatabase) => {
     const values = new Map<string, string>()
     const app = await setup({
-      secondaryStorage: { get: async key => values.get(key) ?? null, set: async (key, value) => { values.set(key, value) }, delete: async key => { values.delete(key) } },
+      secondaryStorage: {
+        get: async key => values.get(key) ?? null,
+        set: async (key, value) => { values.set(key, value) },
+        delete: async key => { values.delete(key) },
+        getAndDelete: async (key) => {
+          const value = values.get(key) ?? null
+          values.delete(key)
+          return value
+        },
+        increment: async (key) => {
+          const value = Number(values.get(key) ?? 0) + 1
+          values.set(key, String(value))
+          return value
+        },
+      },
       session: storeSessionInDatabase ? { storeSessionInDatabase: true } : {},
     })
     const user = await app.signUp("secondary")
