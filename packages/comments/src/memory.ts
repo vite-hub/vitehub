@@ -40,7 +40,12 @@ interface Store {
   ids: number
 }
 
-const copy = <T>(value: T): T => structuredClone(value)
+// Callers may hand over reactive proxies, which `structuredClone` rejects. Comments are JSON by contract.
+function copy<T>(value: T): T {
+  // SAFETY: `JSON.parse` returns what `JSON.stringify` wrote, which has the shape of `value`.
+  const clone: T = JSON.parse(JSON.stringify(value))
+  return clone
+}
 
 function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
   return a.kind === b.kind && a.id === b.id
