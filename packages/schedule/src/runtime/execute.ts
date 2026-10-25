@@ -46,14 +46,20 @@ export function toRunId(source: ExecuteScheduleOptions["source"], scheduleId: st
 export { isScheduleDate, validateScheduledAt } from "./date.ts"
 
 function toRunError(error: unknown): ScheduleRunError {
-  if (error instanceof Error) {
-    return {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
+  try {
+    if (error instanceof Error) {
+      return {
+        message: error.message,
+        name: error.name,
+        stack: error.stack,
+      }
     }
+    return { message: String(error) }
   }
-  return { message: String(error) }
+  catch {
+    // Error reporting must not prevent the run and attempt from reaching failed.
+    return { message: "[unprintable thrown value]" }
+  }
 }
 
 function requireUpdatedRun(run: ScheduleRunRecord | undefined): ScheduleRunRecord {
