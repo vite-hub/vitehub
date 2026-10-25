@@ -2,7 +2,7 @@ import { glob as tinyglobby } from "tinyglobby"
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
-import { matchesAny } from "./path.ts"
+import { createPathMatcher } from "./path.ts"
 
 import type { FileSource, SourceContext, SourceFile } from "../core/types.ts"
 
@@ -45,9 +45,11 @@ export async function collectGlobFiles(rootDir: string, options: GlobSourceOptio
     ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
     onlyFiles: true,
   })
+  const matchesInclude = createPathMatcher(include)
+  const matchesIgnore = createPathMatcher(ignore)
   let keys = files
     .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
-    .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
+    .filter(file => matchesInclude(file) && !matchesIgnore(file))
   if (options.followSymlinks) {
     const rooted: string[] = []
     for (const key of keys) {
