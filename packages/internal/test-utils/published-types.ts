@@ -1,20 +1,22 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
-interface PackedManifest {
-  private?: boolean
-  dependencies?: Record<string, string>
-  optionalDependencies?: Record<string, string>
-  peerDependencies?: Record<string, string>
-  peerDependenciesMeta?: Record<string, { optional?: boolean }>
-}
+import { boolean, object, optional, parse, record, string } from "valibot"
+
+const packedManifestSchema = object({
+  private: optional(boolean()),
+  dependencies: optional(record(string(), string())),
+  optionalDependencies: optional(record(string(), string())),
+  peerDependencies: optional(record(string(), string())),
+  peerDependenciesMeta: optional(record(string(), object({ optional: optional(boolean()) }))),
+})
 
 // Follow installed dependencies so an unpublished version never falls back to npm.
 // Optional peers stay absent unless the consumer explicitly selects them.
 export async function packedWorkspacePackages(workspaceRoot: string, names: readonly string[]): Promise<string[]> {
   const packages = new Set(names)
   for (const name of packages) {
-    const manifest: PackedManifest = JSON.parse(await readFile(join(workspaceRoot, "packages", name, "package.json"), "utf8"))
+    const manifest = parse(packedManifestSchema, JSON.parse(await readFile(join(workspaceRoot, "packages", name, "package.json"), "utf8")))
     if (manifest.private) throw new Error(`Cannot pack private workspace package ${name}`)
     const dependencies = {
       ...manifest.dependencies,
