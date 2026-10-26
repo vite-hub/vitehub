@@ -92,7 +92,6 @@ import type {
   WorkspaceSessionHostFileEntry,
   WorkspaceSessionOptions,
 } from "@vite-hub/workspace"
-import { agentProviderCleanupTask } from "./internal/provider-cleanup-task.ts"
 import { sandboxSharesHostNetwork, setActiveProviderSandbox, openProviderSandbox, providerSandboxEnvironment, startProviderSandboxRelay } from "./internal/provider-box.ts"
 import type { ProviderSandboxRelay, ProviderSandboxSession } from "./internal/provider-box.ts"
 import type { SandboxDefinition, SandboxToolchain } from "@vite-hub/sandbox"
@@ -3053,7 +3052,6 @@ async function* runProvider<
   let clearActiveWorkspaceCommands: (() => void) | undefined
   let clearActiveWorkspaceFiles: (() => void) | undefined
   const observeLateCleanup = (cleanup: Promise<void>) => {
-    Object.defineProperty(cleanup, agentProviderCleanupTask, { value: true })
     void cleanup.catch(() => undefined)
     try {
       context.runtime.waitUntil(cleanup)
