@@ -9,6 +9,7 @@ import type {
   SandboxSession,
 } from "../index.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
+import { shellQuote } from "./shell-quote.ts";
 
 export interface RuntimeProcess {
   readonly pid?: number;
@@ -293,10 +294,6 @@ function commandLine(command: string, args: readonly string[]) {
   return args.length === 0
     ? command
     : [shellQuote(command), ...args.map(shellQuote)].join(" ");
-}
-
-function shellQuote(value: string) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 function assertPort(port: number) {
