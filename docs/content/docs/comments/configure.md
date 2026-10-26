@@ -121,7 +121,7 @@ When the app has the [Console](/docs/development/console), the people of Comment
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub/vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
   plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } })],

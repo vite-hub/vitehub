@@ -9,7 +9,7 @@ import type { CommentsDatabase, CommentsStore } from "../store.ts"
 import type { Comment, CommentForgeLink, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
 import type { GitHubClient } from "./github.ts"
 
-const { commentForge: links } = commentsSchema
+const { vitehubCommentForge: links } = commentsSchema
 
 type LinkRow = typeof links.$inferSelect
 

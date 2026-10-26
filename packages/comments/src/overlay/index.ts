@@ -139,6 +139,12 @@ class CommentsOverlay extends HTMLElement {
       return
     }
     if (!session.can.read) {
+      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
+      // route already cleared the cookie.
+      if (!new URLSearchParams(location.search).has(commentsHintQuery)) {
+        this.exit()
+        return
+      }
       this.showDenied(session)
       return
     }

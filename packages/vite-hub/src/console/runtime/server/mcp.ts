@@ -1,3 +1,4 @@
+import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
@@ -15,7 +16,8 @@ export const viteHubMcpProtocolVersions: readonly string[] = ["2025-11-25", "202
 const maximumBodyBytes = 256 * 1_024
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
 
-const instructions = "ViteHub MCP gives Agents the server primitives of this app, with the access of the signed-in Console user. Comments tools read the threads that the team left on the app's pages, with the page, element, Vue components, and source files of each one; reply after you change the code, then resolve the thread."
+// Each tool says how to use it. This text stays the same for every owner package, so the Console owns no workflow.
+const instructions = "ViteHub MCP gives Agents the server primitives of this app, with the Console access of the person who connects. tools/list shows only the tools of the Console sections that this person may use. Each tool description says when to use it."
 
 type JsonRpcId = string | number | null
 
@@ -46,7 +48,8 @@ function allowedTools(access: ConsoleAccess): ViteHubMcpTool[] {
 }
 
 async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Response> {
-  const request = event.req
+  // Nuxt 4's H3 1 events carry Node's request, with a relative URL and the body as a stream.
+  const request = isH3V1Event(event) && !(Reflect.get(event, "req") instanceof Request) ? toH3V1Request(event) : event.req
   if (request.method !== "POST") {
     return Response.json({ message: "ViteHub MCP accepts JSON-RPC requests with POST." }, { headers: { ...headers, allow: "POST" }, status: 405 })
   }

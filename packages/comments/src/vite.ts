@@ -165,6 +165,31 @@ export async function readCommentsBuild(root: string, env: Record<string, string
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
 
+const pascal = (segment: string): string => segment.replace(/(?:^|[-_.\s]+)(\w)/g, (_, letter: string) => letter.toUpperCase())
+
+/**
+ * The names that a production build may give the component of a `.vue` file: its file name, which `<script setup>`
+ * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`; under `components/`, the
+ * Nuxt name, such as `ViewerThread` for `components/viewer/Thread.vue`.
+ */
+export function componentNames(file: string): string[] {
+  const names = new Set([basename(file, ".vue")])
+  const parts = file.replace(/\.vue$/, "").split("/")
+  const pages = parts.lastIndexOf("pages")
+  if (pages !== -1) {
+    const route = parts.slice(pages + 1).filter(part => part !== "index" && !/^\(.*\)$/.test(part)).map(part => part.replace(/[[\].]/g, "")).join("-")
+    names.add(route || "index")
+  }
+  const directory = parts.lastIndexOf("components")
+  if (directory !== -1) {
+    const segments = parts.slice(directory + 1).map(pascal)
+    const last = segments.pop()!
+    const prefix = segments.join("")
+    names.add(last.startsWith(prefix) ? last : `${prefix}${last}`)
+  }
+  return [...names]
+}
+
 /**
  * The Vue files of a project by component name, relative to the project root. `<script setup>` components carry the
  * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
@@ -181,8 +206,11 @@ export async function readCommentsComponents(root: string, limit = 5000): Promis
       if (entry.isDirectory()) await walk(path, depth + 1)
       else if (entry.isFile() && entry.name.endsWith(".vue") && count < limit) {
         count++
-        const name = basename(entry.name, ".vue")
-        ;(components[name] ??= []).push(relative(root, path).split(sep).join("/"))
+        const file = relative(root, path).split(sep).join("/")
+        for (const name of componentNames(file)) {
+          const files = components[name] ??= []
+          if (!files.includes(file)) files.push(file)
+        }
       }
     }
   }
