@@ -1,7 +1,8 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import { blobMcpTools } from "./blob-mcp.ts"
 import { resolve } from "node:path"
 
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+
+import { blobMcpTools } from "./blob-mcp.ts"
 import { installConsoleBlobScope, resolveConsoleBlob } from "../../internal.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"

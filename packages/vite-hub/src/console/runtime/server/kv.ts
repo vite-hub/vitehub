@@ -1,7 +1,8 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import { kvMcpTools } from "./kv-mcp.ts"
 import { resolve } from "node:path"
 
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+
+import { kvMcpTools } from "./kv-mcp.ts"
 import { installConsoleKVScope, resolveConsoleKV } from "../../internal.ts"
 
 import type { KVStorage } from "@vite-hub/kv"

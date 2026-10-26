@@ -1,5 +1,6 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { readViteHubConsoleActionFailure } from "@vite-hub/internal/console"
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+
 import type { ViteHubConsoleDocumentActions } from "@vite-hub/internal/console"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 
@@ -100,7 +101,6 @@ export function contentMcpTools(load: () => Promise<Actions>): ViteHubMcpTool[] 
     },
   }))
 }
-
 
 /** Registers Content tools at Console startup without loading the application module. */
 export function registerContentMcpTools(load: () => Promise<Actions>): void {

@@ -1,7 +1,8 @@
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-import { databaseMcpTools } from "./database-mcp.ts"
 import { resolve } from "node:path"
 
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+
+import { databaseMcpTools } from "./database-mcp.ts"
 import { installConsoleDatabaseScope, resolveConsoleDatabase } from "../../internal.ts"
 
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"

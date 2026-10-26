@@ -1,8 +1,8 @@
-import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
@@ -89,20 +89,27 @@ describe("ViteHub MCP", () => {
     const denied = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
     expect(denied.status).toBeGreaterThanOrEqual(401)
   })
-})
 
+  it("runs registered Database tools only inside installed and allowed sections", async () => {
+    installConsoleDatabase("/mcp-test", {}, [])
+    installConsoleSections("/mcp-test", ["databases", "comments"])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
+    const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+    expect(list.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["database_list_databases", "database_get_schema"])
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
+    expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
+    expect((await rpc(call)).body.error.code).toBe(-32602)
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    expect((await rpc(call)).body.error.code).toBe(-32602)
+  })
 
-it("runs registered Database tools only inside installed and allowed sections", async () => {
-  installConsoleDatabase("/mcp-test", {}, [])
-  installConsoleSections("/mcp-test", ["databases", "comments"])
-  installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
-  const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
-  expect(list.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["database_list_databases", "database_get_schema"])
-  const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
-  expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
-  installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
-  expect((await rpc(call)).body.error.code).toBe(-32602)
-  installConsoleAccess({ mode: "open" })
-  installConsoleSections("/mcp-test", ["comments"])
-  expect((await rpc(call)).body.error.code).toBe(-32602)
+  it("tells the Agent what to change when a tool rejects its input", async () => {
+    installConsoleDatabase("/mcp-test", {}, [])
+    installConsoleSections("/mcp-test", ["databases"])
+    installConsoleAccess({ mode: "open" })
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "database_get_schema", arguments: { database: 7 } } }
+    expect((await rpc(call)).body.result).toMatchObject({ content: [{ text: "database must be a string." }], isError: true })
+  })
 })
