@@ -8,7 +8,7 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { parseDatabaseLocation } from "@vite-hub/database/connect"
+import { parseDatabaseLocation } from "@vite-hub/database/config"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"

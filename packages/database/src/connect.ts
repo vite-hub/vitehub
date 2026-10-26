@@ -2,10 +2,15 @@ import { createClient } from "@libsql/client/http"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { drizzle } from "drizzle-orm/sqlite-proxy"
 
+import { parseDatabaseLocation, postgresSchemes } from "./database-location.ts"
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { InValue } from "@libsql/client/http"
 import type { SqliteRemoteDatabase } from "drizzle-orm/sqlite-proxy"
+import type { DatabaseLocation } from "./database-location.ts"
+
+export { parseDatabaseLocation } from "./database-location.ts"
+export type { DatabaseLocation } from "./database-location.ts"
 
 export type SqlMethod = "run" | "all" | "values" | "get"
 
@@ -40,14 +45,6 @@ export interface ConnectDatabaseOptions<TSchema extends Record<string, unknown>>
   openFile?: (path: string) => SqlDriver
 }
 
-/** Where a database is, as `connectDatabase()` reads it: a D1 binding, an environment variable, a URL, or a file. */
-export type DatabaseLocation =
-  | { kind: "auto" }
-  | { kind: "d1", binding: string }
-  | { kind: "env", name: string }
-  | { kind: "url", url: string }
-  | { kind: "file", path: string }
-
 /** What a location points to at runtime, with what was read to find it. */
 type Connection =
   | { kind: "d1", binding: string, database: D1Binding }
@@ -56,27 +53,6 @@ type Connection =
 
 /** The environment variables and binding that `connectDatabase()` reads when it gets no location. */
 export const defaultDatabaseLocations = { urls: ["DATABASE_URL", "TURSO_DATABASE_URL"], d1: "DB" } as const
-
-const remoteSchemes = /^(?:libsql|https?|wss?):\/\//i
-const postgresSchemes = /^postgres(?:ql)?:\/\//i
-
-/**
- * Reads a database location:
- *
- * - `d1:COMMENTS`: the Cloudflare D1 binding `COMMENTS`.
- * - `env:DATABASE_URL`: the URL in that environment variable, read at runtime.
- * - `libsql://…`, `https://…`: a libSQL URL, such as Turso's. A token in it ends up in the build; prefer `env:`.
- * - `file:./data/app.sqlite`, or `:memory:`: a SQLite file, on Node.
- * - Nothing: `DATABASE_URL`, else `TURSO_DATABASE_URL`, else the D1 binding `DB`.
- */
-export function parseDatabaseLocation(where: string | undefined, name = "default"): DatabaseLocation {
-  if (where === undefined || where === "") return { kind: "auto" }
-  if (where.startsWith("d1:") && where.length > 3) return { kind: "d1", binding: where.slice(3) }
-  if (where.startsWith("env:") && where.length > 4) return { kind: "env", name: where.slice(4) }
-  if (where.startsWith("file:") || where === ":memory:") return { kind: "file", path: where.startsWith("file:") ? where.slice(5) : where }
-  if (remoteSchemes.test(where)) return { kind: "url", url: where }
-  throw databaseErrorDiagnostics.DATABASE_UNSUPPORTED_URL({ database: name, value: postgresSchemes.test(where) ? "a Postgres URL" : JSON.stringify(where) })
-}
 
 /** The variable that holds the token of a URL variable: `TURSO_DATABASE_URL` → `TURSO_AUTH_TOKEN`, `DB_URL` → `DB_AUTH_TOKEN`. */
 export function authTokenVariable(urlVariable: string): string {

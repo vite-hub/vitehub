@@ -38,6 +38,7 @@ import type { CollectedDatabaseContributions, CollectedDatabaseDefinitionContrib
 import type { Expression, ObjectExpression, ScannedModule, StaticProperty } from "@vite-hub/internal/build/scan-module"
 
 export { resolveConfigValue } from "./config-value.ts"
+export { parseDatabaseLocation, type DatabaseLocation } from "./database-location.ts"
 export { resolveDefaultDatabase, type DefaultDatabaseResolution } from "./contributions.ts"
 
 /** Serialize generated registries without invoking the legacy __proto__ setter. */
