@@ -82,7 +82,7 @@ export function splitShellCommandSegments(command: string) {
       escaped = false
       continue
     }
-    if (char === "\\") {
+    if (char === "\\" && quote !== "'") {
       current += char
       escaped = true
       continue
