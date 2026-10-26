@@ -29,6 +29,13 @@
       "when": 1793001600000,
       "tag": "0003_comments_context",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793088000000,
+      "tag": "0004_comments_scope",
+      "breakpoints": true
     }
   ]
 }

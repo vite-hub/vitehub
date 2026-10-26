@@ -1,4 +1,10 @@
 /** Name of the Realtime Definition that holds one presence room per page. */
+/**
+ * The scope of the threads that people pin on the app's pages with the overlay. Threads that app code starts in its
+ * own UI use their own scope, such as `doc:42`.
+ */
+export const commentsPageScope = "pages"
+
 export const commentsRealtimeDefinition = "comments"
 
 /** The route prefix of the Comments API. */

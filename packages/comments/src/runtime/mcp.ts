@@ -1,5 +1,5 @@
 import { describeCommentContext } from "../context.ts"
-import { normalizeCommentPage } from "../page.ts"
+import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { Comments } from "../index.ts"
@@ -30,8 +30,8 @@ function failure(why: string): ViteHubMcpToolResult {
 /** One thread as text an Agent reads: where it is, what the person saw, and the conversation. */
 function describeThread(thread: CommentThread): string {
   const lines = [
-    `Thread ${thread.id} (${thread.status}) on ${thread.page}`,
-    `Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label} (${thread.anchor.selector})`,
+    `Thread #${thread.number} ${thread.id} (${thread.status}) on ${thread.page}`,
+    ...(thread.anchor ? [`Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label} (${thread.anchor.selector})`] : []),
     ...describeCommentContext(thread.context).map(field => `${field.label}: ${field.value}`),
     "",
     ...thread.comments.map(comment => `${comment.author.name}${comment.author.guest ? " (guest)" : ""}, ${comment.createdAt}: ${comment.body}`),
@@ -67,6 +67,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
     if (!id) return failure("Give the thread id from comments_list_threads.")
     const [error, thread] = await comments.get(id)
     if (error) return failure(error.why)
+    if (thread.scope !== commentsPageScope) return failure(`No thread ${id} on the app's pages.`)
     if (!await allowed(user, action, thread)) return failure(`Comments authorize does not allow ${action} for this user.`)
     return thread
   }
@@ -95,7 +96,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
-        const [error, threads] = await comments.list({ status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
+        const [error, threads] = await comments.list({ scope: commentsPageScope, status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
         if (error) return failure(error.why)
         const found = (search ? threads.filter(thread => thread.comments.some(comment => comment.body.toLowerCase().includes(search))) : threads).slice(0, limit)
         const line = (thread: CommentThread) => {

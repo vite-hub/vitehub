@@ -7,8 +7,8 @@ import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
-import type { CommentsApiError, CommentsSession } from "./api.ts"
+import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
+import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
 
@@ -108,7 +108,7 @@ class CommentsOverlay extends HTMLElement {
   private readonly toolbar = h("div", { className: "toolbar", role: "toolbar", "aria-label": "Comments" })
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
-  private threads: CommentThread[] = []
+  private threads: PageThread[] = []
   private mode: Mode = "view"
   private openThread?: string
   private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
@@ -378,7 +378,7 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  private async reply(thread: CommentThread, body: string, mentions: CommentMention[], nameInput?: HTMLInputElement) {
+  private async reply(thread: PageThread, body: string, mentions: CommentMention[], nameInput?: HTMLInputElement) {
     if (!this.ensureAuthor(nameInput)) return
     const [error, comment] = await api.reply(thread.id, { body, mentions: keptMentions(body, mentions) })
     if (error) return this.failed(error)
@@ -387,7 +387,7 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  private async setStatus(thread: CommentThread, resolve: boolean) {
+  private async setStatus(thread: PageThread, resolve: boolean) {
     const [error, updated] = resolve ? await api.resolve(thread.id) : await api.reopen(thread.id)
     if (error) return this.failed(error)
     this.threads = this.threads.map(candidate => candidate.id === thread.id ? updated : candidate)
@@ -397,7 +397,7 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  private async removeComment(thread: CommentThread, commentId: string) {
+  private async removeComment(thread: PageThread, commentId: string) {
     const first = thread.comments[0]?.id === commentId
     const [error] = first ? await api.remove(thread.id) : await api.removeComment(thread.id, commentId)
     if (error) return this.failed(error)
@@ -483,7 +483,7 @@ class CommentsOverlay extends HTMLElement {
     this.frame = requestAnimationFrame(() => this.render())
   }
 
-  private visibleThreads(): CommentThread[] {
+  private visibleThreads(): PageThread[] {
     return this.threads.filter(thread => this.showResolved || thread.status === "open")
   }
 
@@ -671,7 +671,7 @@ class CommentsOverlay extends HTMLElement {
         : h("div", { className: "empty" }, this.session?.can.comment ? "No threads yet. Press C, then click the page." : "No threads on this page."))
   }
 
-  private renderThread(thread: CommentThread): HTMLElement {
+  private renderThread(thread: PageThread): HTMLElement {
     const session = this.session!
     const me = this.account()?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
     const resolved = thread.status === "resolved"

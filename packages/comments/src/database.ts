@@ -1,25 +1,28 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 
 import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
 
-type Column<Table extends string, Data, NotNull extends boolean, PrimaryKey extends boolean = false> = AnySQLiteColumn<{
+type Column<Table extends string, Data, NotNull extends boolean, PrimaryKey extends boolean = false, HasDefault extends boolean = false> = AnySQLiteColumn<{
   data: Data
-  hasDefault: false
+  hasDefault: HasDefault
   isPrimaryKey: PrimaryKey
   notNull: NotNull
   tableName: Table
 }> & { _: { generated: undefined } }
 
-type ThreadColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false> = Column<"vitehub_comment_threads", Data, NotNull, PrimaryKey>
+type ThreadColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false, HasDefault extends boolean = false> = Column<"vitehub_comment_threads", Data, NotNull, PrimaryKey, HasDefault>
 type CommentColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false> = Column<"vitehub_comments", Data, NotNull, PrimaryKey>
 
 /** The `vitehub_comment_threads` table, typed explicitly so its declaration can be emitted. */
 export type CommentThreadsTable = SQLiteTableWithColumns<{
   columns: {
     id: ThreadColumn<string, true, true>
+    scope: ThreadColumn<string, true, false, true>
+    number: ThreadColumn<number, true, false, true>
     page: ThreadColumn<string, true>
     anchor: ThreadColumn<string, true>
     context: ThreadColumn<string, false>
+    metadata: ThreadColumn<string, false>
     status: ThreadColumn<"open" | "resolved", true>
     createdBy: ThreadColumn<string, true>
     resolvedBy: ThreadColumn<string, false>
@@ -52,12 +55,18 @@ export type CommentsTable = SQLiteTableWithColumns<{
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 const commentThreads = sqliteTable("vitehub_comment_threads", {
   id: text("id").primaryKey(),
+  /** `pages` for the overlay, or the scope that app code picks. */
+  scope: text("scope").notNull().default("pages"),
+  /** Counts up from 1 in each scope. */
+  number: integer("number").notNull().default(0),
   /** Normalized pathname, such as `/pricing`. */
   page: text("page").notNull(),
-  /** JSON of the anchor. */
+  /** JSON of the anchor, `null` for threads that app code anchors itself. */
   anchor: text("anchor").notNull(),
   /** JSON of the page, element, components, browser, and build. */
   context: text("context"),
+  /** JSON of the fields that app code keeps on the thread. */
+  metadata: text("metadata"),
   status: text("status", { enum: ["open", "resolved"] }).notNull(),
   /** JSON of the author who opened the thread. */
   createdBy: text("created_by").notNull(),
@@ -69,6 +78,7 @@ const commentThreads = sqliteTable("vitehub_comment_threads", {
   updatedAt: integer("updated_at").notNull(),
 }, table => [
   index("vitehub_comment_threads_page").on(table.page, table.status),
+  uniqueIndex("vitehub_comment_threads_number").on(table.scope, table.number),
   index("vitehub_comment_threads_updated").on(table.updatedAt),
 ]) as unknown as CommentThreadsTable
 

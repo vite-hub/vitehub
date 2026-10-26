@@ -93,6 +93,37 @@ export const comments = defineComments({
 
 The server does not check a guest name or a guest id. Show them, but do not use them for access or notifications. A guest can pose as another guest, and so can delete that guest's comments.
 
+## Comments in your own UI
+
+The overlay and the Console show threads of the `pages` scope: the ones people pin on the app's pages. App code can also keep comments on its own records, such as a document, and show them in its own UI. Give those threads a scope of their own. The overlay, the Console, and [ViteHub MCP](/docs/development/mcp) never show or change them.
+
+```ts [server/api/docs/[id]/comments.post.ts]
+import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { comments } from '../../../comments'
+import { canComment, requireUser } from '../../../utils/docs'
+
+export default defineEventHandler(async (event) => {
+  const user = await requireUser(event)
+  const id = getRouterParam(event, 'id')!
+  if (!await canComment(user, id)) throw new Error('You cannot comment on this document.')
+  const { body, quote } = await readBody<{ body: string, quote: string }>(event)
+  const [error, thread] = await comments.create({
+    scope: `doc:${id}`,
+    page: `/docs/${id}`,
+    metadata: { kind: 'text', quote },
+    body,
+    author: { id: user.id, name: user.name },
+  })
+  if (error) throw error
+  return thread
+})
+```
+
+- `metadata` keeps what your UI needs, such as where the comment sits in the document: at most 50 keys with string, number, boolean, or `null` values.
+- Threads are numbered 1, 2, 3, … in their scope. `getByNumber('doc:42', 3)` finds "#3".
+- `removeScope('doc:42')` deletes every thread of the document, for example when the document goes away.
+- The runtime methods are trusted server API, so check access in your route. When you call `comments.can()`, `authorize` gets the `scope` too.
+
 ## Choose the Database
 
 Comments adds two tables, `vitehub_comment_threads` and `vitehub_comments`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
