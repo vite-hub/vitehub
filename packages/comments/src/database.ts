@@ -92,4 +92,5 @@ const comments = sqliteTable("vitehub_comments", {
  * The tables behind Comments. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
  * yourself only to a Database that you configure without ViteHub. Apply the migration that `vitehub db generate` writes.
  */
-export const commentsSchema: { commentThreads: CommentThreadsTable, comments: CommentsTable } = { commentThreads, comments }
+// The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments }

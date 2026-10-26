@@ -5,7 +5,7 @@ import { commentsSchema } from "./database.ts"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
 import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread, CommentThreadStatus } from "./types.ts"
 
-const { commentThreads: threads, comments } = commentsSchema
+const { vitehubCommentThreads: threads, vitehubComments: comments } = commentsSchema
 
 export type CommentsDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
 
