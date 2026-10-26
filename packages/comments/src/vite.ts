@@ -15,6 +15,7 @@ import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, comm
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
+import type { CommentBuild } from "./types.ts"
 
 export { commentsConsoleSection }
 export { findCommentsEntry } from "./entry.ts"
@@ -108,16 +109,39 @@ async function git(root: string, args: string[]): Promise<string | undefined> {
   }
 }
 
-/** The commit and branch of the build, from the CI or host, else from Git. Empty outside a Git checkout. */
-export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<{ commit?: string, branch?: string }> {
+/** `owner/name` of a GitHub remote URL, such as `git@github.com:owner/name.git`. */
+export function githubRepository(remote: string | undefined): string | undefined {
+  return remote ? /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
+}
+
+/** The pull request that the CI or host builds, when it names one. */
+function pullRequestOf(env: Record<string, string | undefined>): number | undefined {
+  const value = env.VERCEL_GIT_PULL_REQUEST_ID
+    || (env.PULL_REQUEST === "true" ? env.REVIEW_ID : undefined)
+    || /^refs\/pull\/(\d+)\//.exec(env.GITHUB_REF ?? "")?.[1]
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined
+}
+
+/**
+ * The build of the app, from the CI or host, else from Git: the commit and branch, the GitHub repository, and the pull
+ * request when the host names it. Empty outside a Git checkout.
+ */
+export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
+  const repository = env.GITHUB_REPOSITORY
+    || (env.VERCEL_GIT_PROVIDER === "github" && env.VERCEL_GIT_REPO_OWNER && env.VERCEL_GIT_REPO_SLUG ? `${env.VERCEL_GIT_REPO_OWNER}/${env.VERCEL_GIT_REPO_SLUG}` : undefined)
+    || githubRepository(env.REPOSITORY_URL)
+    || githubRepository(await git(root, ["remote", "get-url", "origin"]))
+  const pullRequest = pullRequestOf(env)
+  const extra = { ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
   for (const [commitName, branchName] of buildVariables) {
     const commit = env[commitName]
     if (!commit) continue
     const branch = env[branchName] || (commitName === "GITHUB_SHA" ? env.GITHUB_REF_NAME : undefined)
-    return branch ? { commit, branch } : { commit }
+    return { commit, ...(branch ? { branch } : {}), ...extra }
   }
   const [commit, branch] = await Promise.all([git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
-  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}) }
+  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}), ...extra }
 }
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
@@ -166,7 +190,7 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
-export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: { commit?: string, branch?: string } }): string {
+export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: CommentBuild }): string {
   const session = sessionLines(input.session, input.imports)
   return [
     `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,

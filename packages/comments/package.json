@@ -84,6 +84,7 @@
   },
   "dependencies": {
     "@vite-hub/auth": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "drizzle-orm": "catalog:database",

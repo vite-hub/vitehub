@@ -1271,6 +1271,9 @@ importers:
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:../realtime

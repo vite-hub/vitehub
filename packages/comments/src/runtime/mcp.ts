@@ -140,6 +140,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         if (!("comments" in thread)) return thread
         const [error, comment] = await comments.reply(thread.id, { body: text(input.body) ?? "", author: authorOf(user) })
         if (error) return failure(error.why)
+        await comments.flush()
         return { text: `Replied to thread ${thread.id}.`, structured: { comment: { ...comment } } }
       },
     },
@@ -161,6 +162,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         if (!("comments" in thread)) return thread
         const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: authorOf(user) })
         if (error) return failure(error.why)
+        await comments.flush()
         return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: summary(updated) } }
       },
     },
