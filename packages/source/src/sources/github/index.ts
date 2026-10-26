@@ -46,7 +46,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
-  const authByContext = new WeakMap<SourceContext, string | undefined>()
+  const authByContext = new WeakMap<SourceContext, Promise<string | undefined>>()
   const providerCache = normalizeGitHubCache(options)
   const client = createGitHubClient(options.repo)
 
@@ -57,7 +57,12 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   async function contextAuth(ctx: SourceContext) {
-    return authByContext.has(ctx) ? authByContext.get(ctx) : await resolveAuth()
+    let auth = authByContext.get(ctx)
+    if (!auth) {
+      auth = resolveAuth()
+      authByContext.set(ctx, auth)
+    }
+    return await auth
   }
 
   function keyForRepoPath(path: string) {
@@ -317,8 +322,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     },
     name: "github",
     async resolveRevision(ctx) {
-      const token = await resolveAuth()
-      authByContext.set(ctx, token)
+      const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)
     },
     async getKeys(ctx) {
