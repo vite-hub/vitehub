@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 
+import { commentsSchema } from "../src/database.ts"
 import { defineComments } from "../src/index.ts"
 import { ada, anchor, createComments, grace } from "./harness.ts"
 
@@ -88,10 +89,19 @@ describe("defineComments", () => {
 
   it("suggests earlier authors for @, without guests", async () => {
     const comments = await createComments()
+    // Each comment gets its own millisecond, so "newest first" has one order.
+    vi.useFakeTimers({ toFake: ["Date"], now: 1_000 })
     await comments.create({ page: "/", anchor, body: "Hi", author: ada })
+    vi.setSystemTime(2_000)
     await comments.create({ page: "/", anchor, body: "Hi", author: { id: "guest:1", name: "Visitor", guest: true } })
+    vi.setSystemTime(3_000)
     await comments.create({ page: "/", anchor, body: "Hi", author: grace })
+    vi.useRealTimers()
     expect((await comments.people({ query: "", user: null }))[1]).toEqual([grace, ada])
     expect((await comments.people({ query: "ad", user: null }))[1]).toEqual([ada])
+  })
+
+  it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {
+    expect(Object.keys(commentsSchema)).toEqual(["vitehubCommentThreads", "vitehubComments"])
   })
 })
