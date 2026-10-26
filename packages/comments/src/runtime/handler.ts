@@ -4,6 +4,7 @@ import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
+import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 
@@ -105,18 +106,6 @@ function sameOrigin(request: Request): boolean {
   return !origin || origin === forwardedRequestOrigin(request)
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
-function authorOf(user: CommentsUser): CommentAuthor {
-  const author: CommentAuthor = { id: user.id, name: (text(user.name) ?? text(user.email) ?? "Someone").slice(0, 256) }
-  const image = text(user.image)
-  if (image) author.image = image
-  if (user.guest === true) author.guest = true
-  return author
-}
-
 function readPath(data: unknown, path: readonly string[]): unknown {
   let current = data
   for (const key of path) {
@@ -162,25 +151,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  /** The author of a request: the user, or a guest that named itself when the policy lets anonymous people act. */
-  function guestOf(request: Request): CommentAuthor | undefined {
-    const id = request.headers.get("x-vitehub-comments-guest-id")
-    const name = request.headers.get("x-vitehub-comments-guest-name")
-    if (!id || !name || id.length > 64) return
-    let decoded: string
-    try {
-      decoded = decodeURIComponent(name).trim().slice(0, 64)
-    }
-    catch {
-      return
-    }
-    return decoded ? { id: `guest:${id}`, name: `${decoded}`, guest: true } : undefined
-  }
-
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined }, "COMMENTS_FORBIDDEN">> {
     const user = await resolveUser(event)
     if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
-    return [undefined, { user, author: user ? authorOf(user) : guestOf(event.req) }]
+    // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
+    return [undefined, { user, author: user ? authorOf(user) : guestFromHeaders(event.req.headers) }]
   }
 
   async function readJson(event: H3Event): Promise<unknown> {
