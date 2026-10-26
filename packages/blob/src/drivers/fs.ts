@@ -287,7 +287,12 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
   }
   catch (error) {
     // A child directory can disappear or become a file after its parent was read.
-    if (dir !== root && (isNotFound(error) || isDirectoryError(error))) return []
+    if (dir !== root && (isNotFound(error) || isDirectoryError(error))) {
+      // Only recover if the store root is still safe and readable as a directory.
+      await assertNoSymlinkPath(root, root)
+      await readdir(root)
+      return []
+    }
     throw error
   }
   const files = await Promise.all(entries.map(async (entry) => {

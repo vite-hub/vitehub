@@ -94,3 +94,15 @@ it("rejects a store root that is a regular file", async () => {
 
   await expect(createDriver({ base: join(base, "stable.txt"), driver: "fs" }).list()).rejects.toMatchObject({ code: "ENOTDIR" })
 })
+
+it.each([false, true])("rejects a store root replaced by a file after being read (folded: %s)", async (folded) => {
+  const { base, driver } = await fixture()
+  hooks.afterRead = async (path) => {
+    if (path !== base) return
+    hooks.afterRead = undefined
+    await rm(base, { recursive: true })
+    await writeFile(base, "replacement")
+  }
+
+  await expect(driver.list({ folded })).rejects.toMatchObject({ code: "ENOTDIR" })
+})
