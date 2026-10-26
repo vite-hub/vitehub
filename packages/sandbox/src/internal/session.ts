@@ -21,7 +21,6 @@ export interface RuntimeProcess {
 
 export interface RuntimeSession {
   readonly defaultWorkingDirectory: string;
-  readonly description?: string;
   readonly id: string;
   readonly inspectionConcurrency?: number;
   readonly ports?: readonly number[];
