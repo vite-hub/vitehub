@@ -50,6 +50,7 @@ import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
 import invocationCapabilitiesHandlerRoute from "../src/console/runtime/server/invocation-capabilities.get.ts"
 import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
+import consoleClientHandler from "../src/console/runtime/server/client.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
@@ -4974,6 +4975,13 @@ describe("Agent invocation console", () => {
     finally {
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("serves the Console client stub with a body, so every development server finishes it", async () => {
+    const response = consoleClientHandler()
+
+    expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
+    expect(await response.text()).not.toBe("")
   })
 
   it("prefixes shell assets when the application is mounted below a base path", async () => {
