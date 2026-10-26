@@ -3,12 +3,12 @@ import { hasRuntimeType, isRuntimeObject } from "@vite-hub/runtime/internal/runt
 
 import { workspaceConflict, workspaceError } from "./errors.ts"
 import { copyJsonFileMetadata, copyJsonWorkspaceMetadata } from "./file-metadata.ts"
-import { isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "./path.ts"
+import { contentToBytes, isWorkspaceBytes, normalizeSafeWorkspacePath, sha256 } from "./path.ts"
 import { createWorkspaceWritePolicy } from "./rules.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 
 import type { WorkspaceSourceView, WorkspaceSourceWriteGrant } from "../sources/view.ts"
-import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
+import type { Workspace, WorkspaceDefinition, WorkspaceEntry, WorkspaceFile, WorkspaceHistoryCommitOptions, WorkspaceHistoryFile, WorkspaceHistoryFileInput, WorkspaceHistoryReader, WorkspaceMergeOptions, WorkspaceOpenPullRequestOptions, WorkspaceRetainedHistory, WorkspaceRevision, WorkspaceStore, WorkspaceStoreHistoryCommitOptions, WorkspaceWriteInput } from "./types.ts"
 
 /** The ref used when a history call omits `ref`. A Store's working tree follows this ref. */
 export const defaultWorkspaceHistoryRef = "main"
@@ -21,7 +21,7 @@ const forwardedHistoryCommits = new WeakSet<WorkspaceHistoryCommitOptions>()
 
 export function forwardWorkspaceHistoryFiles(options: WorkspaceStoreHistoryCommitOptions): WorkspaceHistoryCommitOptions {
   const forwardFiles = (files: Record<string, WorkspaceFile> = {}) => Object.fromEntries(Object.entries(files).map(([path, file]) => [path, { content: file.content, mediaType: file.mediaType, metadata: file.metadata }]))
-  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, message: options.message, metadata: options.metadata }
+  const base = { ref: options.ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata: options.metadata }
   const forwarded: WorkspaceHistoryCommitOptions = options.changes
     ? { ...base, changes: { put: forwardFiles(options.changes.put), delete: [...options.changes.delete ?? []] } }
     : { ...base, files: forwardFiles(options.files) }
@@ -45,6 +45,9 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader, co
     return history
   }
   return {
+    ...(history.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
+    ...(history.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
+    ...(history.pullRequests ? { pullRequests: async options => await history.pullRequests!(options) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
@@ -138,7 +141,15 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
     return store.history
   }
 
+  const digest = async (bytes: Uint8Array) => store.history?.digest ? await store.history.digest(bytes) : await sha256(bytes)
+  const digestOf = async (content: string | Uint8Array) => await digest(new Uint8Array(contentToBytes(content)))
+
   return {
+    digest,
+    ...(store.history?.forksFrom ? { forksFrom: async (ref: string) => await store.history!.forksFrom!(ref) } : {}),
+    ...(store.history?.pullRequests ? { pullRequests: async (options?: { headPrefix?: string }) => await store.history!.pullRequests!(options) } : {}),
+    ...(store.history?.merge ? { merge: async (options: WorkspaceMergeOptions) => await store.history!.merge!(options) } : {}),
+    ...(store.history?.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => await store.history!.openPullRequest!(options) } : {}),
     head: async options => await history().head(options),
     list: async options => await history().list(options),
     refs: async () => await history().refs(),
@@ -157,7 +168,13 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
       const metadata = copyJsonWorkspaceMetadata("history revision", options.metadata)
       const current = await retained.head({ ref })
       if ((current?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, current?.id ?? null)
-      const previous = current ? await retained.open(current.id) : undefined
+      // A missing ref that the Store starts from another ref begins with the files of that ref.
+      if (options.startFrom !== undefined && (!hasRuntimeType(options.startFrom, "string") || !options.startFrom || options.ifHead !== null || !store.history?.forksFrom)) {
+        throw workspaceError("[vitehub] History commit startFrom needs a revision id, ifHead null, and a Store that starts missing refs from another ref.")
+      }
+      const forkRef = current || options.startFrom ? undefined : await store.history?.forksFrom?.(ref)
+      const startId = current?.id ?? options.startFrom ?? (forkRef ? (await retained.head({ ref: forkRef }))?.id : undefined)
+      const previous = startId ? await retained.open(startId) : undefined
       const previousEntries = new Map<string, WorkspaceEntry>()
       for (const entry of previous ? await previous.list("", { recursive: true }) : []) {
         if (entry.type === "file") previousEntries.set(entry.path, entry)
@@ -177,8 +194,8 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
         const put = commit.puts.get(path)
         const file = put?.file
         const before = previousEntries.get(path)
-        const digest = before?.digest ?? (before && previous ? await sha256(await previous.readFile(path, { encoding: "binary" })) : undefined)
-        if (put && file && before && digest === await sha256(file.content)
+        const digest = before?.digest ?? (before && previous ? await digestOf(await previous.readFile(path, { encoding: "binary" })) : undefined)
+        if (put && file && before && digest === await digestOf(file.content)
           && (!put.explicitMediaType || file.mediaType === before.mediaType)
           && (!put.explicitMetadata || JSON.stringify(file.metadata) === JSON.stringify(before.metadata))) {
           desired[path] = { ...file, mediaType: before.mediaType, metadata: before.metadata }
@@ -211,7 +228,7 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
           throw error
         }
       }
-      const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, message: options.message, metadata }
+      const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata }
       const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
         ? { ...base, files: desired }
         : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }

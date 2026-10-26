@@ -479,6 +479,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: collection.label,
           path: collection.path,
+          paths: [...collection.paths],
           kind: collection.kind,
           format: collection.format,
           schema,
@@ -639,7 +640,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
           metadata: writeMetadata(context),
         })
-        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })) }
+        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
       })
     },
 

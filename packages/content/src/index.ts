@@ -34,7 +34,10 @@ import type {
   ContentPublishExpectation,
   ContentPublishMismatch,
   ContentPublishOptions,
+  ContentResolved,
+  ContentResolveOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -139,7 +142,10 @@ export type {
   ContentPublishExpectation,
   ContentPublishMismatch,
   ContentPublishOptions,
+  ContentResolved,
+  ContentResolveOptions,
   ContentPublishResult,
+  ContentPullRequest,
   ContentRawDocument,
   ContentReadOptions,
   ContentRef,
@@ -288,6 +294,12 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
   /**
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
+   * path with its `route`; the default is the id after a slash, without a trailing `/index`. A query string, a hash, and
+   * a trailing slash are ignored. Use it to link a page to its document, for example to an Edit button.
+   */
+  resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved<CollectionName<TCollections>> | null>
+  /**
    * Publish exactly these reviewed drafts at a later time. The draft digests must match now. At its time,
    * `publishDue()` calls `publish({ expect })`; a draft saved after scheduling makes the schedule `failed` instead.
    */
@@ -388,7 +400,7 @@ export function defineContent<
     if (!isContentCollectionDefinition(definition)) continue
     for (const [otherName, otherDefinition] of collectionEntries.slice(index + 1)) {
       if (isContentCollectionDefinition(otherDefinition) && collectionPathsOverlap(definition, otherDefinition)) {
-        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} and ${JSON.stringify(otherName)} overlap.` })
+        throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content collection paths ${JSON.stringify(name)} (${definition.path}) and ${JSON.stringify(otherName)} (${otherDefinition.path}) overlap.` })
       }
     }
   }
@@ -409,6 +421,7 @@ export function defineContent<
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
         live,
+        ...(presetDefaults.publish ? { publish: presetDefaults.publish } : {}),
       })
     : undefined
   const collectionInstances: Array<{ instance: ComarkContent, source: ContentHistorySource }> = []
@@ -530,6 +543,7 @@ export function defineContent<
     } as ContentSessions,
     collection: (name: string): unknown => requireDocuments().collection(name),
     publish: (publishOptions?: ContentPublishOptions) => requireDocuments().publish(publishOptions),
+    resolve: (path: string, resolveOptions?: ContentResolveOptions) => requireDocuments().resolve(path, resolveOptions),
     schedule: (scheduleOptions: ContentScheduleOptions) => requireDocuments().schedule(scheduleOptions),
     schedules: (schedulesOptions?: ContentSchedulesOptions) => requireDocuments().schedules(schedulesOptions),
     unschedule: (id: string, unscheduleOptions?: ContentUnscheduleOptions) => requireDocuments().unschedule(id, unscheduleOptions),

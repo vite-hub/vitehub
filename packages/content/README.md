@@ -77,6 +77,8 @@ await content.revisions("posts", "hello")
 content.collections() // [posts], each with name, kind, format, path, fields, and schema
 ```
 
+To keep documents in a Git repository, pass `extends: [cms, { store: "github", repo: "owner/name" }]`. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. The preset needs a Database for editor sessions and no Blob store. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request from a `vitehub/publish/*` branch and returns `pullRequest` with `pending: true`. `branch` is merged into the draft when it moves. `content.schedule()` throws `CONTENT_R0016`, and digests are Git blob shas. Options: `store`, `repo`, `branch`, `draftBranch`, `root` (default `""`, the repository root), and `publish`. See the [CMS preset docs](https://vitehub.dev/docs/content/cms-preset#github-store).
+
 `documents({ label, titleField })` names a collection, such as `label: { singular: "Person", plural: "People" }`, and the string field that names a document. Without them the label is the name in title case, and the title field is the first of `title`, `name`, `label`, and `heading`, then the first required string field. `singleton()` takes a `label` string and `titleField` too.
 
 `singleton({ path, fields })` defines one document at a fixed path, such as site settings. Its methods take no id, and `publish({ expect })` entries for it may omit `id`. The extension sets the format of a document or collection: `.json` stores an indented JSON object, `.yaml`/`.yml` a block-style YAML mapping, and anything else Markdown with YAML frontmatter. JSON and YAML documents have no body.

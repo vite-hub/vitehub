@@ -49,6 +49,8 @@ export interface ConsoleDocumentCollection {
   singularLabel?: string
   name: string
   path: string
+  /** Every glob of the collection, when it has several. The new-document form offers a folder for each. */
+  paths?: readonly string[]
   schema: Record<string, unknown>
   titleField?: string
   /** Comark components that bodies may use, for the body editor's insert menu. */

@@ -260,7 +260,7 @@ async function issuesOf(collection: AnyContentCollection, id: string, ref: "draf
 function documentTemplate(collection: AnyContentCollection, id: string): { path: string, text: string } {
   const path = collection.kind === "singleton"
     ? collection.path
-    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.path))
+    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths))
   return { path, text: renderDocumentFile(Object.fromEntries(collection.fields.map(field => [field, null])), "", collection.format) }
 }
 
@@ -377,7 +377,7 @@ async function publish(content: ContentDevRuntime, body: ContentDevRequestBody):
   const options: ContentPublishOptions = { expect: body.expect, metadata: cliMetadata }
   if (body.message !== undefined) options.message = body.message
   const result = await content.publish(options)
-  return { dryRun: false, revision: result.revision, documents: result.documents }
+  return { dryRun: false, revision: result.revision, documents: result.documents, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
 }
 
 async function schedule(content: ContentDevRuntime, body: ContentDevRequestBody) {
