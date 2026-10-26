@@ -2,10 +2,11 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
+import { registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import pageSessionHandler from "../src/console/runtime/server/page-session.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
@@ -15,11 +16,12 @@ const policyKey = Symbol.for("vitehub.console.access")
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */
-async function sessionTools(policy: ConsoleAccessPolicy, headers: Record<string, string> = {}) {
-  installConsoleAccess(policy)
+async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Record<string, string> = {}) {
+  if (policy) installConsoleAccess(policy)
+  else Reflect.deleteProperty(globalThis, policyKey)
   installConsolePageTool({})
   const request = new Request("http://site.test/_vitehub/page/session", { headers })
-  const response = await respondViteHubPageSession(request, { method: "GET", req: request })
+  const response = await pageSessionHandler({ method: "GET", req: request })
   const body: unknown = await response.json()
   return { body, cookie: response.headers.get("set-cookie") }
 }
@@ -51,6 +53,15 @@ describe("the Console page tool", () => {
     await expect(sessionTools({ mode: "auth", check }, { cookie: "session=ada" })).resolves.toMatchObject({ body: { tools: [{ id: "console" }] } })
   })
 
+  it("keeps other allowed tools when Console access is missing or denied", async () => {
+    const comments = { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js" }
+    registerViteHubPageTool({ ...comments, allowed: async () => true })
+
+    const expected = { body: { tools: [comments] }, cookie: expect.stringContaining("vitehub-tools=1") }
+    await expect(sessionTools(undefined)).resolves.toEqual(expected)
+    await expect(sessionTools({ mode: "open", authorize: async () => false })).resolves.toEqual(expected)
+  })
+
   it("is allowed in local mode only on the development server", async () => {
     vi.stubEnv("NODE_ENV", "production")
     await expect(sessionTools({ mode: "local" })).resolves.toMatchObject({ body: { tools: [] } })
@@ -61,7 +72,7 @@ describe("the Console page tool", () => {
   it("is not registered while no Console output installed it", async () => {
     installConsoleAccess({ mode: "open" })
     const request = new Request("http://site.test/_vitehub/page/session")
-    await expect((await respondViteHubPageSession(request, { req: request })).json()).resolves.toEqual({ tools: [] })
+    await expect((await pageSessionHandler({ req: request })).json()).resolves.toEqual({ tools: [] })
   })
 })
 
