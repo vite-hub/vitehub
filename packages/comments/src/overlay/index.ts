@@ -6,7 +6,7 @@ import { api, readGuest, saveGuest } from "./api.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentMention, CommentThread } from "../types.ts"
+import type { CommentAnchor, CommentAuthor, CommentMention, CommentThread } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
@@ -323,10 +323,16 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
+  /** The signed-in person. A guest of a Console without accounts names itself like any guest. */
+  private account(): CommentAuthor | undefined {
+    const user = this.session?.user
+    return user && !user.guest ? user : undefined
+  }
+
   private joinRoom() {
     if (!this.session?.realtime) return
     const guest = readGuest()
-    const identity = this.session.user ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
+    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : this.session.user ?? undefined)
     const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })
     room.onUpdate(() => {
       this.renderToolbar()
@@ -666,7 +672,7 @@ class CommentsOverlay extends HTMLElement {
 
   private renderThread(thread: CommentThread): HTMLElement {
     const session = this.session!
-    const me = session.user?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
+    const me = this.account()?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
     const resolved = thread.status === "resolved"
     const card = h("div", { className: "card", role: "dialog", "aria-label": "Comment thread", "data-card": `thread-${thread.id}` },
       h("div", { className: "card-head" },
@@ -696,9 +702,9 @@ class CommentsOverlay extends HTMLElement {
   /** A text box with `@` suggestions, and a name field for guests. */
   private renderCompose(label: string, submit: (body: string, mentions: CommentMention[], name?: HTMLInputElement) => Promise<void>, autofocus = false): HTMLElement {
     const mentions: CommentMention[] = []
-    const needsName = !this.session?.user && !readGuest()
+    const needsName = !this.account() && !readGuest()
     const name = needsName ? h("input", { placeholder: "Your name", "aria-label": "Your name", maxlength: 64 }) : undefined
-    const input = h("textarea", { placeholder: this.session?.user || readGuest() ? `${label}… Use @ to mention` : `${label}…`, "aria-label": label, "data-autofocus": autofocus || undefined, maxlength: 4000 })
+    const input = h("textarea", { placeholder: this.account() || readGuest() ? `${label}… Use @ to mention` : `${label}…`, "aria-label": label, "data-autofocus": autofocus || undefined, maxlength: 4000 })
     const button = h("button", { className: "primary", disabled: true }, label)
     const suggest = h("div", { className: "suggest", role: "listbox", hidden: true })
     let options: CommentMention[] = []

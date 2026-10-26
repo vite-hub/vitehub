@@ -83,4 +83,11 @@ describe("Console section pages", () => {
     ])
     expect(parseConsoleContributedSection({ ...content, pages: "x" })).not.toHaveProperty("pages")
   })
+
+  it("keeps the visit path of the Comments section and drops paths to other origins", () => {
+    const comments = describeConsoleContributedSections(["comments"])[0]!
+    expect(comments.visit).toBe("/api/_vitehub/comments/session")
+    expect(parseConsoleContributedSection(comments)?.visit).toBe("/api/_vitehub/comments/session")
+    expect(parseConsoleContributedSection({ ...comments, visit: "//evil.test/x" })).not.toHaveProperty("visit")
+  })
 })

@@ -6,6 +6,7 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
+import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
 import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute } from "./page.ts"
 
@@ -13,7 +14,7 @@ import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vi
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { Plugin, UserConfig } from "vite"
 
-export { commentsConsoleSection } from "./console.ts"
+export { commentsConsoleSection }
 export { findCommentsEntry } from "./entry.ts"
 
 /** Module paths that generated files import. The `vite-hub` distribution passes its own subpaths. */
@@ -35,6 +36,11 @@ export interface CommentsImports {
 export interface CommentsVitePluginOptions {
   /** Whether the app configures ViteHub Auth, so Comments reads its session. Default `false`. */
   auth?: boolean
+  /**
+   * The Console of the app: a module and its `consoleRealtimeAccess` export. With it, the people that the Console lets
+   * use its `comments` section are the people of Comments, and the Console turns comment mode on for them.
+   */
+  console?: { module: string }
   imports?: Partial<CommentsImports>
 }
 
@@ -84,15 +90,24 @@ export function commentsOverlayDirectory(): string {
 const overlayBaseURL = `${commentsRoute}/assets`
 const version = "1"
 
-/** Generated session reader: the ViteHub Auth user of a request. */
-function sessionLines(auth: boolean, imports: CommentsImports): { imports: string[], value: string } {
-  return auth
+/** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
+function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], value: string } {
+  if (options.console) {
+    return {
+      imports: [
+        `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
+        `import { commentsConsoleSession } from ${JSON.stringify(imports.runtime)}`,
+      ],
+      value: `commentsConsoleSession(consoleRealtimeAccess(${JSON.stringify(commentsConsoleSection.id)}))`,
+    }
+  }
+  return options.auth
     ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], value: "commentsAuthSession" }
     : { imports: [], value: "undefined" }
 }
 
-export function renderCommentsHandler(input: { definition: string, content?: string, auth: boolean, realtime: boolean, imports: CommentsImports }): string {
-  const session = sessionLines(input.auth, input.imports)
+export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports }): string {
+  const session = sessionLines(input.session, input.imports)
   return [
     `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
@@ -158,7 +173,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
-        const session = sessionLines(options.auth ?? false, imports)
+        const session = sessionLines(options, imports)
         await mkdir(context.directory, { recursive: true })
         await writeFile(file, [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
@@ -224,7 +239,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const plugin = join(directory, "plugin.mjs")
         await mkdir(directory, { recursive: true })
         await Promise.all([
-          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), auth: options.auth ?? false, realtime, imports })),
+          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports })),
           writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))

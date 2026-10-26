@@ -52,6 +52,19 @@ describe("hubComments", () => {
     expect(handler).toContain("realtime: false")
   })
 
+  it("reads the people from the Console access rules when the app has the Console", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = hubComments({ auth: true, console: { module: "vite-hub/console/sections" } })
+    await configure(plugin, root)
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
+    expect(handler).toContain("session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
+    expect(handler).not.toContain("commentsAuthSession")
+    const directory = join(root, ".vitehub/nitro/realtime")
+    await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
+  })
+
   it("adds the tables to the Database that defineComments names", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments({ database: \"content\" })" })
     const plugin = hubComments()

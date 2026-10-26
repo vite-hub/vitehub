@@ -43,7 +43,10 @@ export interface CommentsContent {
 
 export interface CommentsHandlerOptions {
   comments: Comments
-  /** Reads the ViteHub Auth session user. Omitted when the app has no Auth. */
+  /**
+   * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
+   * Omitted when the app has neither.
+   */
   session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
@@ -107,9 +110,11 @@ function text(value: unknown): string | undefined {
 }
 
 function authorOf(user: CommentsUser): CommentAuthor {
-  const name = text(user.name) ?? text(user.email) ?? "Someone"
+  const author: CommentAuthor = { id: user.id, name: (text(user.name) ?? text(user.email) ?? "Someone").slice(0, 256) }
   const image = text(user.image)
-  return image ? { id: user.id, name: name.slice(0, 256), image } : { id: user.id, name: name.slice(0, 256) }
+  if (image) author.image = image
+  if (user.guest === true) author.guest = true
+  return author
 }
 
 function readPath(data: unknown, path: readonly string[]): unknown {
