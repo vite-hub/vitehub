@@ -192,7 +192,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
       ? { cc: addresses(message.cc).map(formatAddress) }
       : {}),
     from: formatAddress(from),
-    ...(message.headers
+    ...(message.headers || message.metadata
       ? {
           headers: {
             ...message.headers,
@@ -204,13 +204,7 @@ function payload(message: EmailMessage): Record<string, unknown> {
             ),
           },
         }
-      : message.metadata
-        ? {
-            headers: Object.fromEntries(
-              Object.entries(message.metadata).map(([key, value]) => [`X-Metadata-${key}`, value]),
-            ),
-          }
-        : {}),
+      : {}),
     ...(message.html !== undefined ? { html: message.html } : {}),
     ...(message.replyTo && addresses(message.replyTo).length > 0
       ? { reply_to: addresses(message.replyTo).map(formatAddress) }
