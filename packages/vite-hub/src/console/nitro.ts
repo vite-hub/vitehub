@@ -61,6 +61,8 @@ export function addConsoleRpcHandler(
     { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js") },
     { suffix: "/_vitehub/channels/replay", handler: join(consoleRuntimeRoot, "server/channel-replay.js") },
     { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js") },
+    // ViteHub MCP: the tools of the sections that the Console user may use, such as Comments.
+    { suffix: "/_vitehub/mcp", handler: join(consoleRuntimeRoot, "server/mcp.js") },
   ]
   const ownedHandlers = new Set(registrations.map(registration => registration.handler))
   const ownedSuffixes = new Set(registrations.map(registration => registration.suffix))
@@ -78,7 +80,7 @@ export function addConsoleRpcHandler(
       const message =
         registration.suffix === "/_vitehub/rpc/**"
           ? `Cannot mount the ViteHub Console handler at "${route}" because that route already uses "${conflict.handler}".`
-          : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : "Schedule run"} handler at "${route}" because that route is already registered.`;
+          : `Cannot mount the ViteHub ${registration.suffix.includes("auth") ? "Auth" : registration.suffix.includes("env") ? "Env" : registration.suffix.includes("channels") ? "Channel replay" : registration.suffix.includes("mcp") ? "MCP" : "Schedule run"} handler at "${route}" because that route is already registered.`;
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
     const handler: NitroHandler = { handler: registration.handler, route }
