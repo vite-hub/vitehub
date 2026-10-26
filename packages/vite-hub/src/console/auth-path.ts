@@ -1,3 +1,5 @@
+import { normalizeRoute } from "h3"
+
 export function consoleAuthMountBase(baseURL: string): string {
   // Vite asset bases can be relative or absolute URLs; auth routes use only the application pathname.
   if (!baseURL || baseURL === "./") return ""
@@ -23,4 +25,14 @@ export function cloudflareAccessIssuer(teamDomain: string): string | undefined {
   }
   if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || url.username || url.password) return undefined
   return url.origin
+}
+
+/** Match guards against H3's routed path, while retaining the original request for Auth. */
+export function consoleEventPath(event: object, request: Request): string {
+  if ("url" in event && event.url instanceof URL) return event.url.pathname
+  // H3 1 has already decoded and possibly rewritten this path before routing.
+  // Its router treats decoded question marks as query boundaries.
+  if ("path" in event && typeof event.path === "string") return event.path.split("?", 1)[0]!
+  // Bare Requests have no routed path. Apply H3 2's canonical escape handling.
+  return normalizeRoute(new URL(request.url).pathname)
 }

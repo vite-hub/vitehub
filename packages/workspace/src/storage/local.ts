@@ -576,7 +576,8 @@ async function gitIgnoredWorkspacePaths(root: string): Promise<string[]> {
   const output = await new Promise<string>((resolveOutput, reject) => execFile(
     "git",
     ["-C", root, "-c", "core.hooksPath=/dev/null", "ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"],
-    { encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0" }, maxBuffer: 64 * 1024 * 1024 },
+    // The C locale keeps Git's messages in English, so the stderr check below works on every system.
+    { encoding: "utf8", env: { ...process.env, GIT_TERMINAL_PROMPT: "0", LC_ALL: "C" }, maxBuffer: 64 * 1024 * 1024 },
     (error, stdout, stderr) => {
       // `ignore: "git"` is also valid for ordinary directories. Treat a
       // non-repository root as having no Git exclusions, while preserving
