@@ -1,3 +1,4 @@
+import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
@@ -47,7 +48,8 @@ function allowedTools(access: ConsoleAccess): ViteHubMcpTool[] {
 }
 
 async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Response> {
-  const request = event.req
+  // Nuxt 4's H3 1 events carry Node's request, with a relative URL and the body as a stream.
+  const request = isH3V1Event(event) && !(Reflect.get(event, "req") instanceof Request) ? toH3V1Request(event) : event.req
   if (request.method !== "POST") {
     return Response.json({ message: "ViteHub MCP accepts JSON-RPC requests with POST." }, { headers: { ...headers, allow: "POST" }, status: 405 })
   }
