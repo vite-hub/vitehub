@@ -205,6 +205,22 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
 }
 
 /**
+ * The path that the app is mounted at. Under Nuxt, Vite's `base` is the folder of its built files (`/_nuxt/` in
+ * development), and the app base reaches Vite as the `__VITEHUB_APP_BASE_URL__` define.
+ */
+function appMount(config: { base?: string, define?: Record<string, unknown> } & CommentsPluginConfig): string | undefined {
+  if (!config[VITEHUB_NITRO_CONFIG_CONTEXT]) return undefined
+  const base: unknown = config.define?.__VITEHUB_APP_BASE_URL__
+  try {
+    const value: unknown = typeof base === "string" ? JSON.parse(base) : base
+    return typeof value === "string" ? mountPath(value) : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
  * Comments build integration. When the project has `server/comments.ts`, it contributes the comment tables to the
  * Database, the `comments.*` operations, and a Nitro plugin that installs the runtime. Apps without the file are
  * unaffected.
@@ -245,7 +261,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         edit = options.overlayEdit?.({ projectRoot, ...(serverDirs ? { serverDirs } : {}) }) ?? false
         const nitroConfig = Reflect.get(config, "nitro")
         // Nuxt mounts the app below `app.baseURL`, which reaches Nitro as `baseURL`.
-        mount = mountPath(viteConfig.base) || mountPath(typeof Reflect.get(Object(nitroConfig), "baseURL") === "string" ? String(Reflect.get(Object(nitroConfig), "baseURL")) : undefined)
+        mount = appMount(viteConfig) ?? (mountPath(viteConfig.base) || mountPath(typeof Reflect.get(Object(nitroConfig), "baseURL") === "string" ? String(Reflect.get(Object(nitroConfig), "baseURL")) : undefined))
         const { middleware, plugin } = writeGenerated(projectRoot, entry)
         const url = overlayUrl()
         const kit = createNitroServerKit(nitroConfig)
@@ -272,7 +288,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       const entry = discover()
       if (!entry) return
       // The resolved base is the one that pages are served under. The generated files follow it.
-      const resolvedMount = mountPath(config.base)
+      const resolvedMount = appMount(config as ResolvedConfig & CommentsPluginConfig) ?? mountPath(config.base)
       if (resolvedMount !== mount) {
         mount = resolvedMount
         writeGenerated(projectRoot ?? process.cwd(), entry)

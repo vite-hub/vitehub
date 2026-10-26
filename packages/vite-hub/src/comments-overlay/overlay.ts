@@ -60,7 +60,8 @@ function adoptStyles(shadow: ShadowRoot, nonce: string | undefined): void {
   shadow.append(style)
 }
 
-async function resolveDocument(base: string, path: string): Promise<EditTarget | null> {
+/** The document of a page, `null` when there is none, or `"failed"` when the server cannot say: it answers with an error. */
+async function resolveDocument(base: string, path: string): Promise<EditTarget | null | "failed"> {
   try {
     const response = await globalThis.fetch(`${base.replace(/\/$/, "")}/_vitehub/rpc/__call`, {
       body: JSON.stringify({ input: { path }, operation: "content.resolve" }),
@@ -69,10 +70,12 @@ async function resolveDocument(base: string, path: string): Promise<EditTarget |
       headers: { "content-type": "application/json", "x-vitehub-console": "1" },
       method: "POST",
     })
-    // An app without the Content cms preset has no such operation, so the call fails and there is no Edit button.
-    if (!response.ok) return null
+    // An app without the Content cms preset has no such operation, and a GitHub store without its token fails every
+    // call. Either way the same call would fail on the next page, so the caller stops asking.
+    if (!response.ok) return "failed"
     const body = await response.json() as { ok?: boolean, value?: { collection?: unknown, id?: unknown } | null }
-    const value = body.ok === true ? body.value : null
+    if (body.ok !== true) return "failed"
+    const value = body.value
     return value && typeof value.collection === "string" && typeof value.id === "string" ? { collection: value.collection, id: value.id } : null
   }
   catch {
@@ -107,10 +110,17 @@ export function mount(options: MountOptions): OverlayHandle {
   const subject = shallowRef({ id: options.path(), kind: "page" })
   const edit = shallowRef<EditTarget | null>(null)
   let latest = 0
+  // Set when the server answers content.resolve with an error: there is no Edit button, and no more requests.
+  let lookupFailed = false
   const lookup = async (path: string) => {
     const ticket = ++latest
+    if (lookupFailed) {
+      edit.value = null
+      return
+    }
     const found = await resolveDocument(base, path)
-    if (ticket === latest) edit.value = found
+    if (found === "failed") lookupFailed = true
+    if (ticket === latest) edit.value = found === "failed" ? null : found
   }
   const stopTracking = options.subscribe(() => {
     const id = options.path()

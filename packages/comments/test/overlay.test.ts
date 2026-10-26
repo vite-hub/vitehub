@@ -215,6 +215,25 @@ describe("hubComments overlay", () => {
     expect(indexHtml(plugin)("<body></body>")).toContain('src="/docs/_vitehub/comments/loader.abc123.js')
   })
 
+  it("serves the loader below the app base under Nuxt, whose Vite base is the assets folder in dev", async () => {
+    const nuxtDev = (base: string) => ({ base: "/_nuxt/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify(base) }, __vitehubNitroConfigContext: true })
+    for (const [base, mount] of [["/", ""], ["/portal/", "/portal"]] as const) {
+      const root = await project()
+      const plugin = hubComments({ overlayAssets: assets })
+      const config: Record<string, unknown> = { nitro: { plugins: [] }, root, ...nuxtDev(base) }
+      await configHook(plugin)(config)
+      const generated = `"${mount}/_vitehub/comments/loader.abc123.js`
+      expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
+      expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(generated)
+      expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).not.toContain("/_nuxt/")
+      // The resolved config repeats the dev base; it must not move the loader either.
+      ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({ ...nuxtDev(base), nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
+      expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
+      expect(indexHtml(plugin)("<body></body>")).toContain(`src="${mount}/_vitehub/comments/loader.abc123.js`)
+      expect(JSON.stringify((config.nitro as { publicAssets?: unknown }).publicAssets)).toContain(`"baseURL":"${mount}/_vitehub/comments"`)
+    }
+  })
+
   it("tells the loader that the app can edit pages only when the check says so", async () => {
     const root = await project()
     const withEdit = hubComments({ overlayAssets: assets, overlayEdit: project => project.projectRoot === root })
