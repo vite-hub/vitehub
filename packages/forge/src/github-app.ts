@@ -25,7 +25,7 @@ export interface GitHubAppInput {
 
 const appProviders = new Map<string, Promise<ForgeProvider>>()
 // Weak keys keep token retention bounded by the 128 cached providers.
-const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: Date }>()
+const installationTokens = new WeakMap<ForgeProvider, { token: string, expiresAt: number }>()
 const appProviderLimit = 128
 const fetchIds = new WeakMap<typeof fetch, number>()
 let nextFetchId = 0
@@ -85,7 +85,7 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       const id = String(installationId)
       const provider = await withSignal(appProvider(input, id, options.refresh), options.signal)
       const cached = installationTokens.get(provider)
-      if (cached && cached.expiresAt.getTime() > Date.now() + 60_000) return cached
+      if (cached && cached.expiresAt > Date.now() + 60_000) return { token: cached.token, expiresAt: new Date(cached.expiresAt) }
       // installations.token() cannot forward a signal in the pinned forges version.
       // Keep JWT signing in the provider and pass cancellation through its transport.
       const response = await withSignal(provider.request<{ token?: string, expires_at: string }>(
@@ -93,7 +93,7 @@ export function githubAppCredentials(input: GitHubAppInput): GitHubAppCredential
       ), options.signal)
       if (!response.data.token) throw new ForgeResponseError("GitHub App installation token response did not include token.")
       const details = { token: response.data.token, expiresAt: new Date(response.data.expires_at) }
-      installationTokens.set(provider, details)
+      installationTokens.set(provider, { token: details.token, expiresAt: details.expiresAt.getTime() })
       return details
     },
     async installation(repository, signal) {
