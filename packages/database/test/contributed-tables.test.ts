@@ -109,13 +109,28 @@ describe("collectDatabaseContributions", () => {
       .rejects.toMatchObject({ code: "DATABASE_DUPLICATE_DEFINITION", message: expect.stringContaining("/app/other.ts (contributed by plugin \"other/vite\")") })
   })
 
-  it("passes the flat plugin list to factories", async () => {
+  it("passes nested promised plugins to factories in order and deduplicates by identity", async () => {
     const sibling = { name: "sibling/vite" }
-    let seen: readonly unknown[] | undefined
-    const factory = { name: "factory/vite", vitehub: { databases: (input: { plugins?: readonly unknown[] }) => { seen = input.plugins; return [] } } }
+    const seen: Array<readonly unknown[] | undefined> = []
+    const factory = { name: "factory/vite", vitehub: { databases: (input: { plugins?: readonly unknown[] }) => { seen.push(input.plugins); return [] } } }
+    const otherFactory = { ...factory }
+    const promised = Promise.resolve([factory, [sibling]])
 
-    await collectDatabaseContributions([[factory, [sibling]]], context)
-    expect(seen).toEqual([factory, sibling])
+    await collectDatabaseContributions([promised, [false, null, undefined, promised, factory, Promise.resolve(otherFactory)]], context)
+    expect(seen).toHaveLength(2)
+    expect(seen[0]).toEqual([factory, sibling, otherFactory])
+    expect(seen[0]?.[0]).toBe(factory)
+    expect(seen[0]?.[2]).toBe(otherFactory)
+    expect(seen[1]).toBe(seen[0])
+  })
+
+  it("propagates a rejected plugin option before running contribution factories", async () => {
+    const error = new Error("Plugin failed to load")
+    const seen: string[] = []
+    const factory = { vitehub: { databases: () => { seen.push("factory"); return [] } } }
+
+    await expect(collectDatabaseContributions([factory, [Promise.reject(error)]], context)).rejects.toBe(error)
+    expect(seen).toEqual([])
   })
 
   it("fails when two plugins contribute tables with one name and names both plugins", async () => {
