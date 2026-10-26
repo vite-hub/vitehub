@@ -523,16 +523,38 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   }
 
   if (path === "/api/_vitehub/console/env") {
-    json(response, { entries: [
+    // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
+    const envEntries = [
+      { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
+      { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.executor.url", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientId", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
+      { path: "env.server.pubsub.topic", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.audience", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.serviceAccount", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.labeller.adminToken", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.labeller.dryRun", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
       { path: "env.server.labeller.minConfidence", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
+      { path: "env.server.labeller.labels.GitHub.color.textColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.labeller.labels.GitHub.color.backgroundColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
       { path: "env.server.appName", source: "literal", secret: false, required: false, hasDefault: false },
-    ] })
+      { source: "literal", secret: false, required: false, hasDefault: false },
+      { source: "literal", secret: false, required: false, hasDefault: false },
+    ]
+    // `?status=1` answers like inspectServerEnv: two required values are missing and the vault fails once.
+    const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
+    json(response, { entries: envEntries, status: url.searchParams.has("status") ? envEntries.map(entry => ({
+      blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
+      path: entry.path,
+      status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
+    })) : undefined })
     return true
   }
   if (path === "/api/_vitehub/console/sections") {

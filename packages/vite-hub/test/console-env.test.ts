@@ -1,4 +1,5 @@
 import { ref } from "vue"
+import { groupConsoleEnv } from "../src/console/runtime/client/env-groups.ts"
 import { indexEnvStatuses } from "../src/console/runtime/client/env-status.ts"
 import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -57,6 +58,25 @@ describe("Console Env", () => {
     expect(filtered.map(entry => statuses.value.get(entry))).toEqual([{ blocking: true, status: "missing" }, { blocking: false, status: "error" }])
   })
 
+  it("groups declarations by namespace and folds one-value namespaces into Other", () => {
+    const entry = (path?: string) => ({ ...(path ? { path: `env.server.${path}` } : {}), source: "env" as const, secret: false, required: true, hasDefault: false })
+    const groups = groupConsoleEnv([
+      entry("logLevel"),
+      entry("executor.url"),
+      entry("github.token"),
+      entry("labeller.dryRun"),
+      entry("executor.apiKey"),
+      entry(),
+      entry("labeller.labels.GitHub.color.textColor"),
+      entry("appName"),
+    ])
+    expect(groups.map(group => [group.name, group.rows.map(row => `${row.parent}${row.name}`)])).toEqual([
+      ["executor", ["url", "apiKey"]],
+      ["labeller", ["dryRun", "labels.GitHub.color.textColor"]],
+      ["", ["logLevel", "github.token", "appName"]],
+      [undefined, [""]],
+    ])
+  })
   it("uses registry keys distinct from Blob", () => { expect(consoleEnvKey).not.toBe(consoleBlobKey) })
   it("serves declaration metadata and rejects mutations", async () => {
     installConsoleSections("/env-test", ["env"])
