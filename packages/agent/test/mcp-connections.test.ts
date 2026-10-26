@@ -6,6 +6,8 @@ import { createConnectionsRuntime } from "../../connections/src/runtime.ts"
 import { connect, createTestRuntime, mailConnection, testProvider } from "../../connections/test/helpers.ts"
 import { resolveAgentCapabilities } from "../src/capability-runtime.ts"
 import { mcp } from "../src/capabilities/mcp.ts"
+import { defineAgent, runAgent, streamAgent } from "../src/index.ts"
+import { streamAgentOutputToEvents } from "../src/output.ts"
 
 import type { ConnectionsRuntime } from "../../connections/src/runtime.ts"
 import type { ConnectionOAuthDefinition } from "../../connections/src/types.ts"
@@ -86,6 +88,47 @@ function resolveWith(connections: ConnectionsRuntime, servers: McpCapabilityOpti
     memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn(),
   }, {})
 }
+
+it.each(["run", "stream"] as const)("registers the child Agent identity before %s MCP discovery", async (mode) => {
+  const definition = mcpEndpointConnection()
+  const test = createTestRuntime(definition)
+  const server = fakeMcpServer(test)
+  const connections = createConnectionsRuntime({ definitions: { mail: definition }, fetch: server.fetch, store: test.store })
+  await connect({ ...test, runtime: connections })
+  const client = vi.spyOn(connections, "client")
+  const run = vi.fn(() => "done")
+  const parent = defineAgent({
+    name: "parent",
+    runtime: false,
+    driver: { run },
+    capabilities: [mcp({ servers: { mail: { connection: "mail" } } })],
+  })
+  const agent = defineAgent({ name: "agent", extends: parent })
+  const context = {
+    runtime: "unknown" as const,
+    memo: vi.fn(),
+    waitUntil: vi.fn(),
+    runtimeConfig: {},
+    // Host attribution must not substitute for the Definition's Connection authority.
+    agentIdentity: { name: "host-alias" },
+    capabilities: { connections: { runtime: () => connections } },
+  }
+
+  const result = mode === "stream"
+    ? await streamAgent(agent, context, {}, { output: "events" })
+    : await runAgent(agent, context, {})
+  for await (const _event of streamAgentOutputToEvents(result)) { /* Drain to close the MCP client. */ }
+
+  expect(client).toHaveBeenCalledWith("mail", expect.objectContaining({
+    access: expect.objectContaining({ actor: { kind: "agent", id: "agent" } }),
+    rejectApprovals: true,
+  }))
+  expect(run).toHaveBeenCalledOnce()
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({
+    tools: expect.objectContaining({ mcp_mail_search: expect.any(Object), mcp_mail_send: expect.any(Object) }),
+  }))
+  expect(server.urls).toContain("https://mcp.example.com/mcp")
+})
 
 it("connects to the provider mcp endpoint and exposes only allowed tools", async () => {
   const definition = mcpEndpointConnection()

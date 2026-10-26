@@ -186,7 +186,7 @@ export function useCollection<TName extends CollectionName>(
     try {
       const filter = options.filter ? toValue(options.filter) : {}
       let cursor = reset ? undefined : nextCursor.value || undefined
-      let loadedItems = reset ? [] : [...items.value]
+      const loadedItems = reset ? [] : [...items.value]
       let loadedTotal = reset ? undefined : total.value
       let loadedFacets = reset ? undefined : facets.value
       let response: TPage
@@ -208,7 +208,7 @@ export function useCollection<TName extends CollectionName>(
         if (active !== controller) return
         if (response.total !== undefined) loadedTotal = response.total
         if (response.facets !== undefined) loadedFacets = response.facets
-        loadedItems = [...loadedItems, ...response.items]
+        for (const item of response.items) loadedItems.push(item)
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
           throw sourceErrorDiagnostics.SOURCE_R0003({ message: "[vitehub] Collection returned the same cursor twice." })
