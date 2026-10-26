@@ -78,10 +78,19 @@ export function bytesToBase64(value: Uint8Array): string {
   const Buffer = (
     // SAFETY: this optional global is available in Node and omitted in web runtimes.
     globalThis as typeof globalThis & {
-      Buffer?: { from: (value: ArrayBufferLike, byteOffset: number, length: number) => { toString: (encoding: string) => string } };
+      Buffer?: {
+        from(value: Uint8Array): { toString: (encoding: string) => string };
+        from(value: ArrayBufferLike, byteOffset: number, length: number): { toString: (encoding: string) => string };
+      };
     }
   ).Buffer;
-  if (Buffer) return Buffer.from(value.buffer, value.byteOffset, value.byteLength).toString("base64");
+  if (Buffer) {
+    // Shared memory can change during encoding; preserve the existing copy semantics.
+    const bytes = typeof SharedArrayBuffer !== "undefined" && value.buffer instanceof SharedArrayBuffer
+      ? Buffer.from(value)
+      : Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+    return bytes.toString("base64");
+  }
   const chunks: string[] = [];
   let chunk: number[] = [];
   for (const byte of value) {
