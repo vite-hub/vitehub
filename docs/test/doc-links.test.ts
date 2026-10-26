@@ -237,6 +237,23 @@ const links = [{ to: "/docs/missing-script" }]
     ]);
   });
 
+  it("validates Vue anchors when scripts contain incomplete HTML strings", () => {
+    const repoRoot = fixture({
+      "docs/app/pages/index.vue": `<template>
+  <section data-note=">" id="details" />
+  <NuxtLink data-note='>' to="#details" />
+  <NuxtLink to="#missing" />
+</template>
+<script setup>
+const markup = svg.outerHTML.replace("<svg", '<svg xmlns="http://www.w3.org/2000/svg"');
+</script>`,
+    });
+
+    expect(validateDocumentationLinks({ repoRoot }).errors).toEqual([
+      expect.stringContaining("anchor #missing does not exist"),
+    ]);
+  });
+
   it("validates object routes and ignores reassigned mutable bindings", () => {
     const repoRoot = fixture({
       "docs/app/pages/index.vue": `<script setup>

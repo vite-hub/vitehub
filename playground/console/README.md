@@ -26,6 +26,16 @@ Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
+To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
+`/api/_vitehub/console/`, and it also matches the paths under it:
+
+```js
+document.cookie = "playground-fail=agents=401,invocations=401" // Sign-in on the Agents page
+document.cookie = "playground-fail=sections=503"                // The Overview cannot load
+document.cookie = "playground-fail=invocation-capabilities=500" // The session filter cannot load
+document.cookie = "playground-fail=; max-age=0"                 // Back to the fixtures
+```
+
 To share the running playground temporarily, expose the same local server:
 
 ```bash
@@ -34,3 +44,7 @@ cloudflared tunnel --url http://127.0.0.1:5173
 
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
+
+Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
+
+Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.

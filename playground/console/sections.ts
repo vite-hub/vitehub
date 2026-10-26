@@ -4,6 +4,16 @@
  */
 export const playgroundConsoleContributions = [
   {
+    id: "auth",
+    label: "Auth",
+    icon: "i-lucide-users-round",
+    description: "Manage users, sessions, organizations, and approved OAuth clients.",
+    view: {
+      kind: "auth-management",
+      notice: "Better Auth owns user data and runs each change through its APIs.",
+    },
+  },
+  {
     description: "Inspect messages that the development outbox captured.",
     icon: "i-lucide-mail",
     id: "email",

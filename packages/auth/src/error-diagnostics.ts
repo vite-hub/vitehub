@@ -59,6 +59,8 @@ export const authErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     AUTH_C0047: dynamicError,
     AUTH_C0048: dynamicError,
     AUTH_C0049: dynamicError,
+    AUTH_C0050: dynamicError,
+    AUTH_R0018: dynamicError,
     AUTH_R0003: dynamicError,
     AUTH_R0004: dynamicError,
     AUTH_B0001: dynamicError,

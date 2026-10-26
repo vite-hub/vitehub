@@ -111,6 +111,12 @@
       "require": "./dist/_internal/agent/state/sqlite.js",
       "default": "./dist/_internal/agent/state/sqlite.js"
     },
+    "./_internal/auth/runtime/console": {
+      "types": "./dist/_internal/auth/runtime/console.d.ts",
+      "import": "./dist/_internal/auth/runtime/console.js",
+      "require": "./dist/_internal/auth/runtime/console.js",
+      "default": "./dist/_internal/auth/runtime/console.js"
+    },
     "./_internal/blob": {
       "types": "./dist/_internal/blob.d.ts",
       "import": "./dist/_internal/blob.js",
@@ -1277,6 +1283,18 @@
       "import": "./dist/console/runtime/server/documents.js",
       "require": "./dist/console/runtime/server/documents.js",
       "default": "./dist/console/runtime/server/documents.js"
+    },
+    "./auth/console": {
+      "types": "./dist/auth/console.d.ts",
+      "import": "./dist/auth/console.js",
+      "require": "./dist/auth/console.js",
+      "default": "./dist/auth/console.js"
+    },
+    "./auth/console-runtime": {
+      "types": "./dist/auth/console-runtime.d.ts",
+      "import": "./dist/auth/console-runtime.js",
+      "require": "./dist/auth/console-runtime.js",
+      "default": "./dist/auth/console-runtime.js"
     }
   },
   "scripts": {

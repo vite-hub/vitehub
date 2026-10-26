@@ -50,6 +50,7 @@ import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
+import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
@@ -1280,6 +1281,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. Its plugins step aside when the app adds `nitro()` itself.
+  plugins.push(...nitroOrderPlugins())
   plugins.push(includedNitro())
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]

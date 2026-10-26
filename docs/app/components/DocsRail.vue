@@ -5,6 +5,7 @@ import { docsManifest } from "~~/modules/vitehub-docs/runtime/utils/docs";
 import {
   getDocsRailCatalog,
   getUncategorizedDocsSections,
+  isSharedDocsSection,
 } from "~~/modules/vitehub-docs/runtime/utils/docs-navigation";
 
 const currentSection = useDocsSection();
@@ -43,7 +44,7 @@ const groups = [
           <PrimitiveRailItem
             :as="NuxtLink"
             :to="section.path"
-            :current="section.id === currentSection?.id || (section.id === 'getting-started' && currentSection?.category === 'Platform')"
+            :current="section.id === currentSection?.id || (section.id === 'getting-started' && !!currentSection && isSharedDocsSection(currentSection))"
             :icon="railSectionIcon(section)"
             :label="section.title"
           />

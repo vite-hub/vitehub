@@ -1,6 +1,6 @@
 ---
 title: Connect the docs MCP server
-navigation.group: AI resources
+navigation.group: Coding agents
 description: Let your coding agent list and read ViteHub documentation pages through MCP.
 navigation.title: Docs MCP server
 navigation.order: 262

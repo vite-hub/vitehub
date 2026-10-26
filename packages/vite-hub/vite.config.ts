@@ -228,6 +228,25 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-env-managed.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-env-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-env-access.vue", to: "dist/console/runtime/components" },
+      {
+        from: "src/console/runtime/components/console-auth.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-auth-detail.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-auth-action.vue",
+        to: "dist/console/runtime/components",
+      },
+      { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+      { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-event-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-event-setup.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
@@ -344,6 +363,7 @@ export default defineConfig({
       "src/console/runtime/server/invocation-workspace.get.ts",
       "src/console/runtime/server/invocations.get.ts",
       "src/console/runtime/server/env.get.ts",
+      "src/console/runtime/server/auth-manage.ts",
       "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/kv.get.ts",
       "src/console/runtime/server/page.get.ts",
@@ -402,6 +422,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/invocation-workspace.get"];
         delete exports["./console/runtime/server/invocations.get"];
         delete exports["./console/runtime/server/env.get"];
+        delete exports["./console/runtime/server/auth-manage"];
         delete exports["./console/runtime/server/env-manage"];
         delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/kv.get"];

@@ -1,7 +1,10 @@
+import { createAuthMiddleware } from "better-auth/api"
 import { resolvePublicUrl } from "@vite-hub/runtime"
 import { resolveAuthMountPath } from "./application-path.ts"
 import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
+import { validateAuthEvents } from "./events-config.ts"
+import { createAuthEventsPlugin } from "./event-plugin.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -45,7 +48,9 @@ function stripViteHubOptions(
 ): AuthBetterAuthRuntimeOptions {
   const {
     access: _access,
+    console: _console,
     database,
+    events,
     route: _route,
     runtime: _runtime,
     secondaryStorage,
@@ -56,11 +61,25 @@ function stripViteHubOptions(
     ...(!isAuthDatabaseMetadata(database) ? { database } : {}),
     ...(!isAuthSecondaryStorageMetadata(secondaryStorage) ? { secondaryStorage } : {}),
   }
+  validateAuthEvents(events)
+  const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
+  const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
+  const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
+  if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
+  const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
   // SAFETY: `rest` and the retained metadata fields are the Better Auth runtime option shape after ViteHub-only fields are removed.
   return {
     ...rest,
     ...storage,
-    ...withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage)),
+    ...sessionRefresh,
+    ...(eventPlugin ? {
+      plugins: [...plugins, eventPlugin],
+      hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
+        // Capture the endpoint outcome before application/plugin after-hooks replace it.
+        eventPlugin.captureOutcome(args[0])
+        return after(...args)
+      }, after) },
+    } : {}),
     // Better Auth appends this path to an origin `baseURL`, so the app base path keeps routes and callbacks below it.
     basePath: resolveAuthMountPath(normalizeAuthBasePath(typeof options.basePath === "string" ? options.basePath : undefined)),
   } as AuthBetterAuthRuntimeOptions

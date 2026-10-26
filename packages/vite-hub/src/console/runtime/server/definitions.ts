@@ -15,6 +15,7 @@ function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitio
 
 function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
   if (content.kind === "operation-view") return { kind: "operation-view" }
+  if (content.kind === "auth-management") return { kind: "auth-management" };
   if (content.kind === "document-editor") {
     // The build-time setup hints, such as a missing scheduled publish runner, stay; collections are read per request.
     const setup = parseConsoleDocumentSetup(content.setup)

@@ -2,7 +2,7 @@
 title: Collaborative Editor
 description: "A document editor that shows who is in the room, the connection, the save state, and everyone's carets."
 navigation.order: 14
-navigation.group: Console
+navigation.group: Blocks
 icon: i-ph-users-three-light
 ---
 
