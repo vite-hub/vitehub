@@ -151,11 +151,32 @@ const nitroFileUrlResolver = {
   resolveId: (source: string) => source.startsWith("file://") ? fileURLToPath(source) : null,
 }
 
+type RollupExternal = string | RegExp | ReadonlyArray<string | RegExp> | ((id: string, importer: string | undefined, isResolved: boolean) => boolean | null | undefined | void) | undefined
+
+function isExternalId(external: RollupExternal, id: string, importer: string | undefined, isResolved: boolean): boolean {
+  if (typeof external === "function") return Boolean(external(id, importer, isResolved))
+  if (external === undefined) return false
+  return [external].flat().some(entry => typeof entry === "string" ? entry === id : entry.test(id))
+}
+
+/**
+ * `nuxt dev` runs Nitro 2 on Node, where its `cloudflare-dev` preset maps `cloudflare:workers` to a shim of `env`. ViteHub's
+ * generated Nitro plugins list that scheme as external for the Worker build, and Rollup asks `external` before it
+ * applies aliases, so the dev bundle kept an import that Node cannot load.
+ */
+const nitroCloudflareWorkersDev = {
+  name: "vite-hub/nitro-cloudflare-workers-dev",
+  options(options: { external?: RollupExternal }) {
+    const external = options.external
+    return { ...options, external: (id: string, importer: string | undefined, isResolved: boolean) => id === "cloudflare:workers" ? false : isExternalId(external, id, importer, isResolved) }
+  },
+}
+
 /** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
-function installNitroBuildPlugins(config: Record<string, unknown>): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, dev = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1297,7 +1318,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
     installNitroRuntimeResolvers(config, replayPlugins)
-    installNitroBuildPlugins(config)
+    installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
