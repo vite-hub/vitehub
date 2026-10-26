@@ -54,7 +54,7 @@ export function getConnectionsRuntime(): ConnectionsRuntime {
   return runtime ??= createConnectionsRuntime({ definitions: discoveredRegistry, store: defaultStore })
 }
 
-function methodProxy(client: ConnectionRuntimeClient, path: string): unknown {
+function methodProxy(client: Pick<ConnectionRuntimeClient, "call">, path: string): unknown {
   const call = (input?: unknown, options?: { signal?: AbortSignal }) => connectionResult(() => client.call(path, input, options))
   return new Proxy(call, {
     get(_target, property) {
@@ -98,7 +98,6 @@ export function useConnection(name: string, options: UseConnectionOptions = {}):
       if (!key.success || key.output === "then" || key.output === "toJSON") return undefined
       return methodProxy({
         call: (action, input, callOptions) => resolveClient().call(action, input, callOptions),
-        fetch: (input, init) => resolveClient().fetch(input, init),
       }, key.output)
     },
   })
