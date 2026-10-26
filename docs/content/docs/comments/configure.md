@@ -270,7 +270,7 @@ A pin on an element with a Content field, or inside one, stores the field addres
 
 ## Triage in the Console
 
-The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity: page, first comment, author, replies, status, and last update. A thread's **Open on page** field is its `?comments#comment-<id>` link. Reply and resolve on the page, where the context is.
+The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
