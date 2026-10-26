@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
-import { parseConsoleDocumentSetup } from "../definitions.ts"
+import { parseConsoleDocumentSetup, parseConsoleRecordActivity, parseConsoleRecordLink } from "../definitions.ts"
 
 import type { ConsoleContributedSection, ConsoleDefinitionField, ConsoleRecord, ConsoleSectionCatalog, ConsoleSectionContent } from "../definitions.ts"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
@@ -42,6 +42,10 @@ export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRe
     if (record.runnable === true) {
       copied.runnable = true
     }
+    const link = parseConsoleRecordLink(record.link)
+    if (link) copied.link = link
+    const activity = parseConsoleRecordActivity(record.activity)
+    if (activity.length) copied.activity = activity
     return copied
   })
 }

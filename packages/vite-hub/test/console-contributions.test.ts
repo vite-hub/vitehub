@@ -67,6 +67,18 @@ describe("Console section contributions", () => {
     expect(parseConsoleSectionContent({ records: [record], kind: "record-table", section: "schedules" }, "schedules")).toEqual({ records: [record], kind: "record-table" })
   })
 
+  it("keeps a record's app link and activity, and drops links the Console must not open", () => {
+    const activity = [{ author: "Ada", at: "2026-10-26T10:48:00.000Z", text: "Typo here" }, { author: "Grace", text: "No time" }]
+    const parse = (link: unknown) => parseConsoleSectionContent({ records: [{ cells: {}, fields: [], id: "t1", link, activity }], kind: "record-table", section: "comments" }, "comments")
+    expect(parse({ href: "/pricing?comments#comment-t1", label: "Open on page" })).toEqual({
+      kind: "record-table",
+      records: [{ cells: {}, fields: [], id: "t1", link: { href: "/pricing?comments#comment-t1", label: "Open on page" }, activity: [activity[0]] }],
+    })
+    for (const href of ["javascript:alert(1)", "//evil.test/x", "http://site.test/"]) {
+      expect(parse({ href, label: "Open" })).toEqual({ kind: "record-table", records: [{ cells: {}, fields: [], id: "t1", activity: [activity[0]] }] })
+    }
+  })
+
   it("accepts runnable metadata only when it is true", () => {
     const definition = { fields: [], file: "sync.ts", name: "sync", source: "server-schedules" }
     for (const runnable of [false, "true", 1, undefined]) {

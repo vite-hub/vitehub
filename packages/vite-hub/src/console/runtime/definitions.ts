@@ -20,12 +20,22 @@ export interface ConsoleRecordColumn {
   label: string
 }
 
+export interface ConsoleRecordActivity {
+  author: string
+  at: string
+  text: string
+}
+
 export interface ConsoleRecord {
   cells: Readonly<Record<string, string>>
   fields: readonly ConsoleDefinitionField[]
   id: string
   /** The Console can run this record when it represents a runnable Schedule Definition. */
   runnable?: boolean
+  /** Where the record lives in the app. `href` is an app path or an `https:` URL. */
+  link?: { href: string, label: string }
+  /** Entries in time order, such as the comments of a thread. */
+  activity?: readonly ConsoleRecordActivity[]
 }
 
 export type ConsoleSectionView =
@@ -252,12 +262,33 @@ function parseConsoleRecords(value: unknown): ConsoleRecord[] {
     const row = record(entry)
     const cells = record(row?.cells)
     if (!row || !cells || !text(row.id)) return []
-    return [{
+    const parsed: ConsoleRecord = {
       cells: Object.fromEntries(Object.entries(cells).filter((cell): cell is [string, string] => text(cell[1]))),
       fields: parseConsoleDefinitionFields(row.fields),
       id: row.id,
       runnable: row.runnable === true ? true : undefined,
-    }]
+    }
+    const link = parseConsoleRecordLink(row.link)
+    if (link) parsed.link = link
+    const activity = parseConsoleRecordActivity(row.activity)
+    if (activity.length) parsed.activity = activity
+    return [parsed]
+  })
+}
+
+/** A record link that the Console may open: an app path, or an `https:` URL. Other schemes, such as `javascript:`, drop. */
+export function parseConsoleRecordLink(value: unknown): ConsoleRecord["link"] {
+  const link = record(value)
+  if (!link || !text(link.href) || !text(link.label)) return undefined
+  if (!/^\/(?!\/)/.test(link.href) && !/^https:\/\//i.test(link.href)) return undefined
+  return { href: link.href, label: link.label }
+}
+
+export function parseConsoleRecordActivity(value: unknown): ConsoleRecordActivity[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    const item = record(entry)
+    return item && text(item.author) && text(item.at) && text(item.text) ? [{ author: item.author, at: item.at, text: item.text }] : []
   })
 }
 
