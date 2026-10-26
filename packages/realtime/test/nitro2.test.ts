@@ -13,11 +13,11 @@ function definition(extra: Partial<RealtimeDefinition> = {}): RealtimeDefinition
 }
 
 /** The hooks that Nitro 2 reads from a handler, and a crossws upgrade request with its read-only context. */
-function nitro2(extra: Partial<RealtimeDefinition> = {}) {
+function nitro2(extra: Partial<RealtimeDefinition> = {}, context = {}) {
   const handler = createRealtimeHandler(registryOf(definition(extra)) as never)
   // SAFETY: the handler sets `__websocket__` to crossws hooks for Nitro 2.
   const hooks = Reflect.get(handler, "__websocket__") as Required<Pick<WebSocketHooks, "close" | "message" | "open" | "upgrade">>
-  const request = Object.defineProperty(new Request(roomUrl, { headers: { upgrade: "websocket" } }), "context", { enumerable: true, value: {} })
+  const request = Object.defineProperty(new Request(roomUrl, { headers: { upgrade: "websocket" } }), "context", { enumerable: true, value: context })
   const sent: Uint8Array[] = []
   const close = vi.fn()
   // SAFETY: the room uses only these peer members.
@@ -30,6 +30,31 @@ afterEach(() => {
 })
 
 describe("Nuxt 4 and Nitro 2", () => {
+  it.each([false, true])("preserves upgrade context for identity and authorization (Durable Object: %s)", async (durable) => {
+    const context = { sentinel: "session", _platform: { sentinel: "platform", cloudflare: { sentinel: "cloudflare" } } }
+    const state = { storage: { sql: new FakeSql().carrier } }
+    const env = { sentinel: "env" }
+    if (durable) registerRealtimeDurableObject(state, env)
+    const expected = durable
+      ? { ...context, _platform: { ...context._platform, cloudflare: { ...context._platform.cloudflare, context: state, env } } }
+      : context
+    const identify = vi.fn(({ event }: Parameters<NonNullable<RealtimeDefinition["identify"]>>[0]) => {
+      expect(event.context).toMatchObject(expected)
+      return { id: "ana" }
+    })
+    const authorize = vi.fn(({ event }: Parameters<NonNullable<RealtimeDefinition["authorize"]>>[0]) => {
+      expect(event.context).toMatchObject(expected)
+      return true
+    })
+    const { hooks, request } = nitro2({ identify, authorize }, context)
+
+    await expect(hooks.upgrade(request)).resolves.toBeUndefined()
+
+    expect(identify).toHaveBeenCalledOnce()
+    expect(authorize).toHaveReturnedTimes(2)
+    expect(context).toEqual({ sentinel: "session", _platform: { sentinel: "platform", cloudflare: { sentinel: "cloudflare" } } })
+  })
+
   it("forwards a WebSocket upgrade from an H3 1 event, which carries Node's request, to the Durable Object", async () => {
     const fetch = vi.fn(async (request: Request) => new Response(`${request.method} ${request.url} ${request.headers.get("upgrade")}`))
     const handler = createRealtimeHandler(registryOf(definition()) as never)

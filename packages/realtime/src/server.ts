@@ -1621,7 +1621,14 @@ export function createRealtimeHandler(registry: RealtimeRegistry): RealtimeHandl
   const nitro2Hooks: Partial<WebSocketHooks> = {
     async upgrade(request) {
       const durable = durableScope[durableObjectKey]
-      const context = durable ? { _platform: { cloudflare: { context: durable.state, env: durable.env } } } : {}
+      const context = { ...request.context }
+      if (durable) {
+        const platform = context._platform as { cloudflare?: Record<string, unknown> } | undefined
+        context._platform = {
+          ...platform,
+          cloudflare: { ...platform?.cloudflare, context: durable.state, env: durable.env },
+        }
+      }
       // crossws makes `request.context` read-only, and an event sets it, so the event reads its own copy.
       const response: unknown = await handler(new H3Event(new Request(request.url, { headers: request.headers, method: request.method }), context))
       const hooks: unknown = response instanceof Response ? Reflect.get(response, "crossws") : undefined
