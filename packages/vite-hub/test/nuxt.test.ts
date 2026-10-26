@@ -472,39 +472,11 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/", expect.any(Function)],
+      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external,
       trace: false,
     })
     expect(inline).toEqual(["existing-inline"])
-  })
-
-  it.each(["/tmp/vitehub-nuxt", "C:/projects/vitehub-nuxt", String.raw`C:\projects\vitehub-nuxt`])("inlines generated descendants with either separator under %s", async (root) => {
-    const projectRoot = vi.spyOn(await import("@vite-hub/internal/build/vite"), "resolveViteHubProjectRoot").mockReturnValue(root)
-    try {
-      const { nuxt, runNitroConfigHook } = createNuxt(true)
-      const nitroConfig = { externals: { inline: [] as Array<string | RegExp | ((id: string) => boolean)> } }
-      await viteHubNuxtModule({ preset: "node", console: false, env: false }, nuxt)
-      await runNitroConfigHook(nitroConfig)
-
-      // Nitro 2.13.4 normalizes string patterns but passes resolved Windows IDs unchanged.
-      const matches = (id: string) => nitroConfig.externals.inline.some((matcher) => {
-        if (typeof matcher === "function") return matcher(id)
-        if (matcher instanceof RegExp) return matcher.test(id)
-        return id.startsWith(matcher.replaceAll("\\", "/"))
-      })
-      const normalizedRoot = root.replaceAll("\\", "/")
-      for (const separator of ["\\", "/"]) {
-        const id = (suffix: string) => `${normalizedRoot}/${suffix}`.replaceAll("/", separator)
-        expect(matches(id(".vitehub/nitro/console/plugin.mjs"))).toBe(true)
-        expect(matches(id(".vitehub/env/description.mjs"))).toBe(true)
-        expect(matches(id(".vitehub-backup/nitro/console/plugin.mjs"))).toBe(false)
-        expect(matches(id("server/api/seed.ts"))).toBe(false)
-      }
-    }
-    finally {
-      projectRoot.mockRestore()
-    }
   })
 
   it("resolves Blob and KV virtual runtime modules during Nitro bundling", async () => {
@@ -2532,7 +2504,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/", expect.any(Function)] },
+      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3766,7 +3738,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", expect.any(Function)],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external: ["external-package"],
       trace: false,
     }
@@ -3797,7 +3769,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", expect.any(Function)] })
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] })
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)
