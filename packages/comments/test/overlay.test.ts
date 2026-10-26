@@ -226,8 +226,8 @@ describe("hubComments overlay", () => {
       expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
       expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(generated)
       expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).not.toContain("/_nuxt/")
-      // The resolved config repeats the dev base; it must not move the loader either.
-      ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({ ...nuxtDev(base), nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
+      // The resolved config carries Vite's base, and by then another plugin has replaced the define with it. The loader stays.
+      ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({ ...nuxtDev(base), define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/_nuxt/") }, nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
       expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
       expect(indexHtml(plugin)("<body></body>")).toContain(`src="${mount}/_vitehub/comments/loader.abc123.js`)
       expect(JSON.stringify((config.nitro as { publicAssets?: unknown }).publicAssets)).toContain(`"baseURL":"${mount}/_vitehub/comments"`)

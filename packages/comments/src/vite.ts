@@ -205,10 +205,11 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
 }
 
 /**
- * The path that the app is mounted at. Under Nuxt, Vite's `base` is the folder of its built files (`/_nuxt/` in
- * development), and the app base reaches Vite as the `__VITEHUB_APP_BASE_URL__` define.
+ * The path that the app is mounted at, under Nuxt. There Vite's `base` is the folder of its built files (`/_nuxt/` in
+ * development), and the app base reaches Vite as the `__VITEHUB_APP_BASE_URL__` define. Later plugins replace that
+ * define with Vite's base, so only the `config` hook, which runs before them, can read it.
  */
-function appMount(config: { base?: string, define?: Record<string, unknown> } & CommentsPluginConfig): string | undefined {
+function nuxtAppMount(config: { define?: Record<string, unknown> } & CommentsPluginConfig): string | undefined {
   if (!config[VITEHUB_NITRO_CONFIG_CONTEXT]) return undefined
   const base: unknown = config.define?.__VITEHUB_APP_BASE_URL__
   try {
@@ -261,7 +262,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         edit = options.overlayEdit?.({ projectRoot, ...(serverDirs ? { serverDirs } : {}) }) ?? false
         const nitroConfig = Reflect.get(config, "nitro")
         // Nuxt mounts the app below `app.baseURL`, which reaches Nitro as `baseURL`.
-        mount = appMount(viteConfig) ?? (mountPath(viteConfig.base) || mountPath(typeof Reflect.get(Object(nitroConfig), "baseURL") === "string" ? String(Reflect.get(Object(nitroConfig), "baseURL")) : undefined))
+        mount = nuxtAppMount(viteConfig) ?? (mountPath(viteConfig.base) || mountPath(typeof Reflect.get(Object(nitroConfig), "baseURL") === "string" ? String(Reflect.get(Object(nitroConfig), "baseURL")) : undefined))
         const { middleware, plugin } = writeGenerated(projectRoot, entry)
         const url = overlayUrl()
         const kit = createNitroServerKit(nitroConfig)
@@ -288,7 +289,8 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       const entry = discover()
       if (!entry) return
       // The resolved base is the one that pages are served under. The generated files follow it.
-      const resolvedMount = appMount(config as ResolvedConfig & CommentsPluginConfig) ?? mountPath(config.base)
+      // Under Nuxt the resolved base is the folder of the built files, not the app base that the config hook found.
+      const resolvedMount = (config as ResolvedConfig & CommentsPluginConfig)[VITEHUB_NITRO_CONFIG_CONTEXT] ? mount : mountPath(config.base)
       if (resolvedMount !== mount) {
         mount = resolvedMount
         writeGenerated(projectRoot ?? process.cwd(), entry)
