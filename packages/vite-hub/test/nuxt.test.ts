@@ -349,6 +349,30 @@ describe("ViteHub Nuxt integration", () => {
     expect(Reflect.get(nuxt.options.vite, "__vitehubProjectRoot")).toBe(nuxt.options.rootDir)
   })
 
+  it("lets Nitro's dev shim answer cloudflare:workers in nuxt dev, and only there", async () => {
+    type External = (id: string, importer: string | undefined, isResolved: boolean) => boolean
+    type RollupOptions = { external?: unknown }
+    const devPlugin = async (dev: boolean) => {
+      const { nuxt, runNitroConfigHook } = createNuxt(dev)
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+      // Generated Nitro plugins list the scheme as external for the Worker build.
+      const config: Record<string, unknown> = { rollupConfig: { external: ["cloudflare:workers", "node:fs", /^@scope\//] } }
+      await runNitroConfigHook(config)
+      const plugins = (config.rollupConfig as { plugins?: Array<{ name?: string, options?: (options: RollupOptions) => RollupOptions }> }).plugins
+      return plugins?.find(plugin => plugin.name === "vite-hub/nitro-cloudflare-workers-dev")
+    }
+    expect(await devPlugin(false)).toBeUndefined()
+    const plugin = await devPlugin(true)
+    expect(plugin).toBeDefined()
+    for (const external of [["cloudflare:workers", "node:fs", /^@scope\//], (id: string) => id === "cloudflare:workers" || id === "node:fs" || id.startsWith("@scope/"), undefined]) {
+      const result = plugin!.options!({ external }).external as External
+      expect(result("cloudflare:workers", undefined, false)).toBe(false)
+      expect(result("node:fs", undefined, false)).toBe(external !== undefined)
+      expect(result("@scope/x", undefined, false)).toBe(external !== undefined)
+      expect(result("vue", undefined, false)).toBe(false)
+    }
+  })
+
   it("discovers Definitions in every Nuxt layer server directory, application first", async () => {
     const serverDirsHook = vi.fn()
     const { nuxt, runNitroConfigHook } = createNuxt(true, [{ name: "vite-hub/server-dirs", config: serverDirsHook }])
@@ -2418,6 +2442,7 @@ describe("ViteHub Nuxt integration", () => {
       projectRoot: "/tmp/vitehub-nuxt",
       root: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
+      viteConfig: expect.objectContaining({ queue: { namePrefix: "vitehub-nuxt-" } }),
     })
     expect(mocks.workflowNitroConfig).toHaveBeenCalledWith({
       nitro: expect.objectContaining({ preset: "cloudflare_module" }),
@@ -2491,6 +2516,7 @@ describe("ViteHub Nuxt integration", () => {
       },
       rollupConfig: {
         plugins: [
+          expect.objectContaining({ name: "vite-hub/nitro-cloudflare-workers-dev" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
         ],
@@ -3599,6 +3625,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({
+      // Nuxt 4 runs Nitro 2, which upgrades Realtime's sockets only with `experimental.websocket`.
+      experimental: { websocket: true },
       preset: "cloudflare-durable",
       wasm: { lazy: true },
     })

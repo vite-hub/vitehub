@@ -1,8 +1,9 @@
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
-import { consoleAuthPath } from "./auth-path.ts"
+import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -266,4 +267,45 @@ export interface ConsoleSessionReader {
 export async function readConsoleSessionUser(auth: ConsoleSessionReader, request: Pick<Request, "headers">): Promise<ConsoleUser | undefined> {
   const session = v.safeParse(consoleSessionSchema, await auth.api.getSession({ headers: request.headers }))
   return session.success ? session.output.user : undefined
+}
+
+/** The app Auth access routes that protect the Console, and the Auth functions that check them. */
+export interface ConsoleAppAuthAccessOptions {
+  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader
+  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false }) => Promise<Response | undefined>
+  /** Rejects a request without a session. Used for a Console path that no access route matches. */
+  requireSession: (event: object) => Promise<Response | undefined>
+  routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
+}
+
+/**
+ * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this, so it
+ * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
+ */
+export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
+  check: (event: object) => Promise<Response | undefined>
+  user: (event: object) => Promise<ConsoleUser | undefined>
+} {
+  return {
+    async check(event) {
+      const request = toEventRequest(event)
+      const path = consoleEventPath(event, request)
+      const method = request.method.toUpperCase()
+      const matched = options.routes.filter((route) => {
+        if (route.method && route.method !== method) return false
+        if (path === route.route) return true
+        if (!route.route.endsWith("/**")) return false
+        const base = route.route.slice(0, -3)
+        return path === base || path.startsWith(`${base}/`)
+      })
+      if (!matched.length) return options.requireSession(event)
+      const indexes = matched.map(route => route.index)
+      const required = matched.filter(route => route.authorize).map(route => route.index)
+      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false })
+    },
+    user(event) {
+      const request = toEventRequest(event)
+      return readConsoleSessionUser(options.getAuthForRequest(request, undefined, event), request)
+    },
+  }
 }

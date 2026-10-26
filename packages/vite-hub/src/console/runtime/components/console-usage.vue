@@ -5,6 +5,7 @@ import * as v from "valibot";
 import { useRoute, useRouter } from "vue-router";
 import { encodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { requestConsole } from "../client/request";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleUsageChart from "./console-usage-chart.vue";
 import ConsoleUsageModelDetail from "./console-usage-model-detail.vue";
@@ -342,6 +343,11 @@ const tokenTypeStats = computed(() => {
     { label: "Reasoning", note: "Included in output", value: totals.reasoningTokens, available: totals.reasoningTokensAvailable },
   ];
 });
+// Agents first, then models. The kind label tells the two apart in one list.
+const averageRows = computed(() => [
+  ...(summary.value?.agents ?? []).map(row => ({ ...row, key: `agent:${row.agent}`, kind: "Agent", label: row.agent })),
+  ...(summary.value?.models ?? []).map(row => ({ ...row, key: `model:${row.model}`, kind: "Model", label: row.model })),
+]);
 const tokenSegments = computed(() => summary.value ? consoleUsageTokenSegments(summary.value.totals) : undefined);
 const cacheHitRate = computed(() => summary.value ? consoleUsageCacheHitRate(summary.value.totals) : null);
 const selectedModelName = ref<string>();
@@ -446,7 +452,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
 </script>
 
 <template>
-  <UDashboardPanel id="console-usage" class="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 gap-0' }">
+  <UDashboardPanel id="console-usage" class="console-usage" :ui="{ body: 'min-h-0 overflow-y-auto p-0 sm:p-0 gap-0 sm:gap-0' }">
     <template #header>
       <UDashboardNavbar title="Usage" :toggle="false" :ui="{ root: 'border-b border-default' }">
         <template #right>
@@ -455,25 +461,26 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
         </template>
       </UDashboardNavbar>
+      <ConsolePageToolbar role="search" aria-label="Session history filters">
+        <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-72" size="sm" />
+        <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
+        <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
+        <UButton v-if="filtered" label="Clear" color="neutral" variant="ghost" size="sm" @click="clearFilters" />
+      </ConsolePageToolbar>
     </template>
     <template #body>
-      <main class="mx-auto flex w-full max-w-7xl flex-col gap-3 px-4 py-5 sm:px-6" :aria-busy="loading">
-        <div class="flex flex-wrap items-center gap-2" role="search" aria-label="Session history filters">
-          <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-80" size="sm" />
-          <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
-          <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
-        </div>
+      <main class="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6 sm:px-6" :aria-busy="loading">
         <ConsoleState v-if="error" compact :error="error" title="Could not load session history" :retry="load" />
         <p v-if="summary?.partial" class="flex items-start gap-2 text-xs text-muted" role="status">
           <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
           Some usage is unavailable. Recorded totals include only the evidence received.
         </p>
         <template v-if="summary">
-          <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-4" aria-label="Session history totals">
-            <div><dt class="text-xs text-muted">Sessions</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.sessionCount.toLocaleString('en') }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</dd></div>
-            <div><dt class="text-xs text-muted">Tokens</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatTokenEvidence(summary.totals.totalTokens, summary.totals.totalTokensAvailable) }}</dd></div>
-            <div v-if="costSupported"><dt class="text-xs text-muted">Cost</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatCostEvidence(summary.totals.costUsd, summary.totals.costEstimated, summary.totals.costAvailable) }}</dd></div>
-            <div v-if="costSupported"><dt class="text-xs text-muted">Average per priced session</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.totals.averageCostUsd === undefined ? 'Unavailable' : formatCost(summary.totals.averageCostUsd, summary.totals.costEstimated) }}</dd></div>
+          <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
+            <div class="bg-default px-4 py-3"><dt class="text-xs text-muted">Sessions</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.sessionCount.toLocaleString('en') }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</dd></div>
+            <div class="bg-default px-4 py-3"><dt class="text-xs text-muted">Tokens</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatTokenEvidence(summary.totals.totalTokens, summary.totals.totalTokensAvailable) }}</dd></div>
+            <div v-if="costSupported" class="bg-default px-4 py-3"><dt class="text-xs text-muted">Cost</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatCostEvidence(summary.totals.costUsd, summary.totals.costEstimated, summary.totals.costAvailable) }}</dd></div>
+            <div v-if="costSupported" class="bg-default px-4 py-3"><dt class="text-xs text-muted">Average per priced session</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.totals.averageCostUsd === undefined ? 'Unavailable' : formatCost(summary.totals.averageCostUsd, summary.totals.costEstimated) }}</dd></div>
           </dl>
         </template>
         <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history…</p>
@@ -487,129 +494,47 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
         >
           <template #overview>
             <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />
-            <section v-if="summary?.available">
-
-              <div class="mt-4 flex flex-col gap-3">
-                <div class="flex gap-1" role="group" aria-label="Usage metric">
-                  <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
-                </div>
-
-              <section class="overflow-hidden">
-                <div class="grid lg:grid-cols-[17rem_minmax(0,1fr)]">
-                  <div
-                    class="flex flex-col justify-between gap-4 border-b border-default p-3 lg:border-r lg:border-b-0 sm:p-3"
-                  >
-                    <div>
-                      <p class="text-xs font-medium text-muted">
-                        Total {{ metric === "cost" ? "cost" : "processed tokens" }}
-                      </p>
-                      <p class="mt-2 text-3xl font-semibold tracking-tight tabular-nums">
-                        {{ formatValue(summary.totals) }}
-                      </p>
-                      <p class="mt-2 text-xs text-muted">
-                        {{ formatPeriod(summary.from, summary.resolution) }} to
-                        {{ formatPeriod(summary.to, summary.resolution) }} UTC
-                      </p>
-                    </div>
-                    <dl class="grid grid-cols-2 gap-3 text-xs">
-                      <div>
-                        <dt class="text-muted">Sessions</dt>
-                        <dd class="mt-1 font-medium tabular-nums">
-                          {{
-                            formatTokenEvidence(
-                              summary.totals.invocations,
-                              summary.totals.invocationsAvailable,
-                            )
-                          }}
-                        </dd>
-                      </div>
-                      <div v-if="costSupported">
-                        <dt class="text-muted">Total cost</dt>
-                        <dd class="mt-1 font-medium tabular-nums">
-                          {{
-                            formatCostEvidence(
-                              summary.totals.costUsd,
-                              summary.totals.costEstimated,
-                              summary.totals.costAvailable,
-                            )
-                          }}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt class="text-muted">Processed</dt>
-                        <dd class="mt-1 font-medium tabular-nums">
-                          {{
-                            formatTokenEvidence(
-                              summary.totals.totalTokens,
-                              summary.totals.totalTokensAvailable,
-                            )
-                          }}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt class="text-muted">Resolution</dt>
-                        <dd class="mt-1 font-medium">
-                          {{ summary.resolution === "hour" ? "Hourly, UTC" : "Daily, UTC" }}
-                        </dd>
-                      </div>
-                    </dl>
+            <div v-if="summary?.available" class="mt-3 flex flex-col gap-8">
+              <section class="flex flex-col gap-4">
+                <div class="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h2 class="text-sm font-semibold">{{ chartTitle }}</h2>
+                    <p class="mt-0.5 text-xs text-muted">
+                      {{ formatPeriod(summary.from, summary.resolution) }} to {{ formatPeriod(summary.to, summary.resolution) }} UTC
+                      <span v-if="partialChart" class="ms-2 inline-flex items-center gap-1.5 text-default">
+                        <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
+                      </span>
+                    </p>
                   </div>
-
-                  <div class="min-w-0 p-3 sm:p-3">
-                    <div class="flex items-baseline justify-between gap-3">
-                      <h2 class="text-sm font-semibold">{{ chartTitle }}</h2>
-                      <p class="inline-flex items-center gap-3 text-xs text-muted">
-                        <span v-if="partialChart" class="inline-flex items-center gap-1.5 text-default">
-                          <span class="size-1.5 rounded-full bg-warning" aria-hidden="true" /> Partial points
-                        </span>
-                        <span>{{ summary.resolution === "hour" ? "UTC hours" : "UTC days" }}</span>
-                      </p>
-                    </div>
-                    <ConsoleUsageChart
-                      class="mt-6"
-                      :points="chartPoints"
-                      :format="formatMetricNumber"
-                      :title="chartTitle"
-                      :value-label="metric === 'cost' ? 'Cost' : 'Tokens'"
-                      :empty="`No recorded ${metric} for this period`"
-                      :unavailable="metric === 'cost' ? 'Cost is unavailable for this period' : 'Token usage is unavailable for this period'"
-                      :from="formatPeriod(summary.from, summary.resolution)"
-                      :to="formatPeriod(summary.to, summary.resolution)"
-                    >
-                      <template #unavailable>
-                        <UButton
-                          v-if="metric === 'cost' && tokenEvidence"
-                          label="Show tokens"
-                          color="neutral"
-                          variant="outline"
-                          size="xs"
-                          @click="metric = 'tokens'"
-                        />
-                      </template>
-                    </ConsoleUsageChart>
+                  <div class="flex gap-1" role="group" aria-label="Usage metric">
+                    <UButton v-for="option in metricOptions" :key="option.value" :label="option.label" color="neutral" size="xs" :variant="metric === option.value ? 'soft' : 'ghost'" :aria-pressed="metric === option.value" @click="metric = option.value" />
                   </div>
                 </div>
+                <ConsoleUsageChart
+                  :points="chartPoints"
+                  :format="formatMetricNumber"
+                  :title="chartTitle"
+                  :value-label="metric === 'cost' ? 'Cost' : 'Tokens'"
+                  :empty="`No recorded ${metric} for this period`"
+                  :unavailable="metric === 'cost' ? 'Cost is unavailable for this period' : 'Token usage is unavailable for this period'"
+                  :from="formatPeriod(summary.from, summary.resolution)"
+                  :to="formatPeriod(summary.to, summary.resolution)"
+                >
+                  <template #unavailable>
+                    <UButton
+                      v-if="metric === 'cost' && tokenEvidence"
+                      label="Show tokens"
+                      color="neutral"
+                      variant="outline"
+                      size="xs"
+                      @click="metric = 'tokens'"
+                    />
+                  </template>
+                </ConsoleUsageChart>
               </section>
 
-              <section aria-labelledby="usage-token-types-heading">
-                <div class="mb-3 flex items-baseline justify-between gap-3">
-                  <h2 id="usage-token-types-heading" class="text-sm font-semibold">Token types</h2>
-                  <p class="text-xs text-muted">Provider-reported evidence</p>
-                </div>
-                <dl class="grid grid-cols-2 gap-x-6 gap-y-4 border-t border-default pt-3 sm:grid-cols-3 lg:grid-cols-5">
-                  <div v-for="stat in tokenTypeStats" :key="stat.label">
-                    <dt class="text-xs text-muted">{{ stat.label }}</dt>
-                    <dd class="mt-1 font-semibold tabular-nums">{{ formatTokenEvidence(stat.value, stat.available) }}</dd>
-                    <dd v-if="stat.note" class="mt-0.5 text-xs text-muted">{{ stat.note }}</dd>
-                  </div>
-                </dl>
-              </section>
-
-              <section
-                v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0"
-                class="grid gap-x-12 gap-y-6 py-2 lg:grid-cols-2"
-                aria-label="Usage mix"
-              >
+              <!-- The bar splits input into uncached, cache read, and cache write. Without a consistent split, the totals per type show instead. -->
+              <section v-if="tokenSegments?.segments.length && summary.totals.totalTokens > 0" aria-label="Usage mix" class="flex flex-col gap-2">
                 <ConsoleUsageShareBar
                   label="Tokens by type"
                   :segments="tokenSegments.segments"
@@ -620,12 +545,23 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     <span class="text-xs text-muted">Cache hit <span class="text-highlighted tabular-nums">{{ formatConsoleUsageShare(cacheHitRate) }}</span></span>
                   </template>
                 </ConsoleUsageShareBar>
+                <p v-if="summary.totals.reasoningTokens > 0" class="text-xs text-muted">
+                  Output includes {{ formatTokenEvidence(summary.totals.reasoningTokens, summary.totals.reasoningTokensAvailable) }} reasoning tokens.
+                </p>
+              </section>
+              <section v-else aria-labelledby="usage-token-types-heading" class="flex flex-col gap-3">
+                <h2 id="usage-token-types-heading" class="text-sm font-semibold">Tokens by type</h2>
+                <dl class="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3 lg:grid-cols-5">
+                  <div v-for="stat in tokenTypeStats" :key="stat.label">
+                    <dt class="text-xs text-muted">{{ stat.label }}</dt>
+                    <dd class="mt-1 font-semibold tabular-nums">{{ formatTokenEvidence(stat.value, stat.available) }}</dd>
+                    <dd v-if="stat.note" class="mt-0.5 text-xs text-muted">{{ stat.note }}</dd>
+                  </div>
+                </dl>
               </section>
 
-              <section class="overflow-hidden border-t border-default">
-                <div
-                  class="flex items-center justify-between gap-3 border-b border-default px-4 py-3 sm:px-5"
-                >
+              <section class="flex flex-col gap-3">
+                <div class="flex items-center justify-between gap-3">
                   <h2 class="text-sm font-semibold">Breakdown</h2>
                   <div class="flex gap-1" role="group" aria-label="Usage breakdown">
                     <UButton
@@ -640,16 +576,16 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                     />
                   </div>
                 </div>
-                <div class="overflow-x-auto">
-                  <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-2xl text-xs" data-slot="usage-model-breakdown">
-                    <thead class="text-left text-xs text-muted">
+                <div class="overflow-x-auto rounded-md border border-default">
+                  <table v-if="breakdown === 'model' && summary.models.length" class="w-full min-w-xl text-xs" data-slot="usage-model-breakdown">
+                    <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
-                        <th class="w-10 py-3 pr-2 pl-4 font-medium sm:pl-5" scope="col">#</th>
-                        <th class="py-3 pr-4 font-medium" scope="col">Model</th>
-                        <th class="px-4 py-3 text-right font-medium" scope="col">Sessions</th>
-                        <th v-if="costSupported" class="px-4 py-3 text-right font-medium" scope="col">Cost</th>
-                        <th class="px-4 py-3 text-right font-medium" scope="col">Share</th>
-                        <th class="px-4 py-3 text-right font-medium sm:px-5" scope="col">Tokens</th>
+                        <th class="h-9 w-10 pr-2 pl-3 font-medium" scope="col">#</th>
+                        <th class="h-9 pr-3 font-medium" scope="col">Model</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Sessions</th>
+                        <th v-if="costSupported" class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Share</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -658,12 +594,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                         :key="model.model"
                         class="relative border-t border-default transition-colors hover:bg-elevated/50 has-focus-visible:bg-elevated/50"
                       >
-                        <td class="py-3 pr-2 pl-4 text-muted tabular-nums sm:pl-5">{{ index + 1 }}</td>
-                        <td class="py-3 pr-4">
+                        <td class="py-2.5 pr-2 pl-3 text-muted tabular-nums">{{ index + 1 }}</td>
+                        <td class="py-2.5 pr-3">
                           <!-- The button overlay makes the whole row open the model. Focus shows as the row fill. -->
                           <button
                             type="button"
-                            class="text-left font-medium outline-none after:absolute after:inset-0"
+                            class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
                             :aria-label="`${model.model} usage details`"
                             @click="selectedModelName = model.model"
                           >
@@ -673,189 +609,100 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                             <div class="h-full rounded-full bg-primary" :style="{ width: modelBarWidth(model) }" />
                           </div>
                         </td>
-                        <td class="px-4 py-3 text-right tabular-nums text-muted">
-                          {{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}
-                        </td>
-                        <td v-if="costSupported" class="px-4 py-3 text-right tabular-nums" :class="model.pricedInvocations ? '' : 'text-muted'">
-                          {{
-                            formatCostEvidence(model.costUsd, model.costEstimated, model.costAvailable)
-                          }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums text-muted">
-                          {{ modelShare(model) }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums sm:px-5">
-                          {{ formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) }}
-                        </td>
+                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ formatTokenEvidence(model.invocations, model.invocationsAvailable) }}</td>
+                        <td v-if="costSupported" class="px-3 py-2.5 text-right tabular-nums" :class="model.pricedInvocations ? '' : 'text-muted'">{{ formatCostEvidence(model.costUsd, model.costEstimated, model.costAvailable) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ modelShare(model) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ formatTokenEvidence(model.totalTokens, model.totalTokensAvailable) }}</td>
                       </tr>
                     </tbody>
                   </table>
-                  <table v-else-if="breakdown === 'time' && summary.buckets.length" class="w-full min-w-2xl text-xs">
-                    <thead class="text-left text-xs text-muted">
+                  <table v-else-if="breakdown === 'time' && summary.buckets.length" class="w-full min-w-xl text-xs">
+                    <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
-                        <th class="px-4 py-3 font-medium sm:px-5">
-                          {{ summary.resolution === "hour" ? "Hour (UTC)" : "Day (UTC)" }}
-                        </th>
-                        <th class="px-4 py-3 text-right font-medium">Sessions</th>
-                        <th v-if="costSupported" class="px-4 py-3 text-right font-medium">Cost</th>
-                        <th class="px-4 py-3 text-right font-medium sm:px-5">Tokens</th>
+                        <th class="h-9 px-3 font-medium" scope="col">{{ summary.resolution === "hour" ? "Hour (UTC)" : "Day (UTC)" }}</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Sessions</th>
+                        <th v-if="costSupported" class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr
-                        v-for="bucket in breakdownBuckets"
-                        :key="bucket.start"
-                        class="border-t border-default"
-                      >
-                        <td class="px-4 py-3 font-medium sm:px-5">
-                          {{ formatPeriod(bucket.start, summary.resolution) }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums text-muted">
-                          {{ formatTokenEvidence(bucket.invocations, bucket.invocationsAvailable) }}
-                        </td>
-                        <td v-if="costSupported" class="px-4 py-3 text-right tabular-nums">
-                          {{
-                            formatCostEvidence(
-                              bucket.costUsd,
-                              bucket.costEstimated,
-                              bucket.costAvailable,
-                            )
-                          }}
-                        </td>
-                        <td class="px-4 py-3 text-right tabular-nums sm:px-5">
-                          {{ formatTokenEvidence(bucket.totalTokens, bucket.totalTokensAvailable) }}
-                        </td>
+                      <tr v-for="bucket in breakdownBuckets" :key="bucket.start" class="border-t border-default">
+                        <td class="px-3 py-2.5 font-medium">{{ formatPeriod(bucket.start, summary.resolution) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ formatTokenEvidence(bucket.invocations, bucket.invocationsAvailable) }}</td>
+                        <td v-if="costSupported" class="px-3 py-2.5 text-right tabular-nums">{{ formatCostEvidence(bucket.costUsd, bucket.costEstimated, bucket.costAvailable) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ formatTokenEvidence(bucket.totalTokens, bucket.totalTokensAvailable) }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </section>
-              <section v-if="costSupported && summary.totals.pricedInvocations" class="overflow-hidden border-t border-default">
-                <div class="border-b border-default px-3 py-2">
+
+              <section v-if="costSupported && summary.totals.pricedInvocations" class="flex flex-col gap-3">
+                <div>
                   <h2 class="text-sm font-semibold">Average cost per session</h2>
-                  <p class="mt-1 text-xs text-muted">
+                  <p class="mt-0.5 text-xs text-muted">
                     {{ summary.totals.pricedInvocations }} of {{ summary.totals.invocations }} sessions have
                     cost evidence. Averages use priced sessions. ~ indicates estimated cost.
                   </p>
                 </div>
-                <div class="overflow-x-auto">
-                  <table class="w-full min-w-lg text-sm">
-                    <thead class="text-left text-xs text-muted">
+                <div class="overflow-x-auto rounded-md border border-default">
+                  <table class="w-full min-w-lg text-xs">
+                    <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
-                        <th class="px-3 py-2 font-medium">Agent / model</th>
-                        <th class="px-3 py-2 text-right font-medium">Priced sessions</th>
-                        <th class="px-3 py-2 text-right font-medium">Average</th>
-                        <th class="px-3 py-2 text-right font-medium">Recorded cost</th>
+                        <th class="h-9 px-3 font-medium" scope="col">Agent or model</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Priced sessions</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Average</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Recorded cost</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr
-                        v-for="item in [
-                          ...summary.agents.map((row) => ({
-                            ...row,
-                            label: row.agent,
-                            key: `agent:${row.agent}`,
-                          })),
-                          ...summary.models.map((row) => ({
-                            ...row,
-                            label: row.model,
-                            key: `model:${row.model}`,
-                          })),
-                        ]"
-                        :key="item.key"
-                        class="border-t border-default"
-                      >
-                        <td class="px-3 py-2">{{ item.label }}</td>
-                        <td class="px-3 py-2 text-right tabular-nums">
-                          {{ item.pricedInvocations }} / {{ item.invocations }}
-                        </td>
-                        <td class="px-3 py-2 text-right tabular-nums">
-                          {{
-                            item.averageCostUsd === undefined
-                              ? "Unavailable"
-                              : formatCost(item.averageCostUsd, item.costEstimated)
-                          }}
-                        </td>
-                        <td class="px-3 py-2 text-right tabular-nums">
-                          {{
-                            item.pricedInvocations
-                              ? formatCost(item.costUsd, item.costEstimated)
-                              : "Unavailable"
-                          }}
-                        </td>
+                      <tr v-for="item in averageRows" :key="item.key" class="border-t border-default">
+                        <td class="px-3 py-2.5"><span class="font-medium text-highlighted">{{ item.label }}</span> <span class="text-muted">{{ item.kind }}</span></td>
+                        <td class="px-3 py-2.5 text-right tabular-nums text-muted">{{ item.pricedInvocations }} / {{ item.invocations }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ item.averageCostUsd === undefined ? "Unavailable" : formatCost(item.averageCostUsd, item.costEstimated) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ item.pricedInvocations ? formatCost(item.costUsd, item.costEstimated) : "Unavailable" }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
               </section>
 
-              <section
-                v-for="table in [
-                  { key: 'expensive', title: 'Most expensive sessions', rows: summary.expensive },
-                ].filter((table) => table.rows.length && costSupported)"
-                :key="table.key"
-                class="overflow-hidden border-t border-default"
-              >
-                <div class="flex items-center justify-between gap-3 border-b border-default px-3 py-2">
-                  <h2 class="text-sm font-semibold">{{ table.title }}</h2>
-                  <span class="text-xs text-muted">{{
-                    table.key === "expensive" ? "Top 10 with cost evidence" : "Newest first"
-                  }}</span>
+              <section v-if="costSupported && summary.expensive.length" class="flex flex-col gap-3">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h2 class="text-sm font-semibold">Most expensive sessions</h2>
+                  <span class="text-xs text-muted">Top 10 with cost evidence</span>
                 </div>
-                <div class="overflow-x-auto">
-                  <table class="w-full min-w-2xl text-xs">
-                    <thead class="text-left text-xs text-muted">
+                <div class="overflow-x-auto rounded-md border border-default">
+                  <table class="w-full min-w-xl text-xs">
+                    <thead class="bg-elevated/30 text-left text-muted">
                       <tr>
-                        <th class="px-3 py-2 font-medium">Session</th>
-                        <th class="px-3 py-2 font-medium">Agent / model</th>
-                        <th class="px-3 py-2 font-medium">Status</th>
-                        <th class="px-3 py-2 text-right font-medium">Tokens</th>
-                        <th v-if="costSupported" class="px-3 py-2 text-right font-medium">Cost</th>
+                        <th class="h-9 px-3 font-medium" scope="col">Session</th>
+                        <th class="h-9 px-3 font-medium" scope="col">Agent / model</th>
+                        <th class="h-9 px-3 font-medium" scope="col">Status</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
+                        <th class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr v-for="run in table.rows" :key="run.id" class="border-t border-default">
-                        <td class="px-3 py-2">
-                          <RouterLink
-                            v-if="runRoute(run)"
-                            :to="runRoute(run)!"
-                            class="font-medium text-primary hover:underline"
-                             :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</RouterLink
-                          >
-                          <p class="mt-1 text-xs text-muted"><time :datetime="run.at" :title="formatDateTime(run.at)">{{ formatTimestamp(run.at) }}</time></p>
+                      <tr v-for="run in summary.expensive" :key="run.id" class="border-t border-default">
+                        <td class="px-3 py-2.5">
+                          <RouterLink v-if="runRoute(run)" :to="runRoute(run)!" class="font-medium text-highlighted underline-offset-4 hover:underline" :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</RouterLink>
+                          <span v-else class="font-medium" :title="run.id">{{ run.id.length > 24 ? `${run.id.slice(0, 20)}…` : run.id }}</span>
+                          <p class="mt-0.5 text-muted"><time :datetime="run.at" :title="formatDateTime(run.at)">{{ formatTimestamp(run.at) }}</time></p>
                         </td>
-                        <td class="px-3 py-2">
+                        <td class="px-3 py-2.5">
                           {{ run.agent }}
-                          <p class="mt-1 text-xs text-muted">
-                            {{ run.usage?.model || "Model unavailable" }}
-                          </p>
+                          <p class="mt-0.5 text-muted">{{ run.usage?.model || "Model unavailable" }}</p>
                         </td>
-                        <td class="px-3 py-2">
-                          <UBadge color="neutral" variant="subtle">{{ run.status }}</UBadge>
-                        </td>
-                        <td class="px-3 py-2 text-right tabular-nums">
-                          {{
-                            run.usage?.totalTokens === undefined
-                              ? "Unavailable"
-                              : formatTokens(run.usage.totalTokens)
-                          }}
-                        </td>
-                        <td v-if="costSupported" class="px-3 py-2 text-right tabular-nums">
-                          {{
-                            run.usage?.cost
-                              ? formatCost(run.usage.cost.usd, run.usage.cost.estimated)
-                              : "Unavailable"
-                          }}
-                        </td>
+                        <td class="px-3 py-2.5 text-muted capitalize">{{ run.status }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ run.usage?.totalTokens === undefined ? "Unavailable" : formatTokens(run.usage.totalTokens) }}</td>
+                        <td class="px-3 py-2.5 text-right tabular-nums">{{ run.usage?.cost ? formatCost(run.usage.cost.usd, run.usage.cost.estimated) : "Unavailable" }}</td>
                       </tr>
                     </tbody>
                   </table>
                 </div>
-
               </section>
-
-              </div>
-            </section>
+            </div>
           </template>
           <template #sessions>
             <section v-if="summary" aria-labelledby="session-history-heading">
@@ -863,31 +710,30 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
                 <h2 id="session-history-heading" ref="historyHeading" class="scroll-mt-4 text-sm font-semibold outline-none" tabindex="-1">Session history</h2>
                 <span class="text-xs text-muted">Newest first</span>
               </div>
-              <div v-if="summary.sessions.length" class="overflow-x-auto">
+              <div v-if="summary.sessions.length" class="overflow-x-auto rounded-md border border-default">
                 <table class="w-full min-w-[42rem] table-fixed text-xs" data-slot="session-history">
-                  <thead class="border-b border-default text-left text-xs text-muted">
+                  <thead class="bg-elevated/30 text-left text-muted">
                     <tr>
-                      <th class="w-[34%] py-2 pr-4 font-medium" scope="col">Session</th>
-                      <th class="w-[19%] py-2 pr-4 font-medium" scope="col">Agent / model</th>
-                      <th class="w-[15%] py-2 pr-4 font-medium" scope="col">Last activity</th>
-                      <th class="w-[13%] py-2 pr-4 font-medium" scope="col">Status</th>
-                      <th class="py-2 pl-2 text-right font-medium" scope="col">Tokens</th>
-                      <th v-if="costSupported" class="py-2 pl-4 text-right font-medium" scope="col">Cost</th>
+                      <th class="h-9 w-[34%] px-3 font-medium" scope="col">Session</th>
+                      <th class="h-9 w-[19%] px-3 font-medium" scope="col">Agent / model</th>
+                      <th class="h-9 w-[15%] px-3 font-medium" scope="col">Last activity</th>
+                      <th class="h-9 w-[13%] px-3 font-medium" scope="col">Status</th>
+                      <th class="h-9 px-3 text-right font-medium" scope="col">Tokens</th>
+                      <th v-if="costSupported" class="h-9 px-3 text-right font-medium" scope="col">Cost</th>
                     </tr>
                   </thead>
                   <tbody>
-                    <tr v-for="session in summary.sessions" :key="session.id" class="border-b border-default/50 hover:bg-elevated/40">
-                      <td class="py-2 pr-3 align-top">
+                    <tr v-for="session in summary.sessions" :key="session.id" class="border-t border-default hover:bg-elevated/40">
+                      <td class="px-3 py-2.5 align-top">
                         <RouterLink v-if="runRoute(session)" :to="runRoute(session)!" class="block truncate font-medium text-highlighted underline-offset-4 hover:underline focus-visible:underline" :title="session.title || session.id">{{ session.title || session.id }}</RouterLink>
                         <span v-else class="block truncate" :title="session.title || session.id">{{ session.title || session.id }}</span>
                       </td>
-                      <td class="py-2 pr-3 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
-                      <td class="py-2 pr-3 align-top text-xs text-muted"><time :datetime="session.at" :title="formatDateTime(session.at)">{{ formatTimestamp(session.at) }}</time></td>
-                      <td class="py-2 pr-3 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
-                      <td class="py-2 pl-2 text-right align-top text-xs tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
-                      <td v-if="costSupported" class="py-2 pl-4 text-right align-top text-xs font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
+                      <td class="px-3 py-2.5 align-top"><span class="block truncate" :title="session.agent">{{ session.agent || 'Unknown agent' }}</span><span class="block truncate text-xs text-muted" :title="session.models.join(', ')">{{ session.models.length ? session.models.join(', ') : 'Model unavailable' }}</span></td>
+                      <td class="px-3 py-2.5 align-top text-muted"><time :datetime="session.at" :title="formatDateTime(session.at)">{{ formatTimestamp(session.at) }}</time></td>
+                      <td class="px-3 py-2.5 align-top"><span class="inline-flex items-center gap-1.5 text-xs" :class="session.status === 'failed' ? 'text-default' : 'text-muted'"><UIcon :name="statusIcons[session.status]" class="size-3.5 shrink-0" :class="session.status === 'failed' ? 'text-error' : ''" aria-hidden="true" />{{ statusLabels[session.status] }}</span></td>
+                      <td class="px-3 py-2.5 text-right align-top tabular-nums" :class="session.totals.totalTokensAvailable ? 'text-highlighted' : 'text-muted'">{{ formatTokenEvidence(session.totals.totalTokens, session.totals.totalTokensAvailable) }}</td>
+                      <td v-if="costSupported" class="px-3 py-2.5 text-right align-top font-medium tabular-nums" :class="session.totals.costAvailable ? 'text-highlighted' : 'text-muted'">{{ formatCostEvidence(session.totals.costUsd, session.totals.costEstimated, session.totals.costAvailable) }}</td>
                     </tr>
-
                   </tbody>
                 </table>
               </div>
@@ -904,18 +750,18 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           </template>
           <template #accounts>
             <section aria-labelledby="usage-accounts-heading">
-              <h2 id="usage-accounts-heading" class="mb-1 text-sm font-semibold">Provider accounts</h2>
-              <p class="mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
+              <h2 id="usage-accounts-heading" class="text-sm font-semibold">Provider accounts</h2>
+              <p class="mt-0.5 mb-3 text-xs text-muted">Provider limits apply to the shared account or credential. Recorded session tokens and API cost estimates are shown separately.</p>
 
               <p v-if="statusError" class="flex items-start gap-2 p-3 text-sm" role="status">
                 <UIcon name="i-lucide-triangle-alert" class="mt-0.5 size-4 shrink-0 text-warning" aria-hidden="true" />
                 {{ statusError }}
               </p>
-              <div v-else class="grid divide-y divide-default lg:grid-cols-2 lg:divide-y-0">
+              <div v-else class="grid gap-3 lg:grid-cols-2">
                 <article
                   v-for="status in accounts"
                   :key="status.account?.id || status.agent"
-                  class="space-y-3 p-3"
+                  class="space-y-3 rounded-md border border-default p-4"
                 >
                   <div class="flex items-center justify-between gap-3">
                     <div>

@@ -112,8 +112,13 @@ function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilit
   }
 }
 
+const driverPeekResultSchema = v.object({
+  resetAt: v.optional(v.unknown()),
+  used: v.pipe(v.number(), v.integer(), v.minValue(0)),
+})
+
 function normalizePeekResult(result: unknown, policy: ResolvedRateLimitPolicy): RateLimitPeekResult {
-  if (!v.is(v.object({ resetAt: v.optional(v.unknown()), used: v.pipe(v.number(), v.integer(), v.minValue(0)) }), result)) {
+  if (!v.is(driverPeekResultSchema, result)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0037({ message: "[vitehub] Rate Limit driver peek() must return an object with a non-negative integer used count." })
   }
   const resetAt = result.resetAt

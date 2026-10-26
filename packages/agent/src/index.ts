@@ -9132,6 +9132,7 @@ export async function streamAgentInline<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  context = withAgentIdentityOwner(agent, context)
   return await executeAgentInvocation(agent, context, input, {
     kind: "stream",
     output: options.output || "events",

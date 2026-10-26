@@ -96,7 +96,7 @@ onBeforeUnmount(() => controller?.abort());
   <ConsoleAuthEventSetup v-if="!enabled" class="overflow-y-auto" />
   <div v-else class="flex min-h-0 flex-1 flex-col">
     <form
-      class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2"
+      class="flex min-h-12 shrink-0 flex-wrap items-center gap-2 border-b border-default px-3 py-2 sm:px-4"
       @submit.prevent="filter(group, userInput)"
     >
       <USelect
@@ -112,7 +112,7 @@ onBeforeUnmount(() => controller?.abort());
         aria-label="Filter by subject user ID"
         placeholder="Subject user ID"
         size="sm"
-        class="min-w-40 flex-1"
+        class="min-w-40 flex-1 sm:max-w-64"
       />
       <UButton type="submit" color="neutral" variant="ghost" size="sm">Apply</UButton>
       <UButton
@@ -125,9 +125,10 @@ onBeforeUnmount(() => controller?.abort());
       >
     </form>
     <div class="min-h-0 flex-1 overflow-y-auto" :aria-busy="loading">
+      <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
       <ConsoleState v-if="error" :error="error" title="Could not load activity" :retry="load" />
-      <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">Loading activity…</p>
-      <template v-else-if="data">
+      <p v-else-if="loading" role="status" class="text-sm text-muted">Loading activity…</p>
+      <div v-else-if="data" class="overflow-hidden rounded-md border border-default">
         <ConsoleAuthEventList :events="data.events" />
         <p v-if="!data.events.length" class="p-8 text-center text-sm text-muted">
           {{
@@ -136,10 +137,9 @@ onBeforeUnmount(() => controller?.abort());
               : "No auth events recorded yet."
           }}
         </p>
-      </template>
-    </div>
+      </div>
     <footer
-      class="flex items-center justify-between gap-3 border-t border-default px-4 py-2 text-xs text-muted"
+      class="flex items-center justify-between gap-3 text-xs text-muted"
     >
       <span class="tabular-nums">Page {{ page + 1 }} · Newest first</span>
       <div class="flex gap-1">
@@ -160,5 +160,7 @@ onBeforeUnmount(() => controller?.abort());
         >
       </div>
     </footer>
+      </div>
+    </div>
   </div>
 </template>

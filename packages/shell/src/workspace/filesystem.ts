@@ -55,7 +55,12 @@ function createReadonlyError() {
 function toShellContent(content: ShellContent, encoding?: BufferEncoding): Uint8Array {
   if (!hasRuntimeType(content, "string")) return content
   // Match Just Bash's filesystem conversion, including malformed input behavior.
-  if (encoding === "base64") return Uint8Array.from(atob(content), char => char.charCodeAt(0))
+  if (encoding === "base64") {
+    const decoded = atob(content)
+    const bytes = new Uint8Array(decoded.length)
+    for (let index = 0; index < decoded.length; index++) bytes[index] = decoded.charCodeAt(index)
+    return bytes
+  }
   if (encoding === "hex") {
     const bytes = new Uint8Array(content.length / 2)
     for (let index = 0; index < content.length; index += 2) {
@@ -126,6 +131,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   readonly writeFs: boolean
   #paths = [workspaceMountPoint]
   #refreshPromise: Promise<void> | undefined
+  #refreshAgain = false
 
   constructor(
     private readonly workspace: ReadonlyShellWorkspace | WritableShellWorkspace,
@@ -321,21 +327,25 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   async #refreshPaths() {
-    this.#refreshPromise ||= (async () => {
-      const entries = await this.workspace.list("", { recursive: true })
-      this.#paths = [
-        workspaceMountPoint,
-        ...entries
-          .map(entry => entry.path ? `${workspaceMountPoint}/${entry.path}` : workspaceMountPoint)
-          .sort((left, right) => left.localeCompare(right)),
-      ]
-    })()
-    try {
-      await this.#refreshPromise
-    }
-    finally {
-      this.#refreshPromise = undefined
-    }
+    this.#refreshAgain = true
+    this.#refreshPromise ||= Promise.resolve().then(async () => {
+      try {
+        do {
+          this.#refreshAgain = false
+          const entries = await this.workspace.list("", { recursive: true })
+          this.#paths = [
+            workspaceMountPoint,
+            ...entries
+              .map(entry => entry.path ? `${workspaceMountPoint}/${entry.path}` : workspaceMountPoint)
+              .sort((left, right) => left.localeCompare(right)),
+          ]
+        } while (this.#refreshAgain)
+      }
+      finally {
+        this.#refreshPromise = undefined
+      }
+    })
+    await this.#refreshPromise
   }
 }
 

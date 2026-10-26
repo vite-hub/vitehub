@@ -48,6 +48,11 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
         }
         catch (error) {
           if (directory === root && error instanceof Error && "code" in error && error.code === "ENOENT") return
+          // A retained directory can disappear or become a file between pages.
+          if (directory !== root && error instanceof Error && "code" in error && (error.code === "ENOENT" || error.code === "ENOTDIR")) {
+            yield undefined
+            continue
+          }
           throw error
         }
         for await (const entry of entries) {

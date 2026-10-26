@@ -1,4 +1,6 @@
-import { matchesAny, normalizeSafeWorkspacePath } from "./path.ts"
+import { Minimatch } from "minimatch"
+
+import { normalizeSafeWorkspacePath, normalizeWorkspacePath } from "./path.ts"
 import type { GlobOptions } from "./types.ts"
 
 export function createWorkspaceGlobMatcher(pattern: string | string[], options: GlobOptions = {}) {
@@ -15,10 +17,15 @@ export function createWorkspaceGlobMatcher(pattern: string | string[], options: 
     cwd = reservedCwd
   }
   const prefix = cwd ? `${cwd}/` : ""
+  const matchers = pattern
+    ? (Array.isArray(pattern) ? pattern : [pattern]).map(value => new Minimatch(normalizeWorkspacePath(value), { dot: true }))
+    : undefined
   return {
     cwd,
     matches(path: string): boolean {
-      return path.startsWith(prefix) && matchesAny(path.slice(prefix.length), pattern)
+      if (!path.startsWith(prefix)) return false
+      const relative = normalizeWorkspacePath(path.slice(prefix.length))
+      return !matchers || matchers.some(matcher => matcher.match(relative))
     },
   }
 }
