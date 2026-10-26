@@ -6,6 +6,11 @@ export interface LoaderOptions {
   paths: readonly string[]
   /** Globs of the pages that never get it. */
   exclude: readonly string[]
+  /**
+   * `marker`: ask the server only when the `vitehub_session` cookie, which ViteHub Auth sets, says a session exists.
+   * `always`: ask on every page load, for an app whose sessions another Auth sets.
+   */
+  session: "always" | "marker"
 }
 
 export interface OverlaySession {
@@ -44,6 +49,8 @@ export interface OverlayModule {
 export interface LoaderEnvironment {
   /** The app base, such as `/` or `/portal/`. */
   base: string
+  /** The readable cookies of the page, `document.cookie`. */
+  cookie: () => string
   fetch: typeof fetch
   /** Imports the overlay. The browser's `import()`; tests pass a fake. */
   load: (url: string) => Promise<OverlayModule>
@@ -117,11 +124,22 @@ function globPattern(glob: string): RegExp {
 }
 
 /** Whether a page path (`/docs/intro`) is in `paths` and not in `exclude`. `*` is a path segment, `**` any depth. */
-export function matchesPath(pathname: string, options: LoaderOptions): boolean {
+export function matchesPath(pathname: string, options: Pick<LoaderOptions, "exclude" | "paths">): boolean {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname
   const matches = (globs: readonly string[]) => globs.some(glob => globPattern(glob.length > 1 ? glob.replace(/\/+$/, "") : glob).test(path))
   if (matches(options.exclude)) return false
   return options.paths.length === 0 || matches(options.paths)
+}
+
+/** Name of the cookie that ViteHub Auth sets when a session exists. It holds no secret and is not HttpOnly. */
+export const sessionMarkerCookie = "vitehub_session"
+
+/** Whether the page's cookies carry the session marker, set and not cleared. */
+export function hasSessionMarker(cookie: string): boolean {
+  return cookie.split(";").some((pair) => {
+    const [name, ...value] = pair.trim().split("=")
+    return name === sessionMarkerCookie && value.join("=") !== ""
+  })
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -157,6 +175,9 @@ async function readSession(environment: LoaderEnvironment): Promise<OverlaySessi
  */
 export function runLoader(options: LoaderOptions, environment: LoaderEnvironment): { ready: Promise<void>, stop: () => void } {
   const allowed = () => matchesPath(environment.path(), options)
+  // Without the marker no visitor of this page has signed in, so the answer would be no. The marker is read again at each
+  // navigation, so a visitor who signs in later is still asked.
+  const mayHaveSession = () => options.session === "always" || hasSessionMarker(environment.cookie())
   let started: Promise<void> | undefined
   let control: OverlayControl | undefined
 
@@ -182,18 +203,18 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
 
   const check = (): Promise<void> => {
     if (control) control.setActive(allowed())
-    // One session request per page load, also when the answer is no.
-    else if (!started && allowed()) started = start()
+    // One session request per page load, also when the answer is no. A page with no marker makes none.
+    else if (!started && allowed() && mayHaveSession()) started = start()
     return started ?? Promise.resolve()
   }
   const stop = environment.subscribe(() => void check())
   return { ready: check(), stop }
 }
 
-/** Reads the loader options from the query of the loader URL: `e=1` for Edit, and `o` for the page filter. */
+/** Reads the loader options from the query of the loader URL: `e=1` for Edit, `s=always` to ask without the marker, and `o` for the page filter. */
 export function readLoaderOptions(search: string): LoaderOptions {
   const query = new URLSearchParams(search)
-  const none: LoaderOptions = { edit: query.get("e") === "1", exclude: [], paths: [] }
+  const none: LoaderOptions = { edit: query.get("e") === "1", exclude: [], paths: [], session: query.get("s") === "always" ? "always" : "marker" }
   try {
     const raw = query.get("o")
     const parsed: unknown = raw ? JSON.parse(raw) : {}

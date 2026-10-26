@@ -4,6 +4,12 @@ export interface CommentsOverlayOptions {
   paths?: string[]
   /** Pages that never get it. */
   exclude?: string[]
+  /**
+   * When the loader asks the server whether the visitor may read comments. Default `"marker"`: only when the
+   * `vitehub_session` cookie that ViteHub Auth sets is present, so a visitor who never signed in makes no request.
+   * `"always"`: on every page load, for an app whose sessions another Auth sets.
+   */
+  session?: "always" | "marker"
 }
 
 /**
@@ -38,13 +44,13 @@ export function mountPath(base: string | undefined): string {
   return pathname.replace(/\/+$/, "")
 }
 
-/** The URL of the loader. Its query names the overlay file, says whether the app can edit pages, and carries the page filter. */
+/** The URL of the loader. Its query names the overlay file, says whether the app can edit pages, and carries the page filter and when to ask. */
 export function loaderUrl(mount: string, assets: Pick<CommentsOverlayAssets, "loader" | "overlay">, options: CommentsOverlayOptions & { edit?: boolean } = {}): string {
   const filter = options.paths?.length || options.exclude?.length
     ? `&o=${encodeURIComponent(JSON.stringify({ exclude: options.exclude ?? [], paths: options.paths ?? [] }))}`
     : ""
   // `e=1`: the app has the Content cms preset, so the overlay may look for the document of a page (the Edit button).
-  return `${mount}${overlayRoute}/${assets.loader}?f=${encodeURIComponent(assets.overlay)}${options.edit ? "&e=1" : ""}${filter}`
+  return `${mount}${overlayRoute}/${assets.loader}?f=${encodeURIComponent(assets.overlay)}${options.edit ? "&e=1" : ""}${options.session === "always" ? "&s=always" : ""}${filter}`
 }
 
 /** A nonce is base64 or base64url. Anything else is not put in a tag. */

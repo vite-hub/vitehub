@@ -14,6 +14,7 @@ if (/^overlay\.[\w-]+\.js$/.test(file)) {
   const tag = [...document.querySelectorAll<HTMLScriptElement>("script[src]")].find(script => script.src === self.href)
   void runLoader(readLoaderOptions(self.search), {
     base,
+    cookie: () => document.cookie,
     fetch: (input, init) => globalThis.fetch(input, init),
     load: url => import(/* @vite-ignore */ url) as Promise<OverlayModule>,
     overlayUrl: new URL(file, folder).href,
