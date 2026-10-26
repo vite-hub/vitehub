@@ -677,6 +677,43 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
   })
 
+  it("refreshes paths again when mutations finish during a listing", async () => {
+    const workspace = new MemoryWorkspace({ "old.md": "old" })
+    const fs = createWritableWorkspaceFs(workspace)
+    let startListing!: () => void
+    let releaseListing!: () => void
+    const started = new Promise<void>((resolve) => { startListing = resolve })
+    const release = new Promise<void>((resolve) => { releaseListing = resolve })
+    const list = workspace.list.bind(workspace)
+    vi.spyOn(workspace, "list").mockImplementationOnce(async (...args) => {
+      const snapshot = await list(...args)
+      startListing()
+      await release
+      return snapshot
+    })
+
+    const first = fs.writeFile("/workspace/first.md", "first")
+    await started
+    const second = fs.writeFile("/workspace/second.md", "second")
+    const removal = fs.rm("/workspace/old.md")
+    await expect(workspace.exists("second.md")).resolves.toBe(true)
+    await expect(workspace.exists("old.md")).resolves.toBe(false)
+    releaseListing()
+    await Promise.all([first, second, removal])
+
+    expect(fs.getAllPaths()).toEqual(["/workspace", "/workspace/first.md", "/workspace/second.md"])
+    expect(await fs.readdir("/workspace")).toEqual(["first.md", "second.md"])
+  })
+
+  it("can refresh paths after a listing fails", async () => {
+    const workspace = new MemoryWorkspace({})
+    const fs = createWritableWorkspaceFs(workspace)
+    vi.spyOn(workspace, "list").mockRejectedValueOnce(new Error("listing failed"))
+    await expect(fs.writeFile("/workspace/first.md", "first")).rejects.toThrow("listing failed")
+    await fs.writeFile("/workspace/second.md", "second")
+    expect(fs.getAllPaths()).toEqual(["/workspace", "/workspace/first.md", "/workspace/second.md"])
+  })
+
   it("exposes writable filesystem adapters", async () => {
     const workspace = new MemoryWorkspace({
       "README.md": "# Docs\n",

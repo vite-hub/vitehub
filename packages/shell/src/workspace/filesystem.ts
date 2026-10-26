@@ -126,6 +126,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   readonly writeFs: boolean
   #paths = [workspaceMountPoint]
   #refreshPromise: Promise<void> | undefined
+  #refreshAgain = false
 
   constructor(
     private readonly workspace: ReadonlyShellWorkspace | WritableShellWorkspace,
@@ -321,21 +322,25 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   }
 
   async #refreshPaths() {
-    this.#refreshPromise ||= (async () => {
-      const entries = await this.workspace.list("", { recursive: true })
-      this.#paths = [
-        workspaceMountPoint,
-        ...entries
-          .map(entry => entry.path ? `${workspaceMountPoint}/${entry.path}` : workspaceMountPoint)
-          .sort((left, right) => left.localeCompare(right)),
-      ]
-    })()
-    try {
-      await this.#refreshPromise
-    }
-    finally {
-      this.#refreshPromise = undefined
-    }
+    this.#refreshAgain = true
+    this.#refreshPromise ||= Promise.resolve().then(async () => {
+      try {
+        do {
+          this.#refreshAgain = false
+          const entries = await this.workspace.list("", { recursive: true })
+          this.#paths = [
+            workspaceMountPoint,
+            ...entries
+              .map(entry => entry.path ? `${workspaceMountPoint}/${entry.path}` : workspaceMountPoint)
+              .sort((left, right) => left.localeCompare(right)),
+          ]
+        } while (this.#refreshAgain)
+      }
+      finally {
+        this.#refreshPromise = undefined
+      }
+    })
+    await this.#refreshPromise
   }
 }
 
