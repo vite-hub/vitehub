@@ -29,7 +29,7 @@ export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord
         status: thread.status === "open" ? "Open" : "Resolved",
         updated: thread.updatedAt,
       },
-      link: { href: `${thread.page}?comments#comment-${thread.id}`, label: "Open on page" },
+      link: { href: `${thread.page}?vitehub=comments#comment-${thread.id}`, label: "Open on page" },
       activity: thread.comments.map(comment => ({ author: author(comment.author.name, comment.author.guest), at: comment.createdAt, text: comment.body })),
       fields: [
         { label: "Page", value: thread.page },

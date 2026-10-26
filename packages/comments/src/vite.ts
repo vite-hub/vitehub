@@ -4,13 +4,15 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
-import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute } from "./page.ts"
+import { commentsRealtimeDefinition, commentsRoute } from "./page.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -21,7 +23,7 @@ export { findCommentsEntry } from "./entry.ts"
 
 /** Module paths that generated files import. The `vite-hub` distribution passes its own subpaths. */
 export interface CommentsImports {
-  /** Exports `defineCommentsPlugin` and `createCommentsHandler`. */
+  /** Exports `defineCommentsPlugin`, `createCommentsHandler`, and `viteHubPageSessionHandler`. */
   runtime: string
   /** Exports `commentsRealtime`. */
   realtime: string
@@ -40,7 +42,7 @@ export interface CommentsVitePluginOptions {
   auth?: boolean
   /**
    * The Console of the app: a module and its `consoleRealtimeAccess` export. With it, the people that the Console lets
-   * use its `comments` section are the people of Comments, and the Console turns comment mode on for them.
+   * use its `comments` section are the people of Comments, and opening the Console turns the page tools on for them.
    */
   console?: { module: string }
   imports?: Partial<CommentsImports>
@@ -82,11 +84,16 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
   return /\bdatabase\s*:\s*["'`]([\w-]+)["'`]/.exec(source)?.[1]
 }
 
+/** A directory of prebuilt browser scripts in this package: `overlay`, or `page` for the page tools loader. */
+function builtDirectory(name: "overlay" | "page"): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  // Built: dist/vite.js next to dist/<name>. From source in tests: src/vite.ts, so use the built copy.
+  return here.endsWith("src") ? resolve(here, `../dist/${name}`) : resolve(here, name)
+}
+
 /** The directory of the prebuilt overlay script in this package. */
 export function commentsOverlayDirectory(): string {
-  const here = dirname(fileURLToPath(import.meta.url))
-  // Built: dist/vite.js next to dist/overlay. From source in tests: src/vite.ts, so use the built copy.
-  return here.endsWith("src") ? resolve(here, "../dist/overlay") : resolve(here, "overlay")
+  return builtDirectory("overlay")
 }
 
 /** CI and host variables that name the commit and branch of a build, in the order they are read. */
@@ -220,11 +227,13 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, session: CommentsVitePluginOptions, imports: CommentsImports }): string {
+  const session = sessionLines(input.session, input.imports)
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+    ...session.imports,
     "",
     "// The Database that `defineComments({ database })` names, else `default`, else the only one.",
     "function database() {",
@@ -239,7 +248,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, session: ${session.value} })`,
     "",
   ].join("\n")
 }
@@ -247,7 +256,8 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
  * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
- * overlay script, and adds it to pages in comment mode. Apps without the file are unaffected.
+ * overlay script, and registers it as the `comments` page tool. It also serves the page tools session and loader at
+ * `/_vitehub/page`, so the overlay works without the Console. Apps without the file are unaffected.
  */
 export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVitePlugin {
   const imports: CommentsImports = { ...defaultImports, ...options.imports }
@@ -289,7 +299,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
               fields: [
                 { label: "Route", value: `${commentsRoute}/**` },
                 { label: "Presence", value: realtime ? `Realtime Definition "${commentsRealtimeDefinition}"` : "off: the host has no Realtime authority" },
-                { label: "Comment mode", value: `?${commentsHintQuery} or the ${commentsHintCookie} cookie` },
+                { label: "Page tool", value: `?${viteHubPageToolsQuery} or the ${viteHubPageToolsCookie} cookie, for people that authorize allows to read` },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),
               name: "comments",
@@ -328,16 +338,19 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
+        const pageSession = join(directory, "page-session.mjs")
         await mkdir(directory, { recursive: true })
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), session: options, imports })),
+          writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${commentsRoute}/**` })
         kit.addPlugin(plugin)
+        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page") })
         const nitro = kit.config
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
         const overlay = commentsOverlayDirectory()
@@ -348,14 +361,13 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         Reflect.set(config, "nitro", nitro)
       },
     },
-    // A single page app whose `index.html` Vite serves: load the overlay in the browser when the hint is present.
+    // A single page app whose `index.html` Vite serves: load the page tools in the browser when the hint is present.
     transformIndexHtml() {
       if (!discover()) return
-      const src = `${overlayBaseURL}/overlay.js?v=${version}`
       return [{
         tag: "script",
         attrs: { type: "module" },
-        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(commentsHintQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${commentsHintCookie}=1`)}))import(${JSON.stringify(src)})`,
+        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(viteHubPageToolsLoader)})`,
         injectTo: "body",
       }]
     },

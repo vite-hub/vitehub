@@ -378,6 +378,15 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
+  it("requests the page tools session once per loaded Console, so the app's pages load the allowed tools", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { sections: ["kv"] } })
+    const base = "/page-tools-app/api/_vitehub/console/sections"
+    await loadConsoleNavigation(base)
+    await loadConsoleNavigation(base)
+    const sessions = fetchMock.mock.calls.filter(([url]) => String(url).endsWith("/_vitehub/page/session"))
+    expect(sessions).toEqual([["/page-tools-app/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } }]])
+  })
+
   it("loads independent auth availability in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
 

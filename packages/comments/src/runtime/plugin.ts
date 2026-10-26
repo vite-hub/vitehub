@@ -2,18 +2,22 @@ import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { commentsHintCookie, commentsHintQuery } from "../page.ts"
+import { resolveCommentsUser } from "./handler.ts"
 import { commentsMcpTools } from "./mcp.ts"
 
+import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsDatabase } from "../store.ts"
+import type { CommentsHandlerOptions } from "./handler.ts"
 
 export interface CommentsPluginOptions {
   comments: Comments
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
-  /** URL of the overlay script that pages load in comment mode. */
+  /** URL of the overlay script. The page tools loader imports it for people that may read comments. */
   overlay: string
+  /** Reads the user of a request, as in `createCommentsHandler()`. Omitted when the app has no Console and no Auth. */
+  session?: CommentsHandlerOptions["session"]
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.runtime")
@@ -26,18 +30,8 @@ export function installedComments(): Comments | undefined {
 }
 
 /**
- * Whether a request asks for comment mode: the `?comments` query or the hint cookie that the session route sets. The
- * page tools skip paths under `/_vitehub` and `/api/` before they call it.
- */
-export function wantsCommentMode(request: Request): boolean {
-  if (new URL(request.url).searchParams.has(commentsHintQuery)) return true
-  const cookie = request.headers.get("cookie")
-  return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
-}
-
-/**
- * The Nitro plugin of Comments. It connects the definition to its Database, and adds the overlay script to HTML pages
- * of requests in comment mode. Pages without the hint are returned unchanged.
+ * The Nitro plugin of Comments. It connects the definition to its Database, and registers the overlay as the
+ * `comments` page tool: the page tools session lets a visitor load it when `authorize` allows `read`.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
   return (nitroApp) => {
@@ -48,8 +42,17 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
 
-    // The page tools add the overlay script to HTML pages of requests in comment mode.
-    registerViteHubPageTool({ id: "comments", script: options.overlay, wants: wantsCommentMode })
+    registerViteHubPageTool({
+      id: "comments",
+      label: "Comments",
+      icon: "i-lucide-message-square-text",
+      script: options.overlay,
+      async allowed({ event }) {
+        // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
+        const user = await resolveCommentsUser(options.comments, options.session, event as H3Event)
+        return await options.comments.can({ user, action: "read" })
+      },
+    })
     installViteHubPageTools(nitroApp)
   }
 }

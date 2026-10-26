@@ -1,11 +1,13 @@
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
+import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
@@ -111,6 +113,8 @@ function renderBody(body: string, mentions: CommentMention[]): Node {
 }
 
 class CommentsOverlay extends HTMLElement {
+  /** The page tools context that started the overlay. */
+  context?: ViteHubPageToolContext
   private readonly shadow = this.attachShadow({ mode: "open" })
   private readonly root = h("div", { className: "root" })
   private readonly layer = h("div", { className: "layer" })
@@ -151,12 +155,7 @@ class CommentsOverlay extends HTMLElement {
 
     const [error, session] = await api.session()
     if (error || !session.can.read) {
-      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
-      // route already cleared the cookie.
-      if (!error && !new URLSearchParams(location.search).has(commentsHintQuery)) {
-        this.exit()
-        return
-      }
+      // The page tools session allowed the overlay, so this is an error or a change of access since then.
       this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
       return
     }
@@ -292,7 +291,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, commentsHintQuery), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, viteHubPageToolsQuery), x: event.clientX, y: event.clientY }
     this.render()
   }
 
@@ -856,21 +855,25 @@ class CommentsOverlay extends HTMLElement {
     }
   }
 
-  /** Leaves comment mode on every page: clears the hint cookie and the query, then removes the overlay. */
+  /** Turns the page tools off on every page, through the loader, then removes the overlay. */
   private exit() {
     void this.finishEdit(false)
-    document.cookie = `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`
-    const url = new URL(location.href)
-    if (url.searchParams.has(commentsHintQuery)) {
-      url.searchParams.delete(commentsHintQuery)
-      history.replaceState(history.state, "", url)
-    }
     this.setMode("view")
+    this.context?.exit()
     this.remove()
   }
 }
 
-if (!customElements.get("vitehub-comments")) {
-  customElements.define("vitehub-comments", CommentsOverlay)
-  document.body.append(document.createElement("vitehub-comments"))
+/**
+ * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
+ * `<vitehub-comments>` element and returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
+ */
+const start: ViteHubPageToolModule["default"] = (context) => {
+  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
+  const overlay = document.createElement("vitehub-comments")
+  if (overlay instanceof CommentsOverlay) overlay.context = context
+  document.body.append(overlay)
+  return () => overlay.remove()
 }
+
+export default start

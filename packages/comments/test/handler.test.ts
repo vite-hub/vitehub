@@ -68,18 +68,19 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
-  it("answers the session with access, and sets the comment mode hint", async () => {
+  it("answers the session with the user and access, without a cookie", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
     expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false })
-    expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1")
+    expect(response.headers.get("set-cookie")).toBeNull()
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
   })
 
-  it("clears the hint and denies threads to an anonymous user by default", async () => {
+  it("denies threads to an anonymous user by default", async () => {
     const { call } = await setup({ user: null })
     const session = await call("/session")
     expect(session.body.data.can.read).toBe(false)
-    expect(session.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(session.response.headers.get("set-cookie")).toBeNull()
     const threads = await call("/threads?page=/")
     expect(threads.response.status).toBe(403)
     expect(threads.body.error?.code).toBe("COMMENTS_FORBIDDEN")

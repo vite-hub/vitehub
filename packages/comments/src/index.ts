@@ -23,7 +23,7 @@ import type {
 } from "./types.ts"
 
 export { describeCommentContext } from "./context.ts"
-export { commentRoom, commentsHintCookie, commentsPageScope, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
+export { commentRoom, commentsPageScope, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
 export type * from "./types.ts"
 
 type Codes<T extends CommentsErrorCode> = T

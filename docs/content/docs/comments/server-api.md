@@ -152,7 +152,7 @@ When someone starts a thread on a page, the overlay also records what they saw, 
 
 ```ts
 interface CommentContext {
-  url: string                     // without the comment mode query and the hash
+  url: string                     // without the `vitehub` query and the hash
   title?: string
   route?: string                  // Vue Router route pattern, such as '/blog/:id(.*)*'
   element?: {
@@ -188,7 +188,7 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`. Sets the `vitehub-comments` cookie when `read` is allowed, and clears it when not. |
+| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`. It sets no cookie: `GET /_vitehub/page/session` owns the `vitehub-tools` hint. |
 | `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
 | `POST /threads` | `comment` | Starts a thread from `{ page, anchor, context?, body, mentions? }`. |
 | `POST /threads/:id/comments` | `comment` | Replies with `{ body, mentions? }`. |
@@ -238,4 +238,4 @@ The server sets each person in the room from `identify` or the Auth session, and
 
 ## Generated output
 
-When the app has `server/comments.ts`, the integration writes `.vitehub/nitro/comments/handler.mjs` and `.vitehub/nitro/comments/plugin.mjs`. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and adds the overlay to pages in comment mode. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.
+When the app has `server/comments.ts`, the integration writes `.vitehub/nitro/comments/handler.mjs`, `.vitehub/nitro/comments/plugin.mjs`, and `.vitehub/nitro/comments/page-session.mjs`. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and registers the overlay as the `comments` page tool. `page-session.mjs` serves `GET /_vitehub/page/session`, and the package serves the page tools loader at `/_vitehub/page/assets/loader.js`. These routes work without the Console. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.

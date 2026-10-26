@@ -18,7 +18,7 @@ export const comments = defineComments({
 
 ViteHub then adds the `vitehub_comment_threads` and `vitehub_comments` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
 
-Open any page with `?comments`. The server adds the overlay script to that page, and the session route sets the `vitehub-comments` cookie so later pages open in comment mode too. The cookie is a hint, never a credential: every route checks `authorize` again. A request without the hint gets the page unchanged.
+Comments is a ViteHub page tool. Open any page with `?vitehub`, or `?vitehub=comments`. The server adds the page tools loader to that page. The loader calls `GET /_vitehub/page/session`, which allows Comments when `authorize` allows `read`, and sets the `vitehub-tools` cookie so later pages open in comment mode too. The loader then imports the overlay. The cookie is a hint, never a credential: every Comments route checks `authorize` again. A request without the hint gets the page unchanged. Opening the Console calls the same session route, so the Console's people see the toolbar on the app's pages. The session route and the loader do not need the Console.
 
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
 

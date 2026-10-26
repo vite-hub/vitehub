@@ -58,16 +58,13 @@ export function resolveConsoleSectionDetails(
 }
 
 /**
- * Requests the `visit` path of each section that this person may use, once per loaded Console, such as the Comments
- * session that turns comment mode on for the app's pages. Failures are ignored: the section page itself reports them.
+ * Requests the page tools session once per loaded Console. It sets the `vitehub-tools` hint cookie when this person may
+ * use a page tool, such as Comments, so the app's pages load those tools. The Console ignores the answer.
  */
-function visitConsoleSections(base: string, navigation: ConsoleNavigation): void {
+function openPageToolsSession(base: string): void {
   const marker = base.lastIndexOf("/api/_vitehub/console/")
   const prefix = marker === -1 ? "" : base.slice(0, marker)
-  for (const section of navigation.sections) {
-    const visit = Object.hasOwn(navigation.contributions, section) ? navigation.contributions[section]?.visit : undefined
-    if (visit) void fetch(`${prefix}${visit}`, { credentials: "same-origin" }).catch(() => undefined)
-  }
+  void fetch(`${prefix}/_vitehub/page/session`, { credentials: "same-origin", headers: { accept: "application/json" } }).catch(() => undefined)
 }
 
 export async function loadConsoleNavigation(base: string): Promise<ConsoleNavigation | undefined> {
@@ -77,7 +74,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
-        visitConsoleSections(base, navigation)
+        openPageToolsSession(base)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })

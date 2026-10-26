@@ -5,7 +5,7 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 import { requestOf } from "./request.ts"
 
@@ -62,8 +62,6 @@ export interface CommentsHandlerOptions {
    */
   components?: Readonly<Record<string, readonly string[]>>
 }
-
-const hintMaxAge = 60 * 60 * 24 * 30
 
 /** Issued by `access()` after `authorize` allows an action, for that action on that thread. Each write needs one. */
 const actionGrant = defineGrant("vitehub.comments.action", (input: { action: CommentsAction, threadId: string | undefined }) => Object.freeze({ ...input }))
@@ -155,22 +153,28 @@ function leaseHolder(error: unknown): string {
 }
 
 /**
+ * The user of a request: the `identify` option of `defineComments()`, else the session reader of the app (the Console
+ * user or the ViteHub Auth user). A session reader that throws gives an anonymous user.
+ */
+export async function resolveCommentsUser(comments: Comments, session: CommentsHandlerOptions["session"], event: H3Event): Promise<CommentsUser | null> {
+  if (comments.options.identify) return await comments.options.identify({ event }) ?? null
+  if (!session) return null
+  try {
+    return await session(event) ?? null
+  }
+  catch {
+    return null
+  }
+}
+
+/**
  * The Comments API at `/api/_vitehub/comments/**`. The overlay calls it; every route checks the `authorize` policy of
  * `defineComments()` for the user of the request, and inline edits also check `content.can()`.
  */
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
   const { comments } = options
 
-  async function resolveUser(event: H3Event): Promise<CommentsUser | null> {
-    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
-    if (!options.session) return null
-    try {
-      return await options.session(event) ?? null
-    }
-    catch {
-      return null
-    }
-  }
+  const resolveUser = (event: H3Event) => resolveCommentsUser(comments, options.session, event)
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
     const user = await resolveUser(event)
@@ -241,13 +245,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(issues) }))
   }
 
+  /** Who the overlay's person is and what they may do. The page tools session decides whether the overlay loads. */
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
     const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => comments.can({ user, action })))
-    const headers = new Headers()
-    headers.append("set-cookie", read
-      ? `${commentsHintCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
-      : `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`)
     return json({
       data: {
         user: user ? authorOf(user) : null,
@@ -255,7 +256,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         realtime: options.realtime,
         content: Boolean(options.content),
       },
-    }, { headers })
+    })
   }
 
   /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
