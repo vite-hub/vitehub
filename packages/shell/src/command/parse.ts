@@ -62,6 +62,7 @@ export function splitShellCommandSegments(command: string) {
   const segments: Array<{ command: string, followsPipe: boolean, separatorAfter?: "&&" | "||" | "|" | ";" | "\n" }> = []
   let current = ""
   let quote: "'" | "\"" | undefined
+  let ansiCQuoted = false
   let escaped = false
   let comment = false
   let wordBoundary = true
@@ -73,7 +74,7 @@ export function splitShellCommandSegments(command: string) {
       comment = false
     }
     if (escaped) {
-      if (char === "\n") {
+      if (char === "\n" && !ansiCQuoted) {
         escaped = false
         continue
       }
@@ -82,15 +83,26 @@ export function splitShellCommandSegments(command: string) {
       escaped = false
       continue
     }
-    if (char === "\\") {
+    if (char === "\\" && (quote !== "'" || ansiCQuoted)) {
       current += char
       escaped = true
       continue
     }
     if (quote) {
-      if (char === quote) quote = undefined
+      if (char === quote) {
+        quote = undefined
+        ansiCQuoted = false
+      }
       current += char
       wordBoundary = false
+      continue
+    }
+    if (char === "$" && command[index + 1] === "'") {
+      quote = "'"
+      ansiCQuoted = true
+      current += "$'"
+      wordBoundary = false
+      index += 1
       continue
     }
     if (char === "'" || char === "\"") {
