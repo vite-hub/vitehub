@@ -82,9 +82,18 @@ export function bytesToBase64(value: Uint8Array): string {
     }
   ).Buffer;
   if (Buffer) return Buffer.from(value).toString("base64");
-  let binary = "";
-  for (const byte of value) binary += String.fromCharCode(byte);
-  return btoa(binary);
+  const chunks: string[] = [];
+  let chunk: number[] = [];
+  for (const byte of value) {
+    chunk.push(byte);
+    // Whole three-byte groups avoid Base64 padding between chunks.
+    if (chunk.length === 12_288) {
+      chunks.push(btoa(String.fromCharCode(...chunk)));
+      chunk = [];
+    }
+  }
+  if (chunk.length) chunks.push(btoa(String.fromCharCode(...chunk)));
+  return chunks.join("");
 }
 
 export function stringToBase64(value: string): string {
