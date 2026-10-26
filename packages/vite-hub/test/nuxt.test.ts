@@ -3625,6 +3625,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({
+      // Nuxt 4 runs Nitro 2, which upgrades Realtime's sockets only with `experimental.websocket`.
+      experimental: { websocket: true },
       preset: "cloudflare-durable",
       wasm: { lazy: true },
     })
