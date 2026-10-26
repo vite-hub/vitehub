@@ -580,9 +580,13 @@ export function defineCollection<
   const get = definition.get
   if (get) {
     const lookup = async (key: string, options?: { signal?: AbortSignal }) => {
+      options?.signal?.throwIfAborted()
       const item = await get(key, options ?? {})
+      options?.signal?.throwIfAborted()
       if (item === null || item === undefined) return item
-      return definition.transform ? await definition.transform(item) : item
+      const result = definition.transform ? await definition.transform(item) : item
+      options?.signal?.throwIfAborted()
+      return result
     }
     // SAFETY: The overload without transform fixes TItem to TSourceItem; otherwise lookup applies the typed transform.
     Object.assign(collection, { get: lookup as NonNullable<Collection<TItem>["get"]> })
