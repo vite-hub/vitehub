@@ -445,6 +445,7 @@ type QueueNitroConfigHandler = (options: {
   projectRoot: string
   root: string
   serverDirs?: string[]
+  viteConfig?: UserConfig
 }) => Promise<Record<string, unknown>>
 
 type WorkflowNitroConfigHandler = (options: {
@@ -665,6 +666,8 @@ async function applyNitroConfig(
         projectRoot,
         root: projectRoot,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
+        // The replayed config holds the Cloudflare provider output that the deployment output plugin composes last.
+        viteConfig: config,
       })
     }
 
