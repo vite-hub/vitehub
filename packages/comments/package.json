@@ -68,6 +68,12 @@
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./runtime/d1": {
+      "types": "./dist/runtime/d1.d.ts",
+      "import": "./dist/runtime/d1.js",
+      "require": "./dist/runtime/d1.js",
+      "default": "./dist/runtime/d1.js"
+    },
     "./runtime/sqlite": {
       "types": "./dist/runtime/sqlite.d.ts",
       "import": "./dist/runtime/sqlite.js",

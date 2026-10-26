@@ -109,7 +109,7 @@ Open `http://localhost:3000/?comments`.
 
 The session is an encrypted cookie that lasts 7 days, so the server stores no users and no sessions. Comments asks GitHub again every 5 minutes whether each person can still push.
 
-On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. Hosts without such a disk, such as Vercel, Netlify, and Cloudflare Workers, need a [ViteHub Database](/docs/comments/with-vite-hub) instead. See [Hosts](/docs/comments/hosts).
+On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. On Cloudflare Workers, keep the threads in [D1](/docs/comments/configure#cloudflare-d1) instead. Vercel and Netlify have no such disk, so they need a [ViteHub Database](/docs/comments/with-vite-hub). See [Hosts](/docs/comments/hosts).
 
 ::
 

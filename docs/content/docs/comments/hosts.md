@@ -6,7 +6,7 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-Comments needs somewhere to keep threads on every host. The [`comments()` plugin](/docs/comments/get-started) keeps them in a SQLite file, so it needs a disk that lasts. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a Database, which every host below supports.
+Comments needs somewhere to keep threads on every host. The [`comments()` plugin](/docs/comments/get-started) keeps them in a SQLite file, which needs a disk that lasts, or in Cloudflare D1. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a Database, which every host below supports.
 
 ## With `comments()`
 
@@ -15,9 +15,10 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, with no option |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })`, on a disk or volume that survives deploys |
 | Several processes or machines | No | Each process would have its own file. Use a ViteHub app with a libSQL Database. |
-| Vercel, Netlify, Cloudflare Workers | No | These hosts have no disk that lasts. Use a ViteHub app with a hosted Database or D1. |
+| Cloudflare Workers | Yes | `comments({ database: { d1: 'COMMENTS' } })`, with the D1 binding in `wrangler.jsonc`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
+| Vercel, Netlify | No | These hosts have no disk that lasts. Use a ViteHub app with a hosted Database. |
 
-`comments()` runs on the server of [Nitro](https://nitro.build), which builds for the host it detects, such as Vercel when it builds there. The SQLite file needs Node.js 22.5 or newer, for `node:sqlite`. `comments()` has no presence, no edits in place, and no Console section.
+`comments()` runs on the server of [Nitro](https://nitro.build), which builds for the host it detects, such as Vercel when it builds there. Set `NITRO_PRESET=cloudflare_module` to build for Workers. The SQLite file needs Node.js 22.5 or newer, for `node:sqlite`. `comments()` has no presence, no edits in place, and no Console section.
 
 [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) stores nothing on the server, because the session is in a cookie. It works the same in a ViteHub app on every host below.
 

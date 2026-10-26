@@ -26,7 +26,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `database` | `.vitehub/data/comments.sqlite` on `vite dev`. None in a production build. | A SQLite file, `'file:./data/comments.sqlite'` or a plain path, relative to the directory that the server starts in. See [Choose the Database](/docs/comments/configure#choose-the-database). |
+| `database` | `.vitehub/data/comments.sqlite` on `vite dev`. None in a production build. | A SQLite file, `'file:./data/comments.sqlite'` or a plain path, relative to the directory that the server starts in. Or `{ d1: 'COMMENTS' }`, the Cloudflare D1 database of that binding; `vite dev` uses the default file instead. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 
 ## `defineComments()` options
 

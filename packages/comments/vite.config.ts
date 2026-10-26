@@ -19,6 +19,7 @@ export default defineConfig({
         "src/runtime/console.ts",
         "src/runtime/index.ts",
         "src/runtime/sqlite.ts",
+        "src/runtime/d1.ts",
         "src/vite.ts",
       ],
       exports: {

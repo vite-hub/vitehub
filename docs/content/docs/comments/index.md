@@ -56,7 +56,7 @@ Start with one plugin. Add more when you need it, without changing what you have
 
 | Setup | You add | You get |
 | --- | --- | --- |
-| [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in a SQLite file that Comments creates. Guests on the dev server. |
+| [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in a SQLite file or Cloudflare D1, with tables that Comments creates. Guests on the dev server. |
 | [With GitHub sign-in](/docs/comments/configure#sign-in-with-github) | A GitHub App, and three server variables | Your team signs in with GitHub. People who can push to the repository may comment. Comments posted to the pull request show their GitHub account. |
 | [In a ViteHub app](/docs/comments/with-vite-hub) | `vitehub()` with a Database, and `server/comments.ts` | Any ViteHub Database, on every host. Cursors of the people on a page, Content edits in place, the Console section, MCP tools for Agents, and your own sign-in. |
 

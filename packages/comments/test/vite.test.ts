@@ -147,6 +147,18 @@ describe("comments() without vite-hub", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("openCommentsSqlite(\"file:./data/comments.sqlite\")")
   })
 
+  it("reads a D1 binding on Cloudflare, and the SQLite file on the development server without one", async () => {
+    const root = await project({ "package.json": "{}" })
+    const d1 = () => comments({ database: { d1: "COMMENTS" } })[0] as Plugin
+    await configure(d1(), root)
+    const build = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(build).toContain("const database = () => openCommentsD1(\"COMMENTS\")")
+    // A Worker cannot load node:sqlite.
+    expect(build).not.toContain("openCommentsSqlite")
+    await configure(d1(), root, "serve")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`openCommentsD1("COMMENTS", { fallback: () => openCommentsSqlite(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}) })`)
+  })
+
   it("keeps the app's server/comments.ts, and adds no tables to a ViteHub Database", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments({ authorize: () => true })" })
     const plugin = standalone() as ReturnType<typeof hubComments>

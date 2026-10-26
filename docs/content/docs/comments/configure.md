@@ -67,12 +67,12 @@ An app without its own sign-in signs people in with a GitHub App. It is on when 
 
 A person who may not read sees **Sign in with GitHub** in the overlay. GitHub sends them back to the same page, in comment mode. Signed in, they see their picture in the toolbar. Selecting it signs them out.
 
-[Get started](/docs/comments/get-started#let-your-team-sign-in-with-github) shows how to create the GitHub App. In short:
+[Get started](/docs/comments/get-started#let-your-team-sign-in-with-github) shows how to create the GitHub App. One App can do both jobs: when an App already [posts to pull requests](#post-comments-to-the-pull-request), add the callback URL to it, and copy its Client ID and a client secret. Its App ID and private key keep posting. In short:
 
 | GitHub App setting | Value |
 | --- | --- |
 | Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one for each site. A GitHub App takes up to 10. |
-| Expire user authorization tokens | Off. Comments keeps the token in the session cookie and cannot store a renewed one. |
+| Expire user authorization tokens | Off. When it is on, GitHub's token lasts 8 hours, and Comments cannot store a renewed one in the cookie, so people sign in again. |
 | Webhook | Off |
 | Permissions | None more than the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
 | Installed on | The app's repository |
@@ -203,11 +203,18 @@ export default defineEventHandler(async (event) => {
 
 ## Choose the Database
 
-Where the threads go depends on the setup.
+Where the threads go depends on the setup. `comments()` keeps them in a SQLite file or in Cloudflare D1, and creates its tables itself, so you install no driver and run no migration. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a ViteHub Database.
 
-### A SQLite file, with `comments()`
+| `database` of `comments()` | Where threads go |
+| --- | --- |
+| Not set, `vite dev` | `.vitehub/data/comments.sqlite` in the project. The plugin adds a `.gitignore` next to it. |
+| Not set, production build | Nowhere. The server log says `Comments has no database in this build`, and the API answers [`COMMENTS_NOT_INSTALLED`](/docs/comments/limits-and-errors#comments_not_installed). |
+| `'file:./data/comments.sqlite'`, or a plain path | That file, relative to the directory that the server starts in. The directory is created. |
+| `{ d1: 'COMMENTS' }` | The D1 database of the `COMMENTS` binding in `wrangler.jsonc`. `vite dev` uses `.vitehub/data/comments.sqlite` instead. |
 
-The `comments()` plugin keeps threads in a SQLite file. It opens the file with Node's built-in `node:sqlite` and creates its tables when the server starts, so you install no driver and run no migration.
+### A SQLite file
+
+Comments opens the file with Node's built-in `node:sqlite` and creates its tables when the server starts.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -215,13 +222,53 @@ export default defineConfig({
 })
 ```
 
-| `database` | Where threads go |
-| --- | --- |
-| Not set, `vite dev` | `.vitehub/data/comments.sqlite` in the project. The plugin adds a `.gitignore` next to it. |
-| Not set, production build | Nowhere. The server log says `Comments has no database in this build`, and the API answers [`COMMENTS_NOT_INSTALLED`](/docs/comments/limits-and-errors#comments_not_installed). |
-| `'file:./data/comments.sqlite'`, or a plain path | That file, relative to the directory that the server starts in. The directory is created. |
+Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it. On Cloudflare Workers, use [D1](#cloudflare-d1). Vercel and Netlify have no such disk, so they need a ViteHub Database.
 
-Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it. Hosts without such a disk, such as Vercel, Netlify, and Cloudflare Workers, need a ViteHub Database.
+### Cloudflare D1
+
+On Cloudflare Workers, Comments keeps threads in a [D1](https://developers.cloudflare.com/d1/) database. It reads the database from a binding of the Worker, and creates its tables on the first request, so there is no migration to run.
+
+1. Create the database, and add its binding to `wrangler.jsonc`:
+
+   ```bash [commands/d1]
+   pnpm add -D wrangler
+   pnpm wrangler d1 create comments --binding COMMENTS --update-config
+   ```
+
+   Wrangler adds the binding to `d1_databases`:
+
+   ```jsonc [wrangler.jsonc]
+   {
+     "name": "my-site",
+     "compatibility_date": "2026-10-01",
+     "d1_databases": [
+       { "binding": "COMMENTS", "database_name": "comments", "database_id": "<the id that Wrangler printed>" }
+     ]
+   }
+   ```
+
+2. Give `comments()` the binding name:
+
+   ```ts [vite.config.ts]
+   export default defineConfig({
+     plugins: [comments({ database: { d1: 'COMMENTS' } })],
+   })
+   ```
+
+3. Build for Workers and deploy. Nitro copies the bindings of `wrangler.jsonc` into the build, and points Wrangler at it:
+
+   ```bash [commands/deploy]
+   NITRO_PRESET=cloudflare_module pnpm vite build
+   pnpm wrangler deploy
+   ```
+
+4. To [sign in with GitHub](#sign-in-with-github), add the variables as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
+
+`vite dev` keeps the threads in `.vitehub/data/comments.sqlite`, because the dev server has no binding. To try D1 on your computer, build, then run `pnpm wrangler dev`. Wrangler runs the Worker with a local D1 database in `.wrangler/state`.
+
+Set the preset with `NITRO_PRESET` when you build, not in `vite.config.ts`. With the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
+
+When the Worker has no binding of that name, the API answers `500`, and the Worker log says `Comments has no D1 binding "COMMENTS"`. Check the binding name in `wrangler.jsonc`, and see it with `pnpm wrangler tail`.
 
 ### A ViteHub Database
 
