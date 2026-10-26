@@ -192,10 +192,14 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   /** Adds the build, and the source files of each component, to the context that the overlay read. */
   function completeContext(context: CommentContext): CommentContext {
-    const components = context.components?.map((component) => {
+    // Keep the app's own components: names without a project file, such as RouterView or a UI library's, are noise.
+    // Without a file map, or when none matches, keep the three innermost names.
+    const named = context.components?.map((component) => {
       const files = options.components?.[component.name]
       return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
     })
+    const own = named?.filter(component => component.files)
+    const components = own?.length ? own : named?.slice(-3)
     // The browser does not know the build, and cannot name files: both come from the server.
     const { build: _build, ...read } = context
     return {

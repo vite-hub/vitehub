@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
+import { componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 
@@ -52,6 +52,15 @@ describe("hubComments", () => {
     expect(handler).toContain("realtime: false")
   })
 
+  it("names a Vue file the way production builds and Nuxt name its component", () => {
+    expect(componentNames("app/components/PricingCard.vue")).toEqual(["PricingCard"])
+    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread", "ViewerThread"])
+    expect(componentNames("app/components/viewer/ViewerCommentThread.vue")).toEqual(["ViewerCommentThread"])
+    expect(componentNames("app/pages/drops/index.vue")).toEqual(["index", "drops"])
+    expect(componentNames("app/pages/blog/[id].vue")).toEqual(["[id]", "blog-id"])
+    expect(componentNames("app/pages/index.vue")).toEqual(["index"])
+  })
+
   it("lists the Vue files by component name and reads the build from the host", async () => {
     const root = await project({
       "server/comments.ts": "export const comments = defineComments()",
@@ -63,7 +72,8 @@ describe("hubComments", () => {
     })
     expect(await readCommentsComponents(root)).toEqual({
       PricingCard: ["app/components/PricingCard.vue"],
-      index: expect.arrayContaining(["app/pages/index.vue", "app/pages/blog/index.vue"]),
+      index: expect.arrayContaining(["app/pages/index.vue"]),
+      blog: ["app/pages/blog/index.vue"],
     })
     expect(await readCommentsBuild(root, { WORKERS_CI_COMMIT_SHA: "abc", WORKERS_CI_BRANCH: "main" })).toEqual({ commit: "abc", branch: "main" })
     expect(await readCommentsBuild(root, { GITHUB_SHA: "def", GITHUB_REF_NAME: "feat" })).toEqual({ commit: "def", branch: "feat" })
