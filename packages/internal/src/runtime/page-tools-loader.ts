@@ -1,59 +1,32 @@
 /**
  * The browser side of the page tools. The page gets one script, the loader. It asks `/_vitehub/page/session` which
- * tools this visitor may use, then imports the script of each one and calls its default export.
+ * tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
+ *
+ * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
+ * with the Node stream types: `tsconfig.browser.json` checks it.
  */
+import { readViteHubPageSession, viteHubPageSessionPath, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 
-// This package compiles without the DOM types, which conflict with the Node stream types. The loader reads only these
-// browser globals.
-declare const location: { readonly href: string, readonly search: string }
-declare const document: { cookie: string }
-declare const history: { readonly state: unknown, replaceState(state: unknown, unused: string, url: URL): void }
-
-/** The query that turns the page tools on for a page. `?vitehub=<tool id>` also opens that tool. */
-export const viteHubPageToolsQuery = "vitehub"
-
-/** The cookie that keeps the page tools on, on the next pages. It is a hint, never a credential. */
-export const viteHubPageToolsCookie = "vitehub-tools"
-
-/**
- * The URL prefix of the built page tools scripts, such as the loader. It is not `/_vitehub/page`: Nitro answers 404 for
- * any path under a public asset prefix that has no file, and gives the whole prefix the asset cache headers.
- */
-export const viteHubPageToolsAssets = "/_vitehub/page/assets"
-
-/** The route of the visitor check. */
-export const viteHubPageSessionPath = "/_vitehub/page/session"
-
-/** The URL of the loader script. Its version query changes when the loader changes, so caches keep it 5 minutes. */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=1"
-
-/** One tool that the visitor may use, as the session route returns it. */
-export interface ViteHubPageToolInfo {
-  /** The owner, such as `comments`. */
-  id: string
-  /** The display name, such as `Comments`. */
-  label: string
-  /** An Iconify class, such as `i-lucide-message-square-text`. */
-  icon: string
-  /** A key that opens the tool, such as `c`. */
-  hotkey?: string
-  /** The URL of the module script of the tool. */
-  script: string
-}
-
-/** The answer of `GET /_vitehub/page/session`. */
-export interface ViteHubPageSession {
-  tools: ViteHubPageToolInfo[]
-}
+import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 /** What the loader gives to the default export of a tool module. */
 export interface ViteHubPageToolContext {
   tool: ViteHubPageToolInfo
+  /**
+   * The tool's segment in the pill: a `<vitehub-tool slot="<tool id>">` element. Attach a shadow root to it and draw the
+   * tool's controls there, so their CSS stays apart from the pill and from other tools. Inherited styles, such as the
+   * pill's text color, font, and `color-scheme`, reach it, so `light-dark()` follows the page. The pill hides a segment
+   * that is still empty when the default export returns. Set `bar.hidden` to hide or show it later.
+   */
+  bar: HTMLElement
   /** Aborts when the tool must stop, such as after `exit()`. The loader then also calls the cleanup function. */
   signal: AbortSignal
   /** True when the page URL has `?vitehub=<this tool id>`. */
   open: boolean
-  /** Turns the page tools off for this browser: clears the hint cookie and the query, and stops every tool. */
+  /**
+   * Turns the page tools off for this browser: clears the hint cookie and the query, stops every tool, and removes the
+   * pill. The pill's exit button calls it, so a tool does not draw its own.
+   */
   exit(): void
 }
 
@@ -62,31 +35,62 @@ export interface ViteHubPageToolModule {
   default(context: ViteHubPageToolContext): void | (() => void)
 }
 
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
-function readTool(value: unknown): ViteHubPageToolInfo | undefined {
-  if (value === null || typeof value !== "object") return undefined
-  const id = text(Reflect.get(value, "id"))
-  const script = text(Reflect.get(value, "script"))
-  if (!id || !script) return undefined
-  const tool: ViteHubPageToolInfo = { id, label: text(Reflect.get(value, "label")) ?? id, icon: text(Reflect.get(value, "icon")) ?? "", script }
-  const hotkey = text(Reflect.get(value, "hotkey"))
-  if (hotkey) tool.hotkey = hotkey
-  return tool
-}
-
-/** The tools of a session answer. Entries without an id or a script are skipped. */
-export function readViteHubPageSession(value: unknown): ViteHubPageSession {
-  const tools: unknown = value !== null && typeof value === "object" ? Reflect.get(value, "tools") : undefined
-  return { tools: Array.isArray(tools) ? tools.map(readTool).filter((tool): tool is ViteHubPageToolInfo => Boolean(tool)) : [] }
-}
-
 function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined {
   const start: unknown = module !== null && typeof module === "object" ? Reflect.get(module, "default") : undefined
   // SAFETY: a page tool script exports its start function as default. The loader checks that it is a function.
   return start instanceof Function ? start as ViteHubPageToolModule["default"] : undefined
+}
+
+// The pill takes its colors from `color-scheme`, which the loader sets from the page, and the page's font. The tools in
+// its segments inherit both. Each visible segment ends with a short divider.
+const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;font-size:13px;line-height:1.5;color:light-dark(#3f3f46,#e4e4e7);-webkit-font-smoothing:antialiased}
+div{--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
+::slotted(*){display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
+::slotted([hidden]){display:none!important}
+button{all:unset;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
+button:hover{background:light-dark(#0000000d,#ffffff0f);color:light-dark(#18181b,#fafafa)}
+:focus-visible{outline:2px solid #2563eb;outline-offset:2px}`
+
+/** Whether the page shows its dark scheme: a `dark` class (Nuxt UI, Tailwind), `data-theme="dark"`, or `color-scheme`. */
+function pageIsDark(): boolean {
+  const root = document.documentElement
+  if (root.classList.contains("dark") || root.dataset.theme === "dark") return true
+  if (root.classList.contains("light") || root.dataset.theme === "light") return false
+  const scheme = getComputedStyle(root).colorScheme
+  return scheme === "dark" || (scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches)
+}
+
+/**
+ * Draws the pill: one `<vitehub-pill>` at the bottom center of the page, with a named slot per tool in session order and
+ * the exit button. It follows the page's light or dark scheme until `signal` aborts.
+ */
+function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
+  const pill = document.createElement("vitehub-pill")
+  const shadow = pill.attachShadow({ mode: "open" })
+  shadow.innerHTML = `<style>${pillStyles}</style><div role="toolbar" aria-label="ViteHub tools"><button aria-label="Turn off ViteHub tools" title="Turn off ViteHub tools"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`
+  const toolbar = shadow.lastElementChild!
+  const button = toolbar.lastElementChild!
+  for (const tool of tools) {
+    const slot = document.createElement("slot")
+    slot.name = tool.id
+    toolbar.insertBefore(slot, button)
+  }
+  button.addEventListener("click", exit)
+  pill.style.fontFamily = getComputedStyle(document.body).fontFamily
+
+  const theme = () => {
+    pill.style.colorScheme = pageIsDark() ? "dark" : "light"
+  }
+  theme()
+  const observer = new MutationObserver(theme)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "style", "data-theme"] })
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", theme, { signal })
+  signal.addEventListener("abort", () => {
+    observer.disconnect()
+    pill.remove()
+  }, { once: true })
+  document.body.append(pill)
+  return pill
 }
 
 export interface LoadViteHubPageToolsOptions {
@@ -95,8 +99,9 @@ export interface LoadViteHubPageToolsOptions {
 }
 
 /**
- * Asks the session route which tools this visitor may use, then starts each one. Without an allowed tool it does
- * nothing more: the session route already cleared the hint cookie. Returns the tools that it started.
+ * Asks the session route which tools this visitor may use, draws the pill, then starts each tool with its segment.
+ * Without an allowed tool it does nothing more: the session route already cleared the hint cookie. When no tool starts,
+ * it removes the pill. Returns the tools that it started.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
@@ -109,9 +114,11 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   catch {
     return []
   }
-  if (session.tools.length === 0) return []
+  // One pill per page: a second loader on the same page does nothing.
+  if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
 
   const open = new URLSearchParams(location.search).get(viteHubPageToolsQuery)
+  const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
   const exit = () => {
     document.cookie = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
@@ -121,21 +128,30 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
       history.replaceState(history.state, "", url)
     }
     for (const controller of controllers) controller.abort()
+    pillController.abort()
   }
+  const pill = mountPill(session.tools, exit, pillController.signal)
   const started = await Promise.all(session.tools.map(async (tool, index) => {
     const { signal } = controllers[index]!
+    const bar = document.createElement("vitehub-tool")
+    bar.slot = tool.id
+    pill.append(bar)
     try {
       const start = startOf(await load(tool.script))
       if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
       if (signal.aborted) return undefined
-      const cleanup = start({ tool, signal, open: tool.id === open, exit })
+      const cleanup = start({ tool, bar, signal, open: tool.id === open, exit })
+      if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
       if (cleanup instanceof Function) signal.addEventListener("abort", () => cleanup(), { once: true })
       return tool
     }
     catch (error) {
+      bar.remove()
       console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
       return undefined
     }
   }))
-  return started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
+  const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
+  if (tools.length === 0) pillController.abort()
+  return tools
 }

@@ -1,4 +1,4 @@
-import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
+import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
@@ -70,11 +70,14 @@ function avatar(person: { id: string, name: string, image?: string | null }): HT
   return h("span", { className: "avatar", style: `background:${colorOf(person.id)}`, "aria-hidden": "true" }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name))
 }
 
-/** Whether the host page shows its dark scheme: a `dark` class, as Nuxt UI and Tailwind set, or `color-scheme`. */
+/**
+ * Whether the host page shows its dark scheme: a `dark` class, as Nuxt UI and Tailwind set, `data-theme`, or
+ * `color-scheme`. The page tools pill reads the page the same way.
+ */
 function hostIsDark(): boolean {
   const root = document.documentElement
-  if (root.classList.contains("dark")) return true
-  if (root.classList.contains("light")) return false
+  if (root.classList.contains("dark") || root.dataset.theme === "dark") return true
+  if (root.classList.contains("light") || root.dataset.theme === "light") return false
   const scheme = getComputedStyle(root).colorScheme
   if (scheme === "dark") return true
   return scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches
@@ -123,7 +126,8 @@ class CommentsOverlay extends HTMLElement {
   private readonly pinElements = new Map<string, HTMLElement>()
   private readonly cursors = h("div", { className: "layer" })
   private readonly floating = h("div")
-  private readonly toolbar = h("div", { className: "toolbar", role: "toolbar", "aria-label": "Comments" })
+  /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
+  private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
   private session?: CommentsSession
   private page = normalizeCommentPage(location.pathname)
   private threads: PageThread[] = []
@@ -145,9 +149,16 @@ class CommentsOverlay extends HTMLElement {
 
   async connectedCallback() {
     this.shadow.append(h("style", {}, overlayStyles), this.root)
-    this.root.append(this.layer, this.cursors, this.floating, this.toolbar)
+    this.root.append(this.layer, this.cursors, this.floating)
     this.layer.append(this.outlines, this.pins)
-    this.root.style.setProperty("--font", getComputedStyle(document.body).fontFamily)
+    const bar = this.context?.bar
+    if (bar) {
+      // Hidden until the session allows the overlay, so the pill shows no empty segment.
+      bar.hidden = true
+      bar.attachShadow({ mode: "open" }).append(h("style", {}, overlayStyles), this.toolbar)
+    }
+    const font = getComputedStyle(document.body).fontFamily
+    for (const element of [this.root, this.toolbar]) element.style.setProperty("--font", font)
     this.followTheme()
     const style = h("style", { "data-vitehub-comments": true }, documentStyles)
     document.head.append(style)
@@ -160,6 +171,7 @@ class CommentsOverlay extends HTMLElement {
       return
     }
     this.session = session
+    if (bar) bar.hidden = false
     this.listen()
     this.renderToolbar()
     await this.load()
@@ -178,7 +190,7 @@ class CommentsOverlay extends HTMLElement {
   /** Keeps the overlay in the page's light or dark scheme when the page or the system switches. */
   private followTheme() {
     const apply = () => {
-      this.root.dataset.theme = hostIsDark() ? "dark" : "light"
+      this.root.dataset.theme = this.toolbar.dataset.theme = hostIsDark() ? "dark" : "light"
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -245,8 +257,11 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => clearInterval(poll))
   }
 
+  /** Whether the event happened on the overlay, or on the page tools pill that holds its toolbar and the other tools. */
   private ours(event: Event): boolean {
-    return event.composedPath().includes(this)
+    const path = event.composedPath()
+    const pill = this.context?.bar.parentElement
+    return path.includes(this) || Boolean(pill && path.includes(pill))
   }
 
   private elementAt(x: number, y: number): Element | undefined {
@@ -543,8 +558,6 @@ class CommentsOverlay extends HTMLElement {
         this.render()
       } }, icons.list(), String(open)),
       avatars.length > 0 && h("span", { className: "people", "aria-label": `${people.length} on this page` }, ...avatars),
-      h("span", { className: "sep" }),
-      h("button", { className: "tool square", title: "Leave comment mode", "aria-label": "Leave comment mode", onClick: () => this.exit() }, icons.close()),
     ))
   }
 
@@ -855,25 +868,31 @@ class CommentsOverlay extends HTMLElement {
     }
   }
 
-  /** Turns the page tools off on every page, through the loader, then removes the overlay. */
-  private exit() {
+  /** Ends comment and edit mode, then removes the overlay. The loader calls it when the page tools stop. */
+  stop() {
     void this.finishEdit(false)
     this.setMode("view")
-    this.context?.exit()
     this.remove()
+  }
+
+  /** Turns the page tools off on every page. The loader then stops the overlay. The error toast calls it. */
+  private exit() {
+    this.context?.exit()
   }
 }
 
 /**
  * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
- * `<vitehub-comments>` element and returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
+ * `<vitehub-comments>` element for pins, cursors, and cards, and draws the toolbar in `context.bar`, the tool's segment
+ * of the pill. It returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
  */
 const start: ViteHubPageToolModule["default"] = (context) => {
   if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
   const overlay = document.createElement("vitehub-comments")
-  if (overlay instanceof CommentsOverlay) overlay.context = context
+  if (!(overlay instanceof CommentsOverlay)) return
+  overlay.context = context
   document.body.append(overlay)
-  return () => overlay.remove()
+  return () => overlay.stop()
 }
 
 export default start

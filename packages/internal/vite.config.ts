@@ -62,6 +62,7 @@ export default defineConfig({
       "src/runtime/mcp-tools.ts",
       "src/runtime/page-tools.ts",
       "src/runtime/page-tools-loader.ts",
+      "src/runtime/page-tools-shared.ts",
       "src/runtime/random.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",

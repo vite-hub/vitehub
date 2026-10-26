@@ -60,7 +60,10 @@ export default defineConfig({
     emptyOutDir: true,
     outDir: resolve(import.meta.dirname, ".vitehub/console"),
     rolldownOptions: {
-      input: resolve(clientRoot, "main.js"),
+      // The `console` page tool is a second entry: a small script that the page tools loader imports on the app's pages.
+      input: { main: resolve(clientRoot, "main.js"), "page-tool": resolve(import.meta.dirname, "src/console/page/tool.ts") },
+      // Keep the default export of the page tool. An app build drops entry exports by default.
+      preserveEntrySignatures: "exports-only",
       output: {
         // The Console page links only the entry stylesheet. Deferred chunks load their own styles.
         assetFileNames: asset => asset.names.includes("main.css")
@@ -70,7 +73,7 @@ export default defineConfig({
         // VueUse holds the color mode writer that Nuxt UI's search keeps behind `colorMode: false`.
         // A separate chunk keeps it out of the entry, so the entry only carries the Console appearance module.
         codeSplitting: { groups: [{ name: "vueuse", test: /[\\/]@vueuse[\\/]core[\\/]/ }] },
-        entryFileNames: "console-[hash].js",
+        entryFileNames: chunk => chunk.name === "page-tool" ? "page-tool-[hash].js" : "console-[hash].js",
       },
     },
   },

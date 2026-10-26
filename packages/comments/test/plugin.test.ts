@@ -7,7 +7,7 @@ import { defineComments } from "../src/index.ts"
 
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=1\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=2\" data-vitehub-page-tools></script>"
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}): void {

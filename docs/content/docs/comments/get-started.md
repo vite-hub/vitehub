@@ -65,7 +65,7 @@ pnpm vitehub db migrate
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub page tools, such as Comments. A toolbar shows at the bottom of the page. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you close the toolbar.
+Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub page tools, such as Comments. The ViteHub tools pill shows at the bottom of the page, with the Comments toolbar in it. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you select **×** in the pill.
 
 1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
 2. Click a heading on the page. A comment box opens at that point.

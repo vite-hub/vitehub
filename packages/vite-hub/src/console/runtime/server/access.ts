@@ -343,6 +343,16 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
 }
 
 /**
+ * Whether the installed access policy lets this request open the Console, for at least one section. The `console` page
+ * tool uses it, so a page shows the Console link only to people that the Console accepts.
+ */
+export async function consoleAllowsRequest(event: unknown): Promise<boolean> {
+  if (!(event instanceof Object)) return false
+  // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
+  return !isRuntimeResponse(await checkConsoleAccess(event as ConsoleRequestEvent))
+}
+
+/**
  * Wraps a Console server handler so it runs only after the installed access policy accepts the request.
  * Otherwise the wrapper returns the rejection `Response`. Without an installed policy, it returns `500`.
  */

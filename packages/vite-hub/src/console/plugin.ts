@@ -207,7 +207,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsolePageTool, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...accessCode.imports,
     ...(documentEditors.some(editor => editor.section === "content") ? [
       'import { registerContentMcpTools } from "vite-hub/_internal/content/runtime/console"',
@@ -272,7 +272,8 @@ function renderConsoleNitroPlugin(
     ...(kvEnabled
       ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
       : []),
-    "export default function viteHubConsolePlugin() {}",
+    // The `console` page tool: a link to the Console in the page tools pill of the app's pages.
+    "export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp) }",
     "",
   ].join("\n")
 }

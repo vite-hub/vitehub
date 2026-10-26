@@ -1,4 +1,4 @@
-import { viteHubPageSessionPath, viteHubPageToolsAssets } from "../runtime/page-tools-loader.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets } from "../runtime/page-tools-shared.ts"
 
 import type { NitroServerKit } from "../nitro-kit.ts"
 

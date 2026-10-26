@@ -818,7 +818,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(10);
+      expect(handlers).toHaveLength(11);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
@@ -830,6 +830,7 @@ describe("framework package contract", () => {
         "/_vitehub/channels/replay",
         "/_vitehub/schedules/run",
         "/_vitehub/mcp",
+        "/_vitehub/page/session",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");
@@ -837,12 +838,16 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets).toHaveLength(1);
+      expect(publicAssets).toHaveLength(2);
       const publicAssetDir = Reflect.get(Object(publicAssets[0]), "dir");
       if (String(publicAssetDir) !== publicAssetDir)
         throw new TypeError("Expected a Console public asset path.");
       expect(publicAssetDir).toContain("/dist/console/runtime/public/console");
       expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
+      // The page tools loader, so the `console` page tool works without Comments.
+      const loaderDir = Reflect.get(Object(publicAssets[1]), "dir");
+      expect(Reflect.get(Object(publicAssets[1]), "baseURL")).toBe("/_vitehub/page/assets");
+      expect(existsSync(`${String(loaderDir)}/loader.js`), String(loaderDir)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

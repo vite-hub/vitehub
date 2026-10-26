@@ -78,8 +78,9 @@
   "exclude": [
     "dist",
     "node_modules",
-    // Browser code of the Console's invocation views; tsconfig.console.json checks it with the DOM library.
+    // Browser code of the Console's invocation views and page tool; tsconfig.console.json checks it with the DOM library.
     "src/console/runtime/components/invocation",
+    "src/console/page",
     "src/console/ui.ts",
     "test/console-invocation-views"
   ]

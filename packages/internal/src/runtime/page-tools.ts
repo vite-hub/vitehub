@@ -1,11 +1,11 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "./page-tools-loader.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
-import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-loader.ts"
+import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 export { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery }
-export type { ViteHubPageSession, ViteHubPageToolContext, ViteHubPageToolInfo, ViteHubPageToolModule } from "./page-tools-loader.ts"
+export type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 /** What the visitor check of a tool gets: the request of the session route and its H3 event. */
 export interface ViteHubPageToolVisitor {

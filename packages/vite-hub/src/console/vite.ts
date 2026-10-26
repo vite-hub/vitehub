@@ -23,7 +23,7 @@ import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
-import { addConsoleRpcHandler } from "./nitro.ts"
+import { addConsolePageToolRoutes, addConsoleRpcHandler } from "./nitro.ts"
 import { consoleOpenAccessWarning } from "./runtime/server/access.ts"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 import { resolveConsoleJournal, type ConsoleJournal } from "../storage-config.ts"
@@ -222,6 +222,7 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocations.get.js"),
     join(consoleRuntimeRoot, "server/kv.get.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
+    join(consoleRuntimeRoot, "server/page-session.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
     join(consoleRuntimeRoot, "server/sections.get.js"),
     join(consoleRuntimeRoot, "server/status.get.js"),
@@ -257,10 +258,11 @@ function configureConsoleNitroRoutes(
   if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: consoleMountPath(baseURL, "/api/_vitehub/console/auth/**") })
   if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL, sections);
+  addConsolePageToolRoutes(kit.config, consoleRuntimeRoot)
   const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
-  const userPublicAssets = Array.isArray(nitro.publicAssets)
-    ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot)
-    : []
+  // SAFETY: The kit holds the caller's Nitro public assets, and the page tools add one of the same shape.
+  const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
+    .filter(asset => asset?.dir !== consolePublicRoot)
   const publicAssets = [{
     baseURL: consoleAssetsBase,
     dir: consolePublicRoot,

@@ -193,7 +193,7 @@ The API waits for `onComment` before it answers the browser. Keep it short, or s
 
 Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the person when `authorize` allows `read`. The route then sets the `vitehub-tools` cookie for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route clears the cookie and the loader stops. The cookie is only a hint. Every API request checks access again.
 
-The close button in the toolbar ends comment mode. It turns the page tools off: it clears the cookie and removes the query.
+The Comments toolbar is one segment of the ViteHub tools pill at the bottom of the page. When the app has the Console, the pill also shows a **Console** link for people that the Console lets in. The **×** button of the pill, **Turn off ViteHub tools**, ends comment mode. It turns all page tools off: it clears the cookie, removes the query, and removes the pill.
 
 | Key | Action |
 | --- | --- |
@@ -202,7 +202,7 @@ The close button in the toolbar ends comment mode. It turns the page tools off: 
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=1">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. Paths under `/_vitehub` and `/api` never get the loader.
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=2">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. Paths under `/_vitehub` and `/api` never get the loader.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie.

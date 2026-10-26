@@ -8,7 +8,7 @@ import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
+import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
