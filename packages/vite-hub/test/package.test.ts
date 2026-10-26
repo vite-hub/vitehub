@@ -133,6 +133,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/comments/runtime/console",
+  "@vite-hub/comments/runtime/d1",
   "@vite-hub/comments/runtime/sqlite",
   "@vite-hub/content/runtime/dev",
   "@vite-hub/database/runtime/agent",
