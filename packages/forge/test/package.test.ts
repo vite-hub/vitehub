@@ -4,6 +4,25 @@ import { fileURLToPath } from "node:url"
 import { describe, expect, it } from "vitest"
 
 describe("published Forge package", () => {
+  it.each(["immediate", "delayed"])("observes %s promise rejections with an already-aborted signal", (timing) => {
+    const entry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
+    const output = execFileSync(process.execPath, ["--unhandled-rejections=strict", "--input-type=module", "-e", `
+      import assert from "node:assert/strict"
+      import { pathToFileURL } from "node:url"
+      const { withSignal } = await import(pathToFileURL(process.argv[1]).href)
+      const reason = new Error("cancelled")
+      const failure = new Error("operation failed")
+      const operation = process.argv[2] === "immediate"
+        ? Promise.reject(failure)
+        : new Promise((_, reject) => setImmediate(() => reject(failure)))
+      await assert.rejects(withSignal(operation, AbortSignal.abort(reason)), error => error === reason)
+      await new Promise(resolve => setImmediate(resolve))
+      await new Promise(resolve => setImmediate(resolve))
+      console.log("ok")
+    `, entry, timing], { encoding: "utf8", timeout: 15_000 })
+    expect(output.trim()).toBe("ok")
+  })
+
   it("loads its entry and every provider without consumer-installed forges", () => {
     const entry = fileURLToPath(new URL("../dist/index.js", import.meta.url))
     const output = execFileSync(process.execPath, ["--input-type=module", "-e", `
