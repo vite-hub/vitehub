@@ -8,7 +8,6 @@ import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
 import { vitehub } from "../src/index.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 async function freePort(): Promise<number> {
@@ -54,7 +53,9 @@ describe("Plugin order with the Nitro Vite plugin", () => {
       await writeFile(join(root, "package.json"), JSON.stringify({ private: true, type: "module" }))
       await writeFile(join(root, "index.html"), "<main>ok</main>\n")
       const { nitro } = (await import("nitro/vite" as string)) as { nitro: () => unknown }
-      const hub = vitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } })
+      // Built, like an installed package: the Console RPC calls operations from the build, and a second copy from `src` would not share its access grants.
+      const { vitehub: builtVitehub } = (await import("../dist/index.js" as string)) as { vitehub: typeof vitehub }
+      const hub = builtVitehub({ preset: "node", console: { auth: false, authorize: hostManagedAuthorize } })
       const builder = await createBuilder({
         logLevel: "silent",
         plugins: nitroPosition === "before" ? [nitro() as never, hub] : [hub, nitro() as never],
@@ -67,7 +68,7 @@ describe("Plugin order with the Nitro Vite plugin", () => {
         expect(page.status).toBe(200)
         expect(await page.text()).toContain("<html")
         const rpc = await fetchServer("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ method: consoleRpcMethods.sections, input: { method: "GET" } }),
+          body: JSON.stringify({ input: {}, operation: "sections.list" }),
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
           method: "POST",
         })
