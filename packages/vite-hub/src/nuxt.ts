@@ -1186,6 +1186,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       }])
     }
   }
+  const generatedModulePrefix = `${join(projectRoot, ".vitehub").replaceAll("\\", "/")}/`
+  // Nitro 2 passes resolved Windows IDs to inline matchers without normalizing their separators.
+  const inlineGeneratedModule = (id: string) => id.replaceAll("\\", "/").startsWith(generatedModulePrefix)
   nuxt.hook?.("nitro:config", async (config) => {
     const {
       config: replayConfig,
@@ -1354,7 +1357,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", inlineGeneratedModule])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (emailPlugin && nuxt.options.dev) {
