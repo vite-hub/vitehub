@@ -1,6 +1,8 @@
+import { getEventListeners } from "node:events"
 import { setImmediate } from "node:timers/promises"
 
 import { describe, expect, it, vi } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import { cdp } from "../src/controllers/cdp.ts"
 import { createBrowser } from "../src/index.ts"
@@ -90,41 +92,81 @@ describe("cdp controller", () => {
     vi.useRealTimers()
   })
 
-  it("rejects when a local CDP socket closes before opening", async () => {
-    class ClosingSocket extends EventTarget {
-      readyState = 0
-
-      constructor() {
-        super()
-        queueMicrotask(() => {
-          this.readyState = 3
-          this.dispatchEvent(new Event("close"))
-        })
-      }
-
-      close() {
-        this.readyState = 3
-      }
-
-      send() {}
+  it.each(["error", "close"])("rejects a local socket %s before opening and cleans up setup", async (event) => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    function PendingSocket() {
+      return socket
     }
-    vi.stubGlobal("WebSocket", ClosingSocket)
+    vi.stubGlobal("WebSocket", PendingSocket)
 
-    const connecting = cdp().attach({
-      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
-      kind: "cdp",
-    }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
-      sessionId: "public-id",
-    })
-    const timed = new Promise<never>((_resolve, reject) => {
-      setTimeout(() => reject(new Error("timed out waiting for the CDP socket")), 100)
-    })
+    try {
+      const connecting = cdp().attach({
+        endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+        kind: "cdp",
+      }, {
+        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        sessionId: "public-id",
+      })
+      socket.dispatchEvent(new Event(event))
+      await expect(connecting).rejects.toBeInstanceOf(ViteHubError)
+      await expect(connecting).rejects.toMatchObject({
+        code: "BROWSER_PROVIDER_ERROR",
+        details: { operation: "connect to the browser", provider: "cdp" },
+        message: "[vitehub:browser] cdp could not connect to the browser.",
+      })
+      const failure = await Promise.resolve(connecting).catch((error: unknown) => error)
+      for (const type of ["open", "error", "close"]) {
+        expect(getEventListeners(socket, type)).toHaveLength(0)
+        socket.dispatchEvent(new Event(type))
+      }
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(30_000)
+      await expect(connecting).rejects.toBe(failure)
+      expect(socket.close).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
 
-    await expect(Promise.race([connecting, timed])).rejects.toMatchObject({
-      code: "BROWSER_PROVIDER_ERROR",
-      details: { operation: "connect to the browser" },
-    })
+  it("opens a local socket and removes setup listeners before later events", async () => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    function PendingSocket() {
+      return socket
+    }
+    vi.stubGlobal("WebSocket", PendingSocket)
+
+    try {
+      const connecting = cdp().attach({
+        endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+        kind: "cdp",
+      }, {
+        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        sessionId: "public-id",
+      })
+      socket.readyState = 1
+      socket.dispatchEvent(new Event("open"))
+      for (const type of ["open", "error", "close"]) {
+        expect(getEventListeners(socket, type)).toHaveLength(0)
+        socket.dispatchEvent(new Event(type))
+      }
+      expect(vi.getTimerCount()).toBe(0)
+      const attached = await connecting
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(socket.close).not.toHaveBeenCalled()
+      await expect(attached.client.send("Target.getTargets")).resolves.toEqual({ method: "Target.getTargets" })
+      await attached.release()
+      expect(socket.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
   })
 
   it("retains public session ownership until the socket closes after a failed release", async () => {

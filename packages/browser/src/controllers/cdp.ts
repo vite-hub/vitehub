@@ -125,8 +125,8 @@ async function localSocket(
     let settled = false
     const cleanup = () => {
       socket.removeEventListener("open", onOpen)
-      socket.removeEventListener("error", onError)
-      socket.removeEventListener("close", onClose)
+      socket.removeEventListener("error", onFailure)
+      socket.removeEventListener("close", onFailure)
       if (setupTimer !== undefined) clearTimeout(setupTimer)
     }
     const onOpen = () => {
@@ -135,13 +135,7 @@ async function localSocket(
       cleanup()
       resolve()
     }
-    const onError = () => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(browserProviderError("cdp", "connect to the browser"))
-    }
-    const onClose = () => {
+    const onFailure = () => {
       if (settled) return
       settled = true
       cleanup()
@@ -161,8 +155,8 @@ async function localSocket(
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })
-    socket.addEventListener("error", onError, { once: true })
-    socket.addEventListener("close", onClose, { once: true })
+    socket.addEventListener("error", onFailure, { once: true })
+    socket.addEventListener("close", onFailure, { once: true })
   })
   return socket
 }
