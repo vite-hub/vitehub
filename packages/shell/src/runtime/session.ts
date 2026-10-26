@@ -145,6 +145,9 @@ class RuntimeShellSession implements ShellSession {
     if (maxProcesses !== undefined && this.#processes.size + this.#starts.size >= maxProcesses) {
       throw shellErrorDiagnostics.SHELL_R0010({ message: `[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.` })
     }
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     let finishStart!: () => void
     const start = new Promise<void>((resolve) => {
       finishStart = resolve
@@ -155,6 +158,7 @@ class RuntimeShellSession implements ShellSession {
     try {
       process = await this.provider.startProcess(command, {
         ...options,
+        signal,
         env: { ...this.env, ...options.env },
         timeout: options.timeout ?? this.policy.timeout,
       })

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 import { createShellRuntime } from "../src/index.ts"
 import type { ShellExecutionProvider } from "../src/index.ts"
 
-function createSession() {
+function createSession(startImplementation?: ShellExecutionProvider["startProcess"]) {
   const startProcess = vi.fn(async (command: string) => ({
     id: command,
     command,
@@ -21,7 +21,7 @@ function createSession() {
       timeout: { enforcedBy: "provider", supported: true },
     },
     async exec() { return { event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" } },
-    startProcess,
+    startProcess: startImplementation ?? startProcess,
   }
   return { session: createShellRuntime({ provider }).createSession(), startProcess }
 }
@@ -38,6 +38,38 @@ describe("background process execution budgets", () => {
       expect(startProcess).not.toHaveBeenCalled()
     }
     finally {
+      await session.dispose()
+      budget.dispose()
+    }
+  })
+
+  it.each(["budget", "caller", "budget only"] as const)("aborts pending provider startup on %s cancellation", async (source) => {
+    const budget = createExecutionBudget({ maxToolCalls: 1 })
+    const caller = new AbortController()
+    let providerSignal: AbortSignal | undefined
+    let rejectStart!: (reason: unknown) => void
+    const { session } = createSession(async (_command, options) => new Promise((_resolve, reject) => {
+      rejectStart = reject
+      providerSignal = options?.signal
+      providerSignal?.addEventListener("abort", () => reject(providerSignal?.reason), { once: true })
+    }))
+    const pending = session.startProcess("worker", { budget, signal: source === "budget only" ? undefined : caller.signal })
+    const reason = new Error("startup cancelled")
+    const rejected = expect(pending).rejects.toBe(reason)
+    try {
+      expect(providerSignal?.aborted).toBe(false)
+      const disposed = session.dispose()
+      if (source === "caller") caller.abort(reason)
+      else budget.cancel(reason)
+      expect(providerSignal?.aborted).toBe(true)
+      await rejected
+      await disposed
+      expect(await session.listProcesses()).toEqual([])
+      expect(budget.snapshot().usage).toMatchObject({ toolCalls: 1, inputBytes: 6 })
+    }
+    finally {
+      rejectStart(reason)
+      await rejected
       await session.dispose()
       budget.dispose()
     }
