@@ -13,8 +13,6 @@ export interface CommentsPluginOptions {
   database: () => CommentsDatabase | undefined
   /** URL of the overlay script that pages load in comment mode. */
   overlay: string
-  /** What the server log says when `database()` returns nothing. */
-  missingDatabase?: string
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.runtime")
@@ -99,7 +97,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
   return (nitroApp) => {
     const database = options.database()
     if (database) installComments(options.comments, { database })
-    else console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
+    else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments))

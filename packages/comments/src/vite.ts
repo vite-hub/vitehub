@@ -8,6 +8,7 @@ import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } 
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { parseDatabaseLocation } from "@vite-hub/database/connect"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
@@ -35,29 +36,31 @@ export interface CommentsImports {
   databases: string
   /** Exports `parseContentField`. */
   contentClient: string
-  /** Exports `openCommentsSqlite`. */
-  sqlite: string
-  /** Exports `openCommentsD1`. */
-  d1: string
+  /** Exports `connectDatabase`, for Workers. Its `/node` subpath also opens SQLite files. */
+  connect: string
 }
 
 /** Options of `comments()`, for apps that use Comments without `vite-hub`. */
 export interface CommentsOptions {
   /**
-   * Where threads are stored. Comments creates its tables in it, so it needs no migration.
+   * Where threads are stored. Comments creates its tables there on first use, so there is no migration.
    *
-   * - A SQLite file, such as `file:./data/comments.sqlite`, relative to the server's working directory. Comments opens
-   *   it with Node's built-in `node:sqlite`.
-   * - `{ d1: "COMMENTS" }`: the Cloudflare D1 database of that binding in `wrangler.jsonc`.
+   * - Not set: `DATABASE_URL`, else `TURSO_DATABASE_URL`, else the Cloudflare D1 binding `DB`, read at runtime.
+   * - `"d1:COMMENTS"`: the Cloudflare D1 binding `COMMENTS`. Comments adds it to the Wrangler config.
+   * - `"env:COMMENTS_DATABASE_URL"`: the libSQL URL in that variable, with its token in `COMMENTS_AUTH_TOKEN`.
+   * - `"file:./data/comments.sqlite"`: a SQLite file on Node, relative to the server's working directory.
    *
-   * The development server defaults to `.vitehub/data/comments.sqlite`, and uses it for D1 too when it has no binding.
-   * A production build needs the option, because only you know which storage lasts.
+   * The development server uses `.vitehub/data/comments.sqlite`, unless `database` is a file or a set variable.
    */
-  database?: string | { d1: string }
+  database?: string
 }
 
-/** The storage of a `comments()` build: a SQLite file, a D1 binding with the file of the development server, or none. */
-export type StandaloneDatabase = { sqlite: string } | { d1: string, fallback?: string } | false
+/** The storage of a `comments()` build: where to connect, the file to use without a connection, and whether it needs Node. */
+export interface StandaloneDatabase {
+  where?: string
+  fallback?: string
+  node: boolean
+}
 
 export interface CommentsVitePluginOptions {
   /** Whether the app configures ViteHub Auth, so Comments reads its session. Default `false`. */
@@ -100,8 +103,7 @@ const defaultImports: CommentsImports = {
   database: "@vite-hub/comments/database",
   databases: "@vite-hub/database/drizzle",
   contentClient: "@vite-hub/content/client",
-  sqlite: "@vite-hub/comments/runtime/sqlite",
-  d1: "@vite-hub/comments/runtime/d1",
+  connect: "@vite-hub/comments/runtime/connect",
 }
 
 /**
@@ -287,34 +289,24 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-/** What a production build without a database tells the server log. */
-const missingStandalone = "[vitehub] Comments has no database in this build. Set `comments({ database: \"file:./data/comments.sqlite\" })` to a file on a disk that lasts, `comments({ database: { d1: \"COMMENTS\" } })` on Cloudflare, or use `vite-hub` with a Database."
-
-/** The `database` function of a `comments()` build. A Worker build imports no `node:sqlite`. */
-function standaloneDatabaseLines(database: StandaloneDatabase, imports: CommentsImports): { imports: string[], value: string } {
-  if (!database) return { imports: [], value: "() => undefined" }
-  const sqlite = `import { openCommentsSqlite } from ${JSON.stringify(imports.sqlite)}`
-  if ("sqlite" in database) return { imports: [sqlite], value: `() => openCommentsSqlite(${JSON.stringify(database.sqlite)})` }
-  const d1 = `import { openCommentsD1 } from ${JSON.stringify(imports.d1)}`
-  return database.fallback
-    ? { imports: [d1, sqlite], value: `() => openCommentsD1(${JSON.stringify(database.d1)}, { fallback: () => openCommentsSqlite(${JSON.stringify(database.fallback)}) })` }
-    : { imports: [d1], value: `() => openCommentsD1(${JSON.stringify(database.d1)})` }
-}
-
 export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, standalone?: StandaloneDatabase }): string {
-  if (input.standalone !== undefined) {
-    const database = standaloneDatabaseLines(input.standalone, input.imports)
+  if (input.standalone) {
+    const { where, fallback, node } = input.standalone
+    const options = [`name: "comments"`, "setup: commentsTables", ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
     return [
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
-      ...database.imports,
+      // A Worker build imports no node:sqlite.
+      `import { connectDatabase } from ${JSON.stringify(node ? `${input.imports.connect}/node` : input.imports.connect)}`,
+      `import { commentsTables } from ${JSON.stringify(input.imports.database)}`,
       `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
       "",
-      `const database = ${database.value}`,
+      `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
-      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, missingDatabase: ${JSON.stringify(missingStandalone)} })`,
+      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
       "",
     ].join("\n")
   }
+
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
@@ -353,19 +345,41 @@ async function writeDefaultDefinition(directory: string, imports: CommentsImport
 }
 
 /**
- * The storage of `comments()`: the `database` option, else `.vitehub/data/comments.sqlite` on the development server,
- * which a D1 build also uses there when the dev server has no binding. A production build without the option has none
- * (`false`), so the server says so instead of losing threads.
+ * The storage of `comments()`. A build connects to the `database` option, else to what it finds at runtime. The
+ * development server uses `.vitehub/data/comments.sqlite`, unless the option is a file, or a variable that is set.
  */
 async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve"): Promise<StandaloneDatabase> {
-  if (typeof options.database === "string" && options.database) return { sqlite: options.database }
-  if (command !== "serve") return typeof options.database === "object" ? { d1: options.database.d1 } : false
+  const where = options.database || undefined
+  // Fails the build on a location that Comments cannot use.
+  parseDatabaseLocation(where, "comments")
+  if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
+  if (command !== "serve") return { ...(where ? { where } : {}), node: Boolean(where?.startsWith("file:")) }
+  if (where?.startsWith("file:")) return { where, node: true }
   const data = resolve(projectRoot, ".vitehub/data")
   await mkdir(data, { recursive: true })
   // Threads written on this computer stay out of Git.
   await writeFile(join(data, ".gitignore"), "*\n", { flag: "wx" }).catch(() => {})
   const file = `file:${join(data, "comments.sqlite")}`
-  return typeof options.database === "object" ? { d1: options.database.d1, fallback: file } : { sqlite: file }
+  // Without a location, the development server keeps threads local instead of writing to the app's database.
+  return where?.startsWith("env:") ? { where, fallback: file, node: true } : { where: file, node: true }
+}
+
+/**
+ * Adds the D1 binding of `database: "d1:NAME"` to the Wrangler config of the build, unless the app's Wrangler file has
+ * it. Without an id, `wrangler deploy` creates the database.
+ */
+async function addD1Binding(projectRoot: string, nitro: Record<string, unknown>, where: string | undefined): Promise<void> {
+  if (!where?.startsWith("d1:")) return
+  const binding = where.slice(3)
+  for (const file of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
+    const source = await readFile(join(projectRoot, file), "utf8").catch(() => "")
+    if (new RegExp(`["']?binding["']?\\s*[:=]\\s*["']${binding}["']`).test(source)) return
+  }
+  const cloudflare: Record<string, unknown> = Object(nitro.cloudflare ?? {})
+  const wrangler: Record<string, unknown> = Object(cloudflare.wrangler ?? {})
+  const bindings: unknown[] = Array.isArray(wrangler.d1_databases) ? wrangler.d1_databases : []
+  if (bindings.some(entry => Object(entry).binding === binding)) return
+  nitro.cloudflare = { ...cloudflare, wrangler: { ...wrangler, d1_databases: [...bindings, { binding, database_name: "comments" }] } }
 }
 
 /** Whether `vite-hub` is in the app, so it runs Comments and `comments()` steps aside. */
@@ -485,6 +499,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
+        if (standalone) await addD1Binding(projectRoot, kit.config, standalone.where)
         kit.addHandler({ handler, route: `${commentsRoute}/**` })
         kit.addPlugin(plugin)
         const nitro = kit.config

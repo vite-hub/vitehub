@@ -62,23 +62,23 @@
       "require": "./dist/runtime/auth.js",
       "default": "./dist/runtime/auth.js"
     },
+    "./runtime/connect": {
+      "types": "./dist/runtime/connect.d.ts",
+      "import": "./dist/runtime/connect.js",
+      "require": "./dist/runtime/connect.js",
+      "default": "./dist/runtime/connect.js"
+    },
+    "./runtime/connect/node": {
+      "types": "./dist/runtime/connect/node.d.ts",
+      "import": "./dist/runtime/connect/node.js",
+      "require": "./dist/runtime/connect/node.js",
+      "default": "./dist/runtime/connect/node.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
-    },
-    "./runtime/d1": {
-      "types": "./dist/runtime/d1.d.ts",
-      "import": "./dist/runtime/d1.js",
-      "require": "./dist/runtime/d1.js",
-      "default": "./dist/runtime/d1.js"
-    },
-    "./runtime/sqlite": {
-      "types": "./dist/runtime/sqlite.d.ts",
-      "import": "./dist/runtime/sqlite.js",
-      "require": "./dist/runtime/sqlite.js",
-      "default": "./dist/runtime/sqlite.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",

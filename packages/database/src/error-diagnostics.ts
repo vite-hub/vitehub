@@ -78,6 +78,14 @@ export const databaseErrorDiagnostics = /*#__PURE__*/ defineErrors({
       why: ({ database, missing }: { database: string, missing: string }) => `The database "${database}" uses D1 HTTP and needs ${missing} at runtime.`,
       fix: "Set the missing values in the Database Definition or in the runtime environment, then restart the server.",
     },
+    DATABASE_NOT_CONNECTED: {
+      why: ({ database, looked }: { database: string, looked: string }) => `The database "${database}" found no connection. It looked for ${looked}.`,
+      fix: "Set the environment variable or add the Cloudflare D1 binding that `connectDatabase()` reads, or pass another location, such as `file:./data/app.sqlite`.",
+    },
+    DATABASE_UNSUPPORTED_URL: {
+      why: ({ database, value }: { database: string, value: string }) => `The database "${database}" cannot connect to ${value}.`,
+      fix: "Use `d1:BINDING`, `env:VARIABLE` with a libSQL URL, a `libsql://` or `https://` URL, or a `file:` path on Node.",
+    },
     DATABASE_NOT_FOUND: {
       why: ({ database }: { database: string }) => `The database "${database}" is not configured.`,
       fix: "Add a Database Definition with this name, for example `server/databases/<name>.ts`, or use the name of a discovered database. Run `vitehub inspect definitions --kind database` to see them.",

@@ -17,7 +17,7 @@ export default defineConfig({ plugins: [comments()] })
 
 There is nothing else to set up. `comments()` adds Nitro as the server unless the app has it, serves the Comments API, and keeps threads in `.vitehub/data/comments.sqlite`, a file that it opens with Node's built-in `node:sqlite` and creates the tables in. On the dev server, anyone may comment as a guest. Open any page with `?comments`.
 
-A production build needs a database: a file on a disk that lasts, `comments({ database: "file:./data/comments.sqlite" })`, or on Cloudflare Workers a D1 binding, `comments({ database: { d1: "COMMENTS" } })`. Comments creates its tables in either, so there is no migration.
+A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudflare D1 binding `DB`, whichever the server has. Or point it somewhere: `comments({ database: "d1:COMMENTS" })`, `"env:COMMENTS_DATABASE_URL"`, or `"file:./data/comments.sqlite"` on Node. Comments creates its tables there on first use, so there is no migration.
 
 ### Sign in with GitHub
 
@@ -89,12 +89,11 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | --- | --- |
 | `@vite-hub/comments` | `defineComments()`, `installComments()`, and types. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
-| `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables. |
+| `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
 | `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup. |
 | `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
-| `@vite-hub/comments/runtime/sqlite` | `openCommentsSqlite()`, the SQLite file of `comments()`. |
-| `@vite-hub/comments/runtime/d1` | `openCommentsD1()`, the Cloudflare D1 binding of `comments()`. |
+| `@vite-hub/comments/runtime/connect` | `connectDatabase()` of `@vite-hub/database/connect`, for the files that `comments()` generates. `/node` also opens SQLite files. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 

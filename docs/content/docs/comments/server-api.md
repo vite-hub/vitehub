@@ -26,7 +26,7 @@ Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `database` | `.vitehub/data/comments.sqlite` on `vite dev`. None in a production build. | A SQLite file, `'file:./data/comments.sqlite'` or a plain path, relative to the directory that the server starts in. Or `{ d1: 'COMMENTS' }`, the Cloudflare D1 database of that binding; `vite dev` uses the default file instead. See [Choose the Database](/docs/comments/configure#choose-the-database). |
+| `database` | `DATABASE_URL`, `TURSO_DATABASE_URL`, or the D1 binding `DB`, read when the server runs. `.vitehub/data/comments.sqlite` on `vite dev`. | Where threads go: `'d1:BINDING'`, `'env:VARIABLE'` with a libSQL URL, `'file:./path.sqlite'` on Node, or a `libsql://` URL. Comments creates its tables there on first use. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 
 ## `defineComments()` options
 

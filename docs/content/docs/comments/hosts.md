@@ -6,7 +6,7 @@ navigation.order: 7
 icon: i-lucide-cloud-cog
 ---
 
-Comments needs somewhere to keep threads on every host. The [`comments()` plugin](/docs/comments/get-started) keeps them in a SQLite file, which needs a disk that lasts, or in Cloudflare D1. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a Database, which every host below supports.
+Comments needs somewhere to keep threads on every host. The [`comments()` plugin](/docs/comments/get-started) keeps them in a database that you point it to: a SQLite file, which needs a disk that lasts, a Turso database, or Cloudflare D1. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a Database, which every host below supports.
 
 ## With `comments()`
 
@@ -14,9 +14,9 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, with no option |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })`, on a disk or volume that survives deploys |
-| Several processes or machines | No | Each process would have its own file. Use a ViteHub app with a libSQL Database. |
-| Cloudflare Workers | Yes | `comments({ database: { d1: 'COMMENTS' } })`, with the D1 binding in `wrangler.jsonc`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
-| Vercel, Netlify | No | These hosts have no disk that lasts. Use a ViteHub app with a hosted Database. |
+| Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
+| Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |
+| Vercel, Netlify | Yes | A Turso database, set in the project's environment variables. |
 
 `comments()` runs on the server of [Nitro](https://nitro.build), which builds for the host it detects, such as Vercel when it builds there. Set `NITRO_PRESET=cloudflare_module` to build for Workers. The SQLite file needs Node.js 22.5 or newer, for `node:sqlite`. `comments()` has no presence, no edits in place, and no Console section.
 

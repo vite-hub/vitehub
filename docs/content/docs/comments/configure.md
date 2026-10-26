@@ -203,18 +203,56 @@ export default defineEventHandler(async (event) => {
 
 ## Choose the Database
 
-Where the threads go depends on the setup. `comments()` keeps them in a SQLite file or in Cloudflare D1, and creates its tables itself, so you install no driver and run no migration. A [ViteHub app](/docs/comments/with-vite-hub) keeps them in a ViteHub Database.
+`comments()` keeps threads in a database that you point it to, and creates its tables there on first use. There is no migration to run, and no Database to define. The tables start with `vitehub_comment`, so they sit next to your app's own tables. A [ViteHub app](/docs/comments/with-vite-hub) keeps threads in a ViteHub Database instead.
 
-| `database` of `comments()` | Where threads go |
+Give `database` a string that says where the database is. The string names a variable or a binding, so the URL and its token stay out of the build:
+
+| `database` | Where threads go |
 | --- | --- |
-| Not set, `vite dev` | `.vitehub/data/comments.sqlite` in the project. The plugin adds a `.gitignore` next to it. |
-| Not set, production build | Nowhere. The server log says `Comments has no database in this build`, and the API answers [`COMMENTS_NOT_INSTALLED`](/docs/comments/limits-and-errors#comments_not_installed). |
-| `'file:./data/comments.sqlite'`, or a plain path | That file, relative to the directory that the server starts in. The directory is created. |
-| `{ d1: 'COMMENTS' }` | The D1 database of the `COMMENTS` binding in `wrangler.jsonc`. `vite dev` uses `.vitehub/data/comments.sqlite` instead. |
+| Not set | The first one the server finds when it runs: `DATABASE_URL`, `TURSO_DATABASE_URL`, then the Cloudflare D1 binding `DB`. A Postgres `DATABASE_URL` is skipped. |
+| `'d1:COMMENTS'` | The Cloudflare D1 binding `COMMENTS`. Comments adds the binding to the build. |
+| `'env:COMMENTS_DATABASE_URL'` | The libSQL URL in that variable, such as a Turso database. Its token is in the URL, or in `COMMENTS_AUTH_TOKEN`. |
+| `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the directory that the server starts in. |
+| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` for one with a token. |
+
+On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
+
+When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.
+
+### Turso and other libSQL databases
+
+Set the URL and token on the server. Comments finds them without an option:
+
+```bash [.env]
+TURSO_DATABASE_URL=libsql://comments-acme.turso.io
+TURSO_AUTH_TOKEN=...
+```
+
+When your app uses `DATABASE_URL` or `TURSO_DATABASE_URL` for another database, give Comments its own variable: `comments({ database: 'env:COMMENTS_DATABASE_URL' })`.
+
+### Cloudflare D1
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [comments({ database: 'd1:COMMENTS' })],
+})
+```
+
+Build for Workers and deploy:
+
+```bash [commands/deploy]
+pnpm add -D wrangler
+NITRO_PRESET=cloudflare_module pnpm vite build
+pnpm wrangler deploy
+```
+
+Comments adds the `COMMENTS` binding to the Wrangler config of the build, without a database id, and `wrangler deploy` creates the D1 database. When `wrangler.jsonc` already has a binding with that name, Comments uses yours, with its id. Name a binding `DB` and you can leave out `database`.
+
+To try the Worker on your computer, run `pnpm wrangler dev` after the build. Wrangler keeps a local D1 database in `.wrangler/state`. Set the Nitro preset with `NITRO_PRESET` when you build, not in `vite.config.ts`: with the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
+
+Add the variables of [Sign in with GitHub](#sign-in-with-github) as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
 
 ### A SQLite file
-
-Comments opens the file with Node's built-in `node:sqlite` and creates its tables when the server starts.
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -222,53 +260,7 @@ export default defineConfig({
 })
 ```
 
-Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it. On Cloudflare Workers, use [D1](#cloudflare-d1). Vercel and Netlify have no such disk, so they need a ViteHub Database.
-
-### Cloudflare D1
-
-On Cloudflare Workers, Comments keeps threads in a [D1](https://developers.cloudflare.com/d1/) database. It reads the database from a binding of the Worker, and creates its tables on the first request, so there is no migration to run.
-
-1. Create the database, and add its binding to `wrangler.jsonc`:
-
-   ```bash [commands/d1]
-   pnpm add -D wrangler
-   pnpm wrangler d1 create comments --binding COMMENTS --update-config
-   ```
-
-   Wrangler adds the binding to `d1_databases`:
-
-   ```jsonc [wrangler.jsonc]
-   {
-     "name": "my-site",
-     "compatibility_date": "2026-10-01",
-     "d1_databases": [
-       { "binding": "COMMENTS", "database_name": "comments", "database_id": "<the id that Wrangler printed>" }
-     ]
-   }
-   ```
-
-2. Give `comments()` the binding name:
-
-   ```ts [vite.config.ts]
-   export default defineConfig({
-     plugins: [comments({ database: { d1: 'COMMENTS' } })],
-   })
-   ```
-
-3. Build for Workers and deploy. Nitro copies the bindings of `wrangler.jsonc` into the build, and points Wrangler at it:
-
-   ```bash [commands/deploy]
-   NITRO_PRESET=cloudflare_module pnpm vite build
-   pnpm wrangler deploy
-   ```
-
-4. To [sign in with GitHub](#sign-in-with-github), add the variables as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
-
-`vite dev` keeps the threads in `.vitehub/data/comments.sqlite`, because the dev server has no binding. To try D1 on your computer, build, then run `pnpm wrangler dev`. Wrangler runs the Worker with a local D1 database in `.wrangler/state`.
-
-Set the preset with `NITRO_PRESET` when you build, not in `vite.config.ts`. With the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
-
-When the Worker has no binding of that name, the API answers `500`, and the Worker log says `Comments has no D1 binding "COMMENTS"`. Check the binding name in `wrangler.jsonc`, and see it with `pnpm wrangler tail`.
+Comments opens the file with Node's built-in `node:sqlite`, so there is no driver to install. Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it.
 
 ### A ViteHub Database
 
