@@ -278,8 +278,10 @@ export interface ViteHubConsoleDocumentCollection {
   label: string
   /** Name of one document, for example `Post`. Defaults to `label` made singular, or `Document`. */
   singularLabel?: string
-  /** Where the documents live, for example `posts/**\/*.md`. */
+  /** Where the documents live, for example `posts/**\/*.md`. A collection with several globs lists them, separated by a comma. */
   path: string
+  /** Every glob of the collection. The new-document form offers a folder for each when there are several. */
+  paths?: readonly string[]
   /** JSON Schema of the document fields. The Console generates its form from it. */
   schema: Record<string, unknown>
   /** String field that names a document in lists, for example `title`. Lists use the id without it. */

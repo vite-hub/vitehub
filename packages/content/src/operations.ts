@@ -15,7 +15,7 @@ import type {
   ContentWriteOptions,
 } from "./collections-types.ts"
 import type { ContentFieldIssue } from "./documents.ts"
-import type { ContentAction, ContentDocumentsRuntime } from "./index.ts"
+import type { ContentAction, ContentDocumentsRuntime, ContentResolved } from "./index.ts"
 import type { ContentScheduleStatus } from "./schedules.ts"
 import type {
   ContentDevCollection,
@@ -33,9 +33,9 @@ import type {
 } from "./results.ts"
 
 /** The parts of a `defineContent()` runtime that the operations use. */
-type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
+type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "resolve" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
 
-const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
+const runtimeMembers = ["can", "collection", "collections", "publish", "resolve", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
 const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
 
@@ -312,33 +312,29 @@ function routePattern(collection: AnyContentCollection): RegExp | null {
   return new RegExp(`^${source}$`)
 }
 
-/** Paths of the documents of one collection, as of one draft head. Rebuilt only when the head moves. */
-interface PathIndex {
-  byPath: Map<string, string>
+/** The answers of `content.resolve()` as of one draft head. A save moves the head and drops them. */
+interface ResolvedAtHead {
+  answers: Map<string, ContentResolved | null>
   head: string
 }
 
-const pathIndexes = new WeakMap<object, Map<string, PathIndex>>()
+const resolvedHeads = new WeakMap<object, ResolvedAtHead>()
+const resolvedLimit = 500
 
-/** Every document of the collection with a URL, from full pages of summaries (no bodies). One list per head. */
-async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection): Promise<Map<string, string>> {
-  // A stand-in runtime without head() builds the index each time.
+/** The draft document at a public path. The runtime keeps its routes per head; this keeps the answers, misses included. */
+async function resolvedAtHead(content: ContentOperationsRuntime, path: string): Promise<ContentResolved | null> {
+  // A stand-in runtime without head() asks each time.
   const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.("draft") ?? null
-  const cached = pathIndexes.get(content)?.get(collection.name)
-  if (head !== null && cached?.head === head) return cached.byPath
-  const byPath = new Map<string, string>()
-  let cursor: string | undefined
-  do {
-    const page = await collection.list({ limit: 1_000, ref: "draft", ...(cursor === undefined ? {} : { cursor }) })
-    for (const item of page.items) if (item.url !== undefined && item.url !== null) byPath.set(normalizeUrl(item.url), item.id)
-    cursor = page.nextCursor ?? undefined
-  } while (cursor !== undefined)
+  const cached = head === null ? undefined : resolvedHeads.get(content)
+  if (cached !== undefined && cached.head === head && cached.answers.has(path)) return cached.answers.get(path) ?? null
+  const found = await content.resolve(path, { ref: "draft" })
   if (head !== null) {
-    const indexes = pathIndexes.get(content) ?? new Map<string, PathIndex>()
-    indexes.set(collection.name, { byPath, head })
-    pathIndexes.set(content, indexes)
+    const entry = cached?.head === head ? cached : { answers: new Map<string, ContentResolved | null>(), head }
+    if (entry.answers.size >= resolvedLimit) entry.answers.clear()
+    entry.answers.set(path, found)
+    resolvedHeads.set(content, entry)
   }
-  return byPath
+  return found
 }
 
 const resolveDocument = defineOperation({
@@ -351,12 +347,12 @@ const resolveDocument = defineOperation({
     const content = await contentRuntime()
     const access = guard(content, context)
     const wanted = normalizeUrl(input.path)
-    // A collection whose `url` pattern cannot produce the path is not listed at all.
-    const candidates = (await readableCollections(content, access)).filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
-    for (const collection of candidates) {
-      const id = (await pathIndexOf(content, collection)).get(wanted)
-      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
-    }
+    // A collection whose `url` pattern cannot produce the path is not asked about at all.
+    const candidates = new Map((await readableCollections(content, access)).filter(collection => routePattern(collection)?.test(wanted) ?? true).map(collection => [collection.name, collection]))
+    if (candidates.size === 0) return null
+    const found = await resolvedAtHead(content, wanted)
+    const collection = found === null ? undefined : candidates.get(found.collection)
+    if (found !== null && collection !== undefined && (await access.readable(collection.name, [found.id])).has(found.id)) return { collection: collection.name, id: found.id }
     return null
   }),
   section: "content",
@@ -379,7 +375,7 @@ async function issuesOf(collection: AnyContentCollection, id: string, selectedRe
 function documentTemplate(collection: AnyContentCollection, id: string): { path: string, text: string } {
   const path = collection.kind === "singleton"
     ? collection.path
-    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.path))
+    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths))
   return { path, text: renderDocumentFile(Object.fromEntries(collection.fields.map(field => [field, null])), "", collection.format) }
 }
 
@@ -579,7 +575,7 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision }
+    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
   }),
   section: "content",
 })

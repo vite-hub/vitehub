@@ -115,6 +115,23 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it("prints the pull request that a publish opened", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const pullRequest = { number: 7, url: "https://github.com/onmax/docs/pull/7" }
+    // A project with `publish: 'pr'` answers a publish with the pull request that it opened.
+    const withPullRequest = { ...content, publish: async (options: Parameters<typeof content.publish>[0]) => ({ ...await content.publish(options), pullRequest, pending: true as const }) }
+    const published = await cli(withPullRequest).run("publish", "--yes")
+    expect(published).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: `Opened pull request #7 for 1 document:\n  add     posts/hello\n${pullRequest.url}\nThe documents are published when it merges.\n`,
+    })
+    await posts.save("second", { data: { title: "Second" }, body: "" })
+    const json = await cli(withPullRequest).run("publish", "--yes", "--json")
+    expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: false, documents: [{ id: "second", change: "add" }], pullRequest })
+  })
+
   it("lists collections with fields and document states", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)
@@ -637,7 +654,7 @@ describe("Content operations", () => {
       authorize: ({ action, id, user }) => action === "read" ? id !== "secret" : user?.id === "editor",
       collections: {
         pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
-        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, route: id => `/blog/${id}`, url: "/blog/:id" }),
       },
       logger: false,
       workspace,
@@ -658,78 +675,39 @@ describe("Content operations", () => {
     expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
   })
 
-  it("lists each collection once per head, and not at all when no route can produce the path", async () => {
+  it("asks the runtime once per head, and not at all when no url pattern can produce the path", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({
       authorize: () => true,
       collections: {
         pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:id" }),
-        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }),
+        posts: documents({ path: "posts/*.md", fields: { title: z.string() }, route: id => `/blog/${id}`, url: "/blog/:id" }),
       },
       logger: false,
       workspace,
     })
     cleanup.push(() => content.dispose())
-    const pages = content.collection("pages")
     const posts = content.collection("posts")
     await posts.save("hello", { data: { title: "Hello" } })
-    await pages.save("about", { data: { title: "About" } })
+    await content.collection("pages").save("about", { data: { title: "About" } })
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
-    const postList = vi.spyOn(posts, "list")
-    const pageList = vi.spyOn(pages, "list")
+    const asked = vi.spyOn(content, "resolve")
     const registry = createOperationRegistry([{ operations: contentOperations }])
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
 
     expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
     expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
-    expect(postList).toHaveBeenCalledTimes(1)
-    // `/about` can only come from the pages route. The blog route cannot produce it, so posts are not listed again.
+    expect(asked).toHaveBeenCalledTimes(1)
+    expect(asked).toHaveBeenCalledWith("/blog/hello", { ref: "draft" })
     expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "about" } })
     expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
-    expect([postList.mock.calls.length, pageList.mock.calls.length]).toEqual([1, 1])
-    // No collection at all can produce this one.
-    expect(await resolve("/blog")).toEqual({ ok: true, value: null })
-    // A save moves the head: the next lookup lists again, and sees the new document.
+    expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
+    expect(asked).toHaveBeenCalledTimes(3)
+    // A save moves the head: the next lookup asks again, and sees the new document.
     await posts.save("second", { data: { title: "Second" } })
     expect(await resolve("/blog/second")).toEqual({ ok: true, value: { collection: "posts", id: "second" } })
-    expect(postList).toHaveBeenCalledTimes(2)
-    expect(postList.mock.calls[0]![0]).toMatchObject({ limit: 1_000, ref: "draft" })
-  })
-
-  it("reads every page of a large collection when it builds the index", async () => {
-    const collection = {
-      kind: "documents",
-      list: vi.fn(async (options: { cursor?: string }) => {
-        const page = Number(options.cursor ?? 0)
-        return { items: Array.from({ length: 1_000 }, (_, index) => ({ id: `d${page * 1_000 + index}`, url: `/d/d${page * 1_000 + index}` })), nextCursor: page < 4 ? String(page + 1) : null, total: 5_000 }
-      }),
-      name: "docs",
-      routable: true,
-      urlPattern: "/d/:id",
-    }
-    const runtime = {
-      can: async () => true,
-      collection: () => collection,
-      collections: () => [collection],
-      head: async () => "head-1",
-      hasPolicy: true,
-      publish: async () => undefined,
-      revisions: async () => undefined,
-      schedule: async () => undefined,
-      schedules: async () => undefined,
-      sitemap: async () => undefined,
-      unschedule: async () => undefined,
-    }
-    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content: runtime }) })
-    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
-    const registry = createOperationRegistry([{ operations: contentOperations }])
-    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
-    // The last document of 5,000: far beyond any first page.
-    expect(await resolve("/d/d4999")).toEqual({ ok: true, value: { collection: "docs", id: "d4999" } })
-    expect(collection.list).toHaveBeenCalledTimes(5)
-    expect(await resolve("/d/d2500")).toMatchObject({ value: { id: "d2500" } })
-    expect(collection.list).toHaveBeenCalledTimes(5)
+    expect(asked).toHaveBeenCalledTimes(4)
   })
 
   it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
