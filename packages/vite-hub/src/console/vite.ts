@@ -19,6 +19,7 @@ import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredCons
 import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
+import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
@@ -399,6 +400,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let resolvedPlugins: readonly unknown[] | undefined
   let fixture: string | undefined
   let cliDiscovery = false
+  let development = false
   let invoke = false
   let journal: ConsoleJournal | undefined
   let observations: AgentInvocationsOptions["observations"]
@@ -433,6 +435,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     consoleAuthMode: true | "cloudflare-access" | false
     retention: typeof retention
     runtimeCapabilityImports: typeof options.runtimeCapabilityImports
+    development: boolean
     invocationBinding?: string
     invocationState?: ConsoleInvocationRootState
   }
@@ -446,7 +449,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -476,9 +479,11 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (configured) sections = [...sections, "queues"]
   }
 
-  const plugin: Plugin & { vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
+  const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
+    devtools: consoleViteDevTools,
     async config(config, environment) {
+      development = environment.command === "serve"
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
         sections = sections.filter(section => section !== "connections")
       }
@@ -623,6 +628,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           retention,
           consoleAccess(),
           options.runtimeCapabilityImports,
+          development,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -673,6 +679,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             consoleAuthMode,
             retention,
             runtimeCapabilityImports: options.runtimeCapabilityImports,
+            development,
             invocationBinding: options.invocationRootState?.binding,
             invocationState: options.invocationRootState,
           }
@@ -721,6 +728,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 callbackState.retention,
                 access,
                 callbackState.runtimeCapabilityImports,
+                callbackState.development,
               )
             }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}

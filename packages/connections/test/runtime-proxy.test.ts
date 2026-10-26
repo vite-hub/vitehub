@@ -16,6 +16,30 @@ declare global {
 
 afterEach(() => setConnectionsRuntime(undefined))
 
+it("resolves nested API methods lazily and dispatches their input", async () => {
+  const test = createTestRuntime()
+  await connect(test)
+  const list = useConnection("mail").mail.labels.list
+  const before = test.provider.calls.length
+  setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, fetch: test.provider.fetch, now: () => test.now.value, store: test.store })
+  expect(await list({ userId: "a/b" })).toEqual([undefined, { labels: [{ id: "INBOX" }] }])
+  expect(test.provider.calls.slice(before)).toMatchObject([
+    { method: "GET", url: "https://mail.example.com/mail/v1/users/a%2Fb/labels" },
+  ])
+})
+
+it("keeps public fetch separate from nested API methods", async () => {
+  const test = createTestRuntime()
+  await connect(test)
+  const fetch = useConnection("mail").fetch
+  setConnectionsRuntime({ definitions: { mail: async () => ({ default: definition }) }, fetch: test.provider.fetch, now: () => test.now.value, store: test.store })
+  const [error, response] = await fetch(new URL("https://mail.example.com/mail/v1/users/me/labels"), { headers: { Accept: "application/json" } })
+  expect(error).toBeUndefined()
+  expect(response?.status).toBe(200)
+  expect(await response?.json()).toEqual({ labels: [{ id: "INBOX" }] })
+  expect(test.provider.calls.at(-1)?.headers.get("accept")).toBe("application/json")
+})
+
 it("serializes nested API proxies without dispatching provider calls", async () => {
   const test = createTestRuntime()
   await connect(test)

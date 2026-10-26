@@ -202,9 +202,20 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       if (authority === "cloudflare" && deploymentPreset && deploymentPreset !== "cloudflare") {
         throw realtimeErrorDiagnostics.REALTIME_AUTHORITY_CONFLICT({ authority: "cloudflare", preset: deploymentPreset })
       }
+      let durablePlugin: string | undefined
       if (authority === "cloudflare" || (authority === "auto" && provider === "cloudflare")) {
         inspectionAuthority = "cloudflare"
         configureCloudflareRealtime(nitro)
+        // Nitro 2 upgrades sockets in the Durable Object with only the request in hand: give Realtime its storage.
+        durablePlugin = resolve(directory, "durable-object.mjs")
+        await writeFile(durablePlugin, [
+          `import { registerRealtimeDurableObject } from ${JSON.stringify(`${importBase}/server`)}`,
+          "",
+          "export default (nitroApp) => {",
+          "  nitroApp.hooks.hook(\"cloudflare:durable:init\", (_durable, { state, env }) => registerRealtimeDurableObject(state, env))",
+          "}",
+          "",
+        ].join("\n"))
       }
       else if (environment?.command === "build" && authority === "auto") {
         throw realtimeErrorDiagnostics.REALTIME_MISSING_AUTHORITY()
@@ -218,6 +229,7 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
       kit.addHandler({ handler: handlerFile, route: "/api/_vitehub/realtime/**" })
+      if (durablePlugin) kit.addPlugin(durablePlugin)
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro
