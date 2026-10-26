@@ -1,3 +1,5 @@
+import { Readable } from "node:stream"
+
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -73,6 +75,21 @@ describe("ViteHub MCP", () => {
     const refused = await rpc({ jsonrpc: "2.0", id: "b", method: "tools/call", params: { name: "content_read" } })
     expect(refused.body.error).toMatchObject({ code: -32602 })
     expect(calls).toHaveLength(1)
+  })
+
+  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
+    installConsoleSections("/mcp-test", ["comments"])
+    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
+    const req = Object.assign(Readable.from([JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" })]), {
+      method: "POST",
+      url: "/_vitehub/mcp",
+      headers: { host: "app.test", origin: "http://app.test", "content-type": "application/json" },
+    })
+    const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {}, method: "POST" }])
+    if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+    expect(response.status).toBe(200)
+    expect(Object(await response.json()).result.tools.map((entry: { name: string }) => entry.name)).toEqual(["comments_list_threads"])
   })
 
   it("rejects other origins, GET, and bodies that are not one JSON-RPC message", async () => {
