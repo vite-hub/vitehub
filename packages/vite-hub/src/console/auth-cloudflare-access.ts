@@ -1,4 +1,5 @@
 import { SecretEnv } from "@vite-hub/env/secret"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
@@ -126,11 +127,11 @@ async function checkCloudflareAccessToken(
  * Returns a rejection response, or `undefined` when the request continues to its handler.
  */
 export async function verifyCloudflareAccessConsoleRequest(
-  request: Request,
+  event: object,
   resolveSettings: () => { audience?: unknown, teamDomain?: unknown },
   verify: CloudflareAccessVerifier = defaultVerifier,
 ): Promise<Response | undefined> {
-  return (await checkCloudflareAccessToken(request, resolveSettings, verify)).response
+  return (await checkCloudflareAccessToken(toEventRequest(event), resolveSettings, verify)).response
 }
 
 /**
@@ -138,19 +139,20 @@ export async function verifyCloudflareAccessConsoleRequest(
  * the identity route, and `undefined` when the request continues to its handler.
  */
 export async function handleCloudflareAccessConsoleRequest(
-  event: { req: Request, url: URL },
+  event: object,
   resolveSettings: () => { audience?: unknown, teamDomain?: unknown },
   mountBaseURL = "/",
   verify: CloudflareAccessVerifier = defaultVerifier,
 ): Promise<Response | undefined> {
   const mountBase = consoleAuthMountBase(mountBaseURL)
-  const publicPath = event.url.pathname
+  const request = toEventRequest(event)
+  const publicPath = new URL(request.url).pathname
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
   if (!(path === "/_vitehub" || path.startsWith("/_vitehub/") || path === "/api/_vitehub/console" || path.startsWith("/api/_vitehub/console/"))) return
-  const { identity, response } = await checkCloudflareAccessToken(event.req, resolveSettings, verify)
+  const { identity, response } = await checkCloudflareAccessToken(request, resolveSettings, verify)
   if (response) return response
   if (path === cloudflareAccessIdentityPath) {
-    if (event.req.method !== "GET") return textResponse("Method not allowed.", 405)
+    if (request.method !== "GET") return textResponse("Method not allowed.", 405)
     return Response.json({ ...identity, signOutURL: cloudflareAccessSignOutPath }, { headers: { "cache-control": "no-store" } })
   }
 }
