@@ -7,6 +7,7 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { requestOf } from "./request.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
@@ -175,7 +176,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const user = await resolveUser(event)
     if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
-    const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
+    const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
     return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
   }
 
@@ -229,7 +230,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function readJson(event: H3Event): Promise<unknown> {
     try {
-      return await event.req.json()
+      return await requestOf(event).json()
     }
     catch {
       return undefined
@@ -335,7 +336,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   return defineHandler(async (event) => {
-    const request = event.req
+    const request = requestOf(event)
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)

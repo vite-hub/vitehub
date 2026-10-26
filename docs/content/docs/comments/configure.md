@@ -204,9 +204,23 @@ The close button in the toolbar ends comment mode. It clears the cookie and remo
 
 Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one `<script type="module">` before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. Paths under `/_vitehub` and `/api` never get the overlay.
 
-- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook.
+- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
-- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
+- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders, or serve the prerendered files through a route.
+
+A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
+
+```ts [server/middleware/pages.ts]
+import { defineEventHandler } from 'h3'
+
+export default defineEventHandler(async (event) => {
+  const { request, env } = event.context.cloudflare
+  if (request.method !== 'GET') return
+  const file = await env.ASSETS.fetch(request)
+  // The overlay goes into this response for people in comment mode. Everyone else gets the file unchanged.
+  if (file.status !== 404) return file
+})
+```
 
 The overlay is a custom element with its own shadow root. Your CSS does not change it, and its CSS does not change your page.
 

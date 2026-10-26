@@ -65,4 +65,27 @@ describe("overlay injection", () => {
     render!(html, { event: { node: { req: { url: "/?comments", headers: {} }, res: { setHeader() {}, getHeader: () => "script-src 'self' 'strict-dynamic' 'nonce-n1'" } } } })
     expect(html.bodyAppend[0]).toContain("nonce=\"n1\"")
   })
+
+  it("adds the script to a page that a Nitro 2 route returns as a Response, such as a prerendered file", async () => {
+    let respond: ((event: unknown, response: { body?: unknown }) => void) | undefined
+    const nitroApp = { hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }
+    const warn = console.warn
+    console.warn = () => {}
+    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay: "/o.js" })(nitroApp)
+    console.warn = warn
+    const send = (url: string, body: unknown, cookie = "") => {
+      const response = { body }
+      respond!({ node: { req: { url, headers: { cookie } } } }, response)
+      return response.body
+    }
+    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })
+    const plain = file()
+    expect(send("/guide/", plain)).toBe(plain)
+    expect(send("/guide/", "<html></html>", "vitehub-comments=1")).toBe("<html></html>")
+    const page = send("/guide/", file(), "theme=dark; vitehub-comments=1")
+    expect(page).toBeInstanceOf(Response)
+    if (!(page instanceof Response)) return
+    expect(page.headers.get("cache-control")).toBe("private, no-store")
+    expect(await page.text()).toBe("<html><body>Page<script type=\"module\" src=\"/o.js\" data-vitehub-comments></script></body></html>")
+  })
 })
