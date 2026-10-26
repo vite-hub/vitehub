@@ -206,6 +206,12 @@
       "require": "./dist/runtime/time-zone.js",
       "default": "./dist/runtime/time-zone.js"
     },
+    "./build/included-nitro": {
+      "types": "./dist/build/included-nitro.d.ts",
+      "import": "./dist/build/included-nitro.js",
+      "require": "./dist/build/included-nitro.js",
+      "default": "./dist/build/included-nitro.js"
+    },
     "./build/nitro-cache-bypass": {
       "types": "./dist/build/nitro-cache-bypass.d.ts",
       "import": "./dist/build/nitro-cache-bypass.js",
@@ -360,6 +366,7 @@
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
     "exsolve": "catalog:unjs",
+    "nitro": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

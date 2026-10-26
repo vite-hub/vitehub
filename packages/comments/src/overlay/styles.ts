@@ -19,6 +19,7 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #000; border: 2px solid #000; margin-left: -6px; overflow: hidden; }
 .avatar:first-child { margin-left: 0; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; }
+.tool img.me { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 
 .pin { position: fixed; transform: translate(-2px, -100%); }
 .layer .pin, .layer .pin * { pointer-events: auto; }

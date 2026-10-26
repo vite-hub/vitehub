@@ -15,6 +15,7 @@ import type {
   CommentMention,
   CommentsAuthorizeContext,
   CommentsErrorCode,
+  CommentsUser,
   CommentThread,
   CreateCommentThreadInput,
   DefineCommentsOptions,
@@ -55,8 +56,8 @@ export interface Comments {
   /** Deletes every thread of a scope, such as when app code deletes the document that the scope names. */
   removeScope(scope: string): Promise<Result<{ removed: number }, Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
-   * Whether the `authorize` policy allows an action. Without a policy, signed-in users may do everything. `scope`
-   * defaults to the thread's, else `"pages"`.
+   * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `scope` defaults to the
+   * thread's, else `"pages"`.
    */
   can(context: Omit<CommentsAuthorizeContext, "scope"> & { scope?: string }): Promise<boolean>
   /** People that `@` suggests: the `people` option, or the authors of earlier comments. */
@@ -68,6 +69,20 @@ export interface Comments {
   sync(threadId: string): Promise<void>
   /** Waits for the pull request syncs that earlier changes started. On Cloudflare, pass it to `waitUntil`. */
   flush(): Promise<void>
+}
+
+/** Whether this is the development server, where anyone may comment without signing in. */
+function developmentServer(): boolean {
+  return globalThis.process?.env?.NODE_ENV === "development"
+}
+
+/**
+ * The policy without `authorize`, for every action: a person signed in with GitHub needs push access to the repository
+ * of the build; any other signed-in user may; anonymous people may only on the development server, as guests.
+ */
+export function defaultPolicy(user: CommentsUser | null): boolean {
+  if (!user) return developmentServer()
+  return user.github ? user.github.write : true
 }
 
 const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync }>()
@@ -207,7 +222,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       return [undefined, { removed }]
     },
     async can(context) {
-      if (!options.authorize) return context.user !== null
+      if (!options.authorize) return defaultPolicy(context.user)
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
       return await options.authorize({ ...context, scope }) !== false
     },

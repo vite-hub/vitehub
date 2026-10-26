@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { renderComment, renderSummary, unlinked } from "../src/forge/render.ts"
+import { forgetGitHubToken, rememberGitHubToken } from "../src/forge/tokens.ts"
 import { ada, anchor, createComments, grace } from "./harness.ts"
 
 import type { CommentContext, CommentsForgeOptions, CommentThread } from "../src/types.ts"
@@ -119,6 +120,19 @@ describe("forge sync", () => {
     expect(first!.body.startsWith("Cut off.\n\n**#⁠1** on")).toBe(true)
     expect(reply).toMatchObject({ token: "app-token" })
     expect(reply!.body).toContain("**Grace** replied on #⁠1:\n\n> Agreed.")
+  })
+
+  it("posts as a person who signed in with GitHub, with the token of their last request", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    rememberGitHubToken("ada", "ada-signed-in")
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Cut off.", author: ada })
+    await comments.reply(thread!.id, { body: "Agreed.", author: grace })
+    await comments.flush()
+    forgetGitHubToken("ada")
+    const [, first, reply] = [...github.comments.values()]
+    expect(first).toMatchObject({ token: "ada-signed-in" })
+    expect(reply).toMatchObject({ token: "app-token" })
   })
 
   it("hides a resolved thread, shows it again when reopened, and keeps the summary current", async () => {

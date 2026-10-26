@@ -6,6 +6,7 @@ import { promisify } from "node:util"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { commentsConsoleSection } from "./console.ts"
@@ -14,7 +15,7 @@ import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, comm
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
 import type { CommentBuild } from "./types.ts"
 
 export { commentsConsoleSection }
@@ -34,6 +35,18 @@ export interface CommentsImports {
   databases: string
   /** Exports `parseContentField`. */
   contentClient: string
+  /** Exports `openCommentsSqlite`. */
+  sqlite: string
+}
+
+/** Options of `comments()`, for apps that use Comments without `vite-hub`. */
+export interface CommentsOptions {
+  /**
+   * The SQLite file that stores threads, such as `file:./data/comments.sqlite`, relative to the server's working
+   * directory. Comments opens it with Node's built-in `node:sqlite` and creates its tables. The development server
+   * defaults to `.vitehub/data/comments.sqlite`; a production build needs it, because only you know which disk lasts.
+   */
+  database?: string
 }
 
 export interface CommentsVitePluginOptions {
@@ -45,6 +58,11 @@ export interface CommentsVitePluginOptions {
    */
   console?: { module: string }
   imports?: Partial<CommentsImports>
+  /**
+   * Comments without `vite-hub`, as `comments()` sets it: it turns on without `server/comments.ts`, keeps threads in a
+   * SQLite file that it opens itself, and signs people in with GitHub.
+   */
+  standalone?: CommentsOptions
 }
 
 export interface CommentsRealtimeContributionContext {
@@ -72,6 +90,7 @@ const defaultImports: CommentsImports = {
   database: "@vite-hub/comments/database",
   databases: "@vite-hub/database/drizzle",
   contentClient: "@vite-hub/content/client",
+  sqlite: "@vite-hub/comments/runtime/sqlite",
 }
 
 /**
@@ -190,10 +209,22 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
+/** The session reader of the presence rooms: the Console or Auth user, else the person signed in with GitHub. */
+async function realtimeSessionLines(options: CommentsVitePluginOptions, imports: CommentsImports, projectRoot: string): Promise<{ imports: string[], value: string }> {
+  if (options.auth || options.console) return sessionLines(options, imports)
+  const { repository } = await readCommentsBuild(projectRoot)
+  return {
+    imports: [`import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`],
+    value: `createCommentsGitHubLogin(${JSON.stringify(repository ? { repository } : {})}).user`,
+  }
+}
+
 export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: CommentBuild }): string {
   const session = sessionLines(input.session, input.imports)
+  // An app with neither Auth nor the Console gets Sign in with GitHub, which works once the server has an OAuth client.
+  const githubLogin = !input.session.auth && !input.session.console
   return [
-    `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,
+    `import { createCommentsHandler${githubLogin ? ", createCommentsGitHubLogin" : ""} } from ${JSON.stringify(input.imports.runtime)}`,
     `import components from "./components.mjs"`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
     ...session.imports,
@@ -207,6 +238,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     "export default createCommentsHandler({",
     "  comments,",
     `  session: ${session.value},`,
+    ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify(input.build?.repository ? { repository: input.build.repository } : {})}),`] : []),
     ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
     `  build: ${JSON.stringify(input.build ?? {})},`,
@@ -216,7 +248,24 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports }): string {
+/** What a production build without a database tells the server log. */
+const missingSqlite = "[vitehub] Comments has no database in this build. Set `comments({ database: \"file:./data/comments.sqlite\" })` to a file on a disk that lasts, or use `vite-hub` with a Database."
+
+export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, sqlite?: string | false }): string {
+  if (input.sqlite !== undefined) {
+    return [
+      `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
+      ...(input.sqlite ? [`import { openCommentsSqlite } from ${JSON.stringify(input.imports.sqlite)}`] : []),
+      `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+      "",
+      input.sqlite
+        ? `const database = () => openCommentsSqlite(${JSON.stringify(input.sqlite)})`
+        : "const database = () => undefined",
+      "",
+      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, missingDatabase: ${JSON.stringify(missingSqlite)} })`,
+      "",
+    ].join("\n")
+  }
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
@@ -240,6 +289,55 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
   ].join("\n")
 }
 
+/** `server/comments.ts` for an app without one: Comments with its defaults. */
+async function writeDefaultDefinition(directory: string, imports: CommentsImports): Promise<string> {
+  const file = join(directory, "definition.mjs")
+  const index = imports.runtime.replace(/\/runtime$/, "")
+  await writeFile(file, [
+    `import { defineComments } from ${JSON.stringify(index)}`,
+    "",
+    "// Add `server/comments.ts` to choose who may comment, notify people, or post to pull requests.",
+    "export const comments = defineComments()",
+    "",
+  ].join("\n"))
+  return file
+}
+
+/**
+ * The SQLite file of `comments()`: the `database` option, else `.vitehub/data/comments.sqlite` on the development
+ * server. A production build without the option has none (`false`), so the server says so instead of losing threads.
+ */
+async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve"): Promise<string | false> {
+  if (options.database) return options.database
+  if (command !== "serve") return false
+  const data = resolve(projectRoot, ".vitehub/data")
+  await mkdir(data, { recursive: true })
+  // Threads written on this computer stay out of Git.
+  await writeFile(join(data, ".gitignore"), "*\n", { flag: "wx" }).catch(() => {})
+  return `file:${join(data, "comments.sqlite")}`
+}
+
+/** Whether `vite-hub` is in the app, so it runs Comments and `comments()` steps aside. */
+function hasViteHubComments(config: UserConfig): boolean {
+  const find = (value: unknown): boolean => Array.isArray(value)
+    ? value.some(find)
+    : value !== null && typeof value === "object" && Reflect.get(value, "name") === "@vite-hub/comments/vite"
+  return find(config.plugins)
+}
+
+/**
+ * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?comments`, threads in a
+ * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. With `vite-hub`, it does
+ * nothing, because `vitehub()` runs Comments.
+ */
+export function comments(options: CommentsOptions = {}): PluginOption[] {
+  const plugin = hubComments({ standalone: options })
+  plugin.apply = config => !hasViteHubComments(config)
+  return [plugin, ...includedNitro({ unless: hasViteHubComments })]
+}
+
+export default comments
+
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
  * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
@@ -251,16 +349,18 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let serverDirs: string[] | undefined
   let realtime = false
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
+  // Without `vite-hub`, Comments is on without `server/comments.ts`.
+  const enabled = () => Boolean(options.standalone) || Boolean(discover())
 
   return {
-    name: "@vite-hub/comments/vite",
+    name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
     api: {
       async contributeRealtime(context) {
         const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
-        const session = sessionLines(options, imports)
+        const session = await realtimeSessionLines(options, imports, context.projectRoot)
         await mkdir(context.directory, { recursive: true })
         await writeFile(file, [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
@@ -295,6 +395,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }],
       }),
       async databases(context) {
+        if (options.standalone) return []
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
         if (!definition) return []
@@ -311,25 +412,26 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
     enforce: "pre",
     config: {
-      async handler(config) {
+      async handler(config, env) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
-        const definition = discover()
-        if (!definition) {
+        if (!enabled()) {
           await rm(directory, { force: true, recursive: true })
           return
         }
+        await mkdir(directory, { recursive: true })
+        const definition = discover() ?? await writeDefaultDefinition(directory, imports)
+        const sqlite = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
-        await mkdir(directory, { recursive: true })
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, ...(sqlite === undefined ? {} : { sqlite }) })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${commentsRoute}/**` })
@@ -346,7 +448,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     },
     // A single page app whose `index.html` Vite serves: load the overlay in the browser when the hint is present.
     transformIndexHtml() {
-      if (!discover()) return
+      if (!enabled()) return
       const src = `${overlayBaseURL}/overlay.js?v=${version}`
       return [{
         tag: "script",

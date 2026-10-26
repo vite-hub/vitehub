@@ -1,10 +1,16 @@
 import { commentsRoute } from "../page.ts"
 
-import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentsGitHubAccess, CommentContext, CommentMention, CommentThread } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentAuthor | null
+  /** For a person signed in with GitHub: their login, and whether they can push to the repository. */
+  github?: CommentsGitHubAccess
   can: { read: boolean, comment: boolean, resolve: boolean }
+  /** The GitHub sign-in, when the person may not read yet and the site offers it. */
+  signIn?: { provider: "github", url: string }
+  /** Signs out of the GitHub sign-in of Comments. */
+  signOut?: string
   realtime: boolean
   content: boolean
 }

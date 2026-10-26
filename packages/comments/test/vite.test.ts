@@ -1,13 +1,14 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
+import { comments, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
 
-import type { UserConfig } from "vite"
+import type { ConfigEnv, Plugin, UserConfig } from "vite"
 
 const roots: string[] = []
 
@@ -21,10 +22,10 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubComments>, root: string) {
+async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build") {
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
-  const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
-  await hook.handler(config)
+  const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
+  await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
 }
 
@@ -103,8 +104,54 @@ describe("hubComments", () => {
     const directory = join(root, ".vitehub/nitro/realtime")
     const contribution = await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
     expect(contribution).toEqual({ definitions: [{ handler: join(directory, "comments.mjs"), name: "comments" }] })
-    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined })")
+    // Without Auth or the Console, the people of the rooms are the people signed in with GitHub.
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toMatch(/export default commentsRealtime\(comments, \{ session: createCommentsGitHubLogin\(.*\)\.user \}\)/)
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
+  })
+})
+
+describe("comments() without vite-hub", () => {
+  const standalone = () => comments()[0] as Plugin
+
+  it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
+    const root = await project({ "package.json": "{}" })
+    const nitro = await configure(standalone(), root, "serve")
+    expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(plugin).toContain(`openCommentsSqlite(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)})`)
+    expect(plugin).not.toContain("@vite-hub/database")
+    expect(await readFile(join(root, ".vitehub/data/.gitignore"), "utf8")).toBe("*\n")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("githubLogin: createCommentsGitHubLogin(")
+  })
+
+  it("needs the database option in a production build, and says so in the server log", async () => {
+    const root = await project({ "package.json": "{}" })
+    await configure(standalone(), root)
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(plugin).toContain("const database = () => undefined")
+    expect(plugin).toContain("comments({ database: \\\"file:./data/comments.sqlite\\\" })")
+    const configured = comments({ database: "file:./data/comments.sqlite" })[0] as Plugin
+    await configure(configured, root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("openCommentsSqlite(\"file:./data/comments.sqlite\")")
+  })
+
+  it("keeps the app's server/comments.ts, and adds no tables to a ViteHub Database", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ authorize: () => true })" })
+    const plugin = standalone() as ReturnType<typeof hubComments>
+    await configure(plugin, root, "serve")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain(pathToFileURL(join(root, "server/comments.ts")).href)
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
+  })
+
+  it("steps aside, with its Nitro, when vitehub() runs Comments", () => {
+    const [plugin, ...nitro] = comments() as Plugin[]
+    const config: UserConfig = { plugins: [[{ name: "@vite-hub/comments/vite" }]] }
+    const env: ConfigEnv = { command: "serve", mode: "development" }
+    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env)).toBe(false)
+    expect(nitro.length).toBeGreaterThan(0)
+    for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
+    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)
   })
 })

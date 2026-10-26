@@ -41,6 +41,7 @@ export default defineConfig({
       "src/build/deployment-plan-output.ts",
       "src/build/deno-runtime-packages.ts",
       "src/build/esbuild.ts",
+      "src/build/included-nitro.ts",
       "src/build/mode.ts",
       "src/build/nitro-cache-bypass.ts",
       "src/build/paths.ts",

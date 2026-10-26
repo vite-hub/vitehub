@@ -68,6 +68,12 @@
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./runtime/sqlite": {
+      "types": "./dist/runtime/sqlite.d.ts",
+      "import": "./dist/runtime/sqlite.js",
+      "require": "./dist/runtime/sqlite.js",
+      "default": "./dist/runtime/sqlite.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -89,6 +95,7 @@
     "@vite-hub/runtime": "workspace:*",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
+    "nitro": "catalog:unjs",
     "valibot": "catalog:runtime"
   },
   "devDependencies": {

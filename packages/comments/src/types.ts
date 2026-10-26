@@ -197,7 +197,17 @@ export interface CommentsForgeOptions {
 export type CommentsAction = "read" | "comment" | "resolve"
 
 /** The user that `identify` or the ViteHub Auth session resolved. `null` for an anonymous request. */
-export type CommentsUser = Record<string, unknown> & { id: string }
+export type CommentsUser = Record<string, unknown> & { id: string, github?: CommentsGitHubAccess }
+
+/** What GitHub says about a person who signed in to Comments with GitHub. */
+export interface CommentsGitHubAccess {
+  /** Their GitHub username. */
+  login: string
+  /** The repository of the build, `owner/name`, when Comments knows it. */
+  repository?: string
+  /** Whether they can push to `repository`. False when Comments does not know the repository. */
+  write: boolean
+}
 
 export interface CommentsAuthorizeContext {
   user: CommentsUser | null
@@ -227,8 +237,10 @@ export interface CommentCreatedEvent {
 
 export interface DefineCommentsOptions {
   /**
-   * Who may read, comment, and resolve. Return `false` to deny. Without it, any signed-in user may do everything and
-   * anonymous requests may do nothing. Return `true` for `user: null` to let guests comment under a name they choose.
+   * Who may read, comment, and resolve. Return `false` to deny. Return `true` for `user: null` to let guests comment
+   * under a name they choose. Without it: a person signed in with GitHub may do everything when they can push to the
+   * repository of the build; any other signed-in user may do everything; anonymous people may comment as guests on the
+   * development server only.
    */
   authorize?: (context: CommentsAuthorizeContext) => boolean | void | Promise<boolean | void>
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */

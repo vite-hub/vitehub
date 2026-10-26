@@ -3,6 +3,7 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm"
 import { commentsSchema } from "../database.ts"
 import { createGitHubClient, GitHubRequestError } from "./github.ts"
 import { renderComment, renderSummary } from "./render.ts"
+import { recentGitHubToken } from "./tokens.ts"
 
 import type { CommentsDatabase, CommentsStore } from "../store.ts"
 import type { Comment, CommentForgeLink, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
@@ -106,8 +107,10 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     return pullRequest ? { repository, pullRequest } : undefined
   }
 
+  /** The person's own GitHub token: `token(author)`, else the token of their GitHub sign-in to Comments. */
   async function authorToken(comment: Comment): Promise<string | undefined> {
-    if (comment.author.guest || !options.token) return
+    if (comment.author.guest) return
+    if (!options.token) return recentGitHubToken(comment.author.id)
     try {
       return await options.token(comment.author) || undefined
     }

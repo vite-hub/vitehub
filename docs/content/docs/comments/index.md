@@ -6,50 +6,34 @@ navigation.order: 1
 icon: i-lucide-message-square-text
 ---
 
-::product-hero{tagline="Pin comments on any page of your site, see who else is there, and fix Content text where you read it." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
+::product-hero{tagline="Pin comments on any page of your site, sign your team in with GitHub, and post threads to the pull request of the preview." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
   :::product-files
-  ```ts [server/comments.ts]
-  import { defineComments } from 'vite-hub/comments'
-
-  // One file turns Comments on.
-  export const comments = defineComments({
-    // Only editors may comment. Default: any signed-in user.
-    authorize: ({ user }) => user?.role === 'editor',
-  })
-  ```
-
   ```ts [vite.config.ts]
   import vue from '@vitejs/plugin-vue'
-  import { vitehub } from 'vite-hub'
+  import comments from '@vite-hub/comments/vite'
   import { defineConfig } from 'vite'
 
+  // One plugin turns Comments on. No Database, no login of your own.
   export default defineConfig({
-    plugins: [
-      vue(),
-      vitehub({
-        preset: 'node',
-        // Threads go to this Database
-        database: true,
-        // Presence and cursors on each page
-        realtime: { authority: 'memory' },
-      }),
-    ],
+    plugins: [vue(), comments()],
   })
   ```
 
-  ```vue [src/pages/About.vue]
-  <script setup lang="ts">
-  import { contentField } from 'vite-hub/content/client'
+  ```bash [.env]
+  # Sign in with GitHub: people who can push to the repository may comment
+  VITEHUB_GITHUB_CLIENT_ID=Iv23li...
+  VITEHUB_GITHUB_CLIENT_SECRET=...
+  VITEHUB_SECRET=...
+  ```
 
-  defineProps<{ about: { hero: { title: string } } }>()
-  </script>
+  ```ts [server/comments.ts]
+  import { defineComments } from '@vite-hub/comments'
 
-  <template>
-    <!-- Editors can change this text on the page -->
-    <h1 v-bind="contentField('about', 'hero.title')">
-      {{ about.hero.title }}
-    </h1>
-  </template>
+  // Optional: change who may comment, and post threads to pull requests.
+  export const comments = defineComments({
+    authorize: ({ user, action }) => action === 'read' || user?.github?.write === true,
+    forge: { provider: 'github' },
+  })
   ```
 
   ```ts [server/api/open-threads.get.ts]
@@ -66,9 +50,23 @@ icon: i-lucide-message-square-text
   :::
 ::
 
+## Pick a setup
+
+Start with one plugin. Add more when you need it, without changing what you have.
+
+| Setup | You add | You get |
+| --- | --- | --- |
+| [Comments alone](/docs/comments/get-started) | `comments()` in `vite.config.ts` | Pins, threads, replies, and resolve on every page. Threads in a SQLite file that Comments creates. Guests on the dev server. |
+| [With GitHub sign-in](/docs/comments/configure#sign-in-with-github) | A GitHub App, and three server variables | Your team signs in with GitHub. People who can push to the repository may comment. Comments posted to the pull request show their GitHub account. |
+| [In a ViteHub app](/docs/comments/with-vite-hub) | `vitehub()` with a Database, and `server/comments.ts` | Any ViteHub Database, on every host. Cursors of the people on a page, Content edits in place, the Console section, MCP tools for Agents, and your own sign-in. |
+
 ::product-features
-  :::product-feature-item{title="One file turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
-  Export `comments` from `server/comments.ts`. ViteHub adds the API, the tables, and the overlay.
+  :::product-feature-item{title="One plugin turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
+  Add `comments()` to `vite.config.ts`. It adds the API, the overlay, and a SQLite file for the threads.
+  :::
+
+  :::product-feature-item{title="Sign in with GitHub" icon="i-lucide-github" to="/docs/comments/configure#sign-in-with-github"}
+  People who can push to the repository may comment. The session is a cookie, so the server stores no users.
   :::
 
   :::product-feature-item{title="Public visitors get nothing extra" icon="i-lucide-eye-off" to="/docs/comments/configure#turn-comment-mode-on-and-off"}
@@ -79,11 +77,11 @@ icon: i-lucide-message-square-text
   A pin finds its element again after a resize or a layout change. A pin on a Content field keeps its place through a redesign.
   :::
 
-  :::product-feature-item{title="See who is on the page" icon="i-lucide-users" to="/docs/comments/get-started#see-who-else-is-on-the-page"}
+  :::product-feature-item{title="See who is on the page" icon="i-lucide-users" to="/docs/comments/with-vite-hub#see-who-else-is-on-the-page"}
   With Realtime, everyone on a page sees the others' avatars and cursors, and new comments show at once.
   :::
 
-  :::product-feature-item{title="Edit Content text in place" icon="i-lucide-pencil-line" to="/docs/comments/configure#mark-content-fields"}
+  :::product-feature-item{title="Edit Content text in place" icon="i-lucide-pencil-line" to="/docs/comments/with-vite-hub#edit-content-text-in-place"}
   Mark an element with `contentField()`. An edit saves a Content draft, and you publish it in the Console.
   :::
 
