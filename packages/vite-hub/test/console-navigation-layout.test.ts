@@ -132,7 +132,7 @@ describe("shared Console navigation layout", () => {
   it("shows Run now after the Read-only note only for runnable Schedules", () => {
     const definitions = component("console-definitions")
     expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
-    expect(definitions).toContain("Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
+    expect(definitions).toContain('Boolean(props.scheduleRunBase && registeredOperations.value.includes("schedule.run") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))')
     expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
   })
 

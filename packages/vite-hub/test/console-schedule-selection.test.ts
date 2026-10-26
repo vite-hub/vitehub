@@ -17,6 +17,7 @@ const renderer = createRenderer({
 })
 
 interface ScheduleState {
+  canRunSelected: boolean
   selectedName: string | undefined
   selectedRun: ConsoleScheduleRunView | undefined
   selectDefinition: (name: string) => void
@@ -25,17 +26,22 @@ interface ScheduleState {
 
 describe("Console Schedule result selection", () => {
   it.each(["constructor", "toString", "__proto__", "hasOwnProperty"])("shows a result only after running %s", async (name) => {
-    mocks.request.mockReset().mockResolvedValueOnce({
-      section: "schedules", kind: "definition-catalog",
-      definitions: [name, "other"].map(name => ({ name, file: `${name}.ts`, source: "static", fields: [], runnable: true })),
-    }).mockResolvedValueOnce({ run: { id: "run-1", status: "succeeded" } })
+    const sectionsBase = `/sections/${name}`
+    mocks.request.mockReset().mockImplementation(async (url: string) => {
+      if (url === sectionsBase) return { sections: ["schedules"], operations: ["schedule.run"] }
+      if (url === "/api/_vitehub/console/schedule-run") return { run: { id: "run-1", status: "succeeded" } }
+      return {
+        section: "schedules", kind: "definition-catalog",
+        definitions: [name, "other"].map(name => ({ name, file: `${name}.ts`, source: "static", fields: [], runnable: true })),
+      }
+    })
     const router = createRouter({ history: createMemoryHistory(), routes: [
       { name: "vitehub-console-schedules", path: "/schedules", component: {} },
     ] })
     await router.push({ path: "/schedules", query: { definition: name } })
     const app = renderer.createApp({ ...Definitions, render: () => null }, {
       agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv",
-      scheduleRunBase: "/api/_vitehub/console/schedule-run", searchBase: "/search", sectionsBase: "/sections",
+      scheduleRunBase: "/api/_vitehub/console/schedule-run", searchBase: "/search", sectionsBase,
       details: { id: "schedules", label: "Schedules", icon: "i-lucide-calendar", description: "Schedules", view: { kind: "definition-catalog", notice: "Schedule metadata" } },
     })
     app.use(router)
@@ -44,9 +50,11 @@ describe("Console Schedule result selection", () => {
       const instance = app.mount({})
       const state = (instance.$ as unknown as { setupState: ScheduleState }).setupState
       await nextTick()
+      await vi.waitFor(() => expect(state.canRunSelected).toBe(true))
       expect(state.selectedName).toBe(name)
       expect(state.selectedRun).toBeUndefined()
       await state.runSelectedSchedule()
+      expect(mocks.request).toHaveBeenCalledWith("/api/_vitehub/console/schedule-run", { body: { name }, method: "POST" })
       expect(state.selectedRun).toEqual({ id: "run-1", status: "succeeded" })
       state.selectDefinition("other")
       expect(state.selectedRun).toBeUndefined()
