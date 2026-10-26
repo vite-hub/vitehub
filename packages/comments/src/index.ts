@@ -19,6 +19,7 @@ import type {
   EditCommentInput,
   ListCommentThreadsOptions,
   ReplyInput,
+  ReplyOptions,
 } from "./types.ts"
 
 export { describeCommentContext } from "./context.ts"
@@ -43,7 +44,7 @@ export interface Comments {
    */
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   /** Adds a comment to an open thread. Runs `onComment`. */
-  reply(threadId: string, input: ReplyInput): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
+  reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
   resolve(threadId: string, options: { by: CommentAuthor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its comments. */
@@ -126,14 +127,14 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       await notify(thread, thread.comments[0]!)
       return [undefined, thread]
     },
-    async reply(threadId, input) {
+    async reply(threadId, input, replyOptions = {}) {
       const current = store()
       if (!current) return notInstalled()
       const parsed = v.safeParse(replySchema, input)
       if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
       const thread = await current.get(threadId)
       if (!thread) return notFound(threadId)
-      if (thread.status === "resolved") return [commentsErrors.COMMENTS_RESOLVED(), undefined]
+      if (thread.status === "resolved" && !replyOptions.allowResolved) return [commentsErrors.COMMENTS_RESOLVED(), undefined]
       const comment = await current.reply(threadId, parsed.output)
       await notify({ ...thread, comments: [...thread.comments, comment] }, comment)
       return [undefined, comment]

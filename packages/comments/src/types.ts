@@ -213,6 +213,14 @@ export interface ReplyInput {
   mentions?: CommentMention[]
 }
 
+export interface ReplyOptions {
+  /**
+   * Reply to a resolved thread, and keep it resolved, for apps whose own UI allows that. Default `false`: the reply
+   * fails with `COMMENTS_RESOLVED`, as on the overlay.
+   */
+  allowResolved?: boolean
+}
+
 /** Codes of the errors that Comments methods return in the `[error, data]` tuple. */
 export type CommentsErrorCode =
   | "COMMENTS_NOT_INSTALLED"

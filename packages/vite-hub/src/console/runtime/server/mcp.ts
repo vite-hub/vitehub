@@ -15,7 +15,8 @@ export const viteHubMcpProtocolVersions: readonly string[] = ["2025-11-25", "202
 const maximumBodyBytes = 256 * 1_024
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
 
-const instructions = "ViteHub MCP gives Agents the server primitives of this app, with the access of the signed-in Console user. Comments tools read the threads that the team left on the app's pages, with the page, element, Vue components, and source files of each one; reply after you change the code, then resolve the thread."
+// Each tool says how to use it. This text stays the same for every owner package, so the Console owns no workflow.
+const instructions = "ViteHub MCP gives Agents the server primitives of this app, with the Console access of the person who connects. tools/list shows only the tools of the Console sections that this person may use. Each tool description says when to use it."
 
 type JsonRpcId = string | number | null
 

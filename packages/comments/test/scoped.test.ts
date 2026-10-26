@@ -56,6 +56,15 @@ describe("scoped threads", () => {
     expect((await comments.getByComment("missing"))[0]?.code).toBe("COMMENTS_NOT_FOUND")
   })
 
+  it("replies to a resolved thread only when the app allows it, and keeps it resolved", async () => {
+    const comments = await createComments()
+    const [, thread] = await comments.create({ scope: "doc:1", page: "/d/1", body: "Done?", author: ada })
+    await comments.resolve(thread!.id, { by: ada })
+    expect((await comments.reply(thread!.id, { body: "Late note", author: ada }))[0]?.code).toBe("COMMENTS_RESOLVED")
+    expect((await comments.reply(thread!.id, { body: "Late note", author: ada }, { allowResolved: true }))[1]?.body).toBe("Late note")
+    expect((await comments.get(thread!.id))[1]).toMatchObject({ status: "resolved", resolvedBy: ada })
+  })
+
   it("passes the scope to authorize", async () => {
     const seen: CommentsAuthorizeContext[] = []
     const comments = await createComments({ authorize: (context) => {
