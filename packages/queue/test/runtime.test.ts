@@ -171,6 +171,27 @@ describe("cloudflare queue runtime", () => {
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
 
+  it.each(["clear", "append"])("keeps batch receipts tied to sent messages when callers %s the input", async (mutation) => {
+    let acceptBatch = () => {}
+    const sendBatch = vi.fn(() => new Promise<void>((resolve) => { acceptBatch = resolve }))
+    const client = createCloudflareQueueClient({
+      binding: { send: vi.fn(async () => {}), sendBatch },
+      provider: "cloudflare",
+    })
+    const items = [{ body: "one" }, { body: "two" }]
+    const result = client.sendBatch(items)
+    expect(sendBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ body: "one" }),
+      expect.objectContaining({ body: "two" }),
+    ])
+
+    if (mutation === "clear") items.length = 0
+    else items.push({ body: "three" })
+    acceptBatch()
+
+    await expect(result).resolves.toEqual([undefined, [{ status: "queued" }, { status: "queued" }]])
+  })
+
   it("sets the Cloudflare environment when enterWith is unavailable", () => {
     const env = { QUEUE_WELCOME: {} }
     vi.spyOn(AsyncLocalStorage.prototype, "enterWith").mockImplementation(() => {
