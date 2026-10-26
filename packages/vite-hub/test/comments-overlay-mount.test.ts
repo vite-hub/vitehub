@@ -10,14 +10,17 @@ import type { OverlayHandle } from "../src/comments-overlay/overlay.ts"
 
 const calls: Array<{ input: unknown, operation: string }> = []
 let resolved: { collection: string, id: string } | undefined
+let resolveFailure: Response | undefined
 const handles: OverlayHandle[] = []
 
 beforeEach(() => {
   calls.length = 0
   resolved = undefined
+  resolveFailure = undefined
   vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
     const body = JSON.parse(String(init.body)) as { input: unknown, operation: string }
     calls.push(body)
+    if (body.operation === "content.resolve" && resolveFailure) return resolveFailure.clone()
     if (body.operation === "content.resolve") return resolved ? Response.json({ ok: true, value: resolved }) : Response.json({ ok: false, code: "INTERNAL_R0021" }, { status: 404 })
     return Response.json({ ok: true, value: [] })
   }))
@@ -121,6 +124,18 @@ describe("the comments overlay", () => {
     resolved = undefined
     history.pushState(null, "", "/elsewhere")
     await vi.waitFor(() => expect(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-edit']")).toBeNull())
+  })
+
+  it("shows no Edit button and stops asking once content.resolve fails, as it does with no GitHub token", async () => {
+    resolveFailure = Response.json({ code: "WORKSPACE_R0072", message: "GitHub workspace store requires a token. Set VITEHUB_GITHUB_TOKEN or the token option.", ok: false, status: 500 }, { status: 500 })
+    const { host } = await mounted()
+    await vi.waitFor(() => expect(calls.filter(call => call.operation === "content.resolve")).toHaveLength(1))
+    for (const path of ["/a", "/b", "/c"]) {
+      history.pushState(null, "", path)
+      await vi.waitFor(() => expect(calls.filter(call => call.operation === "comments.list").length).toBeGreaterThan(1))
+    }
+    expect(calls.filter(call => call.operation === "content.resolve")).toHaveLength(1)
+    expect(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-edit']")).toBeNull()
   })
 
   it("never calls content.resolve for an app without Content", async () => {
