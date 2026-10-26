@@ -75,6 +75,7 @@ export function splitShellCommandSegments(command: string) {
     }
     if (escaped) {
       if (char === "\n" && !ansiCQuoted) {
+        current = current.slice(0, -1)
         escaped = false
         continue
       }
