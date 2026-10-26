@@ -41,6 +41,8 @@ describe("the overlay loader tag", () => {
     expect(mountPath("//evil.example.com/")).toBe("")
     expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
     expect(loaderUrl("", assets, { edit: true })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&e=1")
+    expect(loaderUrl("", assets, { session: "marker" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
+    expect(loaderUrl("", assets, { session: "always" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&s=always")
     const filtered = loaderUrl("/portal", assets, { exclude: ["/admin/**"], paths: ["/docs/**"] })
     expect(filtered.startsWith("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
     expect(JSON.parse(decodeURIComponent(filtered.split("&o=")[1]!))).toEqual({ exclude: ["/admin/**"], paths: ["/docs/**"] })

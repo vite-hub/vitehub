@@ -81,9 +81,10 @@ export default defineComments({
 
 | Option | Type | Default | Description |
 | --- | --- | --- | --- |
-| `overlay` | `false \| { paths?, exclude? }` | `{}` | `false` adds no loader. |
+| `overlay` | `false \| { paths?, exclude?, session? }` | `{}` | `false` adds no loader. |
 | `overlay.paths` | `string[]` | every page | Globs of the pages that get the overlay, relative to the app base. `*` is one path segment, `**` any depth: `/docs/**` is `/docs` and everything below it. |
 | `overlay.exclude` | `string[]` | none | Globs of the pages that never get it. |
+| `overlay.session` | `"marker" \| "always"` | `"marker"` | When the loader asks the server whether the visitor may read comments. `"marker"` asks only when the `vitehub_session` cookie is present; `"always"` asks on every page load. See [Privacy](#content-security-policy-and-privacy). |
 
 The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all. The loader follows navigation: when a visitor moves to a page that the globs leave out, the overlay hides and its `C` hotkey stops, and when they move to an allowed page it shows again. If the landing page was left out, the loader waits, and the first allowed page loads the overlay.
 
@@ -94,6 +95,11 @@ The loader and the overlay are served by your app below `/_vitehub/comments/`, a
 - **CSP.** Both files come from your own origin, so `script-src 'self'` is enough, and `connect-src 'self'` covers the loader's `fetch`. With a nonce policy (`script-src 'nonce-…' 'strict-dynamic'`) the loader tag gets the nonce of the response's `Content-Security-Policy` automatically, in the Nitro middleware and in the Nuxt `render:html` hook. The loader loads the overlay with a dynamic `import()`, which `'strict-dynamic'` allows from a trusted script. The overlay builds its icons from SVG elements and sets no `innerHTML`, so it works under Trusted Types. It adopts its styles as a constructed stylesheet, which needs no `style-src 'unsafe-inline'`; where the browser has none, it falls back to a `<style>` element that carries the loader's nonce.
 - **What gets the tag.** The middleware rewrites only UTF-8 `text/html` that is not compressed and has a `</body>` or `</html>`: streamed pages are rewritten as they stream, and fragments, JSON, and other types are never touched.
 - **Privacy.** The loader sends one `POST /_vitehub/rpc/__call` with the session cookie and no other data. It receives your own user, and whether you may read and write, and nothing about anyone else. Everything else is downloaded only after `authorize` says you may read comments. The Console page never gets the loader.
+- **Anonymous visitors.** By default the loader sends that request only when the `vitehub_session` cookie is present. ViteHub Auth sets it, next to the session cookie, when a session starts, and clears it on sign-out. It holds `1`, never a secret, and it is not `HttpOnly`, so the loader can read it; the server still decides on every request. On a public site where only your team signs in, everyone else makes no request at all. The loader reads the cookie again after each client-side navigation, so a visitor who signs in without a page load is asked then. If your app's sessions come from another Auth, which does not set the cookie, set `overlay: { session: 'always' }`: the loader then asks on every page load, for every visitor, signed in or not.
+
+```ts [vite.config.ts]
+vitehub({ comments: { overlay: { session: 'always' } } })
+```
 
 ## Database
 

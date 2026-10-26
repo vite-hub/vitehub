@@ -16,6 +16,8 @@ function environment(answer: () => Promise<Response> | Response, start = "/prici
   const load = vi.fn(async () => ({ mount }))
   const env: LoaderEnvironment = {
     base: "/",
+    // A visitor who signed in: the marker that ViteHub Auth sets is there.
+    cookie: () => "theme=dark; vitehub_session=1",
     fetch: fetchMock as never,
     load,
     overlayUrl: "/_vitehub/comments/overlay.abc.js",
@@ -36,7 +38,7 @@ function environment(answer: () => Promise<Response> | Response, start = "/prici
 
 const session = (value: Record<string, unknown>) => () => Response.json({ ok: true, value })
 const readable = session({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
-const none = { edit: false, exclude: [], paths: [] }
+const none = { edit: false, exclude: [], paths: [], session: "marker" } as const
 
 describe("the comments loader", () => {
   it("downloads the overlay only when the session may read comments", async () => {
@@ -67,6 +69,33 @@ describe("the comments loader", () => {
       expect(closed.load).not.toHaveBeenCalled()
       expect(closed.mount).not.toHaveBeenCalled()
     }
+  })
+
+  it("makes no request for a visitor with no session marker, and asks once the marker appears", async () => {
+    let cookie = "theme=dark"
+    const anonymous = environment(readable, "/pricing", { cookie: () => cookie })
+    await runLoader(none, anonymous.env).ready
+    expect(anonymous.fetchMock).not.toHaveBeenCalled()
+    expect(anonymous.load).not.toHaveBeenCalled()
+    // A cleared marker, as after sign-out, is no marker.
+    cookie = "vitehub_session=; theme=dark"
+    await anonymous.go("/about")
+    expect(anonymous.fetchMock).not.toHaveBeenCalled()
+    // Another cookie that merely ends in the name is not the marker either.
+    cookie = "x_vitehub_session=1"
+    await anonymous.go("/contact")
+    expect(anonymous.fetchMock).not.toHaveBeenCalled()
+    cookie = "vitehub_session=1"
+    await anonymous.go("/pricing")
+    await vi.waitFor(() => expect(anonymous.mount).toHaveBeenCalledOnce())
+    expect(anonymous.fetchMock).toHaveBeenCalledOnce()
+  })
+
+  it("asks on every page load without a marker when the app has other auth", async () => {
+    const page = environment(readable, "/pricing", { cookie: () => "" })
+    await runLoader({ ...none, session: "always" }, page.env).ready
+    expect(page.fetchMock).toHaveBeenCalledOnce()
+    expect(page.mount).toHaveBeenCalledOnce()
   })
 
   it("tells the overlay whether the app can edit pages", async () => {
@@ -132,19 +161,22 @@ describe("the comments loader", () => {
   })
 
   it("matches globs by segment and depth, and reads its options from the URL", () => {
-    expect(matchesPath("/a/b", { edit: false, exclude: [], paths: ["/a/*"] })).toBe(true)
-    expect(matchesPath("/a/b/c", { edit: false, exclude: [], paths: ["/a/*"] })).toBe(false)
-    expect(matchesPath("/a/b/c", { edit: false, exclude: [], paths: ["/a/**"] })).toBe(true)
-    expect(matchesPath("/a", { edit: false, exclude: [], paths: ["/a/**"] })).toBe(true)
-    expect(matchesPath("/a.b", { edit: false, exclude: [], paths: ["/a.b"] })).toBe(true)
-    expect(matchesPath("/axb", { edit: false, exclude: [], paths: ["/a.b"] })).toBe(false)
+    expect(matchesPath("/a/b", { exclude: [], paths: ["/a/*"] })).toBe(true)
+    expect(matchesPath("/a/b/c", { exclude: [], paths: ["/a/*"] })).toBe(false)
+    expect(matchesPath("/a/b/c", { exclude: [], paths: ["/a/**"] })).toBe(true)
+    expect(matchesPath("/a", { exclude: [], paths: ["/a/**"] })).toBe(true)
+    expect(matchesPath("/a.b", { exclude: [], paths: ["/a.b"] })).toBe(true)
+    expect(matchesPath("/axb", { exclude: [], paths: ["/a.b"] })).toBe(false)
     expect(matchesPath("/", none)).toBe(true)
-    expect(readLoaderOptions(`?f=x&o=${encodeURIComponent(JSON.stringify({ exclude: ["/x"], paths: ["/y", 3] }))}`)).toEqual({ edit: false, exclude: ["/x"], paths: ["/y"] })
+    expect(readLoaderOptions(`?f=x&o=${encodeURIComponent(JSON.stringify({ exclude: ["/x"], paths: ["/y", 3] }))}`)).toEqual({ ...none, exclude: ["/x"], paths: ["/y"] })
     expect(readLoaderOptions("?f=x")).toEqual(none)
     expect(readLoaderOptions("?o=%7Bnot-json")).toEqual(none)
     expect(readLoaderOptions("?f=x&e=1")).toEqual({ ...none, edit: true })
     expect(readLoaderOptions("?f=x&e=1&o=%7Bnot-json").edit).toBe(true)
     expect(readLoaderOptions("?f=x&e=0").edit).toBe(false)
+    expect(readLoaderOptions("?f=x&s=always").session).toBe("always")
+    expect(readLoaderOptions("?f=x&s=marker").session).toBe("marker")
+    expect(readLoaderOptions("?f=x&s=other").session).toBe("marker")
   })
 
   it("takes the app base and trailing slashes off the page path", () => {
