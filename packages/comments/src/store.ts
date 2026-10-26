@@ -27,6 +27,7 @@ export interface CommentsStore {
 }
 
 function json<T>(value: string | null): T | null {
+  // SAFETY: this store wrote each JSON column from a value that the schemas in schema.ts checked.
   return value === null ? null : JSON.parse(value) as T
 }
 

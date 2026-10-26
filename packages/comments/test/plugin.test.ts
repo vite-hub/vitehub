@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 
-import { injectOverlay, wantsCommentMode } from "../src/runtime/plugin.ts"
+import { defineCommentsPlugin, injectOverlay, wantsCommentMode } from "../src/runtime/plugin.ts"
+import { defineComments } from "../src/index.ts"
 
 function streamed(chunks: string[], type = "text/html; charset=utf-8"): Response {
   const encoder = new TextEncoder()
@@ -32,5 +33,24 @@ describe("overlay injection", () => {
     expect(await injectOverlay(streamed(["<h1>Hi</h1>"]), "/o.js").text()).toBe("<h1>Hi</h1><script type=\"module\" src=\"/o.js\" data-vitehub-comments></script>")
     const json = streamed(["{}"], "application/json")
     expect(injectOverlay(json, "/o.js")).toBe(json)
+  })
+
+  it("adds the script in Nuxt's render:html hook, and keeps that page out of shared caches", () => {
+    let render: ((html: { bodyAppend: string[] }, context: unknown) => void) | undefined
+    const nitroApp = { hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } }
+    const warn = console.warn
+    console.warn = () => {}
+    defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay: "/o.js" })(nitroApp)
+    console.warn = warn
+    const headers: Record<string, string> = {}
+    const page = (url: string) => {
+      const html = { bodyAppend: [] as string[] }
+      render!(html, { event: { node: { req: { url, headers: {} }, res: { setHeader: (name: string, value: string) => { headers[name] = value } } } } })
+      return html.bodyAppend
+    }
+    expect(page("/")).toEqual([])
+    expect(headers).toEqual({})
+    expect(page("/?comments")).toEqual(["<script type=\"module\" src=\"/o.js\" data-vitehub-comments></script>"])
+    expect(headers).toEqual({ "cache-control": "private, no-store" })
   })
 })

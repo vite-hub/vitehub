@@ -17,6 +17,7 @@ const runtimeKey = Symbol.for("vitehub.comments.runtime")
 /** The Comments definition that the Nitro plugin installed, for the Console reader. */
 export function installedComments(): Comments | undefined {
   const value: unknown = Reflect.get(globalThis, runtimeKey)
+  // SAFETY: only defineCommentsPlugin() writes this process slot, with a Comments definition.
   return value === undefined ? undefined : value as Comments
 }
 
@@ -97,10 +98,13 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     const hooks: unknown = Reflect.get(nitroApp, "hooks")
     const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
     if (hook instanceof Function) {
-      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> } } } }) => {
+      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> }, res?: { setHeader?: (name: string, value: string) => void } } } }) => {
         const node = context.event.node?.req
         const request = context.event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
-        if (request && wantsCommentMode(request)) html.bodyAppend.push(scriptTag(options.overlay))
+        if (!request || !wantsCommentMode(request)) return
+        html.bodyAppend.push(scriptTag(options.overlay))
+        // As on the fetch path: a page with the overlay must never reach a shared cache.
+        context.event.node?.res?.setHeader?.("cache-control", "private, no-store")
       }])
     }
   }

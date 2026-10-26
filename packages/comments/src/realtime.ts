@@ -1,11 +1,9 @@
+import { text } from "./identity.ts"
+
 import type { RealtimeDefinition, RealtimeUser } from "@vite-hub/realtime"
 import type { H3Event } from "h3"
 import type { Comments } from "./index.ts"
 import type { CommentsUser } from "./types.ts"
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
 
 function toRealtimeUser(user: CommentsUser): RealtimeUser {
   const result: RealtimeUser = { id: user.id }
