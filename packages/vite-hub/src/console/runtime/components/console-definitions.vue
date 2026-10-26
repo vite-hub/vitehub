@@ -81,17 +81,14 @@ const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
 );
 const selectedEntry = computed(() => entries.value.find((entry) => entry.id === selectedName.value));
-
-/** The fields of the selected Definition, with its name, source, and file first. */
-const definitionFields = computed(() => {
-  const definition = selectedDefinition.value;
-  if (!definition) return [];
-  return [
-    { label: "Name", mono: true, value: definition.name },
-    { label: "Source", value: sourceLabel(definition.source) },
-    { label: "File", mono: true, value: definition.file },
-    ...definition.fields.map(field => ({ label: field.label, value: field.value })),
-  ];
+// A detail line that every entry shares, such as "Queue" under each Queue, tells nothing, so the sidebar hides it.
+const showEntryDetail = computed(() => new Set(entries.value.map((entry) => entry.detail)).size > 1);
+/** Records open in a slideover over the full table. Closing it clears the selection. */
+const recordOpen = computed({
+  get: () => Boolean(selectedRecord.value),
+  set: (open: boolean) => {
+    if (!open) selectRecord(undefined);
+  },
 });
 
 /** A manual run result as a status: `Run succeeded` with a green dot, or why it did not run. */
@@ -126,6 +123,11 @@ function sourceLabel(value: string): string {
     .join(" ");
 }
 
+/** The first column names a record, such as an Email subject. The id is the fallback. */
+function recordTitle(row: ConsoleRecord): string {
+  return recordSummary(row) || row.id;
+}
+
 function recordSummary(row: ConsoleRecord): string {
   const column = recordColumns.value[0];
   return column ? row.cells[column.key] || "" : "";
@@ -138,7 +140,7 @@ function queryValue(): string | undefined {
 
 async function loadDefinitions(): Promise<void> {
   request?.abort();
-  const previousSelection = selectedName.value;
+  const previousSelection = selectedName.value ?? (catalogView.value ? undefined : queryValue());
   content.value = undefined;
   selectedName.value = undefined;
   const controller = new AbortController();
@@ -161,7 +163,8 @@ async function loadDefinitions(): Promise<void> {
     content.value = installed;
     selectedName.value = entries.value.some((entry) => entry.id === previousSelection)
       ? previousSelection
-      : entries.value[0]?.id;
+      : catalogView.value ? entries.value[0]?.id : undefined;
+    if (!catalogView.value && selectedName.value === undefined) selectRecord(undefined);
     error.value = undefined;
   } catch (requestError) {
     if (
@@ -177,6 +180,13 @@ async function loadDefinitions(): Promise<void> {
       loading.value = false;
     }
   }
+}
+
+function selectRecord(name: string | undefined): void {
+  if (name) return selectDefinition(name);
+  selectedName.value = undefined;
+  const { [selectionQuery.value]: _selection, ...query } = route.query;
+  void router.replace({ query });
 }
 
 function selectDefinition(name: string): void {
@@ -209,7 +219,7 @@ watch(
   () => route.query[selectionQuery.value],
   (name) => {
     if (name === undefined) {
-      selectedName.value = entries.value[0]?.id;
+      selectedName.value = catalogView.value ? entries.value[0]?.id : undefined;
     } else if (
       typeof name === "string" &&
       entries.value.some((entry) => entry.id === name)
@@ -223,7 +233,9 @@ onBeforeUnmount(() => request?.abort());
 
 <template>
   <ConsoleFrame :active="section" :sections-base="sectionsBase">
+    <!-- Records list in the page table, so only Definition catalogs need a sidebar. -->
     <UDashboardSidebar
+      v-if="catalogView"
       id="console-navigation"
       class="vitehub-console__nav"
       v-model:open="sidebarOpen"
@@ -263,7 +275,7 @@ onBeforeUnmount(() => request?.abort());
               <button
                 type="button"
                 class="vitehub-console__section-link text-start"
-                :class="{ 'is-detailed': !collapsed && entry.detail }"
+                :class="{ 'is-detailed': !collapsed && entry.detail && showEntryDetail }"
                 :aria-current="selectedName === entry.id ? 'true' : undefined"
                 :aria-label="collapsed ? entry.id : undefined"
                 @click="selectDefinition(entry.id)"
@@ -271,13 +283,13 @@ onBeforeUnmount(() => request?.abort());
                 <UIcon v-if="collapsed" :name="sectionDetails.icon" class="vitehub-console__section-icon" aria-hidden="true" />
                 <span v-else class="grid min-w-0 gap-0.5">
                   <span class="truncate font-mono text-xs">{{ entry.id }}</span>
-                  <span v-if="entry.detail" class="truncate text-xs font-normal text-dimmed">{{ entry.detail }}</span>
+                  <span v-if="entry.detail && showEntryDetail" class="truncate text-xs font-normal text-dimmed">{{ entry.detail }}</span>
                 </span>
               </button>
             </UTooltip>
           </template>
           <p v-else-if="!collapsed && !loading && !error" class="px-2 py-1.5 text-xs leading-relaxed text-muted">
-            {{ catalogView ? `No ${sectionDetails.label} Definitions in this project yet.` : "The owner package returned no records." }}
+            No {{ sectionDetails.label }} Definitions in this project yet.
           </p>
         </nav>
       </template>
@@ -295,11 +307,11 @@ onBeforeUnmount(() => request?.abort());
       :id="`${section}-definition`"
       :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }"
     >
-      <ConsolePageHeader :title="selectedEntry?.id || sectionDetails.label">
+      <ConsolePageHeader :title="(catalogView && selectedEntry?.id) || sectionDetails.label" :toggle="catalogView">
         <template #right>
           <span v-if="!workflowBase" class="hidden text-xs text-dimmed sm:inline">Read-only</span>
           <UButton
-            v-if="canRunSelected"
+            v-if="canRunSelected && catalogView"
             icon="i-lucide-play"
             label="Run now"
             size="sm"
@@ -308,71 +320,130 @@ onBeforeUnmount(() => request?.abort());
             :loading="runningSchedule === selectedName"
             @click="runSelectedSchedule"
           />
+          <UTooltip v-if="!catalogView" text="Refresh">
+            <UButton aria-label="Refresh records" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :loading="loading" @click="loadDefinitions" />
+          </UTooltip>
         </template>
       </ConsolePageHeader>
 
       <div class="min-h-0 flex-1 overflow-y-auto" aria-live="polite">
-        <div v-if="loading && !selectedEntry" class="mx-auto grid w-full max-w-4xl gap-3 p-4 sm:p-6" aria-busy="true">
+        <div v-if="loading && !content" class="mx-auto grid w-full max-w-3xl gap-3 p-4 sm:p-6" aria-busy="true">
           <USkeleton class="h-4 w-40" />
           <USkeleton v-for="index in 5" :key="index" class="h-9 w-full" />
         </div>
+        <template v-else-if="!catalogView">
+          <ConsoleState v-if="error" :error="error" :title="`Couldn't load ${sectionDetails.label}`" :retry="loadDefinitions" />
+          <main v-else class="mx-auto grid w-full max-w-5xl content-start gap-4 p-4 sm:p-6">
+            <UEmpty
+              v-if="!records.length"
+              variant="naked"
+              class="py-16"
+              :icon="sectionDetails.icon"
+              :title="`No ${sectionDetails.label} yet`"
+              description="Records show here when the application creates them."
+            />
+            <section v-else class="overflow-x-auto rounded-md border border-default" :aria-label="sectionDetails.label">
+              <table class="w-full text-left text-[13px]">
+                <thead>
+                  <tr class="border-b border-default bg-elevated/30">
+                    <th v-for="column in recordColumns" :key="column.key" class="h-9 whitespace-nowrap px-3 text-xs font-medium text-muted" scope="col">
+                      {{ column.label }}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="row in records"
+                    :key="row.id"
+                    class="relative h-11 border-b border-default last:border-b-0 hover:bg-elevated/50"
+                    :class="{ 'bg-elevated': row.id === selectedName }"
+                    :aria-selected="row.id === selectedName"
+                  >
+                    <td v-for="(column, index) in recordColumns" :key="column.key" class="max-w-80 truncate px-3 py-2 align-middle" :class="index ? 'text-muted' : 'text-highlighted'">
+                      <!-- The first cell holds the row's button, and its overlay makes the whole row clickable. -->
+                      <button
+                        v-if="!index"
+                        type="button"
+                        class="text-start font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-1 focus-visible:after:ring-inset focus-visible:after:ring-primary"
+                        @click="selectRecord(row.id)"
+                      >
+                        {{ row.cells[column.key] || row.id }}
+                      </button>
+                      <ConsoleValue v-else :value="row.cells[column.key] || ''" />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </section>
+            <p class="flex gap-2 text-xs leading-relaxed text-pretty text-muted">
+              <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
+            </p>
+          </main>
+        </template>
         <UEmpty
-          v-else-if="!selectedEntry"
+          v-else-if="!selectedDefinition"
           variant="naked"
           class="py-16"
           :icon="sectionDetails.icon"
-          :title="catalogView ? 'No definition selected' : 'No record selected'"
-          :description="entries.length ? `Choose one from the sidebar to see its ${catalogView ? 'metadata' : 'fields'}.` : 'Nothing to show yet.'"
+          title="No definition selected"
+          :description="entries.length ? 'Choose one from the sidebar to see its metadata.' : 'Nothing to show yet.'"
         />
-        <main v-else-if="selectedDefinition" class="mx-auto grid w-full max-w-4xl gap-6 p-4 sm:p-6">
-          <div v-if="selectedRun" class="grid gap-1" role="status">
-            <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
-            <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
-          </div>
-          <ConsolePropertyList title="Definition" :items="definitionFields" />
+        <main v-else class="mx-auto grid w-full max-w-3xl gap-8 p-4 sm:p-6">
+          <header class="grid gap-3">
+            <dl class="flex flex-wrap gap-x-10 gap-y-3">
+              <div class="grid min-w-0 gap-1">
+                <dt class="text-xs text-dimmed">Source</dt>
+                <dd class="text-[13px] text-highlighted">{{ sourceLabel(selectedDefinition.source) }}</dd>
+              </div>
+              <div class="grid min-w-0 gap-1">
+                <dt class="text-xs text-dimmed">File</dt>
+                <dd class="break-all font-mono text-xs leading-5 text-highlighted">{{ selectedDefinition.file }}</dd>
+              </div>
+            </dl>
+            <div v-if="selectedRun" class="grid gap-1" role="status">
+              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
+            </div>
+          </header>
+          <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
           <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
-          <p class="flex gap-2 text-xs leading-relaxed text-muted">
-            <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
-            <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
-          </p>
-        </main>
-        <main v-else-if="selectedRecord" class="mx-auto grid w-full max-w-6xl gap-6 p-4 sm:p-6">
-          <div v-if="selectedRun" class="grid gap-1" role="status">
-            <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
-            <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
-          </div>
-          <section class="overflow-x-auto" :aria-label="sectionDetails.label">
-            <table class="w-full text-left text-[13px]">
-              <thead>
-                <tr class="border-b border-default">
-                  <th v-for="column in recordColumns" :key="column.key" class="h-8 whitespace-nowrap px-2 text-xs font-medium text-dimmed" scope="col">
-                    {{ column.label }}
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr
-                  v-for="row in records"
-                  :key="row.id"
-                  class="h-10 cursor-pointer border-b border-default hover:bg-elevated"
-                  :class="{ 'bg-accented hover:bg-accented': row.id === selectedName }"
-                  :aria-selected="row.id === selectedName"
-                  @click="selectDefinition(row.id)"
-                >
-                  <td v-for="column in recordColumns" :key="column.key" class="px-2 py-1.5 align-middle text-highlighted">
-                    <ConsoleValue :value="row.cells[column.key] || ''" />
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-          <ConsolePropertyList title="Fields" :items="selectedRecord.fields" />
-          <p class="flex gap-2 text-xs leading-relaxed text-muted">
+          <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />
           </p>
         </main>
       </div>
     </UDashboardPanel>
+    <USlideover
+      v-if="!catalogView"
+      v-model:open="recordOpen"
+      :title="selectedRecord ? recordTitle(selectedRecord) : sectionDetails.label"
+      :description="selectedRecord?.id"
+      :ui="{ content: 'sm:max-w-xl', description: 'font-mono text-xs' }"
+    >
+      <template #body>
+        <article v-if="selectedRecord" class="grid gap-6">
+          <div v-if="canRunSelected || selectedRun" class="flex flex-wrap items-start justify-between gap-3">
+            <div v-if="selectedRun" class="grid gap-1" role="status">
+              <ConsoleStatus :label="runStatus(selectedRun).label" :tone="runStatus(selectedRun).tone" :pending="runStatus(selectedRun).pending" />
+              <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
+            </div>
+            <UButton
+              v-if="canRunSelected"
+              class="ms-auto"
+              icon="i-lucide-play"
+              label="Run now"
+              size="sm"
+              variant="outline"
+              :disabled="Boolean(runningSchedule)"
+              :loading="runningSchedule === selectedName"
+              @click="runSelectedSchedule"
+            />
+          </div>
+          <ConsolePropertyList title="Fields" :items="selectedRecord.fields" />
+        </article>
+      </template>
+    </USlideover>
   </ConsoleFrame>
 </template>

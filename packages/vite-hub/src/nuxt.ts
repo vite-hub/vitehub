@@ -468,6 +468,7 @@ type QueueNitroConfigHandler = (options: {
   projectRoot: string
   root: string
   serverDirs?: string[]
+  viteConfig?: UserConfig
 }) => Promise<Record<string, unknown>>
 
 type WorkflowNitroConfigHandler = (options: {
@@ -688,6 +689,8 @@ async function applyNitroConfig(
         projectRoot,
         root: projectRoot,
         serverDirs: resolveNuxtServerDirs(nuxt.options),
+        // The replayed config holds the Cloudflare provider output that the deployment output plugin composes last.
+        viteConfig: config,
       })
     }
 
@@ -797,6 +800,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   }
   nitro.preset = nitroPreset
   if (plan.preset === "cloudflare") {
+    const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
+    cloudflare.deployConfig ??= true
     const wasm = (nitro.wasm ??= {}) as Record<string, unknown>
     wasm.lazy ??= true
   }
@@ -939,7 +944,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       ...(viteDatabaseRoot !== undefined ? { projectRoot: viteDatabaseRoot } : {}),
       ...(options.database === true ? {} : options.database),
     }
-    // Cloudflare apps default to a D1 host resource unless every Database Definition uses Postgres.
+    // Cloudflare SQLite Definitions default to D1 unless a driver is explicit.
     const defaultD1 = options.preset === "cloudflare" && !("driver" in databaseOptions) && !usesOnlyPostgresDatabases(
       resolveViteHubProjectRoot(rootDir, { projectRoot: databaseOptions.projectRoot }),
       databaseOptions.projectRoot === undefined && nuxt.options.serverDir ? [nuxt.options.serverDir] : undefined,
@@ -1313,6 +1318,10 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
+    const externals = isRecord(config.externals) ? config.externals : {}
+    const inline = Array.isArray(externals.inline) ? externals.inline : []
+    // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config)
     if (emailPlugin && nuxt.options.dev) {

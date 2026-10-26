@@ -82,7 +82,9 @@ Production Nuxt builds with only D1-over-HTTP Databases do not bundle libSQL or 
 
 ## Migrations
 
-`vitehub db generate` writes Drizzle migrations beside the Definition. `vitehub db migrate` applies the pending ones with Drizzle Kit.
+`vitehub db generate` writes Drizzle migrations beside the Definition. `vitehub db migrate` applies the pending ones with Drizzle Kit. Kit runs from the Database project root, including when Nuxt uses `app/` as its Vite root. The CLI resolves Kit from the application or the installed `vite-hub` facade, so it does not depend on an application binary on `PATH`.
+
+Connection URLs and tokens can use string literals or runtime environment declarations, including module-level variables initialized with those values. The generated Kit config reads environment values at invocation time and uses the Turso dialect for remote or authenticated libSQL. The migration check uses the same connection values. Local migration creates the database's parent directory after the check; generation and `--dry-run` do not create the database file.
 
 ```sh
 pnpm vitehub db migrate --dry-run         # print pending migrations and their SQL, change nothing
