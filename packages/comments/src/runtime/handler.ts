@@ -54,6 +54,19 @@ export interface CommentsHandlerOptions {
 
 const hintMaxAge = 60 * 60 * 24 * 30
 
+/** Issued by `access()` after `authorize` allows an action, for that action on that thread. Each write needs one. */
+const actionGrant = defineGrant("vitehub.comments.action", (input: { action: CommentsAction, threadId: string | undefined }) => Object.freeze({ ...input }))
+
+type ActionGrant = ReturnType<typeof actionGrant.issue>
+
+/** Spends a grant for one of `actions` on `threadId`. A grant for another action or thread is a bug, so it throws. */
+function spend(grant: ActionGrant, actions: readonly CommentsAction[], threadId?: string): void {
+  const allowed = actionGrant.consume(grant)
+  if (!actions.includes(allowed.action) || allowed.threadId !== threadId) {
+    throw new TypeError(`[vitehub] A Comments write for ${actions.join(" or ")} ran with the grant of ${allowed.action}.`)
+  }
+}
+
 const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentAuthor }) => input)
 
 const createBody = v.object({ page: pageSchema, anchor: anchorSchema, body: bodySchema, mentions: mentionsSchema })
@@ -148,11 +161,41 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined }, "COMMENTS_FORBIDDEN">> {
+  async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
     const user = await resolveUser(event)
     if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
-    return [undefined, { user, author: user ? authorOf(user) : guestFromHeaders(event.req.headers) }]
+    const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
+    return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
+  }
+
+  /** The writes of this API. Each one needs the grant of the `access()` check that allowed it. */
+  const writes = {
+    create: (grant: ActionGrant, input: Parameters<Comments["create"]>[0]) => {
+      spend(grant, ["comment"])
+      return comments.create(input)
+    },
+    reply: (grant: ActionGrant, threadId: string, input: Parameters<Comments["reply"]>[1]) => {
+      spend(grant, ["comment"], threadId)
+      return comments.reply(threadId, input)
+    },
+    resolve: (grant: ActionGrant, threadId: string, by: CommentAuthor) => {
+      spend(grant, ["resolve"], threadId)
+      return comments.resolve(threadId, { by })
+    },
+    reopen: (grant: ActionGrant, threadId: string) => {
+      spend(grant, ["resolve"], threadId)
+      return comments.reopen(threadId)
+    },
+    remove: (grant: ActionGrant, threadId: string) => {
+      spend(grant, ["resolve"], threadId)
+      return comments.remove(threadId)
+    },
+    // Authors delete their own comments with `comment`; people who may resolve delete any with `resolve`.
+    removeComment: (grant: ActionGrant, threadId: string, commentId: string) => {
+      spend(grant, ["comment", "resolve"], threadId)
+      return comments.removeComment(commentId)
+    },
   }
 
   async function readJson(event: H3Event): Promise<unknown> {
@@ -286,7 +329,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const [denied, allowed] = await access(event, "comment")
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return respond(await comments.create({ ...parsed.output, author: allowed.author }))
+        return respond(await writes.create(allowed.grant, { ...parsed.output, author: allowed.author }))
       }
     }
 
@@ -301,13 +344,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const [denied, allowed] = await access(event, "comment", current)
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return respond(await comments.reply(id, { ...parsed.output, author: allowed.author }))
+        return respond(await writes.reply(allowed.grant, id, { ...parsed.output, author: allowed.author }))
       }
       if (method === "POST" && (action === "resolve" || action === "reopen")) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        if (action === "reopen") return respond(await comments.reopen(id))
-        return respond(await comments.resolve(id, { by: allowed.author ?? { id: "anonymous", name: "Someone" } }))
+        if (action === "reopen") return respond(await writes.reopen(allowed.grant, id))
+        return respond(await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
       }
       if (method === "DELETE" && action === "comments" && parts[3]) {
         const commentId = decodeURIComponent(parts[3])
@@ -315,16 +358,16 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
         if (denied) return failure(denied)
-        // Authors delete their own comments; people who may resolve delete any.
-        if (comment.author.id !== allowed.author?.id && !await comments.can({ user: allowed.user, action: "resolve", thread: current })) {
-          return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
-        }
-        return respond(await comments.removeComment(commentId))
+        if (comment.author.id === allowed.author?.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Someone else's comment: only people who may resolve delete it.
+        const [cannot, resolver] = await access(event, "resolve", current)
+        if (cannot) return failure(cannot)
+        return respond(await writes.removeComment(resolver.grant, id, commentId))
       }
       if (method === "DELETE" && !action) {
-        const [denied] = await access(event, "resolve", current)
+        const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        return respond(await comments.remove(id))
+        return respond(await writes.remove(allowed.grant, id))
       }
     }
 
