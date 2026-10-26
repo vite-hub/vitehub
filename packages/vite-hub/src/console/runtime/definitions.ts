@@ -279,6 +279,8 @@ export function parseConsoleRecordLink(value: unknown): ConsoleRecord["link"] {
   const link = record(value)
   if (!link || !text(link.href) || !text(link.label)) return undefined
   if (!/^\/(?!\/)/.test(link.href) && !/^https:\/\//i.test(link.href)) return undefined
+  // Browsers normalize backslashes and strip tabs/newlines before resolving app paths.
+  if (link.href.startsWith("/") && /[\\\t\n\r]/.test(link.href)) return undefined
   return { href: link.href, label: link.label }
 }
 
