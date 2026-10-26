@@ -40,7 +40,7 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string } = {}) {
+async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string, token?: string | undefined } = {}) {
   fake.commit("main", options.files ?? {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
@@ -60,7 +60,7 @@ async function setup(options: { database?: boolean, files?: Record<string, strin
     store: {
       provider: "github",
       repository: "onmax/repo",
-      token: "token",
+      ...("token" in options ? (options.token === undefined ? {} : { token: options.token }) : { token: "token" }),
       branch: "main",
       root: options.root ?? "",
       refs: { published: "main", draft: "vitehub/content" },
@@ -72,12 +72,20 @@ async function setup(options: { database?: boolean, files?: Record<string, strin
     ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
     collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.route ? { route: options.route } : {}) }) },
     logger: false,
+    ...(options.authorize ? { authorize: options.authorize } : {}),
   })
   cleanup.push(() => content.dispose())
   return { content, posts: content.collection("posts"), workspace }
 }
 
 describe("Content on the GitHub store", () => {
+  it("fails a request with a coded error that names the missing token", async () => {
+    const { content, posts } = await setup({ token: undefined, route: id => `/posts/${id}` })
+    const named = { code: "WORKSPACE_R0072", message: expect.stringContaining("VITEHUB_GITHUB_TOKEN") }
+    await expect(content.resolve("/posts/a", { ref: "draft" })).rejects.toMatchObject(named)
+    await expect(posts.get("a")).rejects.toMatchObject(named)
+  })
+
   it("reads published documents from the main branch", async () => {
     const { posts } = await setup()
     expect(await posts.get("a")).toMatchObject({ data: { title: "A" }, body: "Body\n" })
