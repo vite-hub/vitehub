@@ -52,15 +52,16 @@ export default defineEventHandler(async (event) => {
 | `list({ scope?, page?, status?, limit? })` | Threads with their comments, newest activity first. Without `scope`, threads of every scope. `limit` is 200 by default and 500 at most. | `COMMENTS_NOT_INSTALLED` |
 | `get(id)` | One thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByNumber(scope, number)` | Thread `#number` of a scope. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
+| `getByComment(commentId)` | The thread that holds a comment, for routes that have only the comment id. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `create({ scope?, page, anchor?, context?, metadata?, body, author, mentions? })` | The new thread, with its first comment and the next number of its scope. Runs `onComment`. `scope` is `'pages'` by default, and a page thread needs `anchor`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, mentions? })` | The new comment. Runs `onComment`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `reply(threadId, { body, author, mentions? }, { allowResolved? })` | The new comment. Runs `onComment`. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and all its comments. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `removeComment(commentId)` | Nothing. Deleting the first comment deletes the thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `edit(commentId, { body, mentions? })` | The comment, with the new text and `editedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT` |
 | `removeScope(scope)` | `{ removed }`, the number of threads it deleted with their comments. | `COMMENTS_NOT_INSTALLED` |
-| `people({ query, user })` | At most 20 `{ id, name }` whose name contains `query`. | `COMMENTS_NOT_INSTALLED` |
+| `people({ query, user, scope? })` | At most 20 `{ id, name }` whose name contains `query`: the `people` option, else the authors of `scope`, `'pages'` by default. | `COMMENTS_NOT_INSTALLED` |
 | `can({ user, action, thread?, scope? })` | `true` when the `authorize` policy allows the action. `scope` is the thread's, else `'pages'`. | None |
 | `sync(threadId)` | Nothing. With `forge`, brings the thread's pull request comments in line now, and posts what failed before. | None |
 | `flush()` | Nothing. Waits for the pull request syncs that earlier changes started. | None |

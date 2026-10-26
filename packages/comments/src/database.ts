@@ -151,4 +151,5 @@ const commentForge = sqliteTable("vitehub_comment_forge", {
  * The tables behind Comments. `vitehub_comment_forge` holds the pull request comments of `defineComments({ forge })`. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
  * yourself only to a Database that you configure without ViteHub. Apply the migration that `vitehub db generate` writes.
  */
-export const commentsSchema: { commentThreads: CommentThreadsTable, comments: CommentsTable, commentForge: CommentForgeTable } = { commentThreads, comments, commentForge }
+// The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentForge: CommentForgeTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentForge: commentForge }

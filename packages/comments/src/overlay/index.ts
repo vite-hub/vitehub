@@ -135,6 +135,12 @@ class CommentsOverlay extends HTMLElement {
 
     const [error, session] = await api.session()
     if (error || !session.can.read) {
+      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
+      // route already cleared the cookie.
+      if (!error && !new URLSearchParams(location.search).has(commentsHintQuery)) {
+        this.exit()
+        return
+      }
       this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
       return
     }

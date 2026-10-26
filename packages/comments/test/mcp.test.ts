@@ -49,7 +49,7 @@ describe("Comments MCP tools", () => {
     const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
     const viewer = { id: "cy", name: "Cy" }
     expect((await call("comments_get_thread", { id: thread!.id }, viewer)).isError).toBeUndefined()
-    expect(await call("comments_reply", { id: thread!.id, body: "No" }, viewer)).toEqual({ text: "Comments authorize does not allow comment for this user.", isError: true })
+    expect(await call("comments_reply", { id: thread!.id, body: "No" }, viewer)).toEqual({ text: expect.stringContaining("denied `comment` for this user"), isError: true })
     expect((await call("comments_get_thread", { id: "missing" })).isError).toBe(true)
     expect((await call("comments_reply", { id: thread!.id }, undefined)).isError).toBe(true)
   })

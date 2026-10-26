@@ -21,6 +21,7 @@ import type {
   EditCommentInput,
   ListCommentThreadsOptions,
   ReplyInput,
+  ReplyOptions,
 } from "./types.ts"
 
 export { describeCommentContext } from "./context.ts"
@@ -35,6 +36,8 @@ export interface Comments {
   /** Threads with their comments, newest activity first. */
   list(options?: ListCommentThreadsOptions): Promise<Result<CommentThread[], Codes<"COMMENTS_NOT_INSTALLED">>>
   get(id: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** The thread that holds a comment, for a route that has only the comment id. */
+  getByComment(commentId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Thread `#number` of a scope. */
   getByNumber(scope: string, number: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /**
@@ -43,7 +46,7 @@ export interface Comments {
    */
   create(input: CreateCommentThreadInput): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_INVALID_INPUT">>>
   /** Adds a comment to an open thread. Runs `onComment`. */
-  reply(threadId: string, input: ReplyInput): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
+  reply(threadId: string, input: ReplyInput, options?: ReplyOptions): Promise<Result<Comment, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND" | "COMMENTS_INVALID_INPUT" | "COMMENTS_RESOLVED">>>
   resolve(threadId: string, options: { by: CommentAuthor }): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   reopen(threadId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Deletes a thread and all its comments. */
@@ -59,8 +62,11 @@ export interface Comments {
    * defaults to the thread's, else `"pages"`.
    */
   can(context: Omit<CommentsAuthorizeContext, "scope"> & { scope?: string }): Promise<boolean>
-  /** People that `@` suggests: the `people` option, or the authors of earlier comments. */
-  people(context: { query: string, user: CommentsAuthorizeContext["user"] }): Promise<Result<CommentMention[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  /**
+   * People that `@` suggests: the `people` option, or the authors of earlier comments in the scope, `"pages"` by
+   * default, so names from an app's own scopes never reach the overlay.
+   */
+  people(context: { query: string, user: CommentsAuthorizeContext["user"], scope?: string }): Promise<Result<CommentMention[], Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
    * With `forge`: brings the thread's pull request comments in line with the thread now, and posts what failed
    * before. Every change starts this on its own; `flush()` waits for it.
@@ -121,6 +127,13 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const [thread] = await withForge([await current.get(id)].filter(found => found !== undefined))
       return thread ? [undefined, thread] : notFound(id)
     },
+    async getByComment(commentId) {
+      const current = store()
+      if (!current) return notInstalled()
+      const threadId = await current.threadOf(commentId)
+      const thread = threadId ? await current.get(threadId) : undefined
+      return thread ? [undefined, thread] : notFound(commentId)
+    },
     async getByNumber(scope, number) {
       const current = store()
       if (!current) return notInstalled()
@@ -140,14 +153,14 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       changed(thread.id)
       return [undefined, thread]
     },
-    async reply(threadId, input) {
+    async reply(threadId, input, replyOptions = {}) {
       const current = store()
       if (!current) return notInstalled()
       const parsed = v.safeParse(replySchema, input)
       if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
       const thread = await current.get(threadId)
       if (!thread) return notFound(threadId)
-      if (thread.status === "resolved") return [commentsErrors.COMMENTS_RESOLVED(), undefined]
+      if (thread.status === "resolved" && !replyOptions.allowResolved) return [commentsErrors.COMMENTS_RESOLVED(), undefined]
       const comment = await current.reply(threadId, parsed.output)
       await notify({ ...thread, comments: [...thread.comments, comment] }, comment)
       changed(threadId)
@@ -211,10 +224,10 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
       return await options.authorize({ ...context, scope }) !== false
     },
-    async people({ query, user }) {
+    async people({ query, user, scope = commentsPageScope }) {
       const current = store()
       if (!current) return notInstalled()
-      const all = options.people ? await options.people({ query, user }) : await current.authors(50)
+      const all = options.people ? await options.people({ query, user }) : await current.authors(scope, 50)
       const needle = query.trim().toLowerCase()
       return [undefined, all.filter(person => !needle || person.name.toLowerCase().includes(needle)).slice(0, 20).map(({ id, name }) => ({ id, name }))]
     },
