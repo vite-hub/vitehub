@@ -107,6 +107,7 @@ async function cloudflareSocket(
     },
   }) as Response & { webSocket?: CDPSocket | null }
   if (!response.webSocket) {
+    void response.body?.cancel().catch(() => {})
     throw browserProviderError("cdp", "connect through the Cloudflare Browser binding", { status: response.status })
   }
   response.webSocket.accept?.()
