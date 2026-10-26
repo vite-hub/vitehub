@@ -150,3 +150,8 @@ vitehub content sitemap [--site <url>] [--xml]
 ```
 
 Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. The commands call a guarded endpoint that exists only on the Vite Development Server, which forwards each operation into the Nitro dev environment where `server/content.ts` runs. They do not reach a deployed app. `handleContentDevRequest()` from `@vite-hub/content/runtime/dev` is the Nitro handler; it is not a public runtime API.
+
+
+## Console MCP
+
+With the Console enabled, ViteHub MCP lists readable collections and documents, reads drafts, and saves drafts through the same Content actions as the editor. Each call checks `content.can()` with the Console user. Saves require `ifDigest` and respect edit leases. The application module loads on the first call. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp).

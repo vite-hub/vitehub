@@ -238,11 +238,17 @@ async function consoleKVHandler(event: ConsoleRequestEvent): Promise<
     return response
   }
 
-  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
-  const prefix = url.searchParams.get("prefix") ?? ""
+  return listConsoleKVKeys(url.searchParams)
+}
+
+/** The bounded key listing shared by the Console and MCP. */
+export async function listConsoleKVKeys(query: URLSearchParams): Promise<{ cursor?: string; error?: string; errorCode?: "cursor_expired"; keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] }> {
+  const inspection = getConsoleKV()
+  const selected = selectStore(inspection.storage, inspection.stores, query.get("store"))
+  const prefix = query.get("prefix") ?? ""
   if (prefix.length > maximumPrefixLength) throw requestError(400, "prefix is too long.")
-  const limit = limitParameter(url.searchParams.get("limit"))
-  const cursor = url.searchParams.get("cursor") || undefined
+  const limit = limitParameter(query.get("limit"))
+  const cursor = query.get("cursor") || undefined
   const pageResult = await selected.storage.list({ cursor, limit, prefix })
   const response: { keys: string[]; limit: number; prefix: string; store: string; stores: readonly string[] } = {
     keys: [],

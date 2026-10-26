@@ -294,7 +294,9 @@ describe("Console document editor discovery", () => {
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
       { entry, export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console", section: "content" },
     ])
-    expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    expect(source).toContain(`import { installConsoleDocuments, loadConsoleDocumentActions } from "vite-hub/console/documents"`)
+    expect(source).toContain('registerContentMcpTools(() => loadConsoleDocumentActions("content"))')
+    expect(source).toContain('import { registerContentMcpTools } from "vite-hub/_internal/content/runtime/console"')
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from "vite-hub/_internal/content/runtime/console"`)
     expect(source).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)

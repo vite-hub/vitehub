@@ -1,3 +1,5 @@
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { kvMcpTools } from "./kv-mcp.ts"
 import { resolve } from "node:path"
 
 import { installConsoleKVScope, resolveConsoleKV } from "../../internal.ts"
@@ -11,6 +13,7 @@ export function installConsoleKV(
   storage: KVStorage,
   stores: readonly string[] = ["default"],
 ): ConsoleKVInspection {
+  registerViteHubMcpTools("console-kv", kvMcpTools())
   const installedStores = [...new Set(stores.filter(store => store.length > 0))]
     .filter(store => store !== "default")
     .sort()

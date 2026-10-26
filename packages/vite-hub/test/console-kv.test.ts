@@ -1,3 +1,4 @@
+import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Readable } from "node:stream"
 
@@ -271,5 +272,27 @@ describe("Console KV inspection", () => {
       errorCode: "cursor_expired",
     })
     await expect(kvHandler(event())).resolves.not.toHaveProperty("errorCode")
+  })
+})
+
+describe("KV MCP tools", () => {
+  it("lists keys with pagination and store checks, without values or writes", async () => {
+    const { storage, writes } = memoryKV({
+      default: new Map([["a", "secret"], ["b", "token"]]),
+      cache: new Map([["cached", true]]),
+    })
+    installConsoleKV("/project", storage, ["cache"])
+    const tool = getViteHubMcpTools().find(tool => tool.name === "kv_list_keys")!
+    expect(tool.section).toBe("kv")
+    expect(tool.annotations).toEqual({ readOnlyHint: true })
+    const first = await tool.call({ limit: 1 }, { user: null, event: null })
+    expect(first.structured).toMatchObject({ keys: ["a"], cursor: "1" })
+    expect(first.text).not.toContain("secret")
+    expect((await tool.call({ limit: 1, cursor: "1" }, { user: null, event: null })).structured).toMatchObject({ keys: ["b"] })
+    expect((await tool.call({ store: "cache" }, { user: null, event: null })).structured).toMatchObject({ keys: ["cached"] })
+    await expect(tool.call({ store: "missing" }, { user: null, event: null })).rejects.toThrow("KV store not found.")
+    await expect(tool.call({ limit: 501 }, { user: null, event: null })).rejects.toThrow("limit")
+    await expect(tool.call({ prefix: {} }, { user: null, event: null })).rejects.toThrow("Use only")
+    expect(writes).not.toHaveBeenCalled()
   })
 })

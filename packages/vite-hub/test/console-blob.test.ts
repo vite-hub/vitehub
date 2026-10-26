@@ -1,3 +1,4 @@
+import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ViteHubError } from "@vite-hub/runtime"
 
@@ -236,5 +237,29 @@ describe("Console Blob inspection", () => {
     installConsoleBlob("/project", storage)
 
     await expect(blobHandler(event())).rejects.toMatchObject({ message: "Provider unavailable", statusCode: 502 })
+  })
+})
+
+describe("Blob MCP tools", () => {
+  it("registers without reading and returns bounded metadata without URLs or custom fields", async () => {
+    const { list, reads, storage, writes } = memoryBlob({ default: [
+      object("a.txt", { url: "https://secret.test/token", customMetadata: { token: "secret" }, size: 3 }),
+      object("b.txt"),
+    ] })
+    installConsoleBlob("/project", storage)
+    expect(list).not.toHaveBeenCalled()
+    const tool = getViteHubMcpTools().find(tool => tool.name === "blob_list_objects")!
+    expect(tool.section).toBe("blob")
+    expect(tool.annotations).toEqual({ readOnlyHint: true })
+    const result = await tool.call({ limit: 1 }, { user: null, event: null })
+    expect(result.structured).toMatchObject({ blobs: [{ pathname: "a.txt", size: 3 }], hasMore: true, cursor: "1" })
+    expect(result.text).not.toContain("secret")
+    expect(result.text).not.toContain("customMetadata")
+    expect((await tool.call({ cursor: "1", limit: 1 }, { user: null, event: null })).structured).toMatchObject({ blobs: [{ pathname: "b.txt" }] })
+    await expect(tool.call({ store: "missing" }, { user: null, event: null })).rejects.toThrow("Blob store not found.")
+    await expect(tool.call({ limit: 251 }, { user: null, event: null })).rejects.toThrow("limit")
+    await expect(tool.call({ showVitehub: true }, { user: null, event: null })).rejects.toThrow("Use only")
+    expect(reads).not.toHaveBeenCalled()
+    expect(writes).not.toHaveBeenCalled()
   })
 })

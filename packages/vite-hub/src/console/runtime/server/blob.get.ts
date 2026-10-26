@@ -84,13 +84,18 @@ function serializeBlob(object: BlobObject): ConsoleBlobObject {
 async function consoleBlobHandler(event: ConsoleRequestEvent): Promise<ConsoleBlobPage> {
   assertConsoleRequest(event)
   const url = consoleRequestURL(event)
+  return listConsoleBlobs(url.searchParams)
+}
+
+/** The bounded metadata listing shared by the Console and MCP. */
+export async function listConsoleBlobs(query: URLSearchParams): Promise<ConsoleBlobPage> {
   const inspection = getConsoleBlob()
-  const selected = selectStore(inspection.storage, inspection.stores, url.searchParams.get("store"))
-  const prefix = optionalParameter(url.searchParams.get("prefix"), "prefix") ?? ""
-  const cursor = optionalParameter(url.searchParams.get("cursor"), "cursor")
-  const limit = limitParameter(url.searchParams.get("limit"))
-  const folded = url.searchParams.get("folded") === "true"
-  const showVitehub = url.searchParams.get("showVitehub") === "true"
+  const selected = selectStore(inspection.storage, inspection.stores, query.get("store"))
+  const prefix = optionalParameter(query.get("prefix"), "prefix") ?? ""
+  const cursor = optionalParameter(query.get("cursor"), "cursor")
+  const limit = limitParameter(query.get("limit"))
+  const folded = query.get("folded") === "true"
+  const showVitehub = query.get("showVitehub") === "true"
   const visible = (pathname: string) => showVitehub || !isVitehubOwnedPath(pathname)
   let page = unwrap(await selected.storage.list({ cursor, folded, limit, prefix }))
   const blobs = page.blobs.filter(object => visible(object.pathname))

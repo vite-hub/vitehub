@@ -226,3 +226,8 @@ The D1 journal supports Drizzle queries and atomic writes through `console.resol
 The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within a combined 10 MiB limit. Configure durable Blob storage to keep the bytes, and content-enabled Invocation storage to keep message references. Agents can return published Blob image URLs in Markdown. See [Console usage](https://vitehub.dev/docs/development/console#image-upload-boundaries).
 
 Console image uploads require invocation to be enabled. The Console fixes the Agent, route, and invoker profile when submission starts, so switching Agents during an upload cannot redirect the input. Uploads without a usable Blob serving URL are removed before the request fails.
+
+
+## ViteHub MCP
+
+The Console serves `POST /_vitehub/mcp`. It exposes Content draft tools, Database names and schemas, KV keys, Blob metadata, and Comments tools within the caller's Console sections. Env values, credentials, tokens, KV values, Database rows, and Blob contents are not exposed. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp) for the tools and access rules.

@@ -1,3 +1,4 @@
+import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -39,6 +40,7 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
 
 afterEach(() => {
   calls.length = 0
+  Reflect.deleteProperty(globalThis, Symbol.for("vitehub.mcp.tools"))
   Reflect.deleteProperty(globalThis, policyKey)
 })
 
@@ -87,4 +89,20 @@ describe("ViteHub MCP", () => {
     const denied = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
     expect(denied.status).toBeGreaterThanOrEqual(401)
   })
+})
+
+
+it("runs registered Database tools only inside installed and allowed sections", async () => {
+  installConsoleDatabase("/mcp-test", {}, [])
+  installConsoleSections("/mcp-test", ["databases", "comments"])
+  installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
+  const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+  expect(list.body.result.tools.map((tool: { name: string }) => tool.name)).toEqual(["database_list_databases", "database_get_schema"])
+  const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
+  expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
+  installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
+  expect((await rpc(call)).body.error.code).toBe(-32602)
+  installConsoleAccess({ mode: "open" })
+  installConsoleSections("/mcp-test", ["comments"])
+  expect((await rpc(call)).body.error.code).toBe(-32602)
 })
