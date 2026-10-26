@@ -297,49 +297,52 @@ async function listEntries(root: string, paths: string[]) {
   return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
 }
 
-function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: number): BlobListResult {
+async function foldedList(root: string, paths: string[], options: BlobListOptions, start: number): Promise<BlobListResult> {
   const prefix = options.prefix || ""
   const limit = options.limit ?? 1000
   const folders = new Set<string>()
-  const blobs: BlobObject[] = []
+  const selected: string[] = []
 
   // A zero limit is an empty page. Keep folder discovery consistent with the
   // existing folded listing behavior, but never emit a blob when callers ask
   // for no blobs.
   if (limit <= 0) {
-    for (const entry of entries.slice(start)) {
-      const remainder = entry.path.slice(prefix.length)
+    for (const pathname of paths.slice(start)) {
+      const remainder = pathname.slice(prefix.length)
       const firstSlash = remainder.indexOf("/")
-      if (firstSlash !== -1) folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+      if (firstSlash !== -1) folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
     }
     return {
-      blobs,
-      cursor: start < entries.length ? encodeCursor(start) : undefined,
+      blobs: [],
+      cursor: start < paths.length ? encodeCursor(start) : undefined,
       folders: [...folders].sort((left, right) => left.localeCompare(right)),
-      hasMore: start < entries.length,
+      hasMore: start < paths.length,
     }
   }
 
   let consumed = start
 
-  for (const entry of entries.slice(start)) {
+  for (const pathname of paths.slice(start)) {
     consumed += 1
-    const remainder = entry.path.slice(prefix.length)
+    const remainder = pathname.slice(prefix.length)
     const firstSlash = remainder.indexOf("/")
     if (firstSlash !== -1) {
-      folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+      folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
       continue
     }
 
-    blobs.push(toBlobObject(entry))
-    if (blobs.length >= limit) break
+    selected.push(pathname)
+    if (selected.length >= limit) break
   }
 
+  const entries = await listEntries(root, selected)
+  // Selected files removed during metadata reads must not shift the next live key past the cursor.
+  const next = consumed - selected.length + entries.length
   return {
-    blobs,
-    cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
+    blobs: entries.map(toBlobObject),
+    cursor: consumed < paths.length ? encodeCursor(next) : undefined,
     folders: [...folders].sort((left, right) => left.localeCompare(right)),
-    hasMore: consumed < entries.length,
+    hasMore: consumed < paths.length,
   }
 }
 
@@ -518,7 +521,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
         const files = await walkFiles(root)
         const paths = options.prefix ? files.filter(path => path.startsWith(options.prefix!)) : files
         if (options.folded) {
-          return foldedList(await listEntries(root, paths), options, start)
+          return await foldedList(root, paths, options, start)
         }
 
         const limit = options.limit ?? 1000
