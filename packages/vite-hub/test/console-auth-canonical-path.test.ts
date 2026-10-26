@@ -1,4 +1,5 @@
 import { H3Event } from "h3"
+import { createApp, createRouter, eventHandler, toWebHandler } from "h3-v1"
 import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
 import { consoleEventPath } from "../src/console/auth-path.ts"
@@ -48,6 +49,21 @@ describe("Console canonical authorization paths", () => {
     expect((await handleCloudflareAccessConsoleRequest(event, () => ({ audience: "aud", teamDomain: "team.cloudflareaccess.com" })))?.status).toBe(401)
     expect(request.url).toContain("_%76itehub")
   })
+  it("protects the handler selected by H3 1 after decoding an encoded question mark", async () => {
+    const { access, requireAuthAccessRoutes, requireSession } = appAccess()
+    const app = createApp()
+    const router = createRouter()
+    router.get("/_vitehub", eventHandler(async (event) => {
+      await access.check(event)
+      return await handleCloudflareAccessConsoleRequest(event, () => ({ audience: "aud", teamDomain: "team.cloudflareaccess.com" }))
+    }))
+    app.use(router)
+    const response = await toWebHandler(app)(new Request("https://app.example.com/_%76itehub%3Fignored"))
+    expect(response.status).toBe(401)
+    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(expect.anything(), [0], undefined, [0], { redirectToSignIn: false })
+    expect(requireSession).not.toHaveBeenCalled()
+  })
+
   it("preserves the event pathname after an H3 mount rewrites it", () => {
     const request = new Request("https://app.example.com/portal/_vitehub/rpc/__call")
     const event = new H3Event(request)

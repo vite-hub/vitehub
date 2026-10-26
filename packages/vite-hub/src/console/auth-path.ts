@@ -30,6 +30,9 @@ export function cloudflareAccessIssuer(teamDomain: string): string | undefined {
 /** Match guards against H3's routed path, while retaining the original request for Auth. */
 export function consoleEventPath(event: object, request: Request): string {
   if ("url" in event && event.url instanceof URL) return event.url.pathname
-  // H3 1 and bare Requests have no event URL. Apply H3's canonical escape handling.
+  // H3 1 has already decoded and possibly rewritten this path before routing.
+  // Its router treats decoded question marks as query boundaries.
+  if ("path" in event && typeof event.path === "string") return event.path.split("?", 1)[0]!
+  // Bare Requests have no routed path. Apply H3 2's canonical escape handling.
   return normalizeRoute(new URL(request.url).pathname)
 }
