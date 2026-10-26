@@ -1,30 +1,32 @@
 ---
 title: ViteHub documentation
-description: Server Primitives and Agents for Vite applications, one product section each, deployed on the host you select.
+description: Add server features to your Vite or Nuxt app, build an Agent, and deploy it on your chosen host.
 navigation: false
 icon: i-lucide-book-open
 ---
 
-ViteHub adds server features to Vite applications. Each **Server Primitive** has
-a focused API, configuration, and docs section. Trusted
-application code calls it directly. An **Agent** can receive selected
-operations from a primitive through its Agent capability page.
+Start with [Installation](/docs/getting-started/installation), then
+[save your first value](/docs/getting-started/first-server-primitive) or
+[run your first Agent](/docs/getting-started/first-agent).
+Both quickstarts run locally without an account or model credentials.
 
-```bash [Terminal]
-pnpm add vite-hub
-```
+::docs-learning-paths
+- [Get started](/docs/getting-started) Install in Nuxt or Vite, then save a value or run your first Agent.
+- [Server Primitives](/docs/getting-started/server-primitives) Choose storage, background work, access, delivery, or file APIs.
+- [Agents](/docs/agents) Define an Agent, add tools and context, then inspect its work.
+- [UI](/docs/ui) Build with chat and inspection blocks, then customize components.
+- [Develop and deploy](/docs/getting-started/build-and-deploy) Run locally, choose a host, configure persistence, and verify deployment.
+- [Reference](/docs/reference) Look up shared configuration, imports, file conventions, and errors.
+::
 
-Register `vitehub()` in `vite.config.ts`, select the primitives the application
-uses, then call the documented import from server code. The
-[installation guide](/docs/getting-started/installation) covers Vite, Nuxt, and
-the owner packages.
+Want to build a complete application? Follow a [project tutorial](/tutorials).
+If a coding agent is doing the work, give it the
+[ViteHub skill or docs MCP server](/docs/getting-started/ai-resources).
 
-Most product sections use the same task lanes when they apply, then label each
-page by the job it helps you do. Start with the Tutorial for a first
-working result. Use Guides for focused tasks, Reference for exact imports and
-options, Deploy for host choices, and Operate for limits and failure behavior.
-Some smaller sections combine these jobs on fewer pages. Open a package below,
-or press the search key to jump to any page.
+## Browse by feature
+
+Each product keeps its quickstart, configuration, API, host support, and errors
+together. Use the catalog below to look up a feature you already know you need.
 
 ::docs-catalog
 ::

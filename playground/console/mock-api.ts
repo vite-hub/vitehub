@@ -1,3 +1,4 @@
+import { authFixture } from "./auth-fixture.ts";
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
 import * as v from "valibot"
@@ -32,7 +33,23 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
-const sections = ["env", "connections", "agents", "usage", "blob", "databases", "email", "kv", "rate-limits", "sandbox-tasks", "workspaces", "workflows", "queues", "schedules"] as const
+const sections = [
+  "auth",
+  "env",
+  "connections",
+  "agents",
+  "usage",
+  "blob",
+  "databases",
+  "email",
+  "kv",
+  "rate-limits",
+  "sandbox-tasks",
+  "workspaces",
+  "workflows",
+  "queues",
+  "schedules",
+] as const;
 const definitions = {
   "rate-limits": [
     {
@@ -160,8 +177,8 @@ async function captureEmailOutbox(): Promise<void> {
   }).catch(() => undefined)
   await capture.send({
     from: "hello@acme.test",
-    headers: { "Authorization": "Bearer re_playground_secret" },
-    html: "<p onclick=\"steal()\">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert(\"xss\")</script>",
+    headers: { Authorization: "Bearer re_playground_secret" },
+    html: '<p onclick="steal()">Welcome, Linus <img src=x onerror=alert(1)></p>\n<script>alert("xss")</script>',
     preheader: "Start here",
     subject: "Welcome to Acme",
     text: "Welcome, Linus.",
@@ -203,15 +220,76 @@ let scheduleRunCount = 0
 
 const blobStores = {
   default: [
-    { contentType: "image/png", customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" }, httpEtag: "\"7d3f1c9a\"", httpMetadata: { cacheControl: "public, max-age=31536000" }, pathname: "screenshots/console-empty-states/kv-dark.png", size: 184_320, uploadedAt: "2026-08-30T16:41:12.000Z", urlAvailable: true as const },
-    { contentType: "image/png", customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" }, httpEtag: "\"5b2e0a44\"", httpMetadata: { cacheControl: "public, max-age=31536000" }, pathname: "screenshots/console-empty-states/kv-light.png", size: 176_128, uploadedAt: "2026-08-30T16:41:13.000Z", urlAvailable: true as const },
-    { contentType: "application/json", customMetadata: {}, httpEtag: "\"c01d2e3f\"", httpMetadata: {}, pathname: "exports/usage-2026-08.json", size: 24_576, uploadedAt: "2026-08-29T06:00:00.000Z" },
-    { contentType: "text/csv", customMetadata: { source: "billing" }, httpEtag: "\"9a8b7c6d\"", httpMetadata: { contentDisposition: "attachment; filename=\"usage-september.csv\"" }, pathname: "exports/usage-september.csv", size: 2_048, uploadedAt: "2026-09-01T06:00:00.000Z" },
-    { contentType: "application/pdf", customMetadata: {}, httpEtag: "\"e4f5a6b7\"", httpMetadata: {}, pathname: "invoices/inv_2026_09.pdf", size: 96_201, uploadedAt: "2026-09-01T06:00:04.000Z", urlAvailable: true as const },
+    {
+      contentType: "image/png",
+      customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" },
+      httpEtag: '"7d3f1c9a"',
+      httpMetadata: { cacheControl: "public, max-age=31536000" },
+      pathname: "screenshots/console-empty-states/kv-dark.png",
+      size: 184_320,
+      uploadedAt: "2026-08-30T16:41:12.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "image/png",
+      customMetadata: { agent: "interface-engineer", invocation: "ainv_console_empty_states" },
+      httpEtag: '"5b2e0a44"',
+      httpMetadata: { cacheControl: "public, max-age=31536000" },
+      pathname: "screenshots/console-empty-states/kv-light.png",
+      size: 176_128,
+      uploadedAt: "2026-08-30T16:41:13.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "application/json",
+      customMetadata: {},
+      httpEtag: '"c01d2e3f"',
+      httpMetadata: {},
+      pathname: "exports/usage-2026-08.json",
+      size: 24_576,
+      uploadedAt: "2026-08-29T06:00:00.000Z",
+    },
+    {
+      contentType: "text/csv",
+      customMetadata: { source: "billing" },
+      httpEtag: '"9a8b7c6d"',
+      httpMetadata: { contentDisposition: 'attachment; filename="usage-september.csv"' },
+      pathname: "exports/usage-september.csv",
+      size: 2_048,
+      uploadedAt: "2026-09-01T06:00:00.000Z",
+    },
+    {
+      contentType: "application/pdf",
+      customMetadata: {},
+      httpEtag: '"e4f5a6b7"',
+      httpMetadata: {},
+      pathname: "invoices/inv_2026_09.pdf",
+      size: 96_201,
+      uploadedAt: "2026-09-01T06:00:04.000Z",
+      urlAvailable: true as const,
+    },
   ],
   uploads: [
-    { contentType: "image/svg+xml", customMetadata: { attachment: "desktop-layout.svg" }, httpEtag: "\"11aa22bb\"", httpMetadata: {}, pathname: "attachments/ainv_image_previews/desktop-layout.svg", size: 1_842, uploadedAt: "2026-09-05T18:00:00.000Z", urlAvailable: true as const },
-    { contentType: "image/svg+xml", customMetadata: { attachment: "mobile-layout.svg" }, httpEtag: "\"33cc44dd\"", httpMetadata: {}, pathname: "attachments/ainv_image_previews/mobile-layout.svg", size: 1_311, uploadedAt: "2026-09-05T18:00:00.000Z", urlAvailable: true as const },
+    {
+      contentType: "image/svg+xml",
+      customMetadata: { attachment: "desktop-layout.svg" },
+      httpEtag: '"11aa22bb"',
+      httpMetadata: {},
+      pathname: "attachments/ainv_image_previews/desktop-layout.svg",
+      size: 1_842,
+      uploadedAt: "2026-09-05T18:00:00.000Z",
+      urlAvailable: true as const,
+    },
+    {
+      contentType: "image/svg+xml",
+      customMetadata: { attachment: "mobile-layout.svg" },
+      httpEtag: '"33cc44dd"',
+      httpMetadata: {},
+      pathname: "attachments/ainv_image_previews/mobile-layout.svg",
+      size: 1_311,
+      uploadedAt: "2026-09-05T18:00:00.000Z",
+      urlAvailable: true as const,
+    },
   ],
 } as const
 
@@ -405,21 +483,74 @@ function databaseInspection(url: URL): Record<string, unknown> {
   }
 }
 
+/**
+ * Fails chosen Console routes, so a contributor can see each error state. Set the `playground-fail` cookie to
+ * `<route>=<status>` pairs, such as `agents=401,invocations=401` or `sections=503`. A route matches the path after
+ * `/api/_vitehub/console/`, so `agents` also fails `agents/<name>/invocations`.
+ */
+function playgroundFailure(request: IncomingMessage, path: string): number | undefined {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-fail="))
+  if (!cookie) return undefined
+  const route = path.slice("/api/_vitehub/console/".length)
+  for (const pair of decodeURIComponent(cookie.slice("playground-fail=".length)).split(",")) {
+    const [name, status] = pair.split("=")
+    if (name && (route === name || route.startsWith(`${name}/`)) && Number(status) >= 400) return Number(status)
+  }
+  return undefined
+}
+
+const playgroundFailureMessages: Record<number, string> = {
+  401: "The Cloudflare Access token is not valid for this Console.",
+  403: "This account cannot read this Console section.",
+  500: "The Console handler threw an error.",
+  503: "The Console server is restarting.",
+}
+
 async function handleAPI(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   const path = url.pathname
   if (!path.startsWith("/api/_vitehub/console/")) return false
 
+  const failure = playgroundFailure(request, path)
+  if (failure) {
+    response.statusCode = failure
+    response.setHeader("content-type", "text/plain; charset=utf-8")
+    response.end(playgroundFailureMessages[failure] ?? `Playground failure ${failure}.`)
+    return true
+  }
+
   if (path === "/api/_vitehub/console/env") {
-    json(response, { entries: [
+    // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
+    const envEntries = [
+      { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
+      { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.executor.url", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientId", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
+      { path: "env.server.pubsub.topic", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.audience", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.serviceAccount", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.labeller.adminToken", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.labeller.dryRun", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
       { path: "env.server.labeller.minConfidence", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
+      { path: "env.server.labeller.labels.GitHub.color.textColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.labeller.labels.GitHub.color.backgroundColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
       { path: "env.server.appName", source: "literal", secret: false, required: false, hasDefault: false },
-    ] })
+      { source: "literal", secret: false, required: false, hasDefault: false },
+      { source: "literal", secret: false, required: false, hasDefault: false },
+    ]
+    // `?status=1` answers like inspectServerEnv: two required values are missing and the vault fails once.
+    const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
+    json(response, { entries: envEntries, status: url.searchParams.has("status") ? envEntries.map(entry => ({
+      blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
+      path: entry.path,
+      status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
+    })) : undefined })
     return true
   }
   if (path === "/api/_vitehub/console/sections") {
@@ -789,6 +920,10 @@ export function consoleMockAPI(): Plugin {
             response.statusCode = 302
             response.setHeader("location", "/_vitehub/")
             response.end()
+            return
+          }
+          if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
+            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/connections") {

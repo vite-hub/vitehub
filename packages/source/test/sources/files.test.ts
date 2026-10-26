@@ -18,6 +18,27 @@ describe("@vite-hub/source files()", () => {
     await expect(docs.getItem("logo.png", { rootDir: "/" })).resolves.toMatchObject({ mediaType: "image/png", content: new Uint8Array([1, 2]) })
   })
 
+  it("keeps held files intact when a caller edits its key list", async () => {
+    const docs = files({ "b.md": "B", "a.md": "A" })
+    const first = createSource(docs)
+    const second = createSource(docs)
+    const keys = await first.keys()
+    keys.splice(0, keys.length, "missing.md")
+
+    await expect(first.keys()).resolves.toEqual(["a.md", "b.md"])
+    await expect(second.keys()).resolves.toEqual(["a.md", "b.md"])
+    await expect(second.exists("a.md")).resolves.toBe(true)
+    await expect(second.exists("missing.md")).resolves.toBe(false)
+    await expect(second.list()).resolves.toEqual([
+      { key: "a.md", type: "file" },
+      { key: "b.md", type: "file" },
+    ])
+    await expect(second.items()).resolves.toMatchObject([
+      { key: "a.md", content: "A" },
+      { key: "b.md", content: "B" },
+    ])
+  })
+
   it("accepts base with a trailing slash or backslashes", async () => {
     await expect(files({ "docs\\a.md": "a" }, { base: "docs/" }).getKeys({ rootDir: "/" })).resolves.toEqual(["a.md"])
   })

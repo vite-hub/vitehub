@@ -63,6 +63,7 @@ describe("Browser Run actions", () => {
 
     const result = await runBrowserAction("screenshot", { url: "https://example.com" })
     expect(result).toBe(response)
+    expect(new Uint8Array(await result.arrayBuffer())).toEqual(new Uint8Array([1, 2, 3]))
   })
 
   it("reports non-ok quick action responses as Browser errors", async () => {
@@ -108,6 +109,34 @@ describe("Browser Run actions", () => {
       await vi.advanceTimersByTimeAsync(30_000)
 
       await expect(action).resolves.toMatchObject({ status: 500 })
+    }
+    finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it.each(["complete", "reject", "stall"])("cancels late action responses when cleanup will %s", async (cleanup) => {
+    vi.useFakeTimers()
+    try {
+      const cancel = vi.fn(() => {
+        if (cleanup === "reject") return Promise.reject(new Error("cancel failed"))
+        if (cleanup === "stall") return new Promise<void>(() => {})
+      })
+      const response = new Response(new ReadableStream({ cancel }))
+      let resolveResponse!: (response: Response) => void
+      const provider = new Promise<Response>((resolve) => { resolveResponse = resolve })
+      runtime.__env__ = { BROWSER: { quickAction: () => provider } }
+
+      const action = runBrowserAction("content", "https://example.com")
+      await vi.advanceTimersByTimeAsync(30_000)
+      await expect(action).resolves.toMatchObject({ status: 500 })
+      expect(cancel).not.toHaveBeenCalled()
+
+      resolveResponse(response)
+      await vi.advanceTimersByTimeAsync(0)
+
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(vi.getTimerCount()).toBe(0)
     }
     finally {
       vi.useRealTimers()

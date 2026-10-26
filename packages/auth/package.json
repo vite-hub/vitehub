@@ -44,6 +44,24 @@
       "require": "./dist/agent.js",
       "default": "./dist/agent.js"
     },
+    "./cli": {
+      "types": "./dist/cli.d.ts",
+      "import": "./dist/cli.js",
+      "require": "./dist/cli.js",
+      "default": "./dist/cli.js"
+    },
+    "./console": {
+      "types": "./dist/console.d.ts",
+      "import": "./dist/console.js",
+      "require": "./dist/console.js",
+      "default": "./dist/console.js"
+    },
+    "./console-runtime": {
+      "types": "./dist/console-runtime.d.ts",
+      "import": "./dist/console-runtime.js",
+      "require": "./dist/console-runtime.js",
+      "default": "./dist/console-runtime.js"
+    },
     "./nuxt": {
       "types": "./dist/nuxt.d.ts",
       "import": "./dist/nuxt.js",
@@ -55,6 +73,12 @@
       "import": "./dist/presets.js",
       "require": "./dist/presets.js",
       "default": "./dist/presets.js"
+    },
+    "./runtime/console": {
+      "types": "./dist/runtime/console.d.ts",
+      "import": "./dist/runtime/console.js",
+      "require": "./dist/runtime/console.js",
+      "default": "./dist/runtime/console.js"
     },
     "./server": {
       "types": "./dist/server.d.ts",
@@ -89,22 +113,26 @@
     "@vite-hub/runtime": "workspace:*",
     "better-auth": "catalog:auth",
     "bun-types": "^1.4.3",
-    "nostics": "catalog:runtime"
+    "drizzle-orm": "catalog:database",
+    "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/json-schema": "catalog:ai",
     "@types/mdast": "catalog:markdown",
-    "@vite-hub/agent": "workspace:*",
     "@types/node": "catalog:tooling",
+    "@vite-hub/agent": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "20.14.5",
+    "miniflare": "4.20260730.0",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "undici": "8.12.2",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "vue": "catalog:ui"
+    "vue": "catalog:ui",
+    "@better-auth/oauth-provider": "catalog:auth"
   },
   "peerDependencies": {
     "@types/json-schema": "catalog:ai",

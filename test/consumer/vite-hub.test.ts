@@ -962,6 +962,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
+          // Keep Nitro's native Rollup package on the workspace-tested release.
+          rollup: "4.64.0",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
@@ -1340,8 +1342,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       expect(existsSync(join(appDir, "dist", "app", "index.js"))).toBe(true)
 
-      const [authTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
+      const [authTypes, authServerTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/types/auth-server.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/schedule/provider-registry.d.ts"), "utf8"),
@@ -1357,7 +1360,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(bareOwnerPackageSpecifiers, "generated app-local code must not expose bare owner-package specifiers").toEqual([])
 
       expect(authTypes).toContain("namespace ViteHub")
-      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(envServer).toContain("vite-hub/env/server")
       expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
@@ -1394,9 +1397,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_PRESET: "vercel",
       })
       const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
-      const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
+      const [agentRoute, authTypes, authServerTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/types/auth-server.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/email/templates/welcome.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
@@ -1410,7 +1414,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(agentRoute).toContain("vite-hub/_internal/agent")
       expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
-      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(emailTemplate).toContain("Welcome")
       expect(envServer).toContain("vite-hub/env/server")

@@ -67,7 +67,7 @@ class RuntimeShellSession implements ShellSession {
   }
 
   async analyze(command: string, options?: Parameters<ShellSession["analyze"]>[1]) {
-    return await (this.provider.analyze ?? analyzeShellCommand)(command, options)
+    return await (this.provider.analyze ?? analyzeShellCommand).call(this.provider, command, options)
   }
 
   async exec(command: string, options: ShellRuntimeExecOptions = {}) {

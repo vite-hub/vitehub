@@ -1604,6 +1604,7 @@ describe("Agent invocation console", () => {
           expect.objectContaining({ route: "/api/_vitehub/console/status" }),
           expect.objectContaining({ route: "/_vitehub/**" }),
           expect.objectContaining({ route: "/_vitehub/rpc/**" }),
+          expect.objectContaining({ route: "/_vitehub/auth/manage", method: "post" }),
         ]),
       )
       await expect(readFile(resolve(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
