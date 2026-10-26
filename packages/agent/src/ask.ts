@@ -1,4 +1,4 @@
-import { hasRuntimeType } from "./internal/runtime-type.ts"
+import { isRuntimeString } from "./internal/runtime-value.ts"
 
 /** A JSON value that TypeSafe Jev can read. */
 export type AskJson = string | number | boolean | null | AskJson[] | { [key: string]: AskJson }
@@ -140,7 +140,7 @@ function each<T, Q extends AskQuestion>(
   const questions: Record<string, Q> = Object.create(null)
   for (const item of items) {
     const key = options.key(item)
-    if (!hasRuntimeType(key, "string") || !key.trim()) {
+    if (!isRuntimeString(key) || !key.trim()) {
       throw new TypeError("ask.each keys must be non-empty strings")
     }
     if (Object.hasOwn(questions, key)) {

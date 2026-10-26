@@ -240,6 +240,12 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       { from: "src/console/runtime/client/auth-management.ts", to: "dist/console/runtime/client" },
+      { from: "src/console/runtime/components/console-auth-overview.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-activity.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-chart.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-event-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-event-setup.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-auth-user-events.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-details.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
@@ -327,6 +333,7 @@ export default defineConfig({
       "src/console/runtime/client/documents.ts",
       "src/console/runtime/client/format.ts",
       "src/console/runtime/client/editor.ts",
+      "src/console/runtime/client/env-groups.ts",
       "src/console/runtime/client/env-status.ts",
       "src/console/runtime/client/live.ts",
       "src/console/runtime/client/media.ts",
@@ -382,6 +389,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/blob-media"];
         delete exports["./console/runtime/client/documents"];
         delete exports["./console/runtime/client/editor"];
+        delete exports["./console/runtime/client/env-groups"];
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/format"];
         delete exports["./console/runtime/client/live"];

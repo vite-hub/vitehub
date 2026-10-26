@@ -468,8 +468,9 @@ describe("generated Console access", () => {
     }, "build")
     expect(plugin).toContain('"authorize":true,"index":1,"route":"/_vitehub/**"')
     expect(plugin).toContain('"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"')
-    expect(plugin).toContain('const matched = [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"}]')
-    expect(plugin).toContain('return path === base || path.startsWith(base + "/")')
+    expect(plugin).toContain('import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess } from "vite-hub/console/auth"')
+    expect(plugin).toContain('const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: [{"authorize":true,"index":1,"route":"/_vitehub/**"},{"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/**"}], getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })')
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user })')
   })
 
   it("accepts exact GET rules for the registered Console API endpoints", async () => {

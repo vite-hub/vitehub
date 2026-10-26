@@ -207,7 +207,7 @@ function addContributedRoutes(navigation) {
       router.addRoute({
         component: ConsoleAuth,
         name,
-        path: "/auth/:page(sessions|organizations|agents)?",
+        path: "/auth/:page(overview|users|sessions|organizations|agents|activity)?",
         meta: { consoleSection: section, title: "Auth · ViteHub Console" },
         props: { sectionsBase, managementBase: consolePath("/_vitehub/auth/manage") },
       });

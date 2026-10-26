@@ -1,16 +1,16 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
-import { defineHandler } from "h3"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, developmentRuntime, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError, consoleRequestJSON } from "./request.ts"
+import { consoleRequestError, consoleRequestJSON, isConsoleDevelopmentRuntime } from "./request.ts"
 
-import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
+import type { H3Event } from "h3"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
@@ -181,7 +181,7 @@ function isLoopbackAddress(address: string): boolean {
  * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
  */
 function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
-  if ((context.access.mode !== "local" && context.access.mode !== "open") || !developmentRuntime()) return
+  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentRuntime()) return
   const hostHeader = request.headers.get("host") ?? url.host
   const forwarded = request.headers.get("x-forwarded-host")
   if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
@@ -266,10 +266,11 @@ function eventRemoteAddress(event: H3Event): string | undefined {
   return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }
 
-const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
+// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
+const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
+  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
-}, { anySection: true }))
+}, { anySection: true })
 
 export default consoleRpcHandler

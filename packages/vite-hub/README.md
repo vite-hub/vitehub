@@ -90,6 +90,10 @@ The Deno preset emits `.output/deno.json`, stages emitted runtime packages and i
 
 The preset tells ViteHub which integrations and Provider Output to generate. Depending on the host and enabled features, a build can write Runtime Registries under `.vitehub`, Cloudflare Worker output and `wrangler.json` under `dist`, Vercel Build Output under `.vercel/output`, Netlify functions under `.netlify/v1`, or Node and Deno artifacts under `.output`.
 
+Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
+writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
+only when you manage that configuration yourself.
+
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 
 Generated files are for inspection and deployment. Application code must not import `.vitehub/**`, provider output directories, Vite virtual module IDs, or `vite-hub/_internal/*`. Use the public paths in the [import reference](https://vitehub.dev/docs/reference/import-paths).

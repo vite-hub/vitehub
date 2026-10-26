@@ -67,7 +67,7 @@ class RuntimeShellSession implements ShellSession {
   }
 
   async analyze(command: string, options?: Parameters<ShellSession["analyze"]>[1]) {
-    return await (this.provider.analyze ?? analyzeShellCommand)(command, options)
+    return await (this.provider.analyze ?? analyzeShellCommand).call(this.provider, command, options)
   }
 
   async exec(command: string, options: ShellRuntimeExecOptions = {}) {
@@ -140,10 +140,14 @@ class RuntimeShellSession implements ShellSession {
     if (!this.provider.startProcess || !this.boundary.processes.background) {
       throw shellErrorDiagnostics.SHELL_R0009({ message: "[vitehub] Shell provider does not support long-running processes." })
     }
+    if (!options.budgetCharged) options.budget?.recordToolCall(new TextEncoder().encode(command).byteLength)
     const maxProcesses = this.policy.maxProcesses
     if (maxProcesses !== undefined && this.#processes.size + this.#starts.size >= maxProcesses) {
       throw shellErrorDiagnostics.SHELL_R0010({ message: `[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.` })
     }
+    const signal = options.budget && options.signal && options.signal !== options.budget.signal
+      ? AbortSignal.any([options.signal, options.budget.signal])
+      : options.budget?.signal ?? options.signal
     let finishStart!: () => void
     const start = new Promise<void>((resolve) => {
       finishStart = resolve
@@ -154,6 +158,7 @@ class RuntimeShellSession implements ShellSession {
     try {
       process = await this.provider.startProcess(command, {
         ...options,
+        signal,
         env: { ...this.env, ...options.env },
         timeout: options.timeout ?? this.policy.timeout,
       })

@@ -3,7 +3,7 @@ import { cloudflareUnsupportedEnqueueOptions, formatQueueOptionNames, queueProvi
 import { queueErrorDiagnostics } from "../error-diagnostics.ts"
 import { getCloudflareQueueDefinitionName } from "../integrations/cloudflare.ts"
 import { isNonRetryableQueueError, reportQueueDeliveryError } from "../internal/delivery-error.ts"
-import { toResponse } from "@vite-hub/runtime"
+import { checkQueueHandlerResponse } from "../internal/handler-response.ts"
 
 import type { Result } from "@vite-hub/runtime"
 
@@ -72,22 +72,13 @@ function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSend
 }
 
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
-  if (action === "ack") {
-    message.ack()
-    return
-  }
-
-  if (action === "retry") {
-    message.retry()
-    return
-  }
-
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
     message.retry(action.retry)
     return
   }
 
-  if (fallback === "ack") {
+  const resolvedAction = action === "ack" || action === "retry" ? action : fallback
+  if (resolvedAction === "ack") {
     message.ack()
   } else {
     message.retry()
@@ -109,12 +100,7 @@ export function createCloudflareQueueBatchHandler<TPayload = unknown>(options: C
       while (index < messages.length) {
         const message = messages[index++]!
         try {
-          const response = toResponse(await options.onMessage(message, batch))
-          if (!response.ok) {
-            const error = new Error(`Queue handler returned HTTP ${response.status}`)
-            Object.assign(error, { status: response.status })
-            throw error
-          }
+          checkQueueHandlerResponse(await options.onMessage(message, batch))
           message.ack()
         } catch (error) {
           const reportContext = {
@@ -179,7 +165,7 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
       }
       const [error] = await queueProviderResult("cloudflare", "send-batch", () => binding.sendBatch(messages))
       if (error) return [error, undefined]
-      return [undefined, items.map(() => ({ status: "queued" as const }))]
+      return [undefined, messages.map(() => ({ status: "queued" as const }))]
     },
     createBatchHandler: createCloudflareQueueBatchHandler,
   }

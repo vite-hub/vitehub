@@ -124,6 +124,7 @@ function renderConsoleRuntimeCapabilities(imports: Record<string, false | string
 function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports: string[], install: string[] } {
   if (!access) return { imports: [], install: [] }
   const imports: string[] = []
+  const setup: string[] = []
   const fields = [`mode: ${JSON.stringify(access.mode)}`]
   if (access.check && "module" in access.check) {
     const module = JSON.stringify(pathToFileURL(access.check.module).href)
@@ -141,12 +142,10 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     const routes = JSON.stringify(access.check.appRoutes)
     imports.push(
       'import { getAuthForRequest as vitehubGetAuthForRequest, requireAuthAccessRoutes as vitehubRequireAuthAccessRoutes, withAuthorization as vitehubWithAuthorization } from "#vitehub/auth/server"',
-      'import { readConsoleSessionUser as vitehubReadConsoleSessionUser } from "vite-hub/console/auth"',
+      'import { createConsoleAppAuthAccess as vitehubCreateConsoleAppAuthAccess } from "vite-hub/console/auth"',
     )
-    fields.push(
-      `check: event => { const path = event.url.pathname; const method = (event.req?.method ?? event.request?.method ?? "GET").toUpperCase(); const matched = ${routes}.filter(route => { if (route.method && route.method !== method) return false; if (path === route.route) return true; if (!route.route.endsWith("/**")) return false; const base = route.route.slice(0, -3); return path === base || path.startsWith(base + "/") }); if (!matched.length) return vitehubRequireSession(event); const indexes = matched.map(route => route.index); const required = matched.filter(route => route.authorize).map(route => route.index); return vitehubRequireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false }) }`,
-      "user: event => vitehubReadConsoleSessionUser(vitehubGetAuthForRequest(event.req, undefined, event), event.req)",
-    )
+    fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user")
+    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })`)
   }
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
@@ -155,7 +154,7 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
   return {
     imports,
     install: [
-      ...(access.check && "appRoutes" in access.check ? ["const vitehubRequireSession = vitehubWithAuthorization(true, () => undefined)"] : []),
+      ...setup,
       `installConsoleAccess({ ${fields.join(", ")} })`,
     ],
   }
@@ -178,6 +177,7 @@ function renderConsoleNitroPlugin(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
+  development = false,
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -208,7 +208,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
@@ -241,6 +241,7 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
+    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     ...(blobEnabled
@@ -293,6 +294,7 @@ export async function writeConsoleNitroPlugin(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
+  development = false,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -302,7 +304,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

@@ -4,6 +4,7 @@ import { createError } from "h3"
 import { ensureBlob } from "../ensure.ts"
 import { blobError } from "../errors.ts"
 import { blobErrorDiagnostics } from "../error-diagnostics.ts"
+import { readDerivedHeader } from "../internal/derived-header.ts"
 import { averageImageColor } from "./color.ts"
 import { probeImage } from "./probe.ts"
 import { selectImageTransformer } from "./transformers.ts"
@@ -689,15 +690,16 @@ export function createBlobMedia(context: BlobMediaContext): InternalBlobMedia {
           const entry: MediaVariantEntry = { cachePathname: object.pathname, size: object.size ?? 0, source }
           const body = await driver.get(object.pathname)
           if (body) {
-            const header = new Uint8Array(await body.slice(0, 4096).arrayBuffer())
-            const boundary = header.indexOf(10)
+            const header = await readDerivedHeader(body)
             try {
-              const metadata: unknown = JSON.parse(new TextDecoder().decode(header.subarray(0, boundary)))
-              if (isRecord(metadata)) {
-                if (isString(metadata.key)) entry.key = metadata.key
-                if (isString(metadata.type)) entry.contentType = metadata.type
+              if (header) {
+                const metadata: unknown = JSON.parse(header.text)
+                if (isRecord(metadata)) {
+                  if (isString(metadata.key)) entry.key = metadata.key
+                  if (isString(metadata.type)) entry.contentType = metadata.type
+                }
+                entry.size = body.size - header.bodyOffset
               }
-              entry.size = body.size - boundary - 1
             }
             catch {
               // A damaged cache entry still lists with its stored size.
