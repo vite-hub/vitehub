@@ -292,9 +292,10 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
   publish(options?: ContentPublishOptions<CollectionName<TCollections>>): Promise<ContentPublishResult>
   /**
-   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
-   * path with its `route`; the default is the id after a slash, without a trailing `/index`. A query string, a hash, and
-   * a trailing slash are ignored. Use it to link a page to its document, for example to an Edit button.
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`, and a document whose `url` is null does not resolve. A collection without `url` maps the
+   * id after a slash, without a trailing `/index`. A query string, a hash, and a trailing slash are ignored. Use it to
+   * link a page to its document, for example to an Edit button.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved<CollectionName<TCollections>> | null>
   /**
