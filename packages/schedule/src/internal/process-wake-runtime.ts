@@ -102,15 +102,7 @@ function cloneState(state: ProcessWakeState, patch: Partial<ProcessWakeState>): 
 const minuteMs = 60_000
 
 function floorUTCMinute(date: Date): Date {
-  return new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate(),
-      date.getUTCHours(),
-      date.getUTCMinutes(),
-    ),
-  )
+  return new Date(Math.floor(date.getTime() / minuteMs) * minuteMs)
 }
 
 function occurrenceKey(input: ProcessScheduleWake): string {
