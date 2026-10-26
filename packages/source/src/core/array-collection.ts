@@ -176,9 +176,6 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
     if (values.length) normalized.filters[key] = [...new Set(values)].sort()
   }
-  const filters = Object.create(null) as Record<string, string[]>
-  for (const [key, value] of Object.entries(normalized.filters).sort(([a], [b]) => compareProtocolStrings(a, b))) filters[key] = value
-  normalized.filters = filters
   return normalized
 }
 
