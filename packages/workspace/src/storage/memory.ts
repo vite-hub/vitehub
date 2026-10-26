@@ -26,6 +26,7 @@ type MemoryNode = {
   metadata?: Record<string, unknown>
   mtime: number
   revision?: string
+  digest?: string
 }
 
 function now() {
@@ -234,7 +235,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       mtime: node.mtime,
       mediaType: node.mediaType,
       metadata: structuredClone(node.metadata),
-      digest: node.type === "file" ? await sha256(content) : undefined,
+      digest: node.type === "file" ? (node.digest ??= await sha256(content)) : undefined,
     }
   }
 

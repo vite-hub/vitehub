@@ -29,6 +29,7 @@ const methodLabel = (method: string) =>
 
 <template>
   <div class="min-h-0 flex-1 overflow-y-auto">
+    <div class="mx-auto w-full max-w-6xl sm:p-2">
     <dl class="grid grid-cols-2 gap-5 border-b border-default p-4 lg:grid-cols-5">
       <div v-for="metric in metrics" :key="metric.label">
         <dt class="text-xs text-muted">{{ metric.label }}</dt>
@@ -101,5 +102,6 @@ const methodLabel = (method: string) =>
     >
       Active sessions are unavailable because this app stores sessions only in secondary storage.
     </p>
+    </div>
   </div>
 </template>

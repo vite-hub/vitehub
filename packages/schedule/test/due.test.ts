@@ -30,6 +30,34 @@ function nextDueMinute(record: ScheduleCronRecord, after: string): Date | undefi
 describe("cron evaluation in a time zone", () => {
   const daily = schedule("0 8 * * *", "Europe/Madrid")
 
+  it("uses changed expressions on an already evaluated record", () => {
+    const record = schedule("* * * * *")
+    const minute = new Date("2026-07-15T08:15:00Z")
+    expect(isScheduleDue(record, minute)).toBe(true)
+    record.cron = "0 * * * *"
+    expect(isScheduleDue(record, minute)).toBe(false)
+    expect(isScheduleDue(record, new Date("2026-07-15T09:00:00Z"))).toBe(true)
+  })
+
+  it.each(["* * * * * *", "invalid * * * *"])("rejects an invalid expression after a valid evaluation: %s", (cron) => {
+    const record = schedule("* * * * *")
+    const minute = new Date("2026-07-15T08:15:00Z")
+    expect(isScheduleDue(record, minute)).toBe(true)
+    record.cron = cron
+    expect(() => isScheduleDue(record, minute)).toThrow()
+    record.cron = "15 * * * *"
+    expect(isScheduleDue(record, minute)).toBe(true)
+  })
+
+  it("uses changed time zones on an already evaluated record", () => {
+    const record = schedule("0 8 * * *", "UTC")
+    const minute = new Date("2026-07-15T08:00:00Z")
+    expect(isScheduleDue(record, minute)).toBe(true)
+    record.timeZone = "Europe/Madrid"
+    expect(isScheduleDue(record, minute)).toBe(false)
+    expect(isScheduleDue(record, new Date("2026-07-15T06:00:00Z"))).toBe(true)
+  })
+
   it("runs 08:00 in Madrid at 06:00Z in summer and 07:00Z in winter", () => {
     expect(dueMinutes(daily, "2026-07-15T00:00:00Z", "2026-07-16T00:00:00Z")).toEqual(["2026-07-15T06:00:00.000Z"])
     expect(dueMinutes(daily, "2026-01-15T00:00:00Z", "2026-01-16T00:00:00Z")).toEqual(["2026-01-15T07:00:00.000Z"])

@@ -16,6 +16,8 @@ import {
 import { consolePrimitives, rememberConsoleSection } from "../sections";
 import ConsoleConnectionsDetails from "./console-connections-details.vue";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePageHeader from "./console-page-header.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleState from "./console-state.vue";
 
@@ -111,75 +113,76 @@ onBeforeUnmount(() => request?.abort());
       :sections-base="sectionsBase"
     />
     <UDashboardPanel id="connections" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
-      <template #header>
-        <UDashboardNavbar title="Connections" :toggle="false">
-          <template #right>
-            <UTooltip text="Refresh Connections"
-              ><UButton
-                aria-label="Refresh Connections"
-                color="neutral"
-                icon="i-lucide-refresh-cw"
-                size="xs"
-                variant="ghost"
-                :disabled="loading"
-                @click="refresh"
-            /></UTooltip>
+      <ConsolePageHeader title="Connections" :toggle="false">
+        <template #right>
+          <UTooltip text="Refresh Connections">
+            <UButton
+              aria-label="Refresh Connections"
+              color="neutral"
+              icon="i-lucide-refresh-cw"
+              size="sm"
+              variant="ghost"
+              :disabled="loading"
+              @click="refresh"
+            />
+          </UTooltip>
+        </template>
+      </ConsolePageHeader>
+      <ConsolePageToolbar v-if="connections.length">
+        <UInput
+          v-model="search"
+          class="w-full sm:w-64"
+          icon="i-lucide-search"
+          size="sm"
+          placeholder="Filter Connections…"
+          aria-label="Filter Connections"
+        />
+        <p class="ms-auto text-xs text-dimmed">
+          Defined in <code class="font-mono text-muted">server/connections/</code>
+          <template v-if="setupURL">
+            ·
+            <a
+              :href="setupURL"
+              target="_blank"
+              rel="noopener"
+              class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-primary"
+              >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
+            >
           </template>
-        </UDashboardNavbar>
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-default px-4 py-2">
-          <UInput
-            v-model="search"
-            aria-label="Search Connections"
-            placeholder="Search Connections…"
-            icon="i-lucide-search"
-            variant="none"
-            class="min-w-40 flex-1"
-          />
-          <p class="text-xs text-dimmed">
-            Defined in <code class="font-mono text-muted">server/connections/</code>
-            <template v-if="setupURL">
-              ·
-              <a
-                :href="setupURL"
-                target="_blank"
-                rel="noopener"
-                class="rounded-sm text-muted underline-offset-2 outline-none hover:text-highlighted hover:underline focus-visible:ring-1 focus-visible:ring-primary"
-                >Add a Connection<span class="sr-only"> (opens in a new tab)</span></a
-              >
-            </template>
-          </p>
+        </p>
+      </ConsolePageToolbar>
+      <main class="min-h-0 flex-1 overflow-auto">
+        <ConsoleState v-if="error" :error="error" title="Could not load Connections" :retry="refresh" />
+        <div v-else-if="loading && !connections.length" class="mx-auto grid w-full max-w-5xl gap-2 p-4 sm:p-6" aria-busy="true">
+          <USkeleton v-for="index in 4" :key="index" class="h-11 w-full" />
         </div>
-      </template>
-      <template #body>
-        <main class="min-h-0 flex-1 overflow-auto">
-          <ConsoleState v-if="error" :error="error" title="Could not load Connections" :retry="refresh" />
-          <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">
-            Loading Connections…
-          </p>
-          <ConsoleState
-            v-else-if="!connections.length"
-            section="connections"
-            icon="i-ph-plugs-connected-light"
-            title="No Connections yet"
-            description="Connections are defined in code. Add a file to server/connections/, then connect it here."
-          >
-            <pre
-              aria-label="Example Connection Definition"
-              class="max-w-full overflow-x-auto rounded-md bg-elevated/50 px-3 py-2.5 text-left font-mono text-[11px] leading-5 text-toned"
-            ><code>// server/connections/crm.ts
+        <ConsoleState
+          v-else-if="!connections.length"
+          section="connections"
+          icon="i-ph-plugs-connected-light"
+          title="No Connections yet"
+          description="Connections are defined in code. Add a file to server/connections/, then connect it here."
+        >
+          <pre
+            aria-label="Example Connection Definition"
+            class="max-w-full overflow-x-auto rounded-md bg-elevated/50 px-3 py-2.5 text-left font-mono text-[11px] leading-5 text-toned"
+          ><code>// server/connections/crm.ts
 import { apiKey, defineConnection } from 'vite-hub/connections'
 
 export default defineConnection({
   provider: apiKey({ id: 'crm', origins: ['https://api.crm.example.com'] }),
 })</code></pre>
-          </ConsoleState>
+        </ConsoleState>
+        <div v-else class="mx-auto w-full max-w-5xl p-4 sm:p-6">
           <UTable
-            v-else
+            class="rounded-md border border-default"
             :data="rows"
             :columns="columns"
             :on-select="selectRow"
             empty="No matching Connections."
             :ui="{
+              thead: 'bg-elevated/30',
+              th: 'h-9 py-0 text-xs font-medium text-muted',
               tr: 'group cursor-pointer outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-primary',
             }"
           >
@@ -262,8 +265,8 @@ export default defineConnection({
                 /></div
             ></template>
           </UTable>
-        </main>
-      </template>
+        </div>
+      </main>
     </UDashboardPanel>
     <USlideover
       v-model:open="detailOpen"
