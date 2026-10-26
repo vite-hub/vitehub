@@ -33,6 +33,8 @@ export interface Comments {
   /** Threads with their comments, newest activity first. */
   list(options?: ListCommentThreadsOptions): Promise<Result<CommentThread[], Codes<"COMMENTS_NOT_INSTALLED">>>
   get(id: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
+  /** The thread that holds a comment, for a route that has only the comment id. */
+  getByComment(commentId: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /** Thread `#number` of a scope. */
   getByNumber(scope: string, number: number): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
   /**
@@ -57,8 +59,11 @@ export interface Comments {
    * defaults to the thread's, else `"pages"`.
    */
   can(context: Omit<CommentsAuthorizeContext, "scope"> & { scope?: string }): Promise<boolean>
-  /** People that `@` suggests: the `people` option, or the authors of earlier comments. */
-  people(context: { query: string, user: CommentsAuthorizeContext["user"] }): Promise<Result<CommentMention[], Codes<"COMMENTS_NOT_INSTALLED">>>
+  /**
+   * People that `@` suggests: the `people` option, or the authors of earlier comments in the scope, `"pages"` by
+   * default, so names from an app's own scopes never reach the overlay.
+   */
+  people(context: { query: string, user: CommentsAuthorizeContext["user"], scope?: string }): Promise<Result<CommentMention[], Codes<"COMMENTS_NOT_INSTALLED">>>
 }
 
 const runtimes = new WeakMap<Comments, CommentsStore>()
@@ -95,6 +100,13 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!current) return notInstalled()
       const thread = await current.get(id)
       return thread ? [undefined, thread] : notFound(id)
+    },
+    async getByComment(commentId) {
+      const current = store()
+      if (!current) return notInstalled()
+      const threadId = await current.threadOf(commentId)
+      const thread = threadId ? await current.get(threadId) : undefined
+      return thread ? [undefined, thread] : notFound(commentId)
     },
     async getByNumber(scope, number) {
       const current = store()
@@ -176,10 +188,10 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
       return await options.authorize({ ...context, scope }) !== false
     },
-    async people({ query, user }) {
+    async people({ query, user, scope = commentsPageScope }) {
       const current = store()
       if (!current) return notInstalled()
-      const all = options.people ? await options.people({ query, user }) : await current.authors(50)
+      const all = options.people ? await options.people({ query, user }) : await current.authors(scope, 50)
       const needle = query.trim().toLowerCase()
       return [undefined, all.filter(person => !needle || person.name.toLowerCase().includes(needle)).slice(0, 20).map(({ id, name }) => ({ id, name }))]
     },

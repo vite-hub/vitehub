@@ -26,8 +26,8 @@ export interface CommentsStore {
   removeComment(commentId: string): Promise<void>
   /** Deletes every thread of a scope with its comments. Returns how many threads it deleted. */
   removeScope(scope: string): Promise<number>
-  /** Distinct authors, newest first, for `@` suggestions. */
-  authors(limit: number): Promise<CommentAuthor[]>
+  /** Distinct authors of one scope, newest first, for `@` suggestions. */
+  authors(scope: string, limit: number): Promise<CommentAuthor[]>
 }
 
 function json<T>(value: string | null): T | null {
@@ -175,8 +175,11 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
       ])
       return rows.length
     },
-    async authors(limit) {
-      const rows = await database.select({ author: comments.author }).from(comments).orderBy(desc(comments.createdAt)).limit(limit * 10)
+    async authors(scope, limit) {
+      const rows = await database.select({ author: comments.author }).from(comments)
+        .innerJoin(threads, eq(threads.id, comments.threadId))
+        .where(eq(threads.scope, scope))
+        .orderBy(desc(comments.createdAt)).limit(limit * 10)
       const seen = new Map<string, CommentAuthor>()
       for (const row of rows) {
         const author = json<CommentAuthor>(row.author)

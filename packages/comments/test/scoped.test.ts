@@ -44,6 +44,18 @@ describe("scoped threads", () => {
     expect((await comments.list({ scope: "doc:2" }))[1]).toHaveLength(1)
   })
 
+  it("suggests only the authors of a scope for @, and finds a thread by a comment", async () => {
+    const comments = await createComments()
+    const [, onPage] = await comments.create({ page: "/", anchor, body: "Team note", author: ada })
+    const [, inDoc] = await comments.create({ scope: "doc:1", page: "/d/1", body: "Private", author: { id: "cy", name: "Cy" } })
+    expect((await comments.people({ query: "", user: null }))[1]).toEqual([ada])
+    expect((await comments.people({ query: "", user: null, scope: "doc:1" }))[1]).toEqual([{ id: "cy", name: "Cy" }])
+    const [, reply] = await comments.reply(inDoc!.id, { body: "Answer", author: ada })
+    expect((await comments.getByComment(reply!.id))[1]?.id).toBe(inDoc!.id)
+    expect((await comments.getByComment(onPage!.comments[0]!.id))[1]?.id).toBe(onPage!.id)
+    expect((await comments.getByComment("missing"))[0]?.code).toBe("COMMENTS_NOT_FOUND")
+  })
+
   it("passes the scope to authorize", async () => {
     const seen: CommentsAuthorizeContext[] = []
     const comments = await createComments({ authorize: (context) => {
