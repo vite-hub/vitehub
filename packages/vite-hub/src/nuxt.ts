@@ -31,7 +31,7 @@ import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuil
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
-import { consoleContributedSections, consoleDocumentEditorSectionIds, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -342,9 +342,11 @@ async function installConsole(
     const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
     return entry ? [section] : []
   }))).flat()
-  installConsoleSections(projectRoot, [...sections, ...documentEditorSections], independentAuth)
+  // Record table sections that an application module turns on, such as Comments with server/comments.ts.
+  const entrySections = (await discoverConsoleEntrySections({ discoveryRoot, projectRoot, serverDirs })).filter(section => !sections.includes(section))
+  installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections], independentAuth)
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsolePageHandlers>[0] & { plugins?: string[] }
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, sections);
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, [...sections, ...entrySections]);
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
   addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL)
