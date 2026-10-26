@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createServer, mergeConfig, resolveConfig } from "vite"
+import { createServer, DevEnvironment, mergeConfig, resolveConfig } from "vite"
 
 
 import * as authServer from "../src/server.ts"
@@ -463,6 +463,43 @@ describe("hubAuth", () => {
     }
   })
 
+  it("lets the host serve Auth routes when the SSR environment cannot run modules", async () => {
+    // Nuxt 5 gives Vite an `ssr` environment that does not run modules. The Nitro route after the Vite middleware serves Auth.
+    const root = await createTempProject()
+    await writeAuth(root)
+    const server = await createServer({
+      configFile: false,
+      environments: {
+        ssr: { dev: { createEnvironment: (name, config) => new DevEnvironment(name, config, { hot: false }) } },
+      },
+      logLevel: "silent",
+      plugins: [hubAuth(), {
+        name: "test:host-auth-route",
+        configureServer(viteServer) {
+          return () => viteServer.middlewares.use((request, response) => {
+            response.statusCode = 200
+            response.end(`host ${request.method} ${request.url}`)
+          })
+        },
+      }],
+      root,
+      server: { host: "127.0.0.1", port: 0 },
+    })
+
+    try {
+      await server.listen()
+      const address = server.httpServer?.address()
+      if (!address || typeof address !== "object") throw new Error("Expected a TCP address.")
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/auth/sign-up/email`, { method: "POST" })
+
+      expect(response.status).toBe(200)
+      await expect(response.text()).resolves.toBe("host POST /api/auth/sign-up/email")
+    }
+    finally {
+      await server.close()
+    }
+  })
+
   it("invalidates the virtual definition module during auth definition hot updates", async () => {
     const root = await createTempProject()
     const definition = await writeAuth(root)
@@ -515,6 +552,7 @@ describe("hubAuth", () => {
       let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
       const configureServer = plugin.configureServer as unknown as (server: unknown) => void
       configureServer({
+        environments: { ssr: { runner: {} } },
         middlewares: { use(handler: typeof middleware) { middleware = handler } },
         ssrLoadModule: async () => ({ default: defineAuth({ appName: "ViteHub" }) }),
       })
@@ -542,6 +580,7 @@ describe("hubAuth", () => {
     let middleware: ((request: unknown, response: unknown, next: (error?: unknown) => void) => Promise<void>) | undefined
     const configureServer = plugin.configureServer as unknown as (server: unknown) => void
     configureServer({
+      environments: { ssr: { runner: {} } },
       middlewares: {
         use(handler: typeof middleware) {
           middleware = handler

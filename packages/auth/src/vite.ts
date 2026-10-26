@@ -367,6 +367,10 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       }
     },
     configureServer(server) {
+      // `ssrLoadModule()` works only when the `ssr` environment runs modules in this process. Vite checks
+      // `instanceof RunnableDevEnvironment`. A `runner` check gives the same result with a second copy of Vite.
+      // Nuxt 5 does not run the `ssr` environment here. Its Nitro server serves the Auth route.
+      if (!("runner" in server.environments.ssr)) return
       server.middlewares.use(async (request, response, next) => {
         try {
           const config = runtimeConfig ?? refreshRuntimeConfig()
