@@ -56,10 +56,10 @@ describe("comments SQLite file", () => {
   it("returns inserted rows, so a pull request sync can claim a comment once", async () => {
     const database = openCommentsSqlite(":memory:")
     const row = { id: "c1", threadId: "t1", repository: "acme/app", pullRequest: 7, minimized: false, updatedAt: 1 }
-    const insert = () => database.insert(commentsSchema.commentForge).values(row).onConflictDoNothing().returning({ id: commentsSchema.commentForge.id })
+    const insert = () => database.insert(commentsSchema.vitehubCommentForge).values(row).onConflictDoNothing().returning({ id: commentsSchema.vitehubCommentForge.id })
     expect(await insert()).toEqual([{ id: "c1" }])
     expect(await insert()).toEqual([])
-    const [found] = await database.select().from(commentsSchema.commentForge).where(eq(commentsSchema.commentForge.id, "c1"))
+    const [found] = await database.select().from(commentsSchema.vitehubCommentForge).where(eq(commentsSchema.vitehubCommentForge.id, "c1"))
     expect(found).toMatchObject({ minimized: false, pullRequest: 7 })
   })
 
