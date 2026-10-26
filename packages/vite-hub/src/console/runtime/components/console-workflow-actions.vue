@@ -10,6 +10,10 @@ import ConsoleStatus from "./console-status.vue";
 const props = defineProps<{
   /** Console route that runs the `workflow.*` operations. */
   base: string;
+  /** `workflow.resume` is registered for this access. Without it the page hides Resume. */
+  canResume: boolean;
+  /** `workflow.start` is registered for this access. Without it the page hides Start. */
+  canStart: boolean;
   /** Name of the selected Workflow Definition. */
   workflow: string;
 }>();
@@ -106,7 +110,7 @@ async function resume(): Promise<void> {
 
 <template>
   <div class="grid gap-6">
-    <section class="grid gap-2" aria-label="Start a run">
+    <section v-if="canStart" class="grid gap-2" aria-label="Start a run">
       <h3 class="text-xs font-medium text-highlighted">Start a run</h3>
       <UTextarea v-model="payloadText" :rows="5" :ui="{ base: 'font-mono text-xs' }" aria-label="Payload (JSON)" placeholder="Payload as JSON. Leave empty to start without one." />
       <p v-if="startError" class="text-xs text-error" role="alert">{{ startError }}</p>
@@ -135,7 +139,7 @@ async function resume(): Promise<void> {
       </ul>
     </section>
 
-    <section class="grid gap-2" aria-label="Resume a signal">
+    <section v-if="canResume" class="grid gap-2" aria-label="Resume a signal">
       <h3 class="text-xs font-medium text-highlighted">Resume a signal</h3>
       <UInput v-model="signalToken" aria-label="Signal token" placeholder="Opaque signal token" :ui="{ base: 'font-mono text-xs' }" />
       <UTextarea v-model="signalPayload" :rows="3" :ui="{ base: 'font-mono text-xs' }" aria-label="Signal payload (JSON)" placeholder="Payload as JSON. Optional." />

@@ -484,7 +484,7 @@ pnpm vitehub invocations list --url https://app.example.com
 
 The generated commands need the Console RPC, so they exist in apps that use `vitehub()`. A project that adds `hubWorkflow()`, `hubSchedule()`, `hubQueue()`, or another package plugin directly gets no generated commands from it.
 
-An operation that runs code of the app, `workflow.start`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
+An operation that runs code of the app, `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`, is registered only when `console.invoke` is on. That is the default in development and off in a production build, so on a deployment these commands answer "Console operation not found" until you set `console: { invoke: true }`. `task.run` is `destructive`: the command asks for `--yes`, and agents and MCP need approval.
 
 The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub db tables|rows`, `vitehub definitions list`, `vitehub env get`, `vitehub search query`, `vitehub sections list`, `vitehub usage`, `vitehub documents action`, and `vitehub media action`. `vitehub task list|run` come from the task plugin, and `vitehub queue list|send` from the Queue package. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
 

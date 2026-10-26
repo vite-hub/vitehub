@@ -68,13 +68,32 @@ describe("operations that run app code", () => {
     await expect((await call("fixture.start")).json()).resolves.toEqual({ ok: true, value: { started: true } })
   })
 
+  async function advertised(): Promise<unknown> {
+    const response = await call("sections.list")
+    expect(response.status).toBe(200)
+    return ((await response.json()) as { value: { operations?: string[] } }).value.operations
+  }
+
+  it("tells the pages which of them this access may run, so they hide the rest", async () => {
+    installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
+    expect(await advertised()).toEqual(["fixture.start"])
+
+    // Read-only grant: the server would refuse the write, so the page must not offer it.
+    installConsoleAccess({ authorize: () => ({ sections: ["fixture:read"] }), mode: "open" })
+    expect(await advertised()).toBeUndefined()
+
+    installConsoleAccess({ mode: "open" })
+    installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: false })
+    expect(await advertised()).toBeUndefined()
+  })
+
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
     const { workflowOperations } = await import("@vite-hub/workflow/operations")
     const { queueOperations } = await import("@vite-hub/queue/operations")
     const { scheduleOperations } = await import("@vite-hub/schedule/operations")
     const { taskOperations } = await import("../src/task/operations.ts")
     const invoking = [...workflowOperations, ...queueOperations, ...scheduleOperations, ...taskOperations].filter(operation => operation.invoke).map(operation => operation.name).sort()
-    expect(invoking).toEqual(["queue.send", "schedule.run", "task.run", "workflow.start"])
+    expect(invoking).toEqual(["queue.send", "schedule.run", "task.run", "workflow.resume", "workflow.start"])
   })
 })
 

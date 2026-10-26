@@ -67,7 +67,7 @@ interface OperationContext {
 }
 ```
 
-An operation that sets `invoke: true` runs code of the app: `workflow.start`, `queue.send`, `task.run`, and `schedule.run`. The Console registers it only when `console.invoke` is on, which is the default in development and off in a production build. Without `invoke`, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch of the operation, so `schedule run --url` can run with a dispatch key and no Console credentials.
+An operation that sets `invoke: true` runs code of the app: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`. The Console registers it only when `console.invoke` is on, which is the default in development and off in a production build. Without `invoke`, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch of the operation, so `schedule run --url` can run with a dispatch key and no Console credentials.
 
 The generated commands call the Console RPC, so an app needs `vitehub()` for them. A project that adds a package plugin such as `hubWorkflow()` directly has the operations in the plugin but no commands.
 

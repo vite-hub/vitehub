@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleContributedSection, ConsoleDefinitionSummary, ConsoleRecord, ConsoleSectionContent } from "../definitions";
 import { requestConsole } from "../client/request";
+import { loadConsoleNavigation } from "../client/sections";
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
@@ -70,8 +71,11 @@ const selectedDefinition = computed(() =>
   definitions.value.find((definition) => definition.name === selectedName.value),
 );
 const selectedRecord = computed(() => records.value.find((row) => row.id === selectedName.value));
+// The Console lists the operations that run app code and that this request may run. `console.invoke` off or a read-only
+// grant leaves them out, so the page offers no action that the server would refuse.
+const registeredOperations = ref<readonly string[]>([]);
 const canRunSelected = computed(() =>
-  Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
+  Boolean(props.scheduleRunBase && registeredOperations.value.includes("schedule.run") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
 );
 const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
@@ -187,6 +191,9 @@ onMounted(() => {
   rememberConsoleSection(section.value);
   selectedName.value = queryValue() ?? selectedName.value;
   void loadDefinitions();
+  void loadConsoleNavigation(props.sectionsBase).then((navigation) => {
+    registeredOperations.value = navigation?.operations ?? [];
+  });
 });
 
 watch(section, (current) => {
@@ -323,7 +330,7 @@ onBeforeUnmount(() => request?.abort());
             <p v-if="consoleScheduleRunDescription(selectedRun)" class="ps-3.5 text-xs text-muted tabular-nums">{{ consoleScheduleRunDescription(selectedRun) }}</p>
           </div>
           <ConsolePropertyList title="Definition" :items="definitionFields" />
-          <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :workflow="selectedDefinition.name" />
+          <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
           <p class="flex gap-2 text-xs leading-relaxed text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />

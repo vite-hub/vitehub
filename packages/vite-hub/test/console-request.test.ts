@@ -355,6 +355,7 @@ describe("Console requests", () => {
     ).resolves.toEqual({
       auth: false,
       contributions: {},
+      operations: [],
       projectName: "console-host",
       scoped: false,
       sections: ["kv"],
@@ -362,12 +363,20 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the names of the operations that run app code, for the pages to check", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], sections: ["kv"] } })
+
+    await expect(
+      loadConsoleNavigation("/operations-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"] })
+  })
+
   it("loads independent auth availability in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
 
     await expect(
       loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], scoped: false, sections: ["kv"] })
   })
 
   it("preserves Cloudflare Access auth mode in the navigation response", async () => {
@@ -375,7 +384,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/cloudflare-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -396,7 +405,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, scoped: false, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], scoped: false, sections: ["kv", "queues"] })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

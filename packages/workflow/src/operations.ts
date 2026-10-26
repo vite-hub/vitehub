@@ -51,6 +51,7 @@ const resume = defineWorkflowOperation<{ payload?: unknown, token: string }, Wor
   cli: { positional: ["token"] },
   description: "Resume a Workflow signal with its opaque token. The payload is any JSON value.",
   input: v.object({ payload: v.optional(v.unknown()), token: v.pipe(v.string(), v.check(value => value.trim() !== "", "Pass the signal token.")) }),
+  invoke: true,
   kind: "write",
   maxRequestBytes,
   name: "workflow.resume",
