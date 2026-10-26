@@ -29,15 +29,28 @@ export function wantsCommentMode(request: Request): boolean {
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
 }
 
-function scriptTag(src: string): string {
-  return `<script type="module" src="${src.replace(/"/g, "&quot;")}" data-vitehub-comments></script>`
+function scriptTag(src: string, nonce?: string): string {
+  return `<script type="module" src="${src.replace(/"/g, "&quot;")}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-comments></script>`
+}
+
+/**
+ * The script nonce of a page's Content Security Policy. A policy with `'strict-dynamic'`, such as the one of
+ * nuxt-security, blocks a script without it, even from the same origin.
+ */
+export function scriptNonce(headers: Headers): string | undefined {
+  const directives = (headers.get("content-security-policy") ?? "").split(";").map(part => part.trim())
+  // Browsers read `script-src-elem`, else `script-src`, else `default-src` for a script element.
+  const directive = ["script-src-elem", "script-src", "default-src"]
+    .map(name => directives.find(part => part.toLowerCase().startsWith(`${name} `)))
+    .find(Boolean)
+  return directive ? /'nonce-([\w+/=-]+)'/.exec(directive)?.[1] : undefined
 }
 
 /** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
 export function injectOverlay(response: Response, src: string): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src)
+  const tag = scriptTag(src, scriptNonce(response.headers))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
