@@ -1,3 +1,5 @@
+import { Readable } from "node:stream"
+
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
 import { describe, expect, it } from "vitest"
@@ -121,6 +123,24 @@ describe("Comments API", () => {
     expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
     const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+  })
+
+  it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
+    const comments = await createComments({ identify: () => ({ id: "ada", name: "Ada" }) })
+    const handler = createCommentsHandler({ comments, realtime: false })
+    const send = async (method: string, path: string, json?: unknown) => {
+      const req = Object.assign(Readable.from(json === undefined ? [] : [JSON.stringify(json)]), {
+        method,
+        url: `/api/_vitehub/comments${path}`,
+        headers: { host: "site.test", origin, "content-type": "application/json" },
+      })
+      const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {} }])
+      if (!(response instanceof Response)) throw new TypeError("Expected a Response")
+      return await response.json() as { data?: any }
+    }
+    const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
+    expect(created.data).toMatchObject({ page: "/", createdBy: { id: "ada" } })
+    expect((await send("GET", "/threads?page=/")).data).toHaveLength(1)
   })
 
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {
