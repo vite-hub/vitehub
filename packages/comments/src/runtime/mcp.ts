@@ -1,13 +1,11 @@
 import { describeCommentContext } from "../context.ts"
+import { commentsErrors } from "../errors.ts"
+import { authorOf, text } from "../identity.ts"
 import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
 import type { Comments } from "../index.ts"
-import type { CommentAuthor, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
+import type { CommentsAction, CommentsUser, CommentThread } from "../types.ts"
 
 /** The Console user as a Comments user. A Console without accounts acts as its guest, like the overlay. */
 function commentsUser(user: Record<string, unknown> | null): CommentsUser {
@@ -15,16 +13,14 @@ function commentsUser(user: Record<string, unknown> | null): CommentsUser {
   return user && id ? { ...user, id } : { id: "guest:console", name: "Guest", guest: true }
 }
 
-function authorOf(user: CommentsUser): CommentAuthor {
-  const author: CommentAuthor = { id: user.id, name: (text(user.name) ?? text(user.email) ?? "Someone").slice(0, 256) }
-  const image = text(user.image)
-  if (image) author.image = image
-  if (user.guest === true) author.guest = true
-  return author
-}
-
 function failure(why: string): ViteHubMcpToolResult {
   return { text: why, isError: true }
+}
+
+/** The catalog's COMMENTS_FORBIDDEN, as the overlay API answers it. */
+function forbidden(action: CommentsAction): ViteHubMcpToolResult {
+  const error = commentsErrors.COMMENTS_FORBIDDEN({ action })
+  return failure(`${error.why} ${error.fix}`)
 }
 
 /** One thread as text an Agent reads: where it is, what the person saw, and the conversation. */
@@ -58,9 +54,6 @@ function summary(thread: CommentThread): Record<string, unknown> {
  * as the overlay does. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
-  async function allowed(user: CommentsUser, action: CommentsAction, thread?: CommentThread): Promise<boolean> {
-    return await comments.can({ user, action, thread })
-  }
 
   async function threadFor(input: Record<string, unknown>, user: CommentsUser, action: CommentsAction): Promise<CommentThread | ViteHubMcpToolResult> {
     const id = text(input.id)
@@ -68,7 +61,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
     const [error, thread] = await comments.get(id)
     if (error) return failure(error.why)
     if (thread.scope !== commentsPageScope) return failure(`No thread ${id} on the app's pages.`)
-    if (!await allowed(user, action, thread)) return failure(`Comments authorize does not allow ${action} for this user.`)
+    if (!await comments.can({ user, action, thread })) return forbidden(action)
     return thread
   }
 
@@ -76,7 +69,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
     {
       name: "comments_list_threads",
       title: "List comment threads",
-      description: "List the comment threads that the team left on the app's pages, newest activity first. Each has the page, the first comment, and the Vue components where it was left. Read one with comments_get_thread.",
+      description: "List the comment threads that the team left on the app's pages, newest activity first. Each has the page, the first comment, and the Vue components where it was left. Read one with comments_get_thread; after you change the code, reply with comments_reply and resolve it with comments_resolve_thread.",
       section: "comments",
       annotations: { readOnlyHint: true },
       inputSchema: {
@@ -91,7 +84,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
       },
       async call(input, context) {
         const user = commentsUser(context.user)
-        if (!await allowed(user, "read")) return failure("Comments authorize does not allow read for this user.")
+        if (!await comments.can({ user, action: "read" })) return forbidden("read")
         const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()
