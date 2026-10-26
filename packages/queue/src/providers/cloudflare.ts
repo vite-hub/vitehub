@@ -174,7 +174,7 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
       }
       const [error] = await queueProviderResult("cloudflare", "send-batch", () => binding.sendBatch(messages))
       if (error) return [error, undefined]
-      return [undefined, items.map(() => ({ status: "queued" as const }))]
+      return [undefined, messages.map(() => ({ status: "queued" as const }))]
     },
     createBatchHandler: createCloudflareQueueBatchHandler,
   }
