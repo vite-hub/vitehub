@@ -3,10 +3,11 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
 import { commentRoom, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
+import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentAuthor, CommentMention, CommentThread } from "../types.ts"
+import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
 import type { CommentsApiError, CommentsSession } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
@@ -110,7 +111,7 @@ class CommentsOverlay extends HTMLElement {
   private threads: CommentThread[] = []
   private mode: Mode = "view"
   private openThread?: string
-  private draft?: { anchor: CommentAnchor, x: number, y: number }
+  private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
   private panel = false
   private showResolved = false
   private room?: RealtimeRoom
@@ -253,7 +254,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, commentsHintQuery), x: event.clientX, y: event.clientY }
     this.render()
   }
 
@@ -367,7 +368,7 @@ class CommentsOverlay extends HTMLElement {
 
   private async create(body: string, mentions: CommentMention[], nameInput?: HTMLInputElement) {
     if (!this.draft || !this.ensureAuthor(nameInput)) return
-    const [error, thread] = await api.create({ page: this.page, anchor: this.draft.anchor, body, mentions: keptMentions(body, mentions) })
+    const [error, thread] = await api.create({ page: this.page, anchor: this.draft.anchor, context: this.draft.context, body, mentions: keptMentions(body, mentions) })
     if (error) return this.failed(error)
     this.threads = [thread, ...this.threads]
     this.draft = undefined

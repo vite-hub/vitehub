@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubComments } from "../src/vite.ts"
+import { hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 
@@ -50,6 +50,26 @@ describe("hubComments", () => {
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
+  })
+
+  it("lists the Vue files by component name and reads the build from the host", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/PricingCard.vue": "<template />",
+      "app/pages/index.vue": "<template />",
+      "app/pages/blog/index.vue": "<template />",
+      "node_modules/lib/Hidden.vue": "<template />",
+      ".nuxt/Generated.vue": "<template />",
+    })
+    expect(await readCommentsComponents(root)).toEqual({
+      PricingCard: ["app/components/PricingCard.vue"],
+      index: expect.arrayContaining(["app/pages/index.vue", "app/pages/blog/index.vue"]),
+    })
+    expect(await readCommentsBuild(root, { WORKERS_CI_COMMIT_SHA: "abc", WORKERS_CI_BRANCH: "main" })).toEqual({ commit: "abc", branch: "main" })
+    expect(await readCommentsBuild(root, { GITHUB_SHA: "def", GITHUB_REF_NAME: "feat" })).toEqual({ commit: "def", branch: "feat" })
+    await configure(hubComments(), root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"PricingCard\":[\"app/components/PricingCard.vue\"]")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
   })
 
   it("reads the people from the Console access rules when the app has the Console", async () => {

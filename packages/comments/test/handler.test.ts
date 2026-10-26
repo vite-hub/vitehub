@@ -52,6 +52,8 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     comments,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
+    build: { commit: "abc123", branch: "main" },
+    components: { PricingCard: ["app/components/PricingCard.vue"], index: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
   }))
   const call = async (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const headers = new Headers(init.headers)
@@ -93,6 +95,31 @@ describe("Comments API", () => {
     expect((await call(`/threads/${id}/comments/${reply.body.data.id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call(`/threads/${id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it("keeps the page context, and adds the build and the component files that only the server knows", async () => {
+    const { call } = await setup()
+    const context = {
+      url: "http://site.test/pricing?plan=pro",
+      title: "Pricing",
+      route: "/pricing",
+      element: { tag: "button", role: "button", name: "Buy" },
+      components: [{ name: "index", files: ["/etc/passwd"] }, { name: "PricingCard" }, { name: "Unknown" }],
+      environment: { viewport: { width: 1280, height: 800 }, devicePixelRatio: 2, userAgent: "Test", colorScheme: "dark" },
+      build: { commit: "forged" },
+    }
+    const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context, body: "Buy is hidden" } })
+    expect(created.body.data.context).toEqual({
+      ...context,
+      components: [
+        { name: "index", files: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
+        { name: "PricingCard", files: ["app/components/PricingCard.vue"] },
+        { name: "Unknown" },
+      ],
+      build: { commit: "abc123", branch: "main" },
+    })
+    const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
+    expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
   })
 
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {

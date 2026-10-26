@@ -50,7 +50,7 @@ export default defineEventHandler(async (event) => {
 | --- | --- | --- |
 | `list({ page?, status?, limit? })` | Threads with their comments, newest activity first. `limit` is 200 by default and 500 at most. | `COMMENTS_NOT_INSTALLED` |
 | `get(id)` | One thread. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
-| `create({ page, anchor, body, author, mentions? })` | The new thread, with its first comment. Runs `onComment`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
+| `create({ page, anchor, context?, body, author, mentions? })` | The new thread, with its first comment. Runs `onComment`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
 | `reply(threadId, { body, author, mentions? })` | The new comment. Runs `onComment`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
@@ -74,6 +74,7 @@ interface CommentThread {
   id: string
   page: string                    // normalized pathname, such as '/pricing'
   anchor: CommentAnchor
+  context: CommentContext | null  // what the person saw; null for threads that server code created without it
   status: 'open' | 'resolved'
   createdBy: CommentAuthor
   resolvedBy: CommentAuthor | null
@@ -135,6 +136,42 @@ To place a pin, the overlay uses the first of these that finds an element:
 
 The overlay places pins again when the window resizes, the page changes, or a client router changes the URL. A pin on a hidden element hides with it.
 
+### Page context
+
+When someone starts a thread on a page, the overlay also records what they saw, so a teammate or an Agent can find the code to change. The server adds the build and the source files.
+
+```ts
+interface CommentContext {
+  url: string                     // without the comment mode query and the hash
+  title?: string
+  route?: string                  // Vue Router route pattern, such as '/blog/:id(.*)*'
+  element?: {
+    tag: string
+    id?: string
+    testId?: string               // data-testid, data-test, or data-cy of the element or an ancestor
+    role?: string                 // the role attribute, or the role of the tag
+    name?: string                 // aria-label, alt, title, or the first 120 characters of the text
+    classes?: string[]
+  }
+  components?: Array<{ name: string, files?: string[] }>  // outermost first
+  environment?: {
+    viewport: { width: number, height: number }
+    devicePixelRatio: number
+    userAgent: string
+    language?: string
+    colorScheme?: 'light' | 'dark'
+    timeZone?: string
+  }
+  build?: { commit?: string, branch?: string }
+}
+```
+
+- **Components:** the overlay walks the Vue component tree from the app container down to the element. A production build keeps that tree, so this works without Vue devtools and changes nothing in the HTML. Pages that Vue does not render get no components.
+- **Files:** a production build keeps only the component name, which for `<script setup>` is the name of its file. At build time, Comments lists the `.vue` files of the project by name, and the server adds the files of each name to the thread. A name that two files share, such as `index`, gets both. The list skips `node_modules`, `dist`, `public`, and dot directories. In development, restart the server after you add a component.
+- **Build:** the commit and branch come from the host or CI at build time (`VERCEL_GIT_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `COMMIT_REF`, or `GITHUB_SHA`), else from Git. The browser cannot set them, and cannot set file names.
+
+The Console shows the context in each thread's fields. `describeCommentContext(context)` from `vite-hub/comments` returns the same label and value pairs.
+
 ## HTTP routes
 
 The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is JSON, `{ data }` or `{ error }`, with `cache-control: private, no-store`. `error` has `code`, `why`, `fix`, and `docs`.
@@ -143,7 +180,7 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 | --- | --- | --- |
 | `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`. Sets the `vitehub-comments` cookie when `read` is allowed, and clears it when not. |
 | `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
-| `POST /threads` | `comment` | Starts a thread from `{ page, anchor, body, mentions? }`. |
+| `POST /threads` | `comment` | Starts a thread from `{ page, anchor, context?, body, mentions? }`. |
 | `POST /threads/:id/comments` | `comment` | Replies with `{ body, mentions? }`. |
 | `POST /threads/:id/resolve`, `POST /threads/:id/reopen` | `resolve` | Resolves or reopens the thread. |
 | `DELETE /threads/:id` | `resolve` | Deletes the thread. |

@@ -1,6 +1,6 @@
 import { commentsRoute } from "../page.ts"
 
-import type { Comment, CommentAnchor, CommentAuthor, CommentMention, CommentThread } from "../types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
 
 export interface CommentsSession {
   user: CommentAuthor | null
@@ -72,7 +72,7 @@ const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 export const api = {
   session: () => call<CommentsSession>("/session"),
   threads: (page: string) => call<CommentThread[]>(`/threads?page=${encodeURIComponent(page)}`),
-  create: (input: { page: string, anchor: CommentAnchor, body: string, mentions: CommentMention[] }) => call<CommentThread>("/threads", post(input)),
+  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<CommentThread>("/threads", post(input)),
   reply: (thread: string, input: { body: string, mentions: CommentMention[] }) => call<Comment>(`/threads/${encodeURIComponent(thread)}/comments`, post(input)),
   resolve: (thread: string) => call<CommentThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
   reopen: (thread: string) => call<CommentThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),

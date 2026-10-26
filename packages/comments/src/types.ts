@@ -35,6 +35,52 @@ export interface CommentAnchor {
   viewport: { width: number }
 }
 
+/** A Vue component that renders the element of a thread. */
+export interface CommentComponent {
+  /** The component name, such as `PricingCard`. `<script setup>` components get the name of their file. */
+  name: string
+  /**
+   * Source files that may define it, relative to the project root. Production builds keep only the name, so a
+   * name that two files share, such as `index`, gets both.
+   */
+  files?: string[]
+}
+
+/**
+ * What a person saw when they started a thread, so a teammate or an Agent can find the code to change. The overlay
+ * reads the page, the element, the Vue components, and the browser; the server adds the build.
+ */
+export interface CommentContext {
+  /** The page URL without the comment mode query and the hash. */
+  url: string
+  title?: string
+  /** The Vue Router route pattern, such as `/blog/:id(.*)*`. */
+  route?: string
+  element?: {
+    tag: string
+    id?: string
+    /** `data-testid`, `data-test`, or `data-cy` of the element or its closest ancestor. */
+    testId?: string
+    /** The `role` attribute, or the role of the tag, such as `button` or `heading`. */
+    role?: string
+    /** `aria-label`, `alt`, `title`, or the first 120 characters of the text. */
+    name?: string
+    classes?: string[]
+  }
+  /** Outermost first. Empty on pages that Vue does not render. */
+  components?: CommentComponent[]
+  environment?: {
+    viewport: { width: number, height: number }
+    devicePixelRatio: number
+    userAgent: string
+    language?: string
+    colorScheme?: "light" | "dark"
+    timeZone?: string
+  }
+  /** The commit and branch of the build that served the page, when the build could read them. */
+  build?: { commit?: string, branch?: string }
+}
+
 export interface Comment {
   id: string
   threadId: string
@@ -54,6 +100,8 @@ export interface CommentThread {
   /** Normalized pathname of the page, such as `/pricing`. */
   page: string
   anchor: CommentAnchor
+  /** Null for threads that server code created without it. */
+  context: CommentContext | null
   status: CommentThreadStatus
   createdBy: CommentAuthor
   resolvedBy: CommentAuthor | null
@@ -125,6 +173,7 @@ export interface ListCommentThreadsOptions {
 export interface CreateCommentThreadInput {
   page: string
   anchor: CommentAnchor
+  context?: CommentContext
   body: string
   author: CommentAuthor
   mentions?: CommentMention[]

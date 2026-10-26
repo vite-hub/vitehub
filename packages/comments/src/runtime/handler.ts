@@ -5,12 +5,12 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { anchorSchema, bodySchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentAuthor, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -52,13 +52,20 @@ export interface CommentsHandlerOptions {
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
   realtime: boolean
+  /** The commit and branch of this build. New threads keep them in `context.build`. */
+  build?: NonNullable<CommentContext["build"]>
+  /**
+   * The Vue files of the project by component name, relative to the project root. New threads get the files of each
+   * component that the overlay names, because production builds keep only the name.
+   */
+  components?: Readonly<Record<string, readonly string[]>>
 }
 
 const hintMaxAge = 60 * 60 * 24 * 30
 
 const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentAuthor }) => input)
 
-const createBody = v.object({ page: pageSchema, anchor: anchorSchema, body: bodySchema, mentions: mentionsSchema })
+const createBody = v.object({ page: pageSchema, anchor: anchorSchema, context: v.optional(contextSchema), body: bodySchema, mentions: mentionsSchema })
 const replyBody = v.object({ body: bodySchema, mentions: mentionsSchema })
 const fieldBody = v.object({ field: v.pipe(v.string(), v.maxLength(512)), value: v.pipe(v.string(), v.maxLength(20_000)), ifDigest: v.string() })
 
@@ -181,6 +188,21 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     const user = await resolveUser(event)
     if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     return [undefined, { user, author: user ? authorOf(user) : guestOf(event.req) }]
+  }
+
+  /** Adds the build, and the source files of each component, to the context that the overlay read. */
+  function completeContext(context: CommentContext): CommentContext {
+    const components = context.components?.map((component) => {
+      const files = options.components?.[component.name]
+      return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
+    })
+    // The browser does not know the build, and cannot name files: both come from the server.
+    const { build: _build, ...read } = context
+    return {
+      ...read,
+      ...(components ? { components } : {}),
+      ...(options.build && (options.build.commit || options.build.branch) ? { build: options.build } : {}),
+    }
   }
 
   async function readJson(event: H3Event): Promise<unknown> {
@@ -314,7 +336,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const [denied, allowed] = await access(event, "comment")
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return respond(await comments.create({ ...parsed.output, author: allowed.author }))
+        const { context, ...input } = parsed.output
+        return respond(await comments.create({ ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }
 

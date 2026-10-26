@@ -19,6 +19,7 @@ export type CommentThreadsTable = SQLiteTableWithColumns<{
     id: ThreadColumn<string, true, true>
     page: ThreadColumn<string, true>
     anchor: ThreadColumn<string, true>
+    context: ThreadColumn<string, false>
     status: ThreadColumn<"open" | "resolved", true>
     createdBy: ThreadColumn<string, true>
     resolvedBy: ThreadColumn<string, false>
@@ -55,6 +56,8 @@ const commentThreads = sqliteTable("vitehub_comment_threads", {
   page: text("page").notNull(),
   /** JSON of the anchor. */
   anchor: text("anchor").notNull(),
+  /** JSON of the page, element, components, browser, and build. */
+  context: text("context"),
   status: text("status", { enum: ["open", "resolved"] }).notNull(),
   /** JSON of the author who opened the thread. */
   createdBy: text("created_by").notNull(),

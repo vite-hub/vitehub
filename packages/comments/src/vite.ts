@@ -1,6 +1,8 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
-import { dirname, join, resolve } from "node:path"
+import { execFile } from "node:child_process"
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { promisify } from "node:util"
 
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -87,6 +89,64 @@ export function commentsOverlayDirectory(): string {
   return here.endsWith("src") ? resolve(here, "../dist/overlay") : resolve(here, "overlay")
 }
 
+/** CI and host variables that name the commit and branch of a build, in the order they are read. */
+const buildVariables: ReadonlyArray<readonly [commit: string, branch: string]> = [
+  ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"],
+  ["WORKERS_CI_COMMIT_SHA", "WORKERS_CI_BRANCH"],
+  ["CF_PAGES_COMMIT_SHA", "CF_PAGES_BRANCH"],
+  ["COMMIT_REF", "BRANCH"],
+  ["GITHUB_SHA", "GITHUB_HEAD_REF"],
+]
+
+async function git(root: string, args: string[]): Promise<string | undefined> {
+  try {
+    const { stdout } = await promisify(execFile)("git", args, { cwd: root, encoding: "utf8", timeout: 3000 })
+    return stdout.trim() || undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/** The commit and branch of the build, from the CI or host, else from Git. Empty outside a Git checkout. */
+export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<{ commit?: string, branch?: string }> {
+  for (const [commitName, branchName] of buildVariables) {
+    const commit = env[commitName]
+    if (!commit) continue
+    const branch = env[branchName] || (commitName === "GITHUB_SHA" ? env.GITHUB_REF_NAME : undefined)
+    return branch ? { commit, branch } : { commit }
+  }
+  const [commit, branch] = await Promise.all([git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
+  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}) }
+}
+
+const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
+
+/**
+ * The Vue files of a project by component name, relative to the project root. `<script setup>` components carry the
+ * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
+ */
+export async function readCommentsComponents(root: string, limit = 5000): Promise<Record<string, string[]>> {
+  const components: Record<string, string[]> = {}
+  let count = 0
+  async function walk(directory: string, depth: number): Promise<void> {
+    if (depth > 12 || count >= limit) return
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
+    for (const entry of entries) {
+      if (entry.name.startsWith(".") || skippedDirectories.has(entry.name)) continue
+      const path = join(directory, entry.name)
+      if (entry.isDirectory()) await walk(path, depth + 1)
+      else if (entry.isFile() && entry.name.endsWith(".vue") && count < limit) {
+        count++
+        const name = basename(entry.name, ".vue")
+        ;(components[name] ??= []).push(relative(root, path).split(sep).join("/"))
+      }
+    }
+  }
+  await walk(root, 0)
+  return components
+}
+
 const overlayBaseURL = `${commentsRoute}/assets`
 const version = "1"
 
@@ -106,10 +166,11 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], value: "undefined" }
 }
 
-export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports }): string {
+export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: { commit?: string, branch?: string } }): string {
   const session = sessionLines(input.session, input.imports)
   return [
     `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,
+    `import components from "./components.mjs"`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
     ...session.imports,
     ...(input.content
@@ -124,6 +185,8 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     `  session: ${session.value},`,
     ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
+    `  build: ${JSON.stringify(input.build ?? {})},`,
+    "  components,",
     "})",
     "",
   ].join("\n")
@@ -238,8 +301,10 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         await mkdir(directory, { recursive: true })
+        const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
-          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports })),
+          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
+          writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
           writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
