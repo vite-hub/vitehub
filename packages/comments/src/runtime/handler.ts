@@ -1,6 +1,6 @@
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
-import { defineHandler } from "h3"
+import { defineEventHandler } from "h3"
 import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
@@ -171,7 +171,7 @@ export async function resolveCommentsUser(comments: Comments, session: CommentsH
  * The Comments API at `/api/_vitehub/comments/**`. The overlay calls it; every route checks the `authorize` policy of
  * `defineComments()` for the user of the request, and inline edits also check `content.can()`.
  */
-export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
+export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineEventHandler> {
   const { comments } = options
 
   const resolveUser = (event: H3Event) => resolveCommentsUser(comments, options.session, event)
@@ -336,7 +336,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  return defineHandler(async (event) => {
+  return defineEventHandler(async (event) => {
     const request = requestOf(event)
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
