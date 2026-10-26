@@ -1,4 +1,4 @@
-import { commentsRoute } from "../page.ts"
+import { commentsApiPath } from "../page.ts"
 
 import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
 
@@ -29,6 +29,9 @@ export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 
 const guestKey = "vitehub-comments-guest"
 
+// The overlay is one of the Comments assets, so the API is next to it, below the same app base.
+const apiPath = commentsApiPath(import.meta.url)
+
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
   try {
@@ -54,7 +57,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
   }
   let response: Response
   try {
-    response = await fetch(`${commentsRoute}${path}`, { ...init, headers, credentials: "same-origin" })
+    response = await fetch(`${apiPath}${path}`, { ...init, headers, credentials: "same-origin" })
   }
   catch {
     return [{ code: "COMMENTS_OFFLINE", why: "The server cannot be reached." }, undefined]

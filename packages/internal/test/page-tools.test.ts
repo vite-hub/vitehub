@@ -27,7 +27,7 @@ function tool(id: string, people: string[]): ViteHubPageTool {
 
 const comments = tool("comments", ["ada", "ben"])
 const pill = { ...tool("console", ["ada"]), hotkey: "k" }
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=2\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" data-vitehub-page-tools></script>"
 
 /** A Nitro 3 app whose fetch returns one HTML page, and counts its calls. */
 function nitro3App(html = "<html><body>Page</body></html>") {
@@ -88,7 +88,7 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers({ "content-security-policy": "script-src-elem 'nonce-elem'; script-src 'nonce-other'" }))).toBe("elem")
     expect(scriptNonce(new Headers())).toBeUndefined()
     const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
-    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=2\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
   })
 
   it("appends the loader to HTML without a body tag, and leaves other responses alone", async () => {
@@ -254,5 +254,64 @@ describe("GET /_vitehub/page/session", () => {
     const h3v1 = { node: { req: { url: "/_vitehub/page/session", method: "GET", headers: { host: "site.test" }, [Symbol.asyncIterator]: async function* () {} } } }
     expect((await viteHubPageSessionHandler(h3v1)).status).toBe(200)
     expect(seen).toEqual([h3, "/_vitehub/page/session", h3v1, "/_vitehub/page/session"])
+  })
+})
+
+describe("page tools below an app base", () => {
+  const baseTag = loaderTag.replace("src=\"/_vitehub", "src=\"/portal/_vitehub")
+
+  it("skips Console and API paths below the base, and reads the hint on other pages", () => {
+    const hint = (path: string) => hasViteHubPageToolsHint(new Request(`http://site.test${path}`), "/portal")
+    expect(hint("/portal/blog?vitehub")).toBe(true)
+    expect(hint("/portal/?vitehub")).toBe(true)
+    expect(hint("/portal/_vitehub/content?vitehub")).toBe(false)
+    expect(hint("/portal/api/x?vitehub")).toBe(false)
+    // A path that Nitro already took the base from.
+    expect(hint("/_vitehub/content?vitehub")).toBe(false)
+  })
+
+  it("gives the Nitro 3 loader tag the base that the owner passes", async () => {
+    const app = nitro3App()
+    registerViteHubPageTool(comments)
+    installViteHubPageTools(app, { base: "/portal/" })
+    expect(await (await app.fetch(new Request("http://site.test/portal/?vitehub"))).text()).toBe(`<html><body>Page${baseTag}</body></html>`)
+    expect(await (await app.fetch(new Request("http://site.test/portal/_vitehub/content?vitehub"))).text()).toBe("<html><body>Page</body></html>")
+  })
+
+  it("reads the Nitro 2 base from the request, as H3 1 removes it from url and keeps it in originalUrl", async () => {
+    const app = nitro2App()
+    registerViteHubPageTool(comments)
+    installViteHubPageTools(app)
+    const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+    const event = (url: string) => ({ node: { req: { url, originalUrl: `/portal${url}`, headers: {} }, res: { setHeader() {} } } })
+    const html = { bodyAppend: [] as string[] }
+    render(html, { event: event("/?vitehub") })
+    expect(html.bodyAppend).toEqual([baseTag])
+    const skipped = { bodyAppend: [] as string[] }
+    render(skipped, { event: event("/_vitehub/content?vitehub") })
+    expect(skipped.bodyAppend).toEqual([])
+    const response = { body: new Response("<body></body>", { headers: { "content-type": "text/html" } }) as unknown }
+    respond(event("/served?vitehub"), response)
+    expect(response.body).toBeInstanceOf(Response)
+    if (response.body instanceof Response) expect(await response.body.text()).toBe(`<body>${baseTag}</body>`)
+  })
+
+  it("adds no second loader to a page that has one, such as a single page app that Vite changed", async () => {
+    const page = "<body><script type=\"module\" data-vitehub-page-tools>import(\"/x\")</script></body>"
+    expect(await injectPageToolsLoader(streamed([page])).text()).toBe(page)
+    expect(await injectPageToolsLoader(streamed([page.slice(0, 30), page.slice(30)])).text()).toBe(page)
+  })
+
+  it("gives the tool scripts the base of the session route", async () => {
+    registerViteHubPageTool(comments)
+    registerViteHubPageTool({ ...pill, script: "https://cdn.test/console.js" })
+    const response = await respondViteHubPageSession(new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }), {})
+    expect(await response.json()).toEqual({ tools: [
+      expect.objectContaining({ id: "comments", script: "/portal/comments.js" }),
+      expect.objectContaining({ id: "console", script: "https://cdn.test/console.js" }),
+    ] })
+    const h3v1 = { node: { req: { url: "/_vitehub/page/session", originalUrl: "/portal/_vitehub/page/session", method: "GET", headers: { host: "site.test", cookie: "person=ada" }, [Symbol.asyncIterator]: async function* () {} } } }
+    expect(await (await viteHubPageSessionHandler(h3v1)).json()).toMatchObject({ tools: [{ id: "comments", script: "/portal/comments.js" }, { id: "console" }] })
   })
 })

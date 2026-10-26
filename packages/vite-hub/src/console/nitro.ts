@@ -1,25 +1,11 @@
 import { join } from "node:path"
 import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { viteHubBasePath } from "@vite-hub/internal/runtime/page-tools-shared"
 import { viteHubErrorDiagnostics } from "../error-diagnostics.ts"
 
-function mountBase(base: string | undefined): string {
-  if (!base || base === "./") return ""
-  let pathname = base
-  if (/^https?:\/\//.test(pathname)) {
-    try {
-      pathname = new URL(pathname).pathname
-    }
-    catch {
-      return ""
-    }
-  }
-  if (!pathname.startsWith("/") || pathname.startsWith("//")) return ""
-  return pathname.replace(/\/+$/, "")
-}
-
 export function mountPath(base: string | undefined, path: string): string {
-  return `${mountBase(base)}${path}`
+  return `${viteHubBasePath(base)}${path}`
 }
 
 type NitroHandler = { handler: string; method?: string | string[]; middleware?: boolean; route: string }
@@ -49,15 +35,18 @@ export function addConsolePageHandlers(
 }
 
 /**
- * Serves the page tools session `GET /_vitehub/page/session` and the loader at `/_vitehub/page/assets`, so the `console`
- * page tool works in an app without Comments. When Comments added them first, they stay as they are.
+ * Serves the page tools session `GET <mount>/_vitehub/page/session` and the loader at `<mount>/_vitehub/page/assets`, so
+ * the `console` page tool works in an app without Comments. When Comments added them first, they stay as they are.
+ * `mount` is the route prefix from `viteHubPageToolsBase()`. Nuxt passes none: Nitro serves the routes below
+ * `app.baseURL`.
  */
 export function addConsolePageToolRoutes(
   nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
+  mount = "",
 ): void {
   const kit = createNitroServerKit(nitro)
-  addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page") })
+  addViteHubPageToolRoutes(kit, { handler: join(consoleRuntimeRoot, "server/page-session.js"), loader: join(consoleRuntimeRoot, "page"), mount })
   // SAFETY: The kit keeps the caller's Nitro handler and public asset entries, and the page tools add entries of the same shape.
   nitro.handlers = kit.config.handlers as Array<{ handler: string; route: string }>
   // SAFETY: As above.

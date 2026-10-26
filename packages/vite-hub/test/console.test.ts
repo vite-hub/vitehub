@@ -662,9 +662,9 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/channels/replay",
         "/portal/_vitehub/schedules/run",
         "/portal/_vitehub/mcp",
-        "/_vitehub/page/session",
+        "/portal/_vitehub/page/session",
       ])
-      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }), expect.objectContaining({ baseURL: "/_vitehub/page/assets" })])
+      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }), expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" })])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -699,12 +699,12 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/channels/replay",
         "/portal/_vitehub/schedules/run",
         "/portal/_vitehub/mcp",
-        "/_vitehub/page/session",
+        "/portal/_vitehub/page/session",
       ])
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
-        expect.objectContaining({ baseURL: "/_vitehub/page/assets" }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
+        expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
       ])
     }
     finally {

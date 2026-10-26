@@ -14,8 +14,13 @@ export interface CommentsPluginOptions {
   comments: Comments
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
-  /** URL of the overlay script. The page tools loader imports it for people that may read comments. */
+  /**
+   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * loader imports it for people that may read comments.
+   */
   overlay: string
+  /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
+  base?: string
   /** Reads the user of a request, as in `createCommentsHandler()`. Omitted when the app has no Console and no Auth. */
   session?: CommentsHandlerOptions["session"]
 }
@@ -53,6 +58,6 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
         return await options.comments.can({ user, action: "read" })
       },
     })
-    installViteHubPageTools(nitroApp)
+    installViteHubPageTools(nitroApp, { base: options.base })
   }
 }

@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { commentsApiPath } from "../src/page.ts"
 import { componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
@@ -21,8 +22,8 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubComments>, root: string) {
-  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+async function configure(plugin: ReturnType<typeof hubComments>, root: string, extra: UserConfig = {}) {
+  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
   const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
   await hook.handler(config)
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
@@ -59,6 +60,35 @@ describe("hubComments", () => {
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
+  })
+
+  it("serves the API, the overlay, and the page tools below the Vite base, and passes the base to the runtime", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const nitro = await configure(hubComments(), root, { base: "/portal/" })
+    expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/portal/api/_vitehub/comments/**", "/portal/_vitehub/page/session"])
+    expect(nitro?.publicAssets?.map(asset => asset.baseURL)).toEqual(["/portal/_vitehub/page/assets", "/portal/api/_vitehub/comments/assets"])
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(plugin).toContain("overlay: \"/api/_vitehub/comments/assets/overlay.js?v=2\", base: \"/portal\"")
+    // Nitro serves its routes below its own baseURL, as Nuxt does for `app.baseURL`.
+    const nested = await configure(hubComments(), root, { base: "/portal/", nitro: { baseURL: "/portal/" } } as UserConfig)
+    expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/api/_vitehub/comments/**", "/_vitehub/page/session"])
+    // The overlay finds the API next to itself.
+    expect(commentsApiPath("http://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=2")).toBe("/portal/api/_vitehub/comments")
+    expect(commentsApiPath("http://site.test/api/_vitehub/comments/assets/chunk-1.js")).toBe("/api/_vitehub/comments")
+  })
+
+  it("adds the page tools loader to the index.html of a single page app, below the Vite base", async () => {
+    const html = "<html><body><main></main></body></html>"
+    const without = hubComments()
+    await configure(without, await project({}))
+    const transform = (plugin: ReturnType<typeof hubComments>, page: string) => (plugin.transformIndexHtml as (html: string) => string | undefined)(page)
+    expect(transform(without, html)).toBeUndefined()
+    const plugin = hubComments()
+    await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), { base: "/portal/" })
+    const page = transform(plugin, html)
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=3\")")
+    // A second owner, such as the Console, sees the loader and adds no other.
+    expect(transform(plugin, page!)).toBeUndefined()
   })
 
   it("names a Vue file the way production builds and Nuxt name its component", () => {

@@ -7,8 +7,19 @@ export const commentsPageScope = "pages"
 
 export const commentsRealtimeDefinition = "comments"
 
-/** The route prefix of the Comments API. */
+/** The route prefix of the Comments API, below the app base. */
 export const commentsRoute = "/api/_vitehub/comments"
+
+/**
+ * The path of the Comments API, from the URL of the overlay script. The overlay is at
+ * `<base>/api/_vitehub/comments/assets/`, so the API is at `<base>/api/_vitehub/comments`. Without that shape, it is the
+ * route at the root.
+ */
+export function commentsApiPath(scriptUrl: string): string {
+  const path = new URL(scriptUrl, "http://localhost").pathname
+  const index = path.lastIndexOf(`${commentsRoute}/assets/`)
+  return index === -1 ? commentsRoute : `${path.slice(0, index)}${commentsRoute}`
+}
 
 /**
  * The key of a page: its pathname without query or hash, and without a trailing slash except for `/`. Threads and

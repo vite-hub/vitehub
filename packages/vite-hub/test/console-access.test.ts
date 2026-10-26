@@ -29,7 +29,9 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // The page shell and the empty client script carry no project data. Static assets are public in the same way.
-const shellRoutes = new Set(["client.get.ts", "page.get.ts"])
+// The page tools session answers every page: each tool checks its own access, and the `console` tool uses the Console
+// access policy (console-page-tool.test.ts).
+const shellRoutes = new Set(["client.get.ts", "page.get.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
