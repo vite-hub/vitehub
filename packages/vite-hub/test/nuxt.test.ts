@@ -461,7 +461,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(result.outputFiles?.[0]?.text).toContain("installConsoleDefinitions")
   })
 
-  it.each([false, true])("bundles facade and owner imports through Nitro runtime aliases (dev: %s)", async (dev) => {
+  it.each([false, true])("bundles facade, owner, and generated imports through Nitro runtime aliases (dev: %s)", async (dev) => {
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     const inline = ["existing-inline"]
     const external = ["existing-external"]
@@ -472,7 +472,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/"],
+      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external,
       trace: false,
     })
@@ -2504,7 +2504,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/"] },
+      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3738,7 +3738,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/"],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external: ["external-package"],
       trace: false,
     }
@@ -3769,7 +3769,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/"] })
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] })
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)

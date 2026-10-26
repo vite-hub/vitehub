@@ -1352,8 +1352,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     const externals = isRecord(config.externals) ? config.externals : {}
     const inline = Array.isArray(externals.inline) ? externals.inline : []
-    // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
+    // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
+    // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (emailPlugin && nuxt.options.dev) {
