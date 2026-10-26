@@ -55,7 +55,12 @@ function createReadonlyError() {
 function toShellContent(content: ShellContent, encoding?: BufferEncoding): Uint8Array {
   if (!hasRuntimeType(content, "string")) return content
   // Match Just Bash's filesystem conversion, including malformed input behavior.
-  if (encoding === "base64") return Uint8Array.from(atob(content), char => char.charCodeAt(0))
+  if (encoding === "base64") {
+    const decoded = atob(content)
+    const bytes = new Uint8Array(decoded.length)
+    for (let index = 0; index < decoded.length; index++) bytes[index] = decoded.charCodeAt(index)
+    return bytes
+  }
   if (encoding === "hex") {
     const bytes = new Uint8Array(content.length / 2)
     for (let index = 0; index < content.length; index += 2) {
