@@ -411,6 +411,50 @@ describe("hubWorkspace", () => {
     expect(runWorkspaceDevCommand).not.toHaveBeenCalled()
   })
 
+  it("registers the history endpoint in both Vite servers of one plugin, as Nuxt 4 starts them", async () => {
+    const root = await createViteRoot()
+    const { hubWorkspace } = await import("../src/vite.ts")
+    const { readViteHubDevToken, viteHubDevTokenHeader } = await import("@vite-hub/internal/dev-token")
+    const history = await import("../src/history-dev.ts")
+    const plugin = hubWorkspace()
+    const config = mergedConfigHook(plugin.config) as (
+      config: { nitro?: Record<string, unknown>, root: string },
+      env: { command: "build" | "serve", mode: string },
+    ) => Promise<{ nitro?: { handlers?: Array<{ handler: string, route: string }> } }>
+    const served = await config({ nitro: {}, root }, { command: "serve", mode: "development" })
+    const serverId = served.nitro!.handlers!.find(handler => handler.route === history.workspaceHistoryDevRuntimeRoute)!.handler.replace(/^.*[/\\]|\.ts$/g, "")
+    const configResolved = plugin.configResolved as (config: { command: "serve", root: string }) => Promise<void>
+    await configResolved({ command: "serve", root })
+    const servers = [0, 1].map(() => {
+      const handlers: Connect.NextHandleFunction[] = []
+      return {
+        handlers,
+        server: {
+          config: { root, server: { port: 3000 } },
+          environments: { nitro: { dispatchFetch: vi.fn(async () => Response.json({ ok: true })) } },
+          middlewares: { use: vi.fn((handler: Connect.NextHandleFunction) => handlers.push(handler)) },
+          resolvedUrls: { local: ["http://localhost:3000/"] },
+          ssrLoadModule: vi.fn(async () => ({ default: {} })),
+          watcher: { on: vi.fn() },
+        },
+      }
+    })
+    await Promise.all(servers.map(({ server }) => configurePluginServer(plugin, server)))
+    const token = await readViteHubDevToken(root, { namespace: history.workspaceHistoryDevTokenNamespace, serverId })
+    expect(token).toEqual(expect.any(String))
+    const headers = {
+      "content-type": "application/json",
+      [history.workspaceHistoryDevHeader]: history.workspaceHistoryDevHeaderValue,
+      [history.workspaceHistoryDevTokenServerHeader]: serverId,
+      [viteHubDevTokenHeader]: token,
+    }
+    for (const { handlers } of servers) {
+      let response: ServerResponse | undefined
+      await invokeMiddleware(handlers[1]!, { operation: "refs", workspace: "docs" }, history.workspaceHistoryDevRoute, headers, { onResponse: res => { response = res } })
+      expect(response?.statusCode).toBe(200)
+    }
+  })
+
   it("streams Workspace Dev command progress from the Vite endpoint", async () => {
     const root = await createViteRoot()
     const handlers: Connect.NextHandleFunction[] = []

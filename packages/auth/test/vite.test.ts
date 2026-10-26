@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import ts from "typescript"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { createServer, DevEnvironment, mergeConfig, resolveConfig } from "vite"
 
@@ -95,7 +96,7 @@ describe("hubAuth", () => {
     expect(resolveAuthServer(plugin)).toBe(`\0${AUTH_SERVER_ID}`)
     expect(loadAuthServer(plugin)).toContain(`export * from "@vite-hub/auth/server"`)
     expect(loadAuthServer(plugin)).toContain(`export { handleAuth as default } from "@vite-hub/auth/server"`)
-    await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
+    await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
   })
 
   it("writes generated files at the project root when Vite runs from app/", async () => {
@@ -107,7 +108,7 @@ describe("hubAuth", () => {
     const plugin = hubAuth()
     await resolvePluginConfig(plugin, join(root, "app"))
 
-    await expect(readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
+    await expect(readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")).resolves.toContain("declare module \"#vitehub/auth/server\"")
     await expect(readFile(join(root, ".vitehub", "auth", "route.ts"), "utf8")).resolves.toContain("#vitehub/auth/server")
     await expect(readFile(join(root, "app", ".vitehub", "auth", "route.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
@@ -142,10 +143,11 @@ describe("hubAuth", () => {
     expect(loadAuthServer(plugin)).toContain("from \"vite-hub/auth/server\"")
     expect(loadAuthServer(plugin)).not.toContain("@vite-hub/auth")
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
+    const serverTypes = await readFile(join(root, ".vitehub", "types", "auth-server.d.ts"), "utf8")
     expect(ambientTypes).toContain("namespace ViteHub")
-    expect(ambientTypes).not.toContain("@vite-hub/auth")
-    expect(ambientTypes).toContain("from \"vite-hub/auth/server\"")
-    expect(ambientTypes).not.toContain("from \"@vite-hub/auth/server\"")
+    expect(ambientTypes + serverTypes).not.toContain("@vite-hub/auth")
+    expect(serverTypes).toContain("from \"vite-hub/auth/server\"")
+    expect(serverTypes).not.toContain("from \"@vite-hub/auth/server\"")
   })
 
   it("registers the Auth Definition type in the generated declarations", async () => {
@@ -170,6 +172,33 @@ describe("hubAuth", () => {
     const ambientTypes = await readFile(join(root, ".vitehub", "types", "auth.d.ts"), "utf8")
     expect(ambientTypes).toContain("import type { ServerEnv } from \"#vitehub/env/server\"")
     expect(ambientTypes).toContain("interface AuthRuntimeEnv extends ServerEnv")
+  })
+
+  it("declares #vitehub/auth/server for a tsconfig that cannot resolve it, as a Nuxt 4 app's does", async () => {
+    const root = await createTempProject()
+    await writeAuth(root)
+    await mkdir(join(root, "node_modules/@vite-hub/auth"), { recursive: true })
+    await writeFile(join(root, "node_modules/@vite-hub/auth/package.json"), JSON.stringify({ name: "@vite-hub/auth", exports: { ".": { types: "./index.d.ts" }, "./server": { types: "./server.d.ts" } } }))
+    await writeFile(join(root, "node_modules/@vite-hub/auth/index.d.ts"), "export declare function defineAuth<T>(options: T): T\n")
+    await writeFile(join(root, "node_modules/@vite-hub/auth/server.d.ts"), "export declare const marker: \"ok\"\nexport declare function handleAuth(): number\n")
+    await mkdir(join(root, ".vitehub/env"), { recursive: true })
+    await writeFile(join(root, ".vitehub/env/server.d.ts"), "export interface ServerEnv {}\n")
+
+    // The Env integration makes the generated Auth types a module, the case that a plain declaration cannot cover.
+    await resolvePluginConfig(hubAuth(), root, [{ name: "@vite-hub/env/vite" }])
+    await writeFile(join(root, ".vitehub/types.d.ts"), '/// <reference path="./types/auth.d.ts" />\n/// <reference path="./types/auth-server.d.ts" />\n\nexport {}\n')
+    await writeFile(join(root, "probe.ts"), 'import { marker } from "#vitehub/auth/server"\nexport const value: "ok" = marker\n')
+
+    const program = ts.createProgram([join(root, ".vitehub/types.d.ts"), join(root, ".vitehub/auth/route.ts"), join(root, "probe.ts")], {
+      module: ts.ModuleKind.ESNext,
+      moduleResolution: ts.ModuleResolutionKind.Bundler,
+      noEmit: true,
+      skipLibCheck: true,
+      strict: true,
+      target: ts.ScriptTarget.ESNext,
+    })
+    const diagnostics = ts.getPreEmitDiagnostics(program).map(diagnostic => ts.flattenDiagnosticMessageText(diagnostic.messageText, "\n"))
+    expect(diagnostics).toEqual([])
   })
 
   it("lets top-level config disable the auth plugin", async () => {
