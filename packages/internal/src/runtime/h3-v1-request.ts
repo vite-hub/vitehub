@@ -206,6 +206,18 @@ export function toH3V1Request(event: H3V1Event): Request {
   return webRequest
 }
 
+/**
+ * Return the Web Request of a request, an H3 2 event with an own `req` request, or an H3 1 event such as Nuxt 4's.
+ * H3 1 events have no `url`, so read the URL from the request this returns. Throws a `TypeError` for any other value.
+ */
+export function toEventRequest(event: object): Request {
+  if (isWebRequest(event)) return event
+  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
+  if (isWebRequest(req)) return req
+  if (isH3V1Event(event)) return toH3V1Request(event)
+  throw new TypeError("[vitehub] Expected a Request, an H3 2 event, or an H3 1 event.")
+}
+
 function headerValues(value: number | string | string[] | undefined): string[] {
   if (value === undefined) return []
   return Array.isArray(value) ? value : [String(value)]
