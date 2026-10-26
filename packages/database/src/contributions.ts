@@ -1,6 +1,6 @@
 import { isAbsolute } from "pathe"
 
-import { collectContributions, describeContribution } from "@vite-hub/internal/contributions"
+import { collectContributions, describeContribution, flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { isPlainObject } from "@vite-hub/internal/object"
 
 import { databaseErrorDiagnostics } from "./error-diagnostics.ts"
@@ -131,25 +131,6 @@ export function describeDatabaseContribution(contribution: CollectedDatabaseCont
   return `${JSON.stringify(contribution.name)} (${describeContribution(contribution)})`
 }
 
-function isThenable(value: Record<string, unknown>): value is Record<string, unknown> & PromiseLike<unknown> {
-  return typeof value.then === "function"
-}
-
-async function flattenPlugins(value: unknown, plugins: object[], seen: Set<unknown>): Promise<void> {
-  if (Array.isArray(value)) {
-    for (const item of value) await flattenPlugins(item, plugins, seen)
-    return
-  }
-  if (!isPlainObject(value) || seen.has(value)) return
-  seen.add(value)
-  // Vite accepts promised plugin options. The `config` hook sees them unresolved.
-  if (isThenable(value)) {
-    await flattenPlugins(await value, plugins, seen)
-    return
-  }
-  plugins.push(value)
-}
-
 const definitionNamePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
 
 function readDefinitionContribution(entry: Record<string, unknown>, plugin: string): CollectedDatabaseDefinitionContribution {
@@ -182,8 +163,7 @@ export async function collectDatabaseContributions(
   plugins: readonly unknown[] | undefined,
   context: DatabaseContributionContext,
 ): Promise<CollectedDatabaseContributions> {
-  const candidates: object[] = []
-  await flattenPlugins(plugins ?? [], candidates, new Set())
+  const candidates = await flattenPluginOptions(plugins)
   // Factories see the flat plugin list, so they can read sibling plugins without unwrapping Vite plugin options.
   const factoryContext: DatabaseContributionContext = { ...context, plugins: candidates }
   const definitions = new Map<string, CollectedDatabaseDefinitionContribution>()
