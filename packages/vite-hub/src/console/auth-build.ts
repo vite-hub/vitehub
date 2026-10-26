@@ -152,7 +152,7 @@ async function writeCloudflareAccessMiddleware(root: string, config: ResolvedClo
     "}",
     "// Each Console data route calls this check, whatever its path.",
     "export function checkConsoleAccess(event) {",
-    "  return verifyCloudflareAccessConsoleRequest(event.req, () => resolveServerEnv(settings, event))",
+    "  return verifyCloudflareAccessConsoleRequest(event, () => resolveServerEnv(settings, event))",
     "}",
     "",
   ].join("\n"))
