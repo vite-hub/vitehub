@@ -2,6 +2,7 @@ import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDi
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { transform } from "esbuild"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -294,6 +295,37 @@ function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: 
   for (const resolver of resolvers) {
     if (!nitroPlugins.some(candidate => pluginOptionHasName(candidate, resolver.name))) nitroPlugins.push(resolver)
   }
+}
+
+const generatedTypeScriptPluginName = "vitehub:nuxt-generated-typescript"
+
+/**
+ * `nuxt build` moves `buildDir` to `node_modules/.cache/nuxt/.nuxt` when `.nuxt` already exists.
+ * nitropack 2 does not compile TypeScript under `node_modules`, so compile the generated files in
+ * `<buildDir>/vitehub` before Nitro reads them.
+ */
+function installGeneratedTypeScriptCompiler(config: Record<string, unknown>, generatedRoot: string): void {
+  const root = `${generatedRoot.replace(/\\/g, "/")}/`
+  if (!root.split("/").includes("node_modules")) return
+
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const configuredPlugins = rollupConfig.plugins as PluginOption | undefined
+  const nitroPlugins = Array.isArray(configuredPlugins)
+    ? configuredPlugins
+    : configuredPlugins
+      ? [configuredPlugins]
+      : []
+  rollupConfig.plugins = nitroPlugins
+  if (nitroPlugins.some(candidate => pluginOptionHasName(candidate, generatedTypeScriptPluginName))) return
+  nitroPlugins.push({
+    name: generatedTypeScriptPluginName,
+    async transform(code, id) {
+      const file = id.split("?", 1)[0]!.replace(/\\/g, "/")
+      if (!file.startsWith(root) || !file.endsWith(".ts")) return
+      const result = await transform(code, { format: "esm", loader: "ts", sourcefile: file, sourcemap: true })
+      return { code: result.code, map: result.map }
+    },
+  } satisfies Plugin)
 }
 
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[], key: "sharedTsConfig" | "tsConfig" = "tsConfig"): void {
@@ -820,6 +852,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
   nitro.preset = nitroPreset
+  // Realtime turns on Nitro 3's `features.websocket`. Nuxt 4 runs Nitro 2, which reads `experimental.websocket`.
+  if (options.realtime) {
+    const experimental = (nitro.experimental ??= {}) as Record<string, unknown>
+    experimental.websocket = true
+  }
   if (plan.preset === "cloudflare") {
     const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
     cloudflare.deployConfig ??= true
@@ -1341,8 +1378,9 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     const externals = isRecord(config.externals) ? config.externals : {}
     const inline = Array.isArray(externals.inline) ? externals.inline : []
-    // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
+    // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
+    // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (emailPlugin && nuxt.options.dev) {
@@ -1353,6 +1391,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.kv) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
+    installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))
   })
   if (options.agent) {
     addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)

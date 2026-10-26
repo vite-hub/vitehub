@@ -1,7 +1,6 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
-import { defineHandler } from "h3"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
@@ -11,7 +10,7 @@ import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operati
 import { uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 
-import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
+import type { H3Event } from "h3"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleRpcResult } from "../rpc.ts"
 
@@ -267,10 +266,11 @@ function eventRemoteAddress(event: H3Event): string | undefined {
   return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
 }
 
-const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
+// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
+const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
   return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
-}, { anySection: true }))
+}, { anySection: true })
 
 export default consoleRpcHandler
