@@ -4,11 +4,11 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, developmentRuntime, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError, consoleRequestJSON } from "./request.ts"
+import { consoleRequestError, consoleRequestJSON, isConsoleDevelopmentRuntime } from "./request.ts"
 
 import type { H3Event } from "h3"
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -181,7 +181,7 @@ function isLoopbackAddress(address: string): boolean {
  * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
  */
 function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
-  if ((context.access.mode !== "local" && context.access.mode !== "open") || !developmentRuntime()) return
+  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentRuntime()) return
   const hostHeader = request.headers.get("host") ?? url.host
   const forwarded = request.headers.get("x-forwarded-host")
   if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return

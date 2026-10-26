@@ -221,6 +221,77 @@ afterEach(() => {
 })
 
 describe("workflow runtime", () => {
+  it.each([
+    ["runWorkflow", (name: string) => runWorkflow(name, {})],
+    ["getWorkflowRun", (name: string) => getWorkflowRun(name, "run-1")],
+    ["cancelWorkflow", (name: string) => cancelWorkflow(name, "run-1")],
+  ])("rejects disabled %s before loading known or missing definitions", async (_operation, call) => {
+    const load = vi.fn(async () => ({ default: { handler: async () => "done" } }))
+    setWorkflowRuntimeRegistry({ known: load })
+    setWorkflowRuntimeConfig(false)
+
+    for (const name of ["known", "missing"]) {
+      const error = await call(name).catch(error => error)
+      expect(error).toBeInstanceOf(ViteHubError)
+      expect(error.toJSON()).toEqual({
+        code: "WORKFLOW_DISABLED",
+        message: "Workflow is disabled.",
+        name: "ViteHubError",
+      })
+    }
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("rejects disabled signals before loading the provider", async () => {
+    const load = vi.fn()
+    setVercelWorkflowRuntimeLoader(load)
+    setWorkflowRuntimeConfig(false)
+
+    const error = await resumeWorkflowSignal("opaque-token", {}).catch(error => error)
+    expect(error).toBeInstanceOf(ViteHubError)
+    expect(error.toJSON()).toEqual({
+      code: "WORKFLOW_DISABLED",
+      message: "Workflow is disabled.",
+      name: "ViteHubError",
+    })
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it.each([false, undefined, { provider: "vercel" }] satisfies Parameters<typeof setWorkflowRuntimeConfig>[0][])("validates signal tokens before configuration %j", async (config) => {
+    setWorkflowRuntimeConfig(config)
+
+    await expect(resumeWorkflowSignal("", {})).rejects.toMatchObject({
+      code: "WORKFLOW_R0014",
+      message: "`resumeWorkflowSignal()` requires an opaque signal token.",
+    })
+  })
+
+  it.each([
+    ["runWorkflow", () => runWorkflow("missing", {})],
+    ["cancelWorkflow", () => cancelWorkflow("missing", "run-1")],
+  ])("rejects missing definitions before %s provider dispatch", async (_operation, call) => {
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({})
+
+    await expect(call()).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+      details: { name: "missing" },
+      message: "Workflow definition was not found.",
+    })
+  })
+
+  it("defaults unset configuration to Vercel and permits inspection of missing definitions", async () => {
+    setWorkflowRuntimeConfig(undefined)
+    const workflow = createWorkflow("default-provider", async () => "done")
+
+    await expect(workflow.run()).resolves.toMatchObject({ provider: "vercel", status: "queued" })
+    await expect(getWorkflowRun("missing", "run-1")).resolves.toEqual({
+      id: "run-1",
+      provider: "vercel",
+      status: "unknown",
+    })
+  })
+
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,

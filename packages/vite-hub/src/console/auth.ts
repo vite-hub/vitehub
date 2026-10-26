@@ -4,6 +4,7 @@ import { createAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
+import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -12,6 +13,7 @@ function escapeHTML(value: string): string {
 }
 
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
+  const development = isConsoleDevelopmentBuild()
   const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
   const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
@@ -43,18 +45,18 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
     <main>
       <h1>Sign in</h1>
       <p>${message}</p>
-      <a href="${escapeHTML(startPath)}">${escapeHTML(buttonLabel)}</a>
+      <a href="${escapeHTML(startPath)}"${development ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>
     </main>
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
   })
@@ -73,6 +75,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     || !response.headers.get("content-type")?.startsWith("text/plain")
   ) return response
 
+  const development = isConsoleDevelopmentBuild()
   const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
@@ -130,11 +133,11 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
     status: 403,

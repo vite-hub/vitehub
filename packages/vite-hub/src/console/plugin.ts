@@ -177,6 +177,7 @@ function renderConsoleNitroPlugin(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
+  development = false,
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -207,7 +208,7 @@ function renderConsoleNitroPlugin(
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined
   return [
-    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
+    `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
     ...accessCode.imports,
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
@@ -240,6 +241,7 @@ function renderConsoleNitroPlugin(
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
+    `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
     ...accessCode.install,
     `installConsoleSections(${JSON.stringify(projectRoot)}, ${JSON.stringify(sections)}${independentAuth ? `, ${JSON.stringify(independentAuth)}` : ""})`,
     ...(blobEnabled
@@ -292,6 +294,7 @@ export async function writeConsoleNitroPlugin(
   retention?: AgentRetentionPolicy,
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
+  development = false,
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -301,7 +304,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

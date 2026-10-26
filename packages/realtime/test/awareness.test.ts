@@ -25,6 +25,17 @@ function update(clients: number[], state: unknown = { cursor: 1 }, clock = 1): U
   return encoding.toUint8Array(encoder)
 }
 
+function entriesUpdate(entries: Array<[number, number, string]>): Uint8Array {
+  const encoder = encoding.createEncoder()
+  encoding.writeVarUint(encoder, entries.length)
+  for (const [client, clock, state] of entries) {
+    encoding.writeVarUint(encoder, client)
+    encoding.writeVarUint(encoder, clock)
+    encoding.writeVarString(encoder, state)
+  }
+  return encoding.toUint8Array(encoder)
+}
+
 afterEach(() => {
   for (const room of rooms.splice(0)) {
     room.destroy()
@@ -33,6 +44,97 @@ afterEach(() => {
 })
 
 describe("realtime awareness ownership", () => {
+  it.each([[1], [2, 1], [1, 2]])("rejects every truncated prefix of clients %j without changing ownership", (...clients) => {
+    const frame = update(clients)
+    for (let length = 0; length < frame.length; length++) {
+      const owners = createRealtimeAwarenessOwners()
+      const room = roomAwareness()
+      const first = {}
+      const second = {}
+      owners.apply(room, first, update([1]))
+      owners.apply(room, second, update([3]))
+      const states = [...room.getStates()]
+
+      expect(() => owners.apply(room, second, frame.slice(0, length))).toThrow()
+      expect([...room.getStates()]).toEqual(states)
+      expect(owners.release(second)).toEqual([3])
+      expect(owners.release(first)).toEqual([1])
+      expect(owners.apply(room, {}, update([2]))).toEqual([2])
+    }
+  })
+
+  it("checks the input count before filtering foreign clients or decoding missing entries", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const first = {}
+    const second = {}
+    owners.apply(room, first, update([1]))
+    const frame = update(Array.from({ length: 1025 }, () => 1))
+
+    for (const input of [frame, frame.slice(0, 2)]) {
+      expect(() => owners.apply(room, second, input)).toThrow(expect.objectContaining({ code: "REALTIME_TOO_MANY_AWARENESS_CLIENTS" }))
+    }
+    expect([...room.getStates()]).toEqual([[1, { cursor: 1 }]])
+    expect(owners.release(second)).toEqual([])
+    expect(owners.release(first)).toEqual([1])
+  })
+
+  it("preserves entry order, clocks and states while filtering foreign clients", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const first = {}
+    const second = {}
+    owners.apply(room, first, update([1]))
+    const frame = entriesUpdate([[2, 2, '{"cursor":2}'], [1, 9, "null"], [3, 1, '{"cursor":3}'], [2, 3, '{"cursor":4}']])
+
+    expect(owners.apply(room, second, frame)).toEqual([2, 3, 2])
+    expect([...room.getStates()]).toEqual([[1, { cursor: 1 }], [2, { cursor: 4 }], [3, { cursor: 3 }]])
+    expect(owners.apply(room, second, update([2], { cursor: 0 }, 2))).toEqual([2])
+    expect(room.getStates().get(2)).toEqual({ cursor: 4 })
+    expect(owners.release(second)).toEqual([2, 3])
+    expect(owners.release(first)).toEqual([1])
+  })
+
+  it.each([undefined, { color: "#2563EB", id: "user", name: "Max" }])("rolls back a malformed later retained state with identity %j", (identity) => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const peer = {}
+    owners.apply(room, peer, update([1]))
+    const frame = entriesUpdate([[1, 2, '{"cursor":2}'], [2, 1, "{}"], [3, 1, "{"]])
+
+    expect(() => owners.apply(room, peer, frame, identity)).toThrow(SyntaxError)
+    expect([...room.getStates()]).toEqual([[1, { cursor: 1 }]])
+    expect(owners.apply(room, {}, update([2, 3]))).toEqual([2, 3])
+    expect(owners.release(peer)).toEqual([1])
+  })
+
+  it("validates later binary entries before parsing an earlier retained JSON state", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const peer = {}
+    const frame = entriesUpdate([[1, 1, "{"], [2, 1, "{}"]]).slice(0, -1)
+
+    expect(() => owners.apply(room, peer, frame)).toThrow("Unexpected end of array")
+    expect(room.getStates().size).toBe(0)
+    expect(owners.release(peer)).toEqual([])
+    expect(owners.apply(room, {}, update([1, 2]))).toEqual([1, 2])
+  })
+
+  it("accepts empty frames and ignores the JSON content of foreign states", () => {
+    const owners = createRealtimeAwarenessOwners()
+    const room = roomAwareness()
+    const first = {}
+    const second = {}
+    owners.apply(room, first, update([1]))
+
+    expect(owners.apply(room, second, update([]))).toEqual([])
+    expect(owners.apply(room, second, entriesUpdate([[1, 2, "{"]]))).toEqual([])
+    expect(owners.apply(room, second, entriesUpdate([[1, 2, "{"], [2, 1, "{}"]]))).toEqual([2])
+    expect([...room.getStates()]).toEqual([[1, { cursor: 1 }], [2, {}]])
+    expect(owners.release(second)).toEqual([2])
+    expect(owners.release(first)).toEqual([1])
+  })
+
   it("keeps a peer's accumulated clients and releases them together", () => {
     const owners = createRealtimeAwarenessOwners()
     const room = roomAwareness()
