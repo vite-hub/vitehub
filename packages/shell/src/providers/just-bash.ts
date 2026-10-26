@@ -268,7 +268,7 @@ function parseControlledCurlCommand(command: string): ParsedControlledCurl {
       }
       if (word === "-d" || word === "--data" || word === "--data-raw" || word === "--data-binary") {
         const value = words[++index]
-        if (!value) return parseFailure(`${word} requires a body.`)
+        if (value === undefined) return parseFailure(`${word} requires a body.`)
         body = parseCurlDataBody(value)
         method ??= "POST"
         continue

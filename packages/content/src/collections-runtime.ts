@@ -963,7 +963,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   /**
    * The documents that an open publish pull request would change, by path, with the pull request. The Store finds the
    * publish branches and their open pull requests; the documents are the ones whose bytes differ between the branch and
-   * the revision it started from. A document is pending until `published` has the bytes of the branch.
+   * the merge base with the published branch. A document is pending until `published` has the bytes of the branch.
    */
   async function pendingPublishes(): Promise<Map<string, ContentPullRequest>> {
     const pending = new Map<string, ContentPullRequest>()
@@ -976,8 +976,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     // Newest first: a document that two pull requests change shows the newest.
     for (const request of requests) {
       const head = await retained.head({ ref: request.head })
-      if (!head?.parentId) continue
-      const [branch, parent] = await Promise.all([openRevision(head), openRevision(head.parentId)])
+      const base = request.mergeBase ?? head?.parentId
+      if (!head || !base) continue
+      const [branch, parent] = await Promise.all([openRevision(head), openRevision(base)])
       for (const path of new Set([...branch.files.keys(), ...parent.files.keys()])) {
         const bytes = branch.files.get(path) ?? null
         if (pending.has(path) || bytes === (parent.files.get(path) ?? null) || bytes === (published?.get(path) ?? null)) continue

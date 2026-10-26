@@ -15,6 +15,7 @@ import * as ownerAgentMcp from "@vite-hub/agent/mcp";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
+import * as ownerAuthConsole from "@vite-hub/auth/runtime/console";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
@@ -35,6 +36,7 @@ import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
+import * as frameworkAuthConsole from "vite-hub/_internal/auth/runtime/console";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -126,6 +128,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
+  "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/runtime/dev",
@@ -234,6 +237,9 @@ describe("framework package contract", () => {
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent);
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat);
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
+    expect(frameworkAuthConsole.readAuthEventConsoleRecords).toBe(ownerAuthConsole.readAuthEventConsoleRecords);
+    expect(frameworkAuthConsole.listAuthEvents).toBe(ownerAuthConsole.listAuthEvents);
+    expect(frameworkAuthConsole.aggregateAuthEvents).toBe(ownerAuthConsole.aggregateAuthEvents);
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);

@@ -75,6 +75,10 @@ ViteHub loads the Definition with your Vite or Nuxt string aliases. If the Defin
 
 `vitehub db generate` writes a Drizzle migration beside the Definition. `vitehub db migrate` applies the pending migrations with Drizzle Kit. Before it applies anything, it reads the Drizzle migrations table of each database and checks the SQL of each pending migration.
 
+Both commands run from the Database project root, even when Nuxt uses `app/` as its Vite root. The CLI finds Drizzle Kit in the application's dependencies or the installed `vite-hub` facade.
+
+Connection URLs and tokens can be string literals or runtime environment declarations, including module-level variables initialized with those values. Kit reads environment values when it runs and uses the Turso dialect for remote or authenticated libSQL. The migration check uses the same resolved connection. Local migration creates the database's parent directory after that check. Generation and `--dry-run` do not create the database file.
+
 ```bash [commands/migrate]
 pnpm vitehub db migrate --dry-run
 pnpm vitehub db migrate

@@ -404,6 +404,8 @@ export interface WorkspacePullRequest {
   head: string
   /** The ref that it merges into. */
   base: string
+  /** Common ancestor of the head and base, for comparing all changes in the pull request. */
+  mergeBase?: string
 }
 
 export interface WorkspaceOpenPullRequestOptions {

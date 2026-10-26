@@ -37,17 +37,19 @@ const serverPrimitiveSections = [
 ];
 
 describe("docs product navigation", () => {
-  it("keeps platform topics in the catalog but out of the product rail", () => {
+  it("exposes UI, development, deployment, and reference without crowding the product rail", () => {
     const catalog = getDocsCatalog(docsManifest.sections);
     const rail = getDocsRailCatalog(docsManifest.sections);
-    expect(catalog.find(group => group.category === "Platform")?.sections.map(section => section.id))
-      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "reference"]));
+    expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(section => section.id))
+      .toEqual(expect.arrayContaining(["development", "frameworks-hosts"]));
+    expect(catalog.find(group => group.category === "Reference")?.sections.map(section => section.id)).toEqual(["reference"]);
     const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
     for (const sectionId of ["development", "frameworks-hosts", "reference"]) {
       expect(railSectionIds).not.toContain(sectionId);
     }
-    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => category !== "Platform"));
-    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+    expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => !["Develop and deploy", "Reference"].includes(category)));
+    expect(rail.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents"]);
+    expect(rail.find(group => group.category === "UI")?.sections.map(section => section.id)).toEqual(["ui"]);
   });
 
   it("labels UI catalog tiles as UI components", () => {
@@ -55,7 +57,7 @@ describe("docs product navigation", () => {
     expect(getDocsSectionKind(section("ui"))).toBe("UI components");
     expect(getDocsSectionKind(section("agents"))).toBe("Agents");
     expect(getDocsSectionKind(section("getting-started"))).toBe("Get started");
-    expect(getDocsSectionKind(section("reference"))).toBe("Platform");
+    expect(getDocsSectionKind(section("reference"))).toBe("Reference");
   });
 
   it("files every section under one catalog category", () => {
@@ -70,7 +72,8 @@ describe("docs product navigation", () => {
       .flatMap(group => group.sections.map(section => section.id))
       .sort();
     expect(productIds).toEqual(serverPrimitiveSections);
-    expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents", "ui"]);
+    expect(catalog.find(group => group.category === "Agents")?.sections.map(section => section.id)).toEqual(["agents"]);
+    expect(catalog.find(group => group.category === "UI")?.sections.map(section => section.id)).toEqual(["ui"]);
   });
 
   it("orders every Server Primitive section by the product page template", () => {
@@ -98,13 +101,19 @@ describe("docs product navigation", () => {
     }
   });
 
+  it("preserves the Agents Learning path title", () => {
+    expect(getDocsPageByPath("/docs/agents/get-started")?.title).toBe("Learning path");
+  });
+
   it("keeps Agent-only Capabilities inside the Agents section", () => {
     const agents = docsManifest.sections.find(section => section.id === "agents");
     const capabilities = agents?.pages.filter(page => page.id.startsWith("capabilities")) || [];
 
     expect(capabilities.map(page => page.path)).toContain("/docs/agents/capabilities");
     expect(capabilities.map(page => page.path)).toContain("/docs/agents/capabilities/mcp");
-    expect(capabilities.every(page => page.group === "Capabilities")).toBe(true);
+    expect(capabilities.find(page => page.id === "capabilities")?.group).toBe("Instructions and tools");
+    expect(capabilities.find(page => page.id === "capabilities/custom")?.group).toBe("Advanced");
+    expect(capabilities.filter(page => !["capabilities", "capabilities/official", "capabilities/custom"].includes(page.id)).every(page => page.group === "Capabilities")).toBe(true);
     expect(docsManifest.sections.map(section => section.id)).not.toContain("capabilities");
     expect(docsManifest.sections.map(section => section.id)).not.toContain("server-primitives");
   });
@@ -116,18 +125,18 @@ describe("docs product navigation", () => {
     expect(getDocsSectionForPath(docsManifest.sections, "/docs/unknown")).toBeNull();
   });
 
-  it("keeps the UI sidebar Console-first", () => {
+  it("puts reusable UI blocks after setup", () => {
     const ui = docsManifest.sections.find(section => section.id === "ui");
     expect(getDocsSidebarGroups(ui!).map(group => group.label)).toEqual([
       "Start",
-      "Console",
+      "Blocks",
       "Parts",
       "Chat",
       "Collaboration",
       "Agent work",
       "Utilities",
     ]);
-    expect(getDocsSidebarGroups(ui!).find(group => group.label === "Console")?.pages.map(page => page.title))
+    expect(getDocsSidebarGroups(ui!).find(group => group.label === "Blocks")?.pages.map(page => page.title))
       .toEqual(["Chat App", "Code Review", "Collaborative Editor"]);
   });
 

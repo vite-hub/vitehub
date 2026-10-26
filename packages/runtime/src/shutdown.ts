@@ -98,6 +98,15 @@ function drainBudget(runtime: ShutdownRuntime | undefined): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 0
 }
 
+function drainErrorMessage(error: unknown): string {
+  try {
+    return error instanceof Error ? String(error.message) : String(error)
+  }
+  catch {
+    return "Unknown shutdown drain error."
+  }
+}
+
 async function runEntry(entry: ShutdownDrainEntry, timeoutMs: number, state: ShutdownState): Promise<ShutdownDrainResult> {
   const startedAt = Date.now()
   const controller = new AbortController()
@@ -117,7 +126,7 @@ async function runEntry(entry: ShutdownDrainEntry, timeoutMs: number, state: Shu
     result = { durationMs: Date.now() - startedAt, name: entry.name, status: outcome }
   }
   catch (error) {
-    result = { durationMs: Date.now() - startedAt, error: error instanceof Error ? error.message : String(error), name: entry.name, status: "failed" }
+    result = { durationMs: Date.now() - startedAt, error: drainErrorMessage(error), name: entry.name, status: "failed" }
   }
   for (const timer of timers) clearTimeout(timer)
   controller.abort()

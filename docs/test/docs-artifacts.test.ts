@@ -94,6 +94,14 @@ describe("writeDocsArtifacts", () => {
     expect(raw).toBe("| Option | Default |\n| --- | --- |\n| `driver` | `memory` |\n");
   });
 
+  it("keeps the documentation learning paths readable without the navigation component", () => {
+    const raw = toRawMarkdown(readFileSync(resolve(import.meta.dirname, "../content/docs/index.md"), "utf8"));
+    expect(raw).not.toContain("docs-learning-paths");
+    for (const path of ["getting-started", "getting-started/server-primitives", "agents", "ui", "getting-started/build-and-deploy", "reference"]) {
+      expect(raw).toContain(`(https://vitehub.dev/docs/${path})`);
+    }
+  });
+
   it("unwraps the interactive support matrix for raw Markdown", () => {
     expect(toRawMarkdown([
       "::support-matrix",

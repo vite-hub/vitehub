@@ -42,10 +42,10 @@ export interface AgentChatData {
 export type AttachmentData = ArrayBuffer | Blob | string | Uint8Array
 export type AudioData = AttachmentData
 
-const blobSizeGetter = hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined
-const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
-const typedArrayTagGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get
-const typedArrayByteLengthGetter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get
+const blobSizeGetter = /* @__PURE__ */ (() => hasRuntimeType(globalThis.Blob, "function") ? Object.getOwnPropertyDescriptor(globalThis.Blob.prototype, "size")?.get : undefined)()
+const arrayBufferByteLengthGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get)()
+const typedArrayTagGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), Symbol.toStringTag)?.get)()
+const typedArrayByteLengthGetter = /* @__PURE__ */ (() => Object.getOwnPropertyDescriptor(Object.getPrototypeOf(Uint8Array.prototype), "byteLength")?.get)()
 
 /** Brand checks that work for values created in another JavaScript realm. */
 export function isBlobValue(value: unknown): value is Blob {

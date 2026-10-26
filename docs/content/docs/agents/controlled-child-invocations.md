@@ -1,9 +1,10 @@
 ---
 title: Child invocations
 description: Start, inspect, respond to, and cancel child Agent work from trusted code.
-navigation.order: 80
-navigation.group: Advanced execution
+navigation.order: 74
+navigation.group: Advanced
 icon: i-lucide-workflow
+navigation.kind: Guides
 ---
 
 `startAgentInvocation()` starts an Agent and returns a controller. Trusted

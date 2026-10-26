@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { ComponentPublicInstance } from "vue";
 import type { ContentPage } from "../composables/useDocsPage";
+import DocsCodePre from "./DocsCodePre.vue";
 
 const props = defineProps<{
   page: ContentPage;

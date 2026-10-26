@@ -366,6 +366,17 @@ describe("Content on the GitHub store", () => {
       expect(fake.requests.some(request => request.path.endsWith("/git/matching-refs/heads/vitehub/publish/"))).toBe(true)
     })
 
+    it("keeps all pending documents after another commit is added to the publish branch", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await content.publish()
+      fake.commit(fake.pulls[0]!.head, { "README.md": "Updated on GitHub" })
+      vi.advanceTimersByTime(6_000)
+
+      expect(await posts.status("b")).toMatchObject({ pullRequest: { number: 1 } })
+      await expect(content.publish()).rejects.toMatchObject({ code: "CONTENT_R0017" })
+    })
+
     it("writes the pull request title on one line and the message in code", async () => {
       const { posts, content } = await setup({ publish: "pr" })
       await posts.save("b", { data: { title: "B" }, body: "" })

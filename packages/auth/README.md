@@ -334,3 +334,23 @@ const error = new ViteHubError("AUTHENTICATION_REQUIRED", "Sign in to use this A
 - Keep automatic `/api/auth/**` exposure enabled unless the host mounts the stable handler itself, and verify the chosen `basePath` on both server and client.
 
 Read the complete [Auth guide](https://vitehub.dev/docs/auth), [Auth Users and Agent Invokers](https://vitehub.dev/docs/agents/invokers), the [host support matrix](https://vitehub.dev/docs/frameworks-hosts/support-matrix), and the project's [pre-1.0 security policy](https://github.com/vite-hub/vitehub/blob/main/SECURITY.md).
+
+## Auth event log
+
+Opt in with `events: { store: createDatabaseAuthEventStore({ db }) }` in `defineAuth()`. The store uses the existing SQLite Drizzle `run` and `all` contract. Node SQLite and Cloudflare D1 use the same table and queries. No event database is needed when the option is absent or `false`.
+
+The default retention is 90 days and 100,000 records, with cleanup after each append. Override `retention.maxAgeMs` or `retention.maxRecords`, or use `retention: false`. IP addresses are discarded. User agents become a coarse device class. Admin updates store field names, not secret values.
+
+Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vite-hub/auth/server`, or use the store directly. Lists use cursor pagination and one SQL query after initialization. Aggregates use one statement for a consistent snapshot and count distinct users over the whole window. `@vite-hub/auth/runtime/console` exports these readers and `readAuthEventConsoleRecords` for the Console. No Console UI is added.
+
+For `vitehub auth events`, configure `events.authorize`. The read endpoint requires a session and an explicit `true` result. Give the CLI the Auth base URL with `--url`, and the session cookie through `VITEHUB_AUTH_COOKIE`.
+
+Event writes are separate from auth mutations. Storage failures warn with `AUTH_EVENT_WRITE_FAILED` and do not reject a completed auth action. Read [Auth event log](https://vitehub.dev/docs/auth/events) for the event list, metric definitions, privacy rules, retention, and coverage limits.
+
+## Auth Console
+
+The primary Auth Definition adds `/_vitehub/auth` to the ViteHub Console. It lists users, active sessions, organizations, and approved OAuth clients. Better Auth additional fields become columns. Set `console.fields.<name>.editable` to allow edits, `console.columns` for batch computed values, and `console.roles` or `console.actions` for read-only policy with a reason. `console.access` holds short descriptions of the app's sign-in rules.
+
+`getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.
+
+Overview shows database totals and, with `events.store`, active users, a 30-day chart, sign-in methods, and recent events. Activity filters event groups and subject users before cursor pagination. User panels include recent events. Both pages show the `events.store` setup when recording is disabled. Server callers use `inspect.overview()` and `inspect.activity({ group, userId, cursor, limit })`. Manual hosts pass their event store as the third argument to `createAuthConsole(auth, consoleOptions, eventStore)`.
