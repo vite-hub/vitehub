@@ -118,9 +118,22 @@ describe("shared Console navigation layout", () => {
     expect(component("console-database")).not.toContain("tracking-[.1em] text-muted\">\n            Database")
   })
 
+  it("shows one Agents panel failure and never offers older sessions for an empty list", () => {
+    const app = component("console-app")
+    expect(app).toContain("[agentsError.value, list.error.value].find((error) => isConsoleSignInRequired(error))")
+    expect(app).toContain('v-else-if="!selectedInvocationId && sessionsPanelError"')
+    expect(app).toContain('<template v-if="!sessionsPanelError">')
+    expect(app).toContain('v-if="list.cursor.value && invocationItems.length" class="flex justify-center px-2 py-3"')
+    // Session filters are one select panel with search and checked values, not select menus inside a popover.
+    expect(app).toContain("<UCommandPalette")
+    expect(app).not.toContain("<USelectMenu")
+  })
+
   it("shows Run now after the Read-only note only for runnable Schedules", () => {
     const definitions = component("console-definitions")
-    expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
+    expect(definitions).toMatch(/<template #right>\s*<span[^>]*>Read-only<\/span>\s*<UButton\s+v-if="canRunSelected && catalogView"[\s\S]*?label="Run now"/)
+    // A record Schedule runs from its detail panel.
+    expect(definitions).toMatch(/<article v-if="selectedRecord"[\s\S]*?<UButton\s+v-if="canRunSelected"[\s\S]*?label="Run now"/)
     expect(definitions).toContain("Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable))")
     expect(readFileSync(new URL("../src/console/runtime/client/main.js", import.meta.url), "utf8")).toContain('scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run")')
   })

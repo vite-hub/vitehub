@@ -34,7 +34,7 @@ export function files(entries: Record<string, SourceContent>, options: FilesSour
   return {
     name: "files",
     async getKeys() {
-      return keys
+      return keys.slice()
     },
     async getItem(key: string) {
       const content = items.get(key)

@@ -1,9 +1,10 @@
 ---
 title: Agent Drivers
 description: Choose model-backed, provider-backed, question-backed, or application-owned Agent execution.
-navigation.order: 30
-navigation.group: Configure
+navigation.order: 11
+navigation.group: Define and run
 icon: i-lucide-cpu
+navigation.kind: Guides
 ---
 
 An Agent Driver decides how one invocation runs. Choose the execution method that matches the work.

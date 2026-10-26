@@ -3,13 +3,16 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "vite --port 3000 --strictPort",
     "build": "vite build",
-    "start": "node dist/server.js"
+    "start": "node .output/server/index.mjs",
+    "postinstall": "vitehub types prepare"
   },
   "dependencies": {
     "h3": "catalog:unjs",
     "vite-hub": "workspace:*",
-    "vite": "catalog:vite"
+    "vite": "catalog:vite",
+    "nitro": "catalog:unjs"
   },
   "imports": {
     "#vitehub/env/public": {
@@ -20,5 +23,9 @@
       "types": "./.vitehub/env/server.d.ts",
       "default": "./.vitehub/env/server.mjs"
     }
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "typescript": "catalog:tooling"
   }
 }

@@ -7,6 +7,7 @@ import { createApp, defineAsyncComponent } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
+const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
@@ -201,6 +202,16 @@ function addContributedRoutes(navigation) {
     const details = navigation.contributions[section];
     const name = consoleSectionRouteName(section);
     if (!details || router.hasRoute(name)) continue;
+    if (details.view.kind === "auth-management") {
+      router.addRoute({
+        component: ConsoleAuth,
+        name,
+        path: "/auth/:page(overview|users|sessions|organizations|agents|activity)?",
+        meta: { consoleSection: section, title: "Auth · ViteHub Console" },
+        props: { sectionsBase, managementBase: consolePath("/_vitehub/auth/manage") },
+      });
+      continue;
+    }
     if (details.view.kind === "document-editor") {
       const props = {
         agentsBase: consolePath("/api/_vitehub/console/agents"),

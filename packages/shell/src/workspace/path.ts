@@ -4,9 +4,9 @@ import { workspaceMountPoint } from "./filesystem.ts"
 import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 
 export function cleanWorkspaceShellPath(path = "."): string {
-  const trimmed = path.trim() || "."
-  if (trimmed === "." || trimmed === "./" || trimmed === "/" || trimmed === workspaceMountPoint) return ""
-  return normalizeSafeShellPath(trimmed.replace(/^\/workspace(\/|$)/, ""))
+  const input = path || "."
+  if (input === "." || input === "./" || input === "/" || input === workspaceMountPoint) return ""
+  return normalizeSafeShellPath(input.replace(/^\/workspace(\/|$)/, ""))
 }
 
 export function cleanWorkspaceMutationPath(path: string): string {

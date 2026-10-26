@@ -31,10 +31,12 @@ describe("Console routes", () => {
   it.each([
     ["/_vitehub", ""],
     ["/portal/_vitehub", "/portal"],
+    ["/portal/_vitehub/auth/users", "/portal"],
     ["/portal/nested/_vitehub/agents", "/portal/nested"],
     ["/foo/_vitehub/_vitehub", "/foo/_vitehub"],
   ])("derives the application mount prefix from %j", (pathname, expected) => {
     expect(consoleMountBase(pathname)).toBe(expected)
+    expect(consoleMountPath(consoleMountBase(pathname), "/")).toBe(`${expected}/`)
     expect(consoleMountPath(expected, "/api/_vitehub/console/status")).toBe(`${expected}/api/_vitehub/console/status`)
   })
 

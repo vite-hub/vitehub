@@ -230,6 +230,7 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
           },
           async send<TResult>(method: string, params: object = {}, sessionId?: string): Promise<TResult> {
             if (releasing) throw browserProviderError("cdp", "send a command after release")
+            if (socket.readyState !== 1) throw browserProviderError("cdp", "send a command without an open connection")
             return await new Promise<TResult>((resolve, reject) => {
               const id = ++nextId
               pending.set(id, { reject, resolve: value => resolve(value as TResult) })

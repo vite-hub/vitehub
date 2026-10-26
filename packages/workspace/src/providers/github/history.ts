@@ -633,7 +633,13 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       const headRef: unknown = Reflect.get(Object(Reflect.get(item, "head")), "ref")
       // The head filter matches a branch of a fork with the same name too.
       if (!Number.isSafeInteger(number) || !nonEmptyString(url) || !nonEmptyString(base) || headRef !== branch) continue
-      return { number: Number(number), url, title: String(title ?? ""), head: fromBranch(branch), base: fromBranch(base) }
+      const baseSha: unknown = Reflect.get(Object(Reflect.get(item, "base")), "sha")
+      const headSha: unknown = Reflect.get(Object(Reflect.get(item, "head")), "sha")
+      if (!nonEmptyString(baseSha) || !nonEmptyString(headSha)) malformed("pull request")
+      const compare = (await provider.request<unknown>("GET", `${repoPath(repo)}/compare/${encodeURIComponent(baseSha)}...${encodeURIComponent(headSha)}`)).data
+      const mergeBase: unknown = Reflect.get(Object(Reflect.get(Object(compare), "merge_base_commit")), "sha")
+      if (!nonEmptyString(mergeBase)) malformed("compare")
+      return { number: Number(number), url, title: String(title ?? ""), head: fromBranch(branch), base: fromBranch(base), mergeBase }
     }
   }, "pull request list")
 

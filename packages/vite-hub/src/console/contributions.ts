@@ -1,4 +1,5 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
+import { authConsoleSection } from "@vite-hub/auth/console";
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
@@ -97,6 +98,7 @@ function registerConsoleSection<TOptions>(
  * maps the host discovery roots to the owner reader options.
  */
 const registeredSections: readonly ConsoleRegisteredSection[] = [
+  registerConsoleSection(authConsoleSection, () => undefined),
   registerConsoleSection(contentConsoleSection, context => ({
     contentImportBase: context.contentImportBase,
     projectRoot: context.projectRoot,

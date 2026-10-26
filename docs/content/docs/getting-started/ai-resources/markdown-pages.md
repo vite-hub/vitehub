@@ -1,6 +1,6 @@
 ---
 title: Copy a page for an LLM
-navigation.group: AI resources
+navigation.group: Coding agents
 description: Copy, view, or open any ViteHub docs page as Markdown in ChatGPT, Claude, or another tool.
 navigation.title: Markdown pages
 navigation.order: 263

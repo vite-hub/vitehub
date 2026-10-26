@@ -2,7 +2,7 @@
 title: Code Review
 description: "Review an Agent's changes with a file tree, a patch diff for the selected file, and the verification trace."
 navigation.order: 12
-navigation.group: Console
+navigation.group: Blocks
 icon: i-ph-git-diff-light
 ---
 
