@@ -3,6 +3,7 @@ title: How ViteHub works
 description: Understand the few parts that connect application code, server features, and Agents.
 navigation.title: How ViteHub works
 navigation.order: 7
+navigation.group: Next steps
 icon: i-lucide-map
 ---
 

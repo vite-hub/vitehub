@@ -128,10 +128,18 @@ async function runQuickAction(
   action: BrowserAction,
   input: Record<string, unknown>,
 ): Promise<Response> {
+  let timedOut = false
+  const response = binding.quickAction(action, input).then((result) => {
+    if (timedOut) void result.body?.cancel().catch(() => {})
+    return result
+  })
   return await withBrowserTimeout(
-    binding.quickAction(action, input),
+    response,
     () => browserProviderError("cloudflare", `run ${action} quick action`),
-    { timeoutMs: actionTimeoutMs(input) },
+    {
+      timeoutMs: actionTimeoutMs(input),
+      onTimeout() { timedOut = true },
+    },
   )
 }
 

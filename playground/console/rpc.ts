@@ -12,7 +12,7 @@ async function readBody(request: IncomingMessage): Promise<string> {
 }
 
 // Map one Console call to the synthetic HTTP route that serves its fixture data.
-export async function callConsoleFixture(origin: string, payload: { input?: ConsoleRpcInput; method: string }): Promise<ConsoleRpcResult> {
+export async function callConsoleFixture(origin: string, payload: { input?: ConsoleRpcInput; method: string }, cookie?: string): Promise<ConsoleRpcResult> {
   const input = payload.input ?? {}
   let operation = payload.method.replace("vitehub:console:", "")
   if (operation === "invocation") operation = `invocations/${encodeURIComponent(input.id ?? "")}`
@@ -23,7 +23,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Cons
   }
   const response = await fetch(url, {
     body: input.body === undefined ? undefined : JSON.stringify(input.body),
-    headers: { "content-type": "application/json" },
+    // The cookie carries the playground's failure switch from `mock-api.ts`.
+    headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     method: input.method ?? "GET",
   })
   if (!response.ok) return { message: await response.text(), ok: false, status: response.status }
@@ -43,7 +44,7 @@ export function consoleMockRPC(): Plugin {
         void (async () => {
           const origin = server.resolvedUrls?.local[0] ?? server.resolvedUrls?.network[0]
           if (!origin) throw new Error("Playground server is not listening")
-          const result = await callConsoleFixture(origin, JSON.parse(await readBody(request)))
+          const result = await callConsoleFixture(origin, JSON.parse(await readBody(request)), request.headers.cookie)
           response.statusCode = result.ok ? 200 : result.status
           response.setHeader("cache-control", "no-store")
           response.setHeader("content-type", "application/json")

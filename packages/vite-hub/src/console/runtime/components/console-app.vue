@@ -34,7 +34,7 @@ import {
   resolveConsoleRouteName,
   resolveUsageSessionsAgent,
 } from "../console-route";
-import { isRetryableConsoleRequestError, requestConsole } from "../client/request";
+import { isConsoleSignInRequired, isRetryableConsoleRequestError, requestConsole } from "../client/request";
 import { useConsoleConnectionUnavailable } from "./console-connection";
 import { rememberConsoleSection } from "../sections";
 import ConsoleFrame from "./console-frame.vue";
@@ -210,6 +210,15 @@ const connectionUnavailable = useConsoleConnectionUnavailable(() => ({
   pending: refreshing.value || agentsLoading.value || list.isLoading.value || detail.isLoading.value,
 }));
 
+// Sign-in covers the whole panel: neither request can succeed until the user signs in again.
+const sessionsSignInError = computed(() =>
+  [agentsError.value, list.error.value].find((error) => isConsoleSignInRequired(error)),
+);
+// When the Agents and their sessions both fail for another reason, one state explains both.
+const sessionsPanelError = computed(() =>
+  sessionsSignInError.value ?? (!connectionUnavailable.value && agentsError.value && list.error.value ? agentsError.value : undefined),
+);
+
 const invocationItems = computed<AgentInvocationListItem[]>(() =>
   list.invocations.value.map((invocation) => ({
     agent: invocation.agentName,
@@ -258,7 +267,31 @@ const searchActions = computed<CommandPaletteItem[]>(() =>
     : [],
 );
 const activeFilterCount = computed(() => Number(Boolean(selectedCapabilityId.value)) + Number(Boolean(selectedTriggeredBy.value)));
-const capabilityOptions = computed(() => capabilityIds.value.map(id => ({ label: capabilityLabel(id), value: id })));
+interface SessionFilterItem {
+  id: string;
+  kind: "capability" | "triggeredBy";
+  label: string;
+  value: string;
+}
+const sessionFilterGroups = computed(() =>
+  [
+    {
+      id: "capability",
+      label: "Used capability",
+      items: capabilityIds.value.map((id): SessionFilterItem => ({ id: `capability:${id}`, kind: "capability", label: capabilityLabel(id), value: id })),
+    },
+    {
+      id: "triggeredBy",
+      label: "Triggered by",
+      items: triggeredByValues.value.map((name): SessionFilterItem => ({ id: `triggeredBy:${name}`, kind: "triggeredBy", label: name, value: name })),
+    },
+  ].filter((group) => group.items.length),
+);
+const selectedSessionFilters = computed(() =>
+  sessionFilterGroups.value
+    .flatMap((group) => group.items)
+    .filter((item) => item.value === (item.kind === "capability" ? selectedCapabilityId.value : selectedTriggeredBy.value)),
+);
 const routeInvocation = computed(() => {
   const value = route.params.invocation;
   return Array.isArray(value) ? value[0] : value;
@@ -594,6 +627,17 @@ function selectTriggeredBy(triggeredBy?: string): void {
   void applySessionFilters();
 }
 
+/** Each group holds one value: a checked item replaces the other item of its group, and unchecking clears it. */
+function updateSessionFilters(value: SessionFilterItem | SessionFilterItem[]): void {
+  const items = Array.isArray(value) ? value : [value];
+  const previous = new Set(selectedSessionFilters.value.map((item) => item.id));
+  const added = items.find((item) => !previous.has(item.id));
+  if (added?.kind === "capability") return selectCapability(added.value);
+  if (added?.kind === "triggeredBy") return selectTriggeredBy(added.value);
+  if (selectedCapabilityId.value && !items.some((item) => item.kind === "capability")) selectCapability(undefined);
+  if (selectedTriggeredBy.value && !items.some((item) => item.kind === "triggeredBy")) selectTriggeredBy(undefined);
+}
+
 function toggleAgentList(): void {
   agentListOpen.value = !agentListOpen.value;
   rememberConsoleAgentListOpen(agentListOpen.value);
@@ -610,6 +654,14 @@ function loadMoreSessions(): void {
   if (!list.cursor.value || list.isLoadingMore.value || list.loadMoreError.value) return;
   void list.loadMore();
 }
+
+// A filtered page can come back empty with a cursor. The list keeps reading, so "No sessions yet" means the end.
+watch(
+  () => [invocationItems.value.length, list.cursor.value, list.isLoading.value, list.isLoadingMore.value] as const,
+  ([count, cursor, loading, loadingMore]) => {
+    if (!count && cursor && !loading && !loadingMore) loadMoreSessions();
+  },
+);
 
 function clearAgentsRetry(): void {
   if (agentsRetry) clearTimeout(agentsRetry);
@@ -972,9 +1024,10 @@ onBeforeUnmount(() => {
             />
           </UTooltip>
           <UPopover
+            v-if="!sessionsPanelError"
             v-model:open="filterOpen"
             :content="{ align: 'end', collisionPadding: 12 }"
-            :ui="{ content: 'w-80 max-w-[calc(100vw-1.5rem)] p-0' }"
+            :ui="{ content: 'w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden p-0' }"
           >
             <UButton
               aria-label="Filter sessions"
@@ -985,81 +1038,63 @@ onBeforeUnmount(() => {
               :variant="activeFilterCount ? 'soft' : 'ghost'"
             />
             <template #content>
-              <div class="flex items-center gap-2 border-b border-default px-3 py-2">
-                <UIcon name="i-lucide-funnel" class="size-4 shrink-0 text-muted" />
-                <p class="min-w-0 flex-1 truncate text-xs font-medium text-muted">
-                  Filter sessions
-                </p>
-                <UBadge
-                  v-if="activeFilterCount"
-                  class="font-mono tabular-nums"
-                  color="primary"
-                  size="sm"
-                  variant="subtle"
-                  >{{ activeFilterCount }}</UBadge
-                >
-              </div>
-              <div class="grid gap-3 p-3">
-                <div
-                  v-if="capabilitiesLoading"
-                  class="grid gap-2 py-1"
-                  aria-label="Loading session filters"
-                  role="status"
-                >
-                  <USkeleton v-for="index in 2" :key="index" class="h-8 rounded" />
-                </div>
-                <ConsoleState v-else-if="capabilitiesError" compact :error="capabilitiesError" title="Could not load session filters" />
-                <template v-else>
-                  <label class="grid gap-1.5 text-xs font-medium">
-                    <span>Used capability</span>
-                    <USelectMenu
-                      aria-label="Used capability"
-                      :model-value="selectedCapabilityId"
-                      :items="capabilityOptions"
-                      value-key="value"
-                      label-key="label"
-                      placeholder="Any capability"
-                      :search-input="{ placeholder: 'Search capabilities…' }"
-                      clear
-                      size="sm"
-                      @update:model-value="selectCapability"
-                    />
-                  </label>
-                  <label class="grid gap-1.5 text-xs font-medium">
-                    <span>Triggered by</span>
-                    <USelectMenu
-                      aria-label="Triggered by"
-                      :model-value="selectedTriggeredBy"
-                      :items="triggeredByValues"
-                      placeholder="Anyone"
-                      :search-input="{ placeholder: 'Search people…' }"
-                      clear
-                      size="sm"
-                      @update:model-value="selectTriggeredBy"
-                    />
-                  </label>
-                  <p v-if="!capabilityIds.length && !triggeredByValues.length" class="text-xs text-muted">
-                    No filter values recorded yet.
-                  </p>
-                </template>
-              </div>
-              <div class="flex justify-end border-t border-default px-2 py-1.5">
+              <!-- A select panel like GitHub's filters: search, then one checked value per group. -->
+              <div class="flex h-10 items-center gap-2 border-b border-default ps-3 pe-1.5">
+                <p class="min-w-0 flex-1 truncate text-sm font-medium text-highlighted">Filter sessions</p>
                 <UButton
+                  v-if="activeFilterCount"
                   color="neutral"
-                  label="Reset"
+                  label="Clear"
                   size="xs"
                   variant="ghost"
-                  :disabled="!activeFilterCount"
                   @click="resetSessionFilters"
                 />
               </div>
+              <div
+                v-if="capabilitiesLoading"
+                class="grid gap-1 p-2"
+                aria-label="Loading session filters"
+                role="status"
+              >
+                <USkeleton v-for="index in 4" :key="index" class="h-7 rounded-md" />
+              </div>
+              <div v-else-if="capabilitiesError" class="p-2">
+                <ConsoleState compact :error="capabilitiesError" title="Could not load session filters" :retry="loadCapabilityIds" />
+              </div>
+              <p v-else-if="!sessionFilterGroups.length" class="px-3 py-4 text-xs text-muted">
+                No filter values recorded yet. Sessions record their Capabilities and who triggered them.
+              </p>
+              <UCommandPalette
+                v-else
+                by="id"
+                :close="false"
+                :groups="sessionFilterGroups"
+                :model-value="selectedSessionFilters"
+                multiple
+                placeholder="Filter values…"
+                selected-icon="i-lucide-check"
+                size="sm"
+                :ui="{
+                  input: '[&>input]:h-9 [&>input]:text-sm',
+                  content: 'max-h-72',
+                  group: 'p-1',
+                  label: 'px-2 pb-1 pt-2 text-xs font-medium text-muted',
+                  item: 'px-2 py-1.5 text-[13px] before:rounded-md data-highlighted:not-data-disabled:before:bg-elevated',
+                  itemLabelBase: 'text-default',
+                  itemTrailingIcon: 'size-3.5 text-highlighted',
+                  empty: 'px-3 py-4 text-start text-xs',
+                }"
+                @update:model-value="updateSessionFilters"
+              />
             </template>
           </UPopover>
         </div>
       </template>
 
       <template #default>
-        <div v-if="!connectionUnavailable && agentsError" class="px-3 pb-3">
+        <!-- A failure that covers the whole panel shows once, in the main area. -->
+        <template v-if="!sessionsPanelError">
+        <div v-if="!connectionUnavailable && agentsError" class="px-2 pb-3">
           <ConsoleState compact :error="agentsError" title="Could not load Agents" :retry="loadAgents" />
         </div>
         <section v-if="hasMultipleAgents" class="vitehub-console__agents shrink-0 px-1.5 pb-2">
@@ -1109,7 +1144,7 @@ onBeforeUnmount(() => {
             </li>
           </ul>
         </section>
-        <h2 class="vitehub-console__section-label vitehub-console__sessions-label m-0 shrink-0">
+        <h2 v-if="!connectionUnavailable || invocationItems.length" class="vitehub-console__section-label vitehub-console__sessions-label m-0 shrink-0">
           <span>Sessions</span>
           <span v-if="selectedAgentName" class="vitehub-console__sessions-agent" :title="selectedAgentName">{{
             selectedAgentName
@@ -1120,7 +1155,7 @@ onBeforeUnmount(() => {
         </h2>
         <div
           v-if="(!connectionUnavailable && list.error.value) || list.loadMoreError.value"
-          class="px-3"
+          class="px-2"
         >
           <ConsoleState
             compact
@@ -1129,7 +1164,7 @@ onBeforeUnmount(() => {
             :retry="!connectionUnavailable && list.error.value ? list.refresh : undefined"
           />
           <UButton
-            v-if="invocationItems.length && list.cursor.value && list.loadMoreError.value"
+            v-if="list.cursor.value && list.loadMoreError.value"
             class="mt-2"
             color="neutral"
             label="Retry loading older sessions"
@@ -1140,7 +1175,7 @@ onBeforeUnmount(() => {
           />
         </div>
         <div
-          v-if="!connectionUnavailable && (agentsLoading || list.isLoading.value) && !invocationItems.length"
+          v-if="!connectionUnavailable && (agentsLoading || list.isLoading.value || (list.cursor.value && !list.loadMoreError.value)) && !invocationItems.length"
           class="grid gap-1 px-2"
           aria-label="Loading sessions"
           role="status"
@@ -1162,7 +1197,8 @@ onBeforeUnmount(() => {
         <AgentInvocationList
           v-if="
             (!list.isLoading.value || invocationItems.length) &&
-            (!list.error.value || invocationItems.length)
+            (!list.error.value || invocationItems.length) &&
+            (!list.cursor.value || invocationItems.length)
           "
           class="vitehub-console__session-list min-h-0 flex-1 px-1.5 pb-3"
           :continuation-key="list.cursor.value"
@@ -1177,7 +1213,7 @@ onBeforeUnmount(() => {
         >
           <template #loading />
           <template #footer>
-            <div v-if="list.cursor.value" class="flex justify-center px-2 py-3">
+            <div v-if="list.cursor.value && invocationItems.length" class="flex justify-center px-2 py-3">
               <UButton
                 color="neutral"
                 label="Load older sessions"
@@ -1202,6 +1238,7 @@ onBeforeUnmount(() => {
               description="Invoke an Agent from your app or from this Console. Its session appears here."
           /></template>
         </AgentInvocationList>
+        </template>
       </template>
 
     </UDashboardSidebar>
@@ -1411,6 +1448,12 @@ onBeforeUnmount(() => {
               </template>
             </ConsoleSessionNavbar>
             <ConsoleSessionLoading v-if="initialSessionLoading" class="min-h-0 flex-1" />
+            <ConsoleState
+              v-else-if="!selectedInvocationId && sessionsPanelError"
+              :error="sessionsPanelError"
+              :title="sessionsSignInError ? 'Sign in to see Agent sessions' : 'Could not load Agents or sessions'"
+              :retry="refresh"
+            />
             <div v-else-if="!selectedInvocationId" class="min-h-0 flex-1" />
             <ConsoleState
               v-else-if="detail.error.value && !invocationView"
@@ -1436,7 +1479,7 @@ onBeforeUnmount(() => {
               />
             </div>
             <ConsoleInvocationComposer
-              v-if="selectedAgentName && selectedAgentInvocation && !selectedInvocationId"
+              v-if="selectedAgentName && selectedAgentInvocation && !selectedInvocationId && !sessionsPanelError"
               :agent="selectedAgentName"
               :base="agentsBase"
               :profiles="selectedAgentInvocation.profiles"

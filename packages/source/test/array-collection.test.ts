@@ -101,6 +101,29 @@ describe("array()", () => {
     expect((await query(descending, {})).items.map(item => item.slug)).toEqual(["untagged", "gamma", "beta", "alpha"])
   })
 
+  it.each(["asc", "desc"] as const)("keeps nested sort ties stable across %s pages without reordering the loader array", async (direction) => {
+    const items = [
+      { id: "first", meta: { ranks: [{ value: 2 }] } },
+      { id: "second", meta: { ranks: [{ value: 1 }] } },
+      { id: "third", meta: { ranks: [{ value: 2 }] } },
+    ]
+    const collection = defineCollection({ source: array(items, { sort: { direction, field: "meta.ranks.value" } }) })
+    const first = await collection.page({ limit: 2, query: {} })
+    const second = await collection.page({ cursor: first.nextCursor!, limit: 2, query: {} })
+    expect([...first.items, ...second.items].map(item => item.id)).toEqual(
+      direction === "asc" ? ["second", "first", "third"] : ["first", "third", "second"],
+    )
+    expect(items.map(item => item.id)).toEqual(["first", "second", "third"])
+  })
+
+  it("reads updated sort keys on each load", async () => {
+    const items = [{ id: "first", rank: 2 }, { id: "second", rank: 1 }]
+    const collection = defineCollection({ source: array(() => items, { sort: { field: "rank" } }) })
+    expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["second", "first"])
+    items[0]!.rank = 0
+    expect((await collection.page({ query: {} })).items.map(item => item.id)).toEqual(["first", "second"])
+  })
+
   it("sorts Dates by time and filters and facets them as ISO strings", async () => {
     const items = [
       { date: new Date("2026-10-02T00:00:00.000Z"), slug: "b" },
@@ -136,6 +159,21 @@ describe("array()", () => {
     await expect(collection.get?.("beta")).resolves.toEqual(records[1])
     await expect(collection.get?.("missing")).resolves.toBeNull()
     expect(defineCollection({ source: array(records) }).get).toBeUndefined()
+  })
+
+  it("looks up items without requiring cursor serialization", async () => {
+    const items = [{ id: "first", value: 1n }, { id: "second", value: 2n }]
+    const collection = defineCollection({ source: array(items, { key: "id" }) })
+    await expect(collection.get?.("second")).resolves.toEqual(items[1])
+    await expect(collection.get?.("missing")).resolves.toBeNull()
+  })
+
+  it("still validates every item and looks up parsed keys", async () => {
+    const schema = v.object({ id: v.pipe(v.string(), v.transform(value => value.toLowerCase())) })
+    const collection = defineCollection({ source: array([{ id: "FIRST" }], { key: "id", schema }) })
+    await expect(collection.get?.("first")).resolves.toEqual({ id: "first" })
+    const invalid = defineCollection({ source: array([{ id: "first" }, { id: 2 }], { key: "id", schema }) })
+    await expect(invalid.get?.("first")).rejects.toThrow("item 1 does not match its schema")
   })
 
   it("rejects undeclared query keys, undeclared empty filters, and disabled search", async () => {
