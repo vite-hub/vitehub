@@ -15,7 +15,7 @@ export async function viteHubDevTokenFile(rootDir: string, scope: ViteHubDevToke
 }
 
 /** Tokens this process created, so a second registration with the same server id shares the file instead of failing. */
-interface ViteHubDevTokenEntry { count: number, token: Promise<string> }
+interface ViteHubDevTokenEntry { count: number, token: Promise<string>, removing?: Promise<void> }
 const devTokenEntriesKey: unique symbol = Symbol.for("vitehub.devTokens")
 const devTokenExitKey: unique symbol = Symbol.for("vitehub.devTokens.exit")
 // SAFETY: separately bundled copies of this module must share one registry, or each would delete the other's file.
@@ -44,6 +44,7 @@ function removeLeftoverTokensAtExit(): void {
 export async function createViteHubDevToken(rootDir: string, namespace: string, serverId: string = globalThis.crypto.randomUUID()): Promise<{ serverId: string, token: string }> {
   const file = await viteHubDevTokenFile(rootDir, { namespace, serverId })
   const entries = devTokenEntries()
+  while (entries.get(file)?.removing) await entries.get(file)!.removing
   // No await between this check and the set, so concurrent callers see one entry.
   const existing = entries.get(file)
   if (existing) {
@@ -95,8 +96,19 @@ export async function removeViteHubDevToken(rootDir: string, scope: ViteHubDevTo
   const file = await viteHubDevTokenFile(rootDir, scope)
   const entries = devTokenEntries()
   const entry = entries.get(file)
+  if (entry?.removing) return entry.removing
   if (entry && --entry.count > 0) return
-  entries.delete(file)
-  await rm(file, { force: true })
-  await rmdir(dirname(file)).catch(() => {})
+  const removing = (async () => {
+    if (entry) await entry.token
+    await rm(file, { force: true })
+    await rmdir(dirname(file)).catch(() => {})
+  })()
+  // Keep ownership visible until both the file and its directory have been removed.
+  if (entry) entry.removing = removing
+  try {
+    await removing
+  }
+  finally {
+    if (entries.get(file) === entry) entries.delete(file)
+  }
 }
