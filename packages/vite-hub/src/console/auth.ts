@@ -75,6 +75,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     || !response.headers.get("content-type")?.startsWith("text/plain")
   ) return response
 
+  const development = isConsoleDevelopmentBuild()
   const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
@@ -132,11 +133,11 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
     status: 403,

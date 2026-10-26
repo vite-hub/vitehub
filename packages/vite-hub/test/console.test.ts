@@ -145,7 +145,11 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
-  installConsoleDevelopment("/tmp/vitehub-console", false)
+  for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
+    const key = Symbol.for(`vitehub.console.${name}`)
+    Reflect.deleteProperty(globalThis, key)
+    Reflect.deleteProperty(process, key)
+  }
   delete scope[consoleBlobKey]
   delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
@@ -4947,6 +4951,20 @@ describe("Agent invocation console", () => {
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
+  })
+
+  it.each([false, true])("denies framing when production and development share a scope (development first: %s)", (developmentFirst) => {
+    installConsoleDevelopment("/first", developmentFirst)
+    installConsoleDevelopment("/second", !developmentFirst)
+
+    for (const root of ["/first", "/second"]) {
+      const response = consolePageHandler(event("127.0.0.1"))
+      expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+      expect(response.headers.get("x-frame-options")).toBe("DENY")
+      // Refreshing a project cannot disambiguate the scope of the serving handler.
+      installConsoleDevelopment(root, true)
+    }
+    expect(consolePageHandler(event("127.0.0.1")).headers.get("x-frame-options")).toBe("DENY")
   })
 
   it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {

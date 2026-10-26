@@ -24,7 +24,7 @@ import { installConsoleProjectNameScope, installConsoleSectionScope, resolveCons
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
-  it.each([false, true])("uses build-time development=%s for sign-in framing and keeps OAuth outside the frame", async (development) => {
+  it.each([false, true])("uses build-time development=%s for auth page framing and keeps OAuth outside the frame", async (development) => {
     installConsoleDevelopment("/tmp/vitehub-console-auth", development)
     vi.stubEnv("NODE_ENV", development ? "production" : "development")
     try {
@@ -36,6 +36,12 @@ describe("independent Console Auth", () => {
       expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
       const html = await response.text()
       expect(html).toContain(`href="/portal/_vitehub?auth_start=1"${development ? ' target="_top"' : ""}>Sign in with GitHub`)
+
+      const denied = consoleAuthPageResponse(request, new Response("Forbidden", { status: 403 }), "/portal/")
+      expect(denied?.status).toBe(403)
+      expect(denied?.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+      expect(denied?.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      expect(await denied?.text()).toContain("Switch account")
     }
     finally {
       installConsoleDevelopment("/tmp/vitehub-console-auth", false)
