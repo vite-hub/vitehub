@@ -293,7 +293,8 @@ with no value, and `?search=` matches the `search` fields. Any other key returns
 `400`. Cursors are bound to the data and the query. A cursor from changed data or
 another query returns `409`. `load` runs on every request; return
 `{ items, digest }` when the origin already has a content digest, or ViteHub
-hashes the items. `useCollection()` exposes `total` and `facets` from the latest
+hashes the items for pagination. Keyed lookups do not compute a digest.
+`useCollection()` exposes `total` and `facets` from the latest
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per

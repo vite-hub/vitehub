@@ -161,6 +161,21 @@ describe("array()", () => {
     expect(defineCollection({ source: array(records) }).get).toBeUndefined()
   })
 
+  it("looks up items without requiring cursor serialization", async () => {
+    const items = [{ id: "first", value: 1n }, { id: "second", value: 2n }]
+    const collection = defineCollection({ source: array(items, { key: "id" }) })
+    await expect(collection.get?.("second")).resolves.toEqual(items[1])
+    await expect(collection.get?.("missing")).resolves.toBeNull()
+  })
+
+  it("still validates every item and looks up parsed keys", async () => {
+    const schema = v.object({ id: v.pipe(v.string(), v.transform(value => value.toLowerCase())) })
+    const collection = defineCollection({ source: array([{ id: "FIRST" }], { key: "id", schema }) })
+    await expect(collection.get?.("first")).resolves.toEqual({ id: "first" })
+    const invalid = defineCollection({ source: array([{ id: "first" }, { id: 2 }], { key: "id", schema }) })
+    await expect(invalid.get?.("first")).rejects.toThrow("item 1 does not match its schema")
+  })
+
   it("rejects undeclared query keys, undeclared empty filters, and disabled search", async () => {
     const collection = articles()
     await expect(collection.parseQuery({ secret: "one" })).rejects.toThrow("not allowed")
