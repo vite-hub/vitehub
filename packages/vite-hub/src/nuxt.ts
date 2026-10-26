@@ -795,6 +795,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
   nitro.preset = nitroPreset
+  // Realtime turns on Nitro 3's `features.websocket`. Nuxt 4 runs Nitro 2, which reads `experimental.websocket`.
+  if (options.realtime) {
+    const experimental = (nitro.experimental ??= {}) as Record<string, unknown>
+    experimental.websocket = true
+  }
   if (plan.preset === "cloudflare") {
     const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
     cloudflare.deployConfig ??= true
