@@ -53,7 +53,7 @@ export default defineEventHandler(async (event) => {
 | `getByNumber(scope, number)` | Thread `#number` of a scope. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `getByComment(commentId)` | The thread that holds a comment, for routes that have only the comment id. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `create({ scope?, page, anchor?, context?, metadata?, body, author, mentions? })` | The new thread, with its first comment and the next number of its scope. Runs `onComment`. `scope` is `'pages'` by default, and a page thread needs `anchor`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_INVALID_INPUT` |
-| `reply(threadId, { body, author, mentions? })` | The new comment. Runs `onComment`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
+| `reply(threadId, { body, author, mentions? }, { allowResolved? })` | The new comment. Runs `onComment`. A resolved thread fails with `COMMENTS_RESOLVED`, unless `allowResolved` is `true`; then it stays resolved. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND`, `COMMENTS_INVALID_INPUT`, `COMMENTS_RESOLVED` |
 | `resolve(threadId, { by })` | The thread, with `status: 'resolved'`, `resolvedBy`, and `resolvedAt`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `reopen(threadId)` | The thread, with `status: 'open'`. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
 | `remove(threadId)` | Nothing. Deletes the thread and all its comments. | `COMMENTS_NOT_INSTALLED`, `COMMENTS_NOT_FOUND` |
