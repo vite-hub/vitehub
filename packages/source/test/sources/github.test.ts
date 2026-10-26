@@ -497,6 +497,98 @@ describe("@vite-hub/source GitHub source", () => {
     expect(archiveCalls).toHaveLength(1)
   })
 
+  describe.each([false, true])("metadata fallback cancellation with cache=%s", (cached) => {
+    it.each(["metadata", "archive"])("keeps shared I/O running when one waiter cancels during %s", async (phase) => {
+      let finishMetadata!: (response: Response) => void
+      const metadataResponse = new Promise<Response>((resolve) => {
+        finishMetadata = resolve
+      })
+      let finishArchive!: (response: Response) => void
+      const archiveResponse = new Promise<Response>((resolve) => {
+        finishArchive = resolve
+      })
+      let startMetadata!: () => void
+      const metadataStarted = new Promise<void>((resolve) => {
+        startMetadata = resolve
+      })
+      let startArchive!: () => void
+      const archiveStarted = new Promise<void>((resolve) => {
+        startArchive = resolve
+      })
+      const repo = `acme/metadata-cancellation-${cached}-${phase}`
+      const requestSignals: (AbortSignal | null | undefined)[] = []
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        requestSignals.push(init?.signal)
+        if (String(url).includes("/contents/")) {
+          startMetadata()
+          return await metadataResponse
+        }
+        if (isArchiveRequest(url)) {
+          startArchive()
+          return await archiveResponse
+        }
+        throw new Error(`Unexpected GitHub request: ${url}`)
+      })
+      vi.stubGlobal("fetch", fetch)
+      const docs = github({ auth: false, cache: cached ? { maxAge: 3600 } : false, ref: "main", repo, root: "docs" })
+      const canceled = new AbortController()
+      const active = new AbortController()
+      const canceledMetadata = docs.getMeta?.("README.md", { abortSignal: canceled.signal, rootDir: process.cwd() })
+      const activeMetadata = docs.getMeta?.("README.md", { abortSignal: active.signal, rootDir: process.cwd() })
+      await metadataStarted
+      if (phase === "archive") {
+        finishMetadata(jsonResponse({ message: "rate limited" }, 429))
+        await archiveStarted
+      }
+
+      canceled.abort()
+      await expect(canceledMetadata).rejects.toBe(canceled.signal.reason)
+      if (phase === "metadata") finishMetadata(jsonResponse({ message: "rate limited" }, 429))
+      await archiveStarted
+      expect(requestSignals.every(signal => !signal?.aborted)).toBe(true)
+      finishArchive(new Response(createTarGz({ "docs/README.md": "# Docs\n" })))
+
+      await expect(activeMetadata).resolves.toEqual({ ref: "main", sha: "main" })
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([
+        `https://api.github.com/repos/${repo}/contents/docs/README.md?ref=main`,
+        `https://codeload.github.com/${repo}/tar.gz/main`,
+      ])
+      expect(loadGitArchiveFiles).toHaveBeenCalledOnce()
+      expect(loadGitArchiveFiles).toHaveBeenCalledWith(expect.objectContaining({ signal: undefined }))
+    })
+  })
+
+  it.each(["file", "revision"])("cancels an in-flight nonshared %s request", async (operation) => {
+    let startRequest!: () => void
+    const started = new Promise<void>((resolve) => {
+      startRequest = resolve
+    })
+    const aborted = vi.fn()
+    const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const signal = init?.signal
+      if (!signal) throw new Error("Missing caller signal")
+      return await new Promise<Response>((_resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          aborted()
+          reject(signal.reason)
+        }, { once: true })
+        startRequest()
+      })
+    })
+    vi.stubGlobal("fetch", fetch)
+    const docs = github({ auth: false, ref: "main", repo: "acme/app" })
+    const controller = new AbortController()
+    const ctx = { abortSignal: controller.signal, rootDir: process.cwd() }
+    const result = operation === "file" ? docs.getItem("README.md", ctx) : docs.resolveRevision?.(ctx)
+    await started
+
+    controller.abort()
+
+    await expect(result).rejects.toBe(controller.signal.reason)
+    expect(aborted).toHaveBeenCalledOnce()
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("does not hide invalid GitHub refs as missing metadata", async () => {
     vi.stubGlobal("fetch", vi.fn(async (url: string | URL | Request) => {
       const requestUrl = String(url)
