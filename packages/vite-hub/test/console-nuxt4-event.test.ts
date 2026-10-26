@@ -92,7 +92,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-nuxt4-"))
     try {
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth" })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth" })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("vitehubCreateConsoleAppAuthAccess({ routes:")
       expect(generated).not.toContain("event.url")

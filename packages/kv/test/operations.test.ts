@@ -83,7 +83,7 @@ describe("kv operations", () => {
     try {
       expect(await run({ key: "binary", operation: "get" })).toEqual({
         status: 200,
-        body: { found: true, key: "binary", store: "default", type: "bytes", encoding: "base64", value: Buffer.from(value).toString("base64") },
+        body: { found: true, key: "binary", store: "default", type: "bytes", encoding: "base64", expiry: "none", value: Buffer.from(value).toString("base64") },
       })
     }
     finally { get.mockRestore() }
