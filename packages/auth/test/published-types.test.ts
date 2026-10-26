@@ -7,7 +7,7 @@ import { promisify } from "node:util"
 
 import { afterAll, beforeAll, expect, it } from "vitest"
 
-import { syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
+import { packedWorkspacePackages, syncPackedWorkspaceDependencies } from "../../internal/test-utils/published-types.js"
 
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..")
@@ -15,7 +15,7 @@ const workspaceRoot = resolve(packageRoot, "../..")
 const fixtureRoot = join(packageRoot, "fixtures", "published-types")
 const tsc = resolve(workspaceRoot, "node_modules/typescript/bin/tsc")
 const childProcessTimeout = 15_000
-const packedPackages = [
+const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "agent",
   "auth",
   "sandbox",
@@ -26,7 +26,7 @@ const packedPackages = [
   "runtime",
   "source",
   "workspace",
-] as const
+])
 let consumerRoot: string | undefined
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {

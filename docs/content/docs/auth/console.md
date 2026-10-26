@@ -2,7 +2,7 @@
 title: Auth Console
 description: Inspect users, sessions, organizations, and approved clients in your app's Console.
 navigation.title: Console
-navigation.order: 7
+navigation.order: 8
 icon: i-lucide-users-round
 ---
 

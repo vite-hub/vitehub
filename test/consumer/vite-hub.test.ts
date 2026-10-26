@@ -11,6 +11,7 @@ import { promisify } from "node:util"
 import { describe, expect, it } from "vitest"
 
 import { filesSdkDriverPeers } from "../../packages/blob/src/internal/files-sdk-peers.ts"
+import { packedWorkspacePackages } from "../../packages/internal/test-utils/published-types.ts"
 import { listWorkspacePackageInfos } from "../../packages/internal/src/workspace-inventory.ts"
 import { readReleaseArtifactTarballs, resolveReleaseArtifactTarball } from "../utils/release-artifacts"
 
@@ -223,6 +224,10 @@ async function assertPackedPackage(tarball: string, framework: boolean) {
 }
 
 async function packWorkspacePackages(packDir: string, packageNames?: Set<string>) {
+  if (packageNames) {
+    const names = await packedWorkspacePackages(repoRoot, [...packageNames].map(name => name.replace(/^@vite-hub\//, "")))
+    packageNames = new Set(names.map(name => name === "vite-hub" ? name : `@vite-hub/${name}`))
+  }
   const specs: Record<string, string> = {}
   const infos = listWorkspacePackageInfos(repoRoot)
     .filter(info => !info.private && (!packageNames || packageNames.has(info.packageName)))

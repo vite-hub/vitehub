@@ -1,6 +1,35 @@
 import { readFile, writeFile } from "node:fs/promises"
 import { join } from "node:path"
 
+interface PackedManifest {
+  private?: boolean
+  dependencies?: Record<string, string>
+  optionalDependencies?: Record<string, string>
+  peerDependencies?: Record<string, string>
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>
+}
+
+// Follow installed dependencies so an unpublished version never falls back to npm.
+// Optional peers stay absent unless the consumer explicitly selects them.
+export async function packedWorkspacePackages(workspaceRoot: string, names: readonly string[]): Promise<string[]> {
+  const packages = new Set(names)
+  for (const name of packages) {
+    const manifest: PackedManifest = JSON.parse(await readFile(join(workspaceRoot, "packages", name, "package.json"), "utf8"))
+    if (manifest.private) throw new Error(`Cannot pack private workspace package ${name}`)
+    const dependencies = {
+      ...manifest.dependencies,
+      ...manifest.optionalDependencies,
+      ...Object.fromEntries(Object.entries(manifest.peerDependencies ?? {})
+        .filter(([peer]) => !manifest.peerDependenciesMeta?.[peer]?.optional)),
+    }
+    for (const dependency of Object.keys(dependencies)) {
+      if (dependency.startsWith("@vite-hub/")) packages.add(dependency.slice("@vite-hub/".length))
+      else if (dependency === "vite-hub") packages.add(dependency)
+    }
+  }
+  return [...packages]
+}
+
 export async function syncPackedWorkspaceDependencies(
   consumerRoot: string,
   workspaceRoot: string,

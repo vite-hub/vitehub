@@ -1,8 +1,10 @@
 [
+  { "page": "getting-started/installation.md", "label": "package.json", "fixture": "installation/package.json", "verification": "json" },
   { "page": "getting-started/installation.md", "label": "vite.config.ts", "fixture": "installation/vite.config.ts", "verification": "typecheck" },
-  { "page": "getting-started/installation.md", "label": "nuxt.config.ts", "fixture": "installation/nuxt.config.ts", "verification": "typecheck" },
-  { "page": "getting-started/installation.md", "label": "server/agents/support.ts", "fixture": "installation/server/agents/support.ts", "verification": "typecheck" },
   { "page": "getting-started/installation.md", "label": "tsconfig.json", "fixture": "installation/tsconfig.json", "verification": "json" },
+  { "page": "getting-started/installation.md", "label": "nuxt.config.ts", "fixture": "installation/nuxt.config.ts", "verification": "typecheck" },
+  { "page": "getting-started/installation.md", "label": "server/api/health.get.ts", "fixture": "installation/server/api/health.get.ts", "verification": "typecheck" },
+  { "page": "getting-started/installation.md", "label": "output/health.json", "fixture": "installation/output/health.json", "verification": "json" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/vite.config.ts", "verification": "build" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "src/database.ts", "fixture": "cloudflare/src/database.ts", "verification": "typecheck" },
   { "page": "frameworks-hosts/cloudflare.md", "label": "vite.config.ts", "fixture": "cloudflare/rate-limit/vite.config.ts", "verification": "typecheck" },
