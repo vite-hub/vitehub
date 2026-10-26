@@ -28,6 +28,36 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it.each([
+    ["closing", 2],
+    ["closed", 3],
+  ] as const)("rejects new commands when the socket is %s", async (_state, readyState) => {
+    const socket = new FakeSocket()
+    const send = vi.spyOn(socket, "send").mockImplementation(() => {})
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    socket.readyState = readyState
+    if (readyState === 3) socket.dispatchEvent(new Event("close"))
+
+    try {
+      const command = attached.client.send("Target.getTargets")
+      await expect(Promise.race([command, setImmediate().then(() => "pending")])).rejects.toMatchObject({
+        code: "BROWSER_PROVIDER_ERROR",
+        details: { operation: "send a command without an open connection" },
+      })
+      expect(send).not.toHaveBeenCalled()
+    }
+    finally {
+      socket.close()
+      await attached.release()
+    }
+  })
+
   it("times out when a local CDP socket never opens and removes setup listeners", async () => {
     vi.useFakeTimers()
     const socket = new FakeSocket()
