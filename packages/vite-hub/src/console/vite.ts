@@ -21,6 +21,7 @@ import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredCons
 import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
+import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
 import { consoleFixtureEnvironmentVariable, consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { bindConsoleInvocationsIdentity, createConsoleInvocationsIdentity, releaseConsoleInvocationsBinding } from "./internal.ts"
 import { addConsoleRpcHandler } from "./nitro.ts"
@@ -470,8 +471,9 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (configured) sections = [...sections, "queues"]
   }
 
-  const plugin: Plugin & ViteHubCliContributingPlugin = {
+  const plugin: Plugin & ViteHubCliContributingPlugin & { devtools: ConsoleViteDevTools } = {
     name: "vite-hub/console",
+    devtools: consoleViteDevTools,
     async config(config, environment) {
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
         sections = sections.filter(section => section !== "connections")

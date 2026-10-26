@@ -4928,6 +4928,15 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
     expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    expect(response.headers.get("x-frame-options")).toBe("DENY")
+  })
+
+  it("lets same-origin DevTools frame the shell on a development server", () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const response = consolePageHandler(event("127.0.0.1"))
+
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
+    expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
   })
 
   it("prefixes shell assets when the application is mounted below a base path", async () => {

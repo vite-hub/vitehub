@@ -113,6 +113,17 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
+### Open the Console in DevTools
+
+On a development server, the Console is also a **ViteHub Console** entry in the DevTools of your app:
+
+| App | Where |
+| --- | --- |
+| Nuxt | A tab in Nuxt DevTools 3 and 4. |
+| Vite with [`@vitejs/devtools`](https://devtools.vite.dev) | An entry in the Vite DevTools dock, which Devframe renders. |
+
+The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
+
 `console: true` is not valid. ViteHub stops with an error that names `auth: false` and `auth: 'app'`. A `console` object without `auth` also fails.
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
