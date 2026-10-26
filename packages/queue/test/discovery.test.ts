@@ -20,16 +20,71 @@ async function createTempDir(prefix: string) {
 }
 
 describe("discoverQueueDefinitions", () => {
-  it("creates a runtime registry file", async () => {
+  it("sorts mixed sources and preserves their handlers in the runtime registry", async () => {
     const rootDir = await createTempDir("vitehub-queue-registry-")
     const registryFile = join(rootDir, ".vitehub", "queue", "registry.mjs")
-    const sourceFile = join(rootDir, "welcome.queue.ts")
-    await writeFile(sourceFile, "export default null\n", "utf8")
+    const suffixFile = join(rootDir, "welcome.queue.ts")
+    const directoryFile = join(rootDir, "server", "queues", "billing.ts")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(suffixFile, "export default null\n", "utf8")
+    await writeFile(directoryFile, "export default null\n", "utf8")
 
-    expect(createRuntimeRegistryContents(registryFile, [{
-      handler: sourceFile,
-      name: "welcome",
-    }])).toContain('["welcome"]: async () => import(')
+    const definitions = discoverQueueDefinitions({ rootDir })
+    expect(definitions).toEqual([
+      { handler: directoryFile, name: "billing", source: "server-queues" },
+      { handler: suffixFile, name: "welcome", source: "vite-suffix" },
+    ])
+    expect(createRuntimeRegistryContents(registryFile, definitions)).toBe([
+      "",
+      "const registry = {",
+      '  ["billing"]: async () => import("../../server/queues/billing.ts"),',
+      '  ["welcome"]: async () => import("../../welcome.queue.ts"),',
+      "}",
+      "",
+      "export default registry",
+      "",
+    ].join("\n"))
+  })
+
+  it("keeps each source's name when both discover the same handler", async () => {
+    const rootDir = await createTempDir("vitehub-queue-shared-handler-")
+    const handler = join(rootDir, "server", "queues", "welcome.queue.ts")
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await writeFile(handler, "export default null\n", "utf8")
+
+    expect(discoverQueueDefinitions({ rootDir })).toEqual([
+      { handler, name: "server/queues/welcome", source: "vite-suffix" },
+      { handler, name: "welcome.queue", source: "server-queues" },
+    ])
+  })
+
+  it("reports suffix collisions before directory collisions, then cross-source collisions", async () => {
+    const rootDir = await createTempDir("vitehub-queue-collision-order-")
+    const suffixFile = join(rootDir, "welcome.queue.ts")
+    const suffixDuplicate = join(rootDir, "src", "welcome.queue.ts")
+    const directoryFile = join(rootDir, "server", "queues", "welcome.ts")
+    const directoryDuplicate = join(rootDir, "server", "queues", "welcome.js")
+    await mkdir(join(rootDir, "src"), { recursive: true })
+    await mkdir(join(rootDir, "server", "queues"), { recursive: true })
+    await Promise.all([suffixFile, suffixDuplicate, directoryFile, directoryDuplicate]
+      .map(file => writeFile(file, "export default null\n", "utf8")))
+
+    expect(() => discoverQueueDefinitions({ rootDir })).toThrowError(expect.objectContaining({
+      code: "INTERNAL_C0001",
+      message: `Duplicate queue name "welcome":\n  - ${suffixDuplicate}\n  - ${suffixFile}`,
+    }))
+
+    await rm(suffixDuplicate)
+    expect(() => discoverQueueDefinitions({ rootDir })).toThrowError(expect.objectContaining({
+      code: "INTERNAL_C0001",
+      message: `Duplicate queue name "welcome":\n  - ${directoryDuplicate}\n  - ${directoryFile}`,
+    }))
+
+    await rm(directoryDuplicate)
+    expect(() => discoverQueueDefinitions({ rootDir })).toThrowError(expect.objectContaining({
+      code: "INTERNAL_C0002",
+      message: `Duplicate queue name "welcome" from multiple discovery sources:\n  - ${suffixFile} (vite-suffix)\n  - ${directoryFile} (server-queues)`,
+    }))
   })
 
   it("discovers queue names for vite suffix and server entrypoints", async () => {
