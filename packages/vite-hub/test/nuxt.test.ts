@@ -119,10 +119,12 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const listenHooks: Array<(server: unknown, listener: { url: string }) => void> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
+  const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "doctor:extendExtensions" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void)) {
+    hook(name: "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void)) {
       if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
+      else if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
       else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
@@ -170,6 +172,11 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
     async runNitroConfigHook(config: Record<string, unknown>) {
       if (!nitroConfigHooks.length) throw new TypeError("Expected a Nitro config hook.")
       for (const hook of nitroConfigHooks) await hook(config)
+    },
+    runDevToolsCustomTabsHook() {
+      const tabs: unknown[] = []
+      for (const hook of devtoolsCustomTabsHooks) hook(tabs)
+      return tabs
     },
     runDoctorExtensionsHook() {
       const entries: string[] = []
@@ -464,7 +471,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(result.outputFiles?.[0]?.text).toContain("installConsoleDefinitions")
   })
 
-  it.each([false, true])("bundles facade and owner imports through Nitro runtime aliases (dev: %s)", async (dev) => {
+  it.each([false, true])("bundles facade, owner, and generated imports through Nitro runtime aliases (dev: %s)", async (dev) => {
     const { nuxt, runNitroConfigHook } = createNuxt(dev)
     const inline = ["existing-inline"]
     const external = ["existing-external"]
@@ -475,7 +482,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/"],
+      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external,
       trace: false,
     })
@@ -948,6 +955,24 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).not.toContain(`from "vite-hub/console/server"`)
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
+  })
+
+  it("adds the Console to Nuxt DevTools in development only", async () => {
+    const development = createNuxt(true)
+    Object.assign(development.nuxt.options, { app: { baseURL: "/portal/" } })
+    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, development.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", true)')
+    expect(development.runDevToolsCustomTabsHook()).toEqual([expect.objectContaining({
+      name: "vitehub-console",
+      view: { src: "/portal/_vitehub", type: "iframe" },
+    })])
+
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
+
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", false)')
+    expect(production.runDevToolsCustomTabsHook()).toEqual([])
   })
 
   it("uses the effective Vite KV configuration for the Nuxt Console", async () => {
@@ -2530,7 +2555,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/"] },
+      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3651,6 +3676,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "cloudflare", realtime: true }, nuxt)
 
     expect(nitroOptions(nuxt)).toMatchObject({
+      // Nuxt 4 runs Nitro 2, which upgrades Realtime's sockets only with `experimental.websocket`.
+      experimental: { websocket: true },
       preset: "cloudflare-durable",
       wasm: { lazy: true },
     })
@@ -3762,7 +3789,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/"],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
       external: ["external-package"],
       trace: false,
     }
@@ -3793,7 +3820,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/"] })
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] })
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)

@@ -83,6 +83,8 @@ Custom providers can return Shell Observations as class instances. Sessions pres
 
 The Workspace filesystem has a virtual root at `/workspace`. Root existence checks return true. On a writable filesystem, recursive directory creation at the root succeeds without changing the Workspace. Creating the root without `recursive` fails because it already exists.
 
+Directory paths may end in `/`. Listing or copying `models/` preserves each child's full name, just as `models` does.
+
 The Just Bash `commands` list also applies to controlled `curl` requests. A Source network grant permits access to its declared target, but `curl` must still be included when you configure a command list.
 
 The provider copies the command list at creation. Later changes to the supplied list do not change its permissions or network boundary.
