@@ -164,7 +164,7 @@ function isExternalId(external: RollupExternal, id: string, importer: string | u
  * generated Nitro plugins list that scheme as external for the Worker build, and Rollup asks `external` before it
  * applies aliases, so the dev bundle kept an import that Node cannot load.
  */
-export const nitroCloudflareWorkersDev = {
+const nitroCloudflareWorkersDev = {
   name: "vite-hub/nitro-cloudflare-workers-dev",
   options(options: { external?: RollupExternal }) {
     const external = options.external
