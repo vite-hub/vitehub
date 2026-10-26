@@ -235,6 +235,78 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each<[string, Pick<EmailMessage, "headers" | "metadata">, Record<string, string> | undefined]>([
+    ["neither field", {}, undefined],
+    ["empty headers", { headers: {} }, {}],
+    ["empty metadata", { metadata: {} }, {}],
+    ["both empty", { headers: {}, metadata: {} }, {}],
+    ["headers only", { headers: { "X-Trace-Id": "trace-1" } }, { "X-Trace-Id": "trace-1" }],
+    ["metadata only", { metadata: { Campaign: "welcome" } }, { "X-Metadata-Campaign": "welcome" }],
+    [
+      "headers with empty metadata",
+      { headers: { "X-Trace-Id": "trace-1" }, metadata: {} },
+      { "X-Trace-Id": "trace-1" },
+    ],
+    [
+      "metadata with empty headers",
+      { headers: {}, metadata: { Campaign: "welcome" } },
+      { "X-Metadata-Campaign": "welcome" },
+    ],
+    [
+      "headers and metadata",
+      { headers: { "X-Trace-Id": "trace-1" }, metadata: { Campaign: "welcome" } },
+      { "X-Trace-Id": "trace-1", "X-Metadata-Campaign": "welcome" },
+    ],
+    [
+      "metadata overriding an exact header key",
+      { headers: { "X-Metadata-Campaign": "custom" }, metadata: { Campaign: "metadata" } },
+      { "X-Metadata-Campaign": "metadata" },
+    ],
+    [
+      "case-sensitive keys and verbatim values",
+      {
+        headers: { "x-metadata-Campaign": "  custom  ", "X-Empty": "" },
+        metadata: { Campaign: 'Café "welcome"\nnext', campaign: "" },
+      },
+      {
+        "x-metadata-Campaign": "  custom  ",
+        "X-Empty": "",
+        "X-Metadata-Campaign": 'Café "welcome"\nnext',
+        "X-Metadata-campaign": "",
+      },
+    ],
+  ])("serializes payload headers for %s", async (_name, fields, headers) => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send(
+        {
+          from: "hello@example.com",
+          subject: "Welcome",
+          text: "Hello",
+          to: "maxi@example.com",
+          ...fields,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ data: { driver: "resend", id: "email-1" }, error: null });
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        from: "hello@example.com",
+        headers,
+        subject: "Welcome",
+        text: "Hello",
+        to: ["maxi@example.com"],
+      }),
+    );
+  });
+
   it("encodes string attachments as UTF-8 base64", async () => {
     const request = vi.fn(
       async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>

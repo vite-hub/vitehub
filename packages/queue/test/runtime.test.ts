@@ -290,6 +290,40 @@ describe("cloudflare queue runtime", () => {
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
   })
 
+  it.each([
+    [undefined, false, "retry"],
+    [undefined, true, "ack"],
+    ["ack", false, "ack"],
+    ["ack", true, "ack"],
+    ["retry", false, "retry"],
+    ["retry", true, "retry"],
+    [{ retry: { delaySeconds: 30 } }, false, "retry"],
+    [{ retry: { delaySeconds: 30 } }, true, "retry"],
+  ] as const)("preserves the message receiver for action %j with non-retryable error %s", async (action, nonRetryable, expected) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError: () => action,
+      onMessage: async () => {
+        throw nonRetryable
+          ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`region`", provider: "cloudflare" })
+          : new Error("handler failed")
+      },
+    })
+
+    await batchHandler({ ackAll: vi.fn(), messages: [message], queue: "queue--666f6f", retryAll: vi.fn() })
+
+    expect(message.ack).toHaveBeenCalledTimes(expected === "ack" ? 1 : 0)
+    expect(message.retry).toHaveBeenCalledTimes(expected === "retry" ? 1 : 0)
+    expect(message[expected].mock.contexts).toEqual([message])
+    if (typeof action === "object") {
+      expect(message.retry).toHaveBeenCalledWith(action.retry)
+      expect(message.retry.mock.calls[0]![0]).toBe(action.retry)
+    } else {
+      expect(message[expected]).toHaveBeenCalledWith()
+    }
+  })
+
   it("falls back to retry when the Cloudflare onError hook throws", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const retry = vi.fn()
@@ -340,22 +374,29 @@ describe("cloudflare queue runtime", () => {
     ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
     ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
     ["array", Object.assign([], { retry: { delaySeconds: 30 } })],
-  ])("ignores %s Cloudflare retry directives", async (_kind, action) => {
+  ].flatMap(([kind, action]) => [false, true].map(nonRetryable => ({ kind, action, nonRetryable }))))("ignores $kind Cloudflare retry directives with non-retryable error $nonRetryable", async ({ action, nonRetryable }) => {
+    const ack = vi.fn()
     const retry = vi.fn()
     const onError = vi.fn(() => action)
     const batchHandler = createCloudflareQueueBatchHandler({
       onError,
-      onMessage: async () => { throw new Error("boom") },
+      onMessage: async () => {
+        throw nonRetryable
+          ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`region`", provider: "cloudflare" })
+          : new Error("boom")
+      },
     })
 
     await batchHandler({
       ackAll: vi.fn(),
-      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      messages: [{ ack, attempts: 1, body: "fail", id: "1", retry }],
       queue: "queue--666f6f",
       retryAll: vi.fn(),
     })
 
-    expect(retry).toHaveBeenCalledWith()
+    expect(ack).toHaveBeenCalledTimes(nonRetryable ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(nonRetryable ? 0 : 1)
+    expect(nonRetryable ? ack : retry).toHaveBeenCalledWith()
   })
 
   it("maps Cloudflare send failures without exposing provider payloads", async () => {

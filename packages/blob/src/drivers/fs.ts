@@ -1,4 +1,4 @@
-import type { BigIntStats } from "node:fs"
+import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -280,8 +280,21 @@ async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | 
 }
 
 async function walkFiles(root: string, dir = root): Promise<string[]> {
-  await assertNoSymlinkPath(root, dir)
-  const entries = await readdir(dir, { withFileTypes: true })
+  let entries: Dirent[]
+  try {
+    await assertNoSymlinkPath(root, dir)
+    entries = await readdir(dir, { withFileTypes: true })
+  }
+  catch (error) {
+    // A child directory can disappear or become a file after its parent was read.
+    if (dir !== root && (isNotFound(error) || isDirectoryError(error))) {
+      // Only recover if the store root is still safe and readable as a directory.
+      await assertNoSymlinkPath(root, root)
+      await readdir(root)
+      return []
+    }
+    throw error
+  }
   const files = await Promise.all(entries.map(async (entry) => {
     const path = resolve(dir, entry.name)
     const pathname = relative(root, path).split(sep).join("/")

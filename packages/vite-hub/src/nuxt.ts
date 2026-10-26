@@ -33,6 +33,7 @@ import { installConsoleProjectName, installConsoleSections } from "./console/run
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -391,6 +392,13 @@ async function installConsole(
     const rule = (routeRules[mountedRoute] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
+  if (nuxt.options.dev && nuxt.hook) {
+    const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
+    // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
+    Reflect.apply(nuxt.hook, nuxt, ["devtools:customTabs", (tabs: ConsoleNuxtDevToolsTab[]) => {
+      tabs.push(tab)
+    }])
+  }
   const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
     const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
     return entry ? [section] : []
@@ -440,6 +448,7 @@ async function installConsole(
       retention,
       access,
       runtimeCapabilityImports,
+      nuxt.options.dev === true,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -1347,6 +1356,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         options.console.retention,
         consoleAccess,
         runtimeCapabilityImports,
+        nuxt.options.dev === true,
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))

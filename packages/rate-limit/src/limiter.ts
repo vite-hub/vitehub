@@ -61,8 +61,8 @@ function resolveDriverCapabilities(options: CreateRateLimiterOptions, capabiliti
 function hasInvalidSupportedWindows(value: unknown): boolean {
   if (!Array.isArray(value)) return true
   for (let index = 0; index < value.length; index++) {
-    const window: unknown = value[index]
-    if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
+    const windowMs: unknown = value[index]
+    if (typeof windowMs !== "number" || !Number.isInteger(windowMs) || windowMs <= 0 || windowMs > 8.64e15) return true
   }
   return false
 }
