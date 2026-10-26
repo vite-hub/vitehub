@@ -114,10 +114,11 @@ describe("Comments API", () => {
       components: [
         { name: "index", files: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
         { name: "PricingCard", files: ["app/components/PricingCard.vue"] },
-        { name: "Unknown" },
       ],
       build: { commit: "abc123", branch: "main" },
     })
+    const library = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "http://site.test/", components: ["A", "B", "C", "D"].map(name => ({ name })) }, body: "Hi" } })
+    expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
     const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
   })
