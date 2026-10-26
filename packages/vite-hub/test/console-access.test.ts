@@ -29,9 +29,8 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // The page shell and the empty client script carry no project data. Static assets are public in the same way.
-// The page tools session answers every page: each tool checks its own access, and the `console` tool uses the Console
-// access policy (console-page-tool.test.ts).
-const shellRoutes = new Set(["client.get.ts", "page.get.ts", "page-session.ts"])
+// The shared page session checks each tool's access separately, covered by console-page-tool.test.ts.
+const nonDataRoutes = new Set(["client.get.ts", "page.get.ts", "page-session.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -59,7 +58,7 @@ afterEach(() => {
 })
 
 describe("Console data route contract", () => {
-  it("guards every Console server route with withConsoleAccess()", async () => {
+  it("guards every Console data route with withConsoleAccess()", async () => {
     const files = (await readdir(serverRoot)).filter(file => file.endsWith(".ts")).sort()
     const routes: string[] = []
     for (const file of files) {
@@ -69,7 +68,7 @@ describe("Console data route contract", () => {
     expect(routes).toContain("invocation-workspace.get.ts")
     expect(routes).toContain("rpc.ts")
 
-    for (const file of routes.filter(route => !shellRoutes.has(route))) {
+    for (const file of routes.filter(route => !nonDataRoutes.has(route))) {
       Reflect.deleteProperty(globalThis, policyKey)
       const route: unknown = (await import(join(serverRoot, file))).default
       if (!(route instanceof Function)) throw new TypeError(`${file} must default-export a route handler.`)
