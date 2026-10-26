@@ -3,7 +3,7 @@ import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthReso
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
-import { consoleAuthPath } from "./auth-path.ts"
+import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -289,7 +289,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
   return {
     async check(event) {
       const request = toEventRequest(event)
-      const path = new URL(request.url).pathname
+      const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
       const matched = options.routes.filter((route) => {
         if (route.method && route.method !== method) return false

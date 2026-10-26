@@ -3,7 +3,7 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose"
 
 import type { EnvVariableDeclaration } from "@vite-hub/env"
-import { cloudflareAccessIssuer, consoleAuthMountBase } from "./auth-path.ts"
+import { cloudflareAccessIssuer, consoleAuthMountBase, consoleEventPath } from "./auth-path.ts"
 
 /** Cloudflare Access settings for an independent Console Auth provider. */
 export interface CloudflareAccessConsoleAuth {
@@ -146,7 +146,7 @@ export async function handleCloudflareAccessConsoleRequest(
 ): Promise<Response | undefined> {
   const mountBase = consoleAuthMountBase(mountBaseURL)
   const request = toEventRequest(event)
-  const publicPath = new URL(request.url).pathname
+  const publicPath = consoleEventPath(event, request)
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
   if (!(path === "/_vitehub" || path.startsWith("/_vitehub/") || path === "/api/_vitehub/console" || path.startsWith("/api/_vitehub/console/"))) return
   const { identity, response } = await checkCloudflareAccessToken(request, resolveSettings, verify)
