@@ -304,6 +304,10 @@ exports `table()` too.
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.
 
+Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
+Cancelled reads reject with the signal's reason, including when a loader or
+transform returns after cancellation.
+
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured
 data and its assets as one logical item.

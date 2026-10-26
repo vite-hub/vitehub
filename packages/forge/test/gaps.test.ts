@@ -133,6 +133,21 @@ describe("forgeBlob", () => {
     expect(Buffer.from(bytes).toString()).toBe("target.md")
   })
 
+  it("returns every byte value in an exact-sized Uint8Array", async () => {
+    const expected = Uint8Array.from({ length: 256 }, (_, index) => index)
+    const fake = githubRoutes({
+      "GET /repos/acme/app/git/blobs/abc": () => Response.json({ content: Buffer.from(expected).toString("base64"), encoding: "base64", sha: "abc" }),
+    })
+    const provider = await forgeProvider({ forge: "github", fetch: fake.fetch })
+
+    const bytes = await forgeBlob(provider, repo(provider, "acme", "app"), "abc")
+
+    expect(bytes).toEqual(expected)
+    expect(Buffer.isBuffer(bytes)).toBe(false)
+    expect(bytes.byteOffset).toBe(0)
+    expect(bytes.buffer.byteLength).toBe(expected.byteLength)
+  })
+
   it("rejects a malformed blob response", async () => {
     const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json({ sha: "abc" }) })
     const provider = await forgeProvider({ forge: "github", token: "secret", fetch: fake.fetch })
@@ -155,6 +170,10 @@ describe("forgeBlob", () => {
 
   it.each([
     { content: "not-base64", encoding: "base64", sha: "abc" },
+    { content: "AB==", encoding: "base64", sha: "abc" },
+    { content: "TQ=", encoding: "base64", sha: "abc" },
+    { content: "TQ===", encoding: "base64", sha: "abc" },
+    { content: "T=Q=", encoding: "base64", sha: "abc" },
     { content: Buffer.from("target.md").toString("base64"), encoding: "base64", sha: "" },
   ])("rejects an invalid blob payload: %j", async (payload) => {
     const fake = githubRoutes({ "GET /repos/acme/app/git/blobs/abc": () => Response.json(payload) })
