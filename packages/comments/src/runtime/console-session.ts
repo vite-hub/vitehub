@@ -1,3 +1,5 @@
+import { guestFromHeaders, text } from "../identity.ts"
+
 import type { H3Event } from "h3"
 import type { CommentsUser } from "../types.ts"
 
@@ -6,24 +8,6 @@ export interface CommentsConsoleAccess {
   identify(context: { event: unknown }): Promise<{ id: string, name?: string, email?: string, image?: string } | null>
   authorize(context: { event: unknown }): Promise<boolean>
   user(context: { event: unknown }): Promise<Record<string, unknown> | null>
-}
-
-function text(value: unknown): string | undefined {
-  return typeof value === "string" && value ? value : undefined
-}
-
-/** The guest name that the overlay sends after a person of a Console without accounts names itself. */
-function namedGuest(request: Request): CommentsUser | undefined {
-  const id = request.headers.get("x-vitehub-comments-guest-id")
-  const name = request.headers.get("x-vitehub-comments-guest-name")
-  if (!id || !name || id.length > 64) return
-  try {
-    const decoded = decodeURIComponent(name).trim().slice(0, 64)
-    return decoded ? { id: `guest:${id}`, name: decoded, guest: true } : undefined
-  }
-  catch {
-    return undefined
-  }
 }
 
 /**
@@ -40,6 +24,7 @@ export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H
     const person = await access.identify({ event })
     // Cloudflare Access names the person by email. A Console without accounts makes a new guest id for each request.
     if (person && !person.id.startsWith("guest-")) return { ...person }
-    return namedGuest(event.req) ?? { id: "guest:console", name: "Guest", guest: true }
+    const guest = guestFromHeaders(event.req.headers)
+    return guest ? { ...guest } : { id: "guest:console", name: "Guest", guest: true }
   }
 }
