@@ -55,7 +55,7 @@ import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
-import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
@@ -144,6 +144,7 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
+  installConsoleDevelopment("/tmp/vitehub-console", false)
   delete scope[consoleBlobKey]
   delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
@@ -4931,12 +4932,48 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("x-frame-options")).toBe("DENY")
   })
 
-  it("lets same-origin DevTools frame the shell on a development server", () => {
+  it("denies framing without development output even with NODE_ENV=development", () => {
     vi.stubEnv("NODE_ENV", "development")
+    const response = consolePageHandler(event("127.0.0.1"))
+
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+    expect(response.headers.get("x-frame-options")).toBe("DENY")
+  })
+
+  it("lets same-origin DevTools frame the shell on a development server", () => {
+    installConsoleDevelopment("/tmp/vitehub-console", true)
     const response = consolePageHandler(event("127.0.0.1"))
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
+  })
+
+  it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-frame-policy-"))
+    try {
+      const development = command === "serve"
+      const mode = development ? "production" : "development"
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
+      await callPluginHook(plugin.config, {}, [config, { command, mode }])
+      const initial = await readFile(config.nitro!.plugins![0]!, "utf8")
+      await callPluginHook(plugin.configResolved, {}, [config])
+      await callPluginHook(plugin.buildStart, {})
+      const refreshed = await readFile(config.nitro!.plugins![0]!, "utf8")
+
+      vi.stubEnv("NODE_ENV", mode)
+      for (const generated of [initial, refreshed]) {
+        const installation = generated.split("\n").find(line => line.startsWith("installConsoleDevelopment("))
+        if (!installation) throw new TypeError("Expected generated development state.")
+        runInNewContext(installation, { installConsoleDevelopment })
+        const response = consolePageHandler(event("127.0.0.1"))
+        expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+        expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("prefixes shell assets when the application is mounted below a base path", async () => {

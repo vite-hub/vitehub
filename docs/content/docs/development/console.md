@@ -124,6 +124,8 @@ On a development server, the Console is also a **ViteHub Console** entry in the 
 
 The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
 
+With independent Console Auth, the sign-in button opens authentication in the main browser page. Open DevTools again after signing in.
+
 `console: true` is not valid. ViteHub stops with an error that names `auth: false` and `auth: 'app'`. A `console` object without `auth` also fails.
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).

@@ -1,5 +1,6 @@
 import { consoleMountBase } from "../console-route.ts"
-import { assertConsoleRequest, consoleRequestURL, isConsoleDevelopmentRuntime } from "./request.ts";
+import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts";
 
@@ -30,7 +31,7 @@ export default function consolePageHandler(event: ConsoleRequestEvent): Response
     .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)
   // On a development server, Nuxt DevTools and Vite DevTools show the Console in a frame of the same origin.
-  const development = isConsoleDevelopmentRuntime()
+  const development = isConsoleDevelopmentBuild()
   return new Response(mountedPage, {
     headers: {
       "cache-control": "no-store",

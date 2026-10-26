@@ -936,6 +936,7 @@ describe("ViteHub Nuxt integration", () => {
     Object.assign(development.nuxt.options, { app: { baseURL: "/portal/" } })
     await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, development.nuxt)
 
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", true)')
     expect(development.runDevToolsCustomTabsHook()).toEqual([expect.objectContaining({
       name: "vitehub-console",
       view: { src: "/portal/_vitehub", type: "iframe" },
@@ -944,6 +945,7 @@ describe("ViteHub Nuxt integration", () => {
     const production = createNuxt(false)
     await viteHubNuxtModule({ console: { auth: false }, preset: "node" }, production.nuxt)
 
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('installConsoleDevelopment("/tmp/vitehub-nuxt", false)')
     expect(production.runDevToolsCustomTabsHook()).toEqual([])
   })
 

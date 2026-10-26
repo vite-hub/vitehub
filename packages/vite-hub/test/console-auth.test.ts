@@ -18,11 +18,31 @@ import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefini
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([false, true])("uses build-time development=%s for sign-in framing and keeps OAuth outside the frame", async (development) => {
+    installConsoleDevelopment("/tmp/vitehub-console-auth", development)
+    vi.stubEnv("NODE_ENV", development ? "production" : "development")
+    try {
+      const request = new Request("http://localhost/portal/_vitehub", { headers: { accept: "text/html" } })
+      const redirect = consoleAuthPageResponse(request, new Response(null, { status: 401 }), "/portal/")
+      expect(redirect?.status).toBe(302)
+      const response = consoleAuthSignInPage("github", new Request(redirect!.headers.get("location")!), "/portal/")
+      expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+      expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      const html = await response.text()
+      expect(html).toContain(`href="/portal/_vitehub?auth_start=1"${development ? ' target="_top"' : ""}>Sign in with GitHub`)
+    }
+    finally {
+      installConsoleDevelopment("/tmp/vitehub-console-auth", false)
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     ["", ""],
     ["./", ""],
