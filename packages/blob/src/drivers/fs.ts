@@ -502,6 +502,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       try {
         const path = resolveBlobPath(root, pathname)
         await assertNoSymlinkPath(root, path)
+        if (!(await stat(path)).isFile()) return null
         const bytes = await readFile(path)
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       }
