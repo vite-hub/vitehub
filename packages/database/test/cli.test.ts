@@ -1,13 +1,18 @@
 import { execFile, spawn as spawnProcess } from "node:child_process"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
+import { registerHooks } from "node:module"
+import { pathToFileURL } from "node:url"
 import { tmpdir } from "node:os"
 import { delimiter, dirname, join, resolve } from "node:path"
 import { promisify } from "node:util"
+import { DatabaseSync } from "node:sqlite"
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createDbCliContributor } from "../src/cli.ts"
+import { resolveDBViteConfig } from "../src/config.ts"
+import { writeGeneratedDatabaseArtifacts } from "../src/internal/generated.ts"
 
 import type { ResolvedDBViteConfig } from "../src/types.ts"
 
@@ -81,6 +86,74 @@ async function runRealDrizzleKit(rootDir: string, feature: "generate" | "migrate
 }
 
 describe("DB CLI contributor", () => {
+  it.each([
+    { viteRoot: ".", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },
+    { viteRoot: "app", databaseFile: ".vitehub/data/database/sqlite.db", connection: "" },
+    { viteRoot: "app", databaseFile: ".data/custom/sqlite.db", connection: "connection: { url }," },
+    { viteRoot: "app", databaseFile: ".data/object/sqlite.db", connection: "connection," },
+    { viteRoot: "app", databaseFile: ".data/runtime/sqlite.db", connection: "connection: { url: process.env.VITEHUB_TEST_LOCAL_SQLITE_URL }," },
+  ])("generates and migrates $databaseFile from Vite root $viteRoot before a runtime connection", async ({ viteRoot, databaseFile, connection }) => {
+    const rootDir = await mkdtemp(join(import.meta.dirname, ".drizzle-generate-"))
+    tempDirs.push(rootDir)
+    const definitionDir = join(rootDir, "server/databases")
+    await mkdir(definitionDir, { recursive: true })
+    await writeFile(join(definitionDir, "config.ts"), [
+      "import { defineDatabase } from '@vite-hub/database'",
+      "import { integer, sqliteTable } from 'drizzle-orm/sqlite-core'",
+      `const url = ${JSON.stringify(`file:${databaseFile}`)}`,
+      "const connection = { url }",
+      `export default defineDatabase({ ${connection} schema: {`,
+      "  users: sqliteTable('users', { id: integer('id').primaryKey() }),",
+      "} })",
+    ].join("\n"))
+    const config = resolveDBViteConfig(undefined, rootDir)!
+    await writeGeneratedDatabaseArtifacts(config)
+    const contextRoot = join(rootDir, viteRoot)
+    await mkdir(contextRoot, { recursive: true })
+    const contributor = createDbCliContributor(undefined, () => config)!
+    const context = {
+      env: { ...process.env, PATH: "/usr/bin", VITEHUB_TEST_LOCAL_SQLITE_URL: `file:${databaseFile}` },
+      rootDir: contextRoot,
+      spawn: async (command: string, args: string[], options?: { cwd?: string, env?: NodeJS.ProcessEnv }) => {
+        try {
+          await execFileAsync(command, args, { cwd: options?.cwd, env: options?.env })
+        }
+        catch (error) {
+          // Keep Vitest from trying to load source maps from the child process's stack.
+          throw new Error(String((error as { stderr?: string }).stderr || error).split("\n")[0])
+        }
+        return { exitCode: 0 }
+      },
+      stderr: process.stderr,
+      stdout: { write: vi.fn() },
+    }
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+    const migrate = contributor.namespaces[0]!.features.find(feature => feature.name === "migrate")!
+    await generate.run([], context)
+    const migrations = await readdir(join(definitionDir, "migrations"))
+    expect(migrations.some(file => file.endsWith(".sql"))).toBe(true)
+    const databasePath = join(rootDir, databaseFile)
+    expect(existsSync(databasePath)).toBe(false)
+    await expect(migrate.run(["--dry-run"], context)).resolves.toBe(0)
+    const plan = context.stdout.write.mock.calls.map(([chunk]) => String(chunk)).join("")
+    expect(plan).toContain("1 pending migration")
+    expect(plan).toContain("CREATE TABLE `users`")
+    expect(existsSync(dirname(databasePath))).toBe(false)
+    await migrate.run([], context)
+    await migrate.run([], context)
+    if (viteRoot !== ".") expect(existsSync(join(contextRoot, databaseFile))).toBe(false)
+    if (connection) expect(existsSync(join(rootDir, ".vitehub/data"))).toBe(false)
+    const database = new DatabaseSync(databasePath)
+    try {
+      expect(database.prepare("SELECT COUNT(*) AS count FROM users").get()).toMatchObject({ count: 0 })
+      expect(database.prepare("SELECT COUNT(*) AS count FROM __drizzle_migrations").get()).toMatchObject({ count: 1 })
+    }
+    finally {
+      database.close()
+    }
+  }, 30_000)
+
+
   it("fails generate when drizzle-kit cannot load the schema", async () => {
     const rootDir = await writeDrizzleProject([
       "import { notExported } from 'drizzle-orm/not-an-exported-path'",
@@ -126,6 +199,59 @@ describe("DB CLI contributor", () => {
 
     expect((await readdir(join(rootDir, "migrations"))).some(file => file.endsWith(".sql"))).toBe(true)
     expect(existsSync(join(viteRoot, "migrations"))).toBe(false)
+  })
+
+  it.each(["nested", "pnpm"])("resolves Kit from the %s facade layout without a direct Kit dependency", async (layout) => {
+    const rootDir = await mkdtemp(resolve(import.meta.dirname, "../../../../.database-facade-"))
+    tempDirs.push(rootDir)
+    const facade = join(rootDir, layout === "pnpm" ? "node_modules/.pnpm/vite-hub/node_modules/vite-hub" : "node_modules/vite-hub")
+    const kit = layout === "pnpm" ? join(dirname(facade), "drizzle-kit") : join(facade, "node_modules/drizzle-kit")
+    await mkdir(facade, { recursive: true })
+    await mkdir(kit, { recursive: true })
+    if (layout === "pnpm") await symlink(facade, join(rootDir, "node_modules/vite-hub"), "dir")
+    await writeFile(join(rootDir, "package.json"), '{"type":"module"}')
+    await writeFile(join(facade, "package.json"), '{"name":"vite-hub","main":"index.js"}')
+    await writeFile(join(facade, "index.js"), "")
+    await writeFile(join(kit, "package.json"), '{"name":"drizzle-kit","main":"bin.cjs","bin":{"drizzle-kit":"bin.cjs"}}')
+    await writeFile(join(kit, "bin.cjs"), "")
+    const spawn = vi.fn(async () => ({ exitCode: 0 }))
+    const contributor = createDbCliContributor()!
+    const generate = contributor.namespaces[0]!.features.find(feature => feature.name === "generate")!
+
+    await expect(generate.run([], { rootDir, spawn, stderr: process.stderr, stdout: process.stdout })).resolves.toBe(0)
+    expect(spawn).toHaveBeenCalledWith(process.execPath, [join(kit, "bin.cjs"), "generate", "--config", ".vitehub/database/drizzle.config.ts"], expect.objectContaining({ cwd: rootDir }))
+  })
+
+  it("resolves facade-owned Kit through active resolver hooks without node_modules", async () => {
+    const rootDir = await mkdtemp(join(tmpdir(), "vitehub-db-resolver-"))
+    tempDirs.push(rootDir)
+    const facade = join(rootDir, "store/facade")
+    const kit = join(rootDir, "store/kit")
+    await mkdir(facade, { recursive: true })
+    await mkdir(kit, { recursive: true })
+    await writeFile(join(facade, "package.json"), '{"name":"vite-hub"}')
+    await writeFile(join(kit, "package.json"), '{"name":"drizzle-kit","bin":"bin.cjs"}')
+    await writeFile(join(kit, "bin.cjs"), "")
+    const hooks = registerHooks({
+      resolve(specifier, context, nextResolve) {
+        if (specifier === "vite-hub/package.json" && context.parentURL === pathToFileURL(join(rootDir, "package.json")).href) {
+          return { shortCircuit: true, url: pathToFileURL(join(facade, "package.json")).href }
+        }
+        if (specifier === "drizzle-kit/package.json" && context.parentURL === pathToFileURL(join(facade, "package.json")).href) {
+          return { shortCircuit: true, url: pathToFileURL(join(kit, "package.json")).href }
+        }
+        return nextResolve(specifier, context)
+      },
+    })
+    try {
+      const spawn = vi.fn(async () => ({ exitCode: 0 }))
+      const generate = createDbCliContributor()!.namespaces[0]!.features.find(feature => feature.name === "generate")!
+      await expect(generate.run([], { rootDir, spawn, stderr: process.stderr, stdout: process.stdout })).resolves.toBe(0)
+      expect(spawn).toHaveBeenCalledWith(process.execPath, [join(kit, "bin.cjs"), "generate", "--config", ".vitehub/database/drizzle.config.ts"], expect.objectContaining({ cwd: rootDir }))
+    }
+    finally {
+      hooks.deregister()
+    }
   })
 
   it("fails with an install hint when the project does not have drizzle-kit", async () => {

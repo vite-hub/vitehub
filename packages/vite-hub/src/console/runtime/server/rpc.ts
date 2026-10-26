@@ -1,5 +1,6 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { defineHandler } from "h3"
 import * as v from "valibot"
 
@@ -268,7 +269,9 @@ function eventRemoteAddress(event: H3Event): string | undefined {
 
 const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
+  // Nuxt 4's H3 1 events carry Node's request, with a relative URL and the body as a stream.
+  const request = isH3V1Event(event) && !(Reflect.get(event, "req") instanceof Request) ? toH3V1Request(event) : event.req
+  return handleConsoleRpcRequest(request, { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
 }, { anySection: true }))
 
