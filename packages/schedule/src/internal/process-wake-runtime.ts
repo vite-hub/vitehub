@@ -250,7 +250,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
   ) {
     const due: ProcessScheduleWake[] = []
     for (const schedule of schedules) {
-      for (let minute = first; minute <= last; minute += minuteMs) {
+      for (let minute = Math.ceil(first / minuteMs) * minuteMs; minute <= last; minute += minuteMs) {
         const scheduledAt = new Date(minute)
         const result = yield* wrapBoundary(() => isScheduleDue(schedule, scheduledAt)).pipe(
           Effect.match({
