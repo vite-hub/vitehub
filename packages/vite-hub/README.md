@@ -1,5 +1,10 @@
 # vite-hub
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `vite-hub` is the ViteHub application distribution. It registers enabled integrations through one `vitehub()` call and exposes application APIs on explicit `vite-hub/*` feature imports.
 
 Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or both. Install an `@vite-hub/*` owner package directly when you are building a library, another framework integration, or a custom package composition.

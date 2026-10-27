@@ -1,5 +1,10 @@
 # @vite-hub/presets
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fpresets&icon=npm)](https://www.npmjs.com/package/@vite-hub/presets)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fpresets&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/presets)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/presets` contains ready-made Agents that are built from ViteHub
 primitives. Each preset is a subpath. The package depends on
 [`@vite-hub/agent`](../agent/README.md); the Agent package does not know these presets.

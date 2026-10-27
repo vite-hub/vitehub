@@ -146,45 +146,23 @@ export default function cloudflareEmailDriver(options: CloudflareEmailDriverOpti
           };
         }
         rejectTransportOwnedHeaders(message.headers);
-        if (message.scheduledAt !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support scheduled delivery.",
-            ),
-          };
-        }
-        if (message.raw !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support raw message payloads.",
-            ),
-          };
-        }
-        if (message.idempotencyKey !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support idempotency keys.",
-            ),
-          };
-        }
-        if (message.template !== undefined) {
-          return {
-            data: null,
-            error: emailProviderError(
-              "cloudflare-email",
-              "UNSUPPORTED",
-              "Cloudflare Email does not support template payloads.",
-            ),
-          };
+        const unsupportedPayloads = [
+          ["scheduledAt", "scheduled delivery"],
+          ["raw", "raw message payloads"],
+          ["idempotencyKey", "idempotency keys"],
+          ["template", "template payloads"],
+        ] as const;
+        for (const [key, description] of unsupportedPayloads) {
+          if (message[key] !== undefined) {
+            return {
+              data: null,
+              error: emailProviderError(
+                "cloudflare-email",
+                "UNSUPPORTED",
+                `Cloudflare Email does not support ${description}.`,
+              ),
+            };
+          }
         }
         if (
           message.react !== undefined ||

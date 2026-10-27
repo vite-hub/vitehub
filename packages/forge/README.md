@@ -1,5 +1,10 @@
 # @vite-hub/forge
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fforge&icon=npm)](https://www.npmjs.com/package/@vite-hub/forge)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fforge&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/forge)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/forge` is the one Forge client of ViteHub. Channels, Capabilities, Workspaces and Sources use it to reach GitHub, GitLab and Forgejo. It is built on [`forges`](https://forges.link).
 
 Applications do not install this package. They set Server Env, and the `vite-hub` packages that need a Forge read it. This README is the contract for ViteHub packages that depend on it.

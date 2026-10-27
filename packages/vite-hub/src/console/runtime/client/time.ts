@@ -62,3 +62,12 @@ export function exactTimestamps(value: string, timeZone?: string): { local: stri
   }).format(time)
   return { local: format(timeZone, "short"), utc: `${format("UTC", undefined)} UTC` }
 }
+
+/**
+ * A full date and time in the viewer's zone, such as `Oct 25, 2026, 11:30 AM`. The Console copy is English, so dates
+ * use English too, whatever the browser language. Returns the input for an invalid timestamp.
+ */
+export function consoleDateTime(value: string | number): string {
+  const time = typeof value === "number" ? value : Date.parse(value)
+  return Number.isFinite(time) ? new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(time) : String(value)
+}

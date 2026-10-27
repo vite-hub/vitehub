@@ -18,7 +18,7 @@ const metrics = computed(() => [
 const methods = computed(() =>
   Object.entries(props.data.analytics?.totals.methods ?? {}).sort((a, b) => b[1] - a[1]),
 );
-const format = (value: number) => new Intl.NumberFormat().format(value);
+const format = (value: number) => new Intl.NumberFormat("en").format(value);
 const methodLabel = (method: string) =>
   method === "email-password"
     ? "Email and password"
