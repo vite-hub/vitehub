@@ -294,6 +294,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       path: collection.path,
       schema,
     }
+    if (Array.isArray(collection.paths) && collection.paths.every(text)) parsed.paths = [...collection.paths]
     if (text(collection.titleField)) parsed.titleField = collection.titleField
     if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
     const components = parseConsoleDocumentComponents(collection.components)
