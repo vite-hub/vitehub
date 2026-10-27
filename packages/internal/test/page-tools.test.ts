@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { hasViteHubPageToolsHint, injectPageToolsLoader, installViteHubPageTools, registerViteHubPageTool, respondViteHubPageSession, scriptNonce, viteHubPageSessionHandler } from "../src/runtime/page-tools.ts"
 
 import type { ViteHubPageTool } from "../src/runtime/page-tools.ts"
@@ -89,6 +90,25 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers())).toBeUndefined()
     const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
     expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+  })
+
+  it.each([
+    ["script-src 'self'", ""],
+    ["script-src 'nonce-n1' 'strict-dynamic'", " nonce=\"n1\""],
+    ["script-src-elem 'nonce-n2'; script-src 'none'", " nonce=\"n2\""],
+  ])("replaces the SPA inline check with one external loader under %s", async (policy, nonce) => {
+    const page = viteHubPageToolsIndexHtml("<body>Page</body>", "/portal/")!
+    // Exercise splits in both tags and in the inline script, including a chunk per character.
+    for (const chunks of [[page], [...page]]) {
+      const response = streamed(chunks)
+      response.headers.set("content-security-policy", policy)
+      const html = await injectPageToolsLoader(response, "/portal").text()
+      expect(html).toBe(`<body>Page<script type="module" src="/portal/_vitehub/page/assets/loader.js?v=3"${nonce} data-vitehub-page-tools></script></body>`)
+    }
+    // An external loader already in the response remains the sole loader.
+    const external = streamed([loaderTag])
+    external.headers.set("content-security-policy", policy)
+    expect(await injectPageToolsLoader(external).text()).toBe(loaderTag)
   })
 
   it("appends the loader to HTML without a body tag, and leaves other responses alone", async () => {

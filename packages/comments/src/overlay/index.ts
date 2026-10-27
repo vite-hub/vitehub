@@ -2,7 +2,7 @@ import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-sha
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiPath, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
@@ -13,6 +13,9 @@ import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } fro
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
+
+// The prebuilt overlay cannot see the consuming app's build-time Realtime base.
+const baseURL = commentsApiPath(import.meta.url).slice(0, -commentsRoute.length)
 
 interface Cursor {
   selector: string
@@ -386,7 +389,7 @@ class CommentsOverlay extends HTMLElement {
     if (!this.session?.realtime) return
     const guest = readGuest()
     const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : this.session.user ?? undefined)
-    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })
+    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true, baseURL })
     room.onUpdate(() => {
       this.renderToolbar()
       this.schedule()

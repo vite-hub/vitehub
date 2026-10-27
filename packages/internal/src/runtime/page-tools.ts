@@ -1,5 +1,5 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase } from "./page-tools-shared.ts"
+import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsInlineStart, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
@@ -152,27 +152,50 @@ export function scriptNonce(headers: Headers): string | undefined {
 /**
  * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. `base` is the
  * path of the app base, such as `/portal`. A page that already has the loader, such as a single page app whose
- * `index.html` Vite changed, gets no second one. The page then varies per person, so it drops `content-length` and sends
+ * `index.html` Vite changed, gets no second one. Under a response CSP the SPA's inline check becomes the external loader,
+ * with the policy's nonce, because the policy can block inline scripts. The page varies per person, so it drops
+ * `content-length` and sends
  * `cache-control: private, no-store`. Other responses return unchanged.
  */
 export function injectPageToolsLoader(response: Response, base = ""): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
   const tag = loaderTag(base, scriptNonce(response.headers))
+  const replaceInline = response.headers.has("content-security-policy")
+  const inlineEnd = "</script>"
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
-  // Keep this many characters, so a `</body>` or a marker split across chunks is still found.
-  const overlap = viteHubPageToolsMarker.length
+  // Keep enough to find a closing body, marker, or generated opening tag split across chunks.
+  const overlap = viteHubPageToolsInlineStart.length
   let tail = ""
   let done = false
   let present = false
+  let skippingInline = false
   const transform = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
       if (done) {
         controller.enqueue(chunk)
         return
       }
-      const text = tail + decoder.decode(chunk, { stream: true })
+      let text = tail + decoder.decode(chunk, { stream: true })
+      while (replaceInline) {
+        if (skippingInline) {
+          const end = text.indexOf(inlineEnd)
+          if (end === -1) {
+            tail = text.slice(-(inlineEnd.length - 1))
+            return
+          }
+          text = text.slice(end + inlineEnd.length)
+          skippingInline = false
+        }
+        const inline = text.indexOf(viteHubPageToolsInlineStart)
+        if (inline === -1) break
+        const before = text.slice(0, inline)
+        controller.enqueue(encoder.encode(before + tag))
+        present = true
+        text = text.slice(inline + viteHubPageToolsInlineStart.length)
+        skippingInline = true
+      }
       present ||= text.includes(viteHubPageToolsMarker)
       const index = text.search(/<\/body\s*>/i)
       if (index !== -1) {
@@ -186,6 +209,7 @@ export function injectPageToolsLoader(response: Response, base = ""): Response {
       tail = text.slice(keep)
     },
     flush(controller) {
+      if (skippingInline) return
       const rest = tail + decoder.decode()
       controller.enqueue(encoder.encode(done || present ? rest : rest + tag))
     },
