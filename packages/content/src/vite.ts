@@ -12,6 +12,7 @@ import { parseAst } from "vite"
 
 import {
   cmsDatabaseReason,
+  cmsPresetStoreSync,
   cmsRequirementError,
   cmsWorkspaceExport,
   readCmsPresetUsageFile,
@@ -47,6 +48,11 @@ export const cmsDatabaseModulePath = ".vitehub/content/database.ts"
  */
 export function usesCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[] }): boolean {
   return usesCmsPresetSync(input, parseAst)
+}
+
+/** The selected CMS store, so framework integrations enable only the services it needs. */
+export function cmsPresetStore(input: { projectRoot: string, serverDirs?: readonly string[] }): "blob-database" | "github" | undefined {
+  return cmsPresetStoreSync(input, parseAst)
 }
 
 export interface ContentVitePluginOptions {

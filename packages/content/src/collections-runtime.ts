@@ -826,7 +826,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             if (!Object.hasOwn(bases, path) || before === (published?.files.get(path) ?? null)) bases[path] = before
           }
         }
-        return bases
+        return await withoutPublishedBases(bases, head, published)
       }
       if (!revision.parentId) break
       const current = await openRevision(revision)
@@ -835,6 +835,49 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       revision = parent.revision
     }
     throw contentConflict("[vitehub] Content cannot establish the draft's published bases from its recent history. Preserve the draft edits, recreate the draft from published, and reapply the edits through Content before publishing.", { ref: "draft", revision: head.id })
+  }
+
+  /** A publish receipt resolves only documents that have not changed on draft since that publish's source revision. */
+  async function withoutPublishedBases(bases: Record<string, string | null>, head: WorkspaceRevision, published: OpenedRevision | undefined): Promise<Record<string, string | null>> {
+    if (!Object.keys(bases).length || !published) return bases
+    const receipts = new Map<string, Set<string>>()
+    const retained = await history()
+    for (const path of Object.keys(bases)) {
+      // An unpublished edit whose published base is still current needs no receipt lookup.
+      if ((published.files.get(path) ?? null) === bases[path]) continue
+      const remember = (revision: WorkspaceRevision) => {
+        const metadata = Object(revision.metadata?.content)
+        const source: unknown = Reflect.get(metadata, "draft")
+        if (Reflect.get(metadata, "action") !== "publish" || typeof source !== "string" || !contentCommitPaths(revision)?.has(path)) return
+        const paths = receipts.get(source) ?? new Set<string>()
+        paths.add(path)
+        receipts.set(source, paths)
+      }
+      remember(published.revision)
+      // Filter by document so unrelated repository commits do not make every status/save scan the whole repository.
+      let cursor: string | undefined = published.revision.id
+      do {
+        const page = await retained.list({ ref: "published", path, cursor, limit: 100 })
+        for (const revision of page.revisions) remember(revision)
+        cursor = page.cursor
+      } while (cursor)
+    }
+    if (!receipts.size) return bases
+    const changed = new Set<string>()
+    let current: OpenedRevision | undefined = await openRevision(head)
+    while (current) {
+      for (const path of receipts.get(current.revision.id) ?? []) {
+        if (!changed.has(path)) delete bases[path]
+      }
+      receipts.delete(current.revision.id)
+      if (!receipts.size || !Object.keys(bases).length) break
+      const parent: OpenedRevision | undefined = current.revision.parentId ? await openRevision(current.revision.parentId) : undefined
+      for (const path of Object.keys(bases)) {
+        if (current.files.get(path) !== parent?.files.get(path)) changed.add(path)
+      }
+      current = parent
+    }
+    return bases
   }
 
   /** Carry unresolved bases forward, unless this write explicitly acknowledges a reviewed published digest. */
@@ -962,6 +1005,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const published = (await refState("published")).opened?.files
     // Newest first: a document that two pull requests change shows the newest.
     for (const request of requests) {
+      if (request.base !== "published") continue
       const head = await retained.head({ ref: request.head })
       const base = request.mergeBase ?? head?.parentId
       if (!head || !base) continue

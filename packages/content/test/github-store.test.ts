@@ -226,6 +226,27 @@ describe("Content on the GitHub store", () => {
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
     })
 
+    it("acknowledges published drafts across later main edits and partial publishes", async () => {
+      const { posts, content } = await setup()
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      await posts.save("b", { data: { title: "B draft" }, body: "" })
+      await content.publish({ collection: "posts", ids: ["a"] })
+      onMain({ "content/posts/a.md": page("A main") })
+      fake.commit("vitehub/content", { "README.md": "Other edit" })
+      vi.advanceTimersByTime(6_000)
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "b", change: "add" }])
+      expect((await posts.get("a"))?.data.title).toBe("A main")
+      onMain({ "content/posts/b.md": page("B main") })
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "c", change: "add" }])
+      // A fresh edit after publication remains protected from concurrent main edits.
+      const reviewed = (await posts.raw("a", { ref: "published" }))!
+      await posts.save("a", { data: { title: "A again" }, body: "" }, { ifPublishedDigest: reviewed.digest })
+      onMain({ "content/posts/a.md": page("A newer main") })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    })
+
     it.each(["git", "workspace"])("keeps publish protection after a %s commit without Content metadata", async (writer) => {
       const { posts, content, workspace } = await setup()
       await posts.save("b", { data: { title: "B" }, body: "" })
@@ -381,6 +402,39 @@ describe("Content on the GitHub store", () => {
       expect(branch.parents).toEqual([main])
       expect(branch.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
       expect(result.revision!.id).toBe(fake.head(fake.pulls[0]!.head))
+    })
+
+    it("retries a failed publish after an abandoned reservation expires", async () => {
+      const { posts, content } = await setup({ publish: "pr", database: false })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      vi.useFakeTimers({ toFake: ["Date"] })
+      let openingFails = true
+      let cleanupFails = true
+      fake.respond(request => (openingFails && request.method === "POST" && request.path.endsWith("/pulls"))
+        || (cleanupFails && request.operation === "UpdateRefs")
+        ? Response.json({ message: "Unavailable" }, { status: 503 }) : undefined)
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toThrow()
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toHaveLength(1)
+      openingFails = false
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
+      vi.advanceTimersByTime(5 * 60_000 + 1)
+      cleanupFails = false
+      const result = await content.publish({ collection: "posts", ids: ["b"] })
+      expect(result.pullRequest?.number).toBe(1)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toEqual([])
+    })
+
+    it.each(["staging", "published"])("stops treating a retargeted pull request as a pending publish (base: %s)", async (base) => {
+      const { posts, content } = await setup({ publish: "pr", database: false })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await content.publish({ collection: "posts", ids: ["b"] })
+      fake.setBranch(base, fake.head("main")!, fake.tree("main"))
+      fake.pulls[0]!.base = base
+      const fresh = await setup({ publish: "pr", database: false, seed: false })
+      expect((await fresh.posts.status()).find(document => document.id === "b")?.pullRequest).toBeUndefined()
+      const result = await fresh.content.publish({ collection: "posts", ids: ["b"] })
+      expect(result.pullRequest?.number).toBe(2)
+      expect(fake.pulls[1]?.base).toBe("main")
     })
 
     it.each([false, true])("publishes disjoint documents from one draft in the same second (concurrent: %s)", async (concurrent) => {
