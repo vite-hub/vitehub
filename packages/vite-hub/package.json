@@ -1246,7 +1246,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
+    "typecheck": "node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.dev.json && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {

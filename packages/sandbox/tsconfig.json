@@ -1,31 +1,30 @@
 {
   "extends": "../../tsconfig.json",
   "compilerOptions": {
-    "baseUrl": "../..",
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "paths": {
       "@vite-hub/sandbox": [
-        "packages/sandbox/src/index.ts"
+        "../../packages/sandbox/src/index.ts"
       ],
       "#vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox/src/task/runtime/provider-loader.ts"
+        "../../packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "virtual:vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox/src/task/runtime/provider-loader.ts"
+        "../../packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox/src/task/runtime/provider-loader.ts"
+        "../../packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "@vite-hub/sandbox/task/runtime/provider-loader": [
-        "packages/sandbox/src/task/runtime/provider-loader.ts"
+        "../../packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "#vitehub-sandbox-task-registry": [
-        "packages/sandbox/src/task/runtime/empty-registry.ts"
+        "../../packages/sandbox/src/task/runtime/empty-registry.ts"
       ],
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     },
     "rootDir": ".."
