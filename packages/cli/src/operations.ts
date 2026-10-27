@@ -349,14 +349,6 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
  * so the command falls back to the RPC with Console credentials.
  */
 async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
-  let key: string | undefined
-  try {
-    key = await resolveViteHubDispatchKey(context.env)
-  }
-  catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
-  }
-  if (!key) return undefined
   let base: URL
   try {
     base = new URL(url)
@@ -371,6 +363,14 @@ async function callDispatch(operation: string, route: string, url: string, input
   if (base.username || base.password || base.search || base.hash) {
     return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })), ok: false }
   }
+  let key: string | undefined
+  try {
+    key = await resolveViteHubDispatchKey(context.env)
+  }
+  catch (error) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
+  }
+  if (!key) return undefined
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
   const target = new URL(route.slice(1), base)
   const body = JSON.stringify(input ?? {})

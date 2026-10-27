@@ -486,7 +486,7 @@ The Console runs the same operation from the Schedules page, and a read-only gra
 
 ### Signed dispatch
 
-A CI job without a Console login can still run a Schedule. When `VITEHUB_DISPATCH_KEY` (or `VITEHUB_SECRET`) is set, `vitehub schedule run <name> --url <origin>` signs the input and posts it to `/_vitehub/schedules/run`. Without a key, it calls the Console RPC with the Console credentials. The deployment derives the dispatch key from its [`VITEHUB_SECRET`](/docs/env/app-secret). The route takes signed dispatches only.
+A CI job without a Console login can still run a Schedule. When `VITEHUB_DISPATCH_KEY` (or `VITEHUB_SECRET`) is set, `vitehub schedule run <name> --url <origin>` signs the input and posts it to `/_vitehub/schedules/run`. Without a key, it calls the Console RPC with the Console credentials. Both paths require HTTPS except on localhost, and reject URL credentials, queries, and fragments before sending a request. The deployment derives the dispatch key from its [`VITEHUB_SECRET`](/docs/env/app-secret). The route takes signed dispatches only.
 
 ```bash [Terminal]
 # Once, where the deployment's root secret is available:

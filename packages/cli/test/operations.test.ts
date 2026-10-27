@@ -283,6 +283,38 @@ describe("generated operation commands", () => {
       expect(fetch).not.toHaveBeenCalled()
     })
 
+    it.each([
+      "http://app.example.com", "http://localhost.example.com", "ftp://localhost", "not a url",
+      "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
+    ])("rejects unsafe RPC fallback URL %s before sending credentials", async (url) => {
+      const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+      const result = await runTrigger({
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
+        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+      }, fetch, url)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("CLI_R0003: --url")
+      expect(fetch).not.toHaveBeenCalled()
+      expect(result.stderr).not.toMatch(/private|access-secret|password/)
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts safe RPC fallback URL %s", async (url) => {
+      const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("authorization")).toBe("Bearer token")
+        expect(headers.get("cookie")).toBe("session=example")
+        expect(headers.get("cf-access-client-id")).toBe("access-id")
+        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
+        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+      })
+      const result = await runTrigger({
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=example",
+        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+      }, fetch, url)
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+    })
+
     it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts dispatch URL %s", async (url) => {
       const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
       expect((await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)).code).toBe(0)
