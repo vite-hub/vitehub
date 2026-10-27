@@ -135,6 +135,8 @@ Tools can declare `title`, a short past-tense label such as `Searched meals`, an
 
 ## Coding provider drivers
 
+To run Codex on a user's ChatGPT plan, set `driver: { kind: "codex", gateway: chatgpt() }` with `chatgpt` from `@vite-hub/gateways`. Define a ChatGPT Connection and sign in through `vitehub connections connect chatgpt`. Connections owns refresh, and the runtime supplies the token without exposing it to application code. This is separate from first-party `codex login` and `auth.json`. See [ChatGPT plan usage](../../docs/content/docs/connections/chatgpt.md) for setup, eligibility, VM transfer and expiry recovery. AI SDK model Drivers on this grant remain a follow-up.
+
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).

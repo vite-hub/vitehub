@@ -1,3 +1,7 @@
+import { isChatGPTGateway } from "@vite-hub/gateways/internal"
+import { chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
+import { chatgptProtocolSource } from "./internal/chatgpt-protocol.ts"
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
@@ -116,7 +120,7 @@ export interface ProviderAgentAdapterOptions<
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: { attachments?: { maxBytes?: number } }
   /** LLM proxy or gateway for model requests. It replaces `credentials`. */
-  gateway?: AiGateway
+  gateway?: AiGateway | ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
@@ -612,16 +616,20 @@ function providerLauncherSource(
   launchSecrets: readonly string[],
   cwd: string,
   requirementCapture?: ProviderRequirementCapture,
+  clientInfo?: { name: string, title: string, version: string },
+  environmentKeys?: readonly string[],
 ): string {
   return `import { spawn } from "node:child_process"
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs"
 import { setTimeout as delay } from "node:timers/promises"
+import { createInterface } from "node:readline"
+import { once } from "node:events"
 
 const child = spawn(${JSON.stringify(launch.command)}, [...${JSON.stringify([...launch.args || []])}, ...process.argv.slice(2)], {
   cwd: ${JSON.stringify(cwd)},
   detached: true,
-  env: process.env,
-  stdio: ["inherit", "inherit", "pipe"],
+  env: ${environmentKeys ? `Object.fromEntries(${JSON.stringify(environmentKeys)}.filter(key => process.env[key] !== undefined).map(key => [key, process.env[key]]))` : "process.env"},
+  stdio: ${JSON.stringify(clientInfo ? ["pipe", "pipe", "pipe"] : ["inherit", "inherit", "pipe"])},
 })
 
 const signals = ["SIGINT", "SIGTERM", "SIGHUP"]
@@ -707,7 +715,9 @@ function forwardStderr(chunk) {
   }
 }
 
+${clientInfo ? chatgptProtocolSource(clientInfo) : ""}
 child.stderr.on("data", (chunk) => {
+  if (${Boolean(clientInfo)}) return
   if (!requirementCapture) return forwardStderr(chunk)
   requirementOutput = Buffer.concat([requirementOutput, chunk])
   let newline
@@ -802,6 +812,8 @@ async function materializeProviderLauncher(
   launchSecrets: readonly string[],
   cwd: string,
   requirementCapture?: ProviderRequirementCapture,
+  clientInfo?: { name: string, title: string, version: string },
+  environmentKeys?: readonly string[],
 ): Promise<MaterializedProviderLauncher> {
   if (process.platform === "win32") {
     throw agentDiagnostics.AGENT_R0676({ message: "[vitehub] driver.launch is not supported on Windows because provider launchers require a POSIX executable." })
@@ -810,7 +822,7 @@ async function materializeProviderLauncher(
   const path = join(root, "provider-launcher")
   const diagnosticPath = join(root, "provider-launch-failure.json")
   const shellArgument = (value: string) => `'${value.replaceAll("'", `'\\''`)}'`
-  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, launchSecrets, cwd, requirementCapture), { mode: 0o600 })
+  await writeFile(sourcePath, providerLauncherSource(launch, diagnosticPath, secretEnvironmentKeys, launchSecrets, cwd, requirementCapture, clientInfo, environmentKeys), { mode: 0o600 })
   await writeFile(path, `#!/bin/sh\nexec ${shellArgument(process.execPath)} ${shellArgument(sourcePath)} "$@"\n`, { mode: 0o700 })
   return { diagnosticPath, path }
 }
@@ -1467,6 +1479,7 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<AgentProviderStatus> {
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
+  if (isChatGPTGateway(options.gateway)) return await inspectChatGPTGateway(options.gateway, context)
   const checkRequirements = inspectionOptions.checkRequirements !== false
   // The toolchain exists only after an invocation prepares its checkout.
   const providedToolchainCommands = providerToolchainCommandsFor(options)
@@ -2885,10 +2898,13 @@ async function* runProvider<
   if (context.input.timeout !== undefined && context.input.timeout > 2_147_483_647) {
     throw agentDiagnostics.AGENT_R0711({ message: "[vitehub] Provider Agent timeout must be no greater than 2,147,483,647 milliseconds." })
   }
+  const chatgptExpiry = isChatGPTGateway(options.gateway) ? new AbortController() : undefined
+  let chatgptExpiryTimer: ReturnType<typeof setTimeout> | undefined
   const timeoutSignal = context.input.timeout === undefined ? undefined : AbortSignal.timeout(context.input.timeout)
-  const effectiveSignal = context.input.abortSignal && timeoutSignal
+  const invocationSignal = context.input.abortSignal && timeoutSignal
     ? AbortSignal.any([context.input.abortSignal, timeoutSignal])
     : context.input.abortSignal || timeoutSignal
+  const effectiveSignal = chatgptExpiry ? AbortSignal.any([chatgptExpiry.signal, ...(invocationSignal ? [invocationSignal] : [])]) : invocationSignal
   if (effectiveSignal !== context.input.abortSignal) {
     const wrapped = { ...context, input: { ...context.input, abortSignal: effectiveSignal } }
     if (isAuxiliaryAgentAdapterContext(context)) markAuxiliaryMessageChannelInstructionContext(wrapped)
@@ -2941,7 +2957,7 @@ async function* runProvider<
       releaseCwdLock = await acquireProviderSessionLock(cwdLocks, providerRoot, effectiveSignal)
     }
     try {
-      launchRoot = options.launch === undefined && !options.sandbox ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
+      launchRoot = options.launch === undefined && !options.sandbox && !chatgptExpiry ? undefined : await mkdtemp(join(tmpdir(), "vitehub-provider-launch-"))
       // The provider and its commands run on this host, so they get a temporary
       // directory that the invocation removes. A Sandbox has its own filesystem.
       if (!options.sandbox) {
@@ -2983,7 +2999,7 @@ async function* runProvider<
   let providerRuntimeEnvironment: Record<string, string> | undefined
   const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
     browserRuntimeEnvironment(context.context),
-    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment } : environment,
+    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "" } : {}) } : environment,
   )
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
@@ -3218,6 +3234,13 @@ async function* runProvider<
     const gateway = options.gateway === undefined
       ? undefined
       : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
+    if (gateway?.chatgpt && chatgptExpiry) {
+      const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1014())
+      const remaining = gateway.chatgpt.expiresAt - Date.now()
+      if (remaining <= 0) expire()
+      else chatgptExpiryTimer = setTimeout(expire, Math.min(remaining, 2_147_483_647))
+      effectiveSignal?.throwIfAborted()
+    }
     // driver.env can override the forge access environment. The gateway owns its own variables.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
       ? { ...githubEnvironment, ...configuredEnvironmentOverrides }
@@ -3313,6 +3336,13 @@ async function* runProvider<
       providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
+    if (gateway?.chatgpt) {
+      if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: providerCommand }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      providerLauncher = launcher.path
+      providerLaunchDiagnosticPath = launcher.diagnosticPath
+    }
     if (options.launch !== undefined) {
       if (!hasRuntimeType(providerCommand, "string")) {
         throw agentDiagnostics.AGENT_R0716({ message: "[vitehub] driver.providerSettings.binaryPath must be a string." })
@@ -3809,7 +3839,8 @@ async function* runProvider<
       if (current.value.type === "item.completed" && current.value.itemId) messagePhases.delete(current.value.itemId)
       const failure = normalized.find(event => event.type === "error" && !event.recoverable)
       if (failure?.type === "error") {
-        caught = agentDiagnostics.AGENT_R0726({ message: failure.error })
+        caught = chatgptExpiry ? chatgptProviderError(JSON.stringify(current.value), isChatGPTGateway(options.gateway) ? options.gateway.connection : undefined) ?? agentDiagnostics.AGENT_R1023() : agentDiagnostics.AGENT_R0726({ message: failure.error })
+        if (chatgptExpiry) failure.error = caught instanceof Error ? caught.message : "ChatGPT plan inference failed."
         if (codexCredentialHome?.scope && /spend.?cap|spend(ing)? limit|budget.*exceed|quota.*exhaust/i.test(failure.error)) {
           if (recentProviderQuotaFailures.size >= 128) recentProviderQuotaFailures.clear()
           recentProviderQuotaFailures.set(codexCredentialHome.scope, { message: failure.error, expiresAt: Date.now() + 30_000 })
@@ -3853,6 +3884,7 @@ async function* runProvider<
         }
         while (pendingToolEvents.length) yield pendingToolEvents.shift()!
       }
+      if (chatgptExpiry && caught) throw caught
       for (const event of normalized) yield event
       if (caught) throw caught
       if (isTerminalEvent(current.value, turn.turnId)) break
@@ -3867,10 +3899,11 @@ async function* runProvider<
       providerLaunchDiagnosticSecrets,
       error,
     )
-    caught = launchFailure ?? error
+    caught = (chatgptExpiry ? chatgptProviderError(error, isChatGPTGateway(options.gateway) ? options.gateway.connection : undefined) : undefined) ?? launchFailure ?? error
     throw caught
   }
   finally {
+    if (chatgptExpiryTimer) clearTimeout(chatgptExpiryTimer)
     acceptingSteering = false
     unregister?.()
     clearActiveSandbox?.()

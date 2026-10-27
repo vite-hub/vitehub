@@ -132,6 +132,7 @@ const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/a
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
     ...extra,
+    { find: "@vite-hub/agent/env-identity", replacement: resolve(import.meta.dirname, "../src/env-identity.ts") },
     { find: "@vite-hub/agent/server/registry", replacement: resolve(import.meta.dirname, "../src/server/registry.ts") },
     { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
     { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
@@ -1316,17 +1317,11 @@ describe("agent Vite plugin", () => {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: {
-        build?: { outDir?: string }
-        command: "serve"
-        plugins: Array<{ name: string }>
-        resolve: { alias: Array<{ find: string; replacement: string }> }
-        root: string
-      }) => Promise<void>
+      if (typeof plugin.configResolved !== "function") throw new Error("Expected a callable configResolved hook")
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
-      await configResolved({
+      // SAFETY: This fixture supplies the config fields the hook reads; it does not use the plugin context.
+      await plugin.configResolved.call({} as never, {
         build: { outDir: "dist/client" },
         command: "serve",
         plugins: kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [],
@@ -1338,7 +1333,7 @@ describe("agent Vite plugin", () => {
           ],
         },
         root,
-      })
+      } as never)
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       const capabilityOption = kvMode === "configured" ? " capabilities: vitehubAgentRouteCapabilities," : ""

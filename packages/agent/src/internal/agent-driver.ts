@@ -1,10 +1,11 @@
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
 import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
 import { activeAgentInvocationScope } from "./invocation-scope.ts"
 import { recordDriverUsage } from "./auxiliary-usage.ts"
-import { aiGatewayAsks } from "@vite-hub/gateways/internal"
+import { isChatGPTGateway, aiGatewayAsks } from "@vite-hub/gateways/internal"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 import { normalizeRetention } from "./retention-policy.ts"
@@ -54,7 +55,7 @@ export type NormalizedAgentDriver<
     cwd?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
-    gateway?: AiGateway
+    gateway?: AiGateway | ChatGPTGateway
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
     launch?: AgentProviderLaunchResolver<TRuntimeConfig>
@@ -274,6 +275,7 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
   if (gateway) assertAgentDriverGatewaySupports(gateway, provider)
+  if (isChatGPTGateway(gateway) && (value.launch !== undefined || isPlainRecord(value.providerSettings) && value.providerSettings.launchArgs !== undefined)) throw agentDiagnostics.AGENT_R1015()
   // A gateway replaces Codex sign-in. Layers cannot unset inherited credentials, so the gateway wins
   // and credential-only rules no longer apply.
   const credentials = gateway ? undefined : value.credentials

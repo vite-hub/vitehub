@@ -1,8 +1,9 @@
-import { aiGatewaySupports, normalizeAiGateway, resolveAiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import { isChatGPTGateway, aiGatewaySupports, normalizeAiGateway, resolveAiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import { resolveChatGPTGateway } from "./chatgpt-gateway.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
-import type { AiGatewayDefinition } from "@vite-hub/gateways"
+import type { AiGatewayDefinition, ChatGPTGateway } from "@vite-hub/gateways"
 import type { AiGatewayDriverRoute } from "@vite-hub/gateways/internal"
 import type { AgentProviderCredentialContext, BuiltInAgentDriverName } from "../types.ts"
 
@@ -14,6 +15,7 @@ const codexApiKeyEnvironment = "VITEHUB_GATEWAY_API_KEY"
 const codexGatewayStreamRetries = 10
 
 export interface ResolvedAgentDriverGateway {
+  chatgpt?: { expiresAt: number, clientInfo: { name: string, title: string, version: string } }
   /** Values for the provider process. Every value is a secret. */
   environment: Record<string, string>
   /** Codex `-c` overrides that select the gateway. */
@@ -21,10 +23,16 @@ export interface ResolvedAgentDriverGateway {
 }
 
 /** Validate a gateway for `driver.gateway` and keep its Driver routes. */
-export const normalizeAgentDriverGateway: (value: unknown) => AiGatewayDefinition = normalizeAiGateway
+export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition | ChatGPTGateway {
+  return isChatGPTGateway(value) ? Object.freeze({ ...value }) : normalizeAiGateway(value)
+}
 
 /** Fail at definition time when a gateway cannot serve the selected Driver. */
-export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition, driver: BuiltInAgentDriverName): void {
+export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition | ChatGPTGateway, driver: BuiltInAgentDriverName): void {
+  if (isChatGPTGateway(gateway)) {
+    if (driver !== "codex") throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] The ChatGPT plan gateway does not serve the ${driver} Driver. Set driver.kind to "codex".` })
+    return
+  }
   if (!aiGatewaySupports(gateway, driver)) {
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver. Set baseURL["${driver}"] or choose another gateway.` })
   }
@@ -70,11 +78,12 @@ function claudeGateway({ apiKey, auth, baseURL, headers }: AiGatewayDriverRoute)
 
 /** Resolve the gateway into the provider process environment and Codex launch arguments. Preset values come from Server Env. */
 export async function resolveAgentDriverGateway(
-  gateway: AiGatewayDefinition,
+  gateway: AiGatewayDefinition | ChatGPTGateway,
   driver: BuiltInAgentDriverName,
   context: AgentProviderCredentialContext,
 ): Promise<ResolvedAgentDriverGateway> {
   assertAgentDriverGatewaySupports(gateway, driver)
+  if (isChatGPTGateway(gateway)) return await resolveChatGPTGateway(gateway, context)
   const route = await resolveAiGatewayDriverRoute(gateway, driver, {
     ...context,
     env: async (preset, field) => await gatewayEnvValue(preset, field, context),
