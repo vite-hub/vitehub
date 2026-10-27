@@ -1,3 +1,5 @@
+import { isServerEnvironment } from "./vite.ts"
+
 import type { Plugin } from "vite"
 
 /**
@@ -16,10 +18,10 @@ export function nitroWorkerdDependencies(): Plugin {
     apply: "serve",
     // Nitro adds its environments in its `config` hook and auto-detected services in `configEnvironment`.
     enforce: "post",
-    configEnvironment(_name, config) {
-      if (config.consumer === "client" || config.resolve?.noExternal !== true) return
-      if (config.optimizeDeps?.noDiscovery !== undefined) return
-      return { optimizeDeps: { noDiscovery: false, exclude: ["nitro"] } }
+    configEnvironment(name, config) {
+      if (!isServerEnvironment(name, config) || config.resolve?.noExternal !== true) return
+      if (!config.resolve.conditions?.some(condition => condition === "workerd" || condition === "worker")) return
+      return { optimizeDeps: { noDiscovery: config.optimizeDeps?.noDiscovery ?? false, exclude: ["nitro"] } }
     },
   }
 }
