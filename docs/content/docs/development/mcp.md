@@ -47,4 +47,4 @@ ViteHub MCP has no OAuth sign-in yet, so most desktop Agents cannot connect to a
 
 ## Protocol
 
-ViteHub MCP speaks the stateless JSON form of the Streamable HTTP transport: one JSON-RPC message per `POST`, and one JSON answer. It supports the revisions `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`, and the methods `initialize`, `ping`, `tools/list`, and `tools/call`. It does not stream, and it keeps no session.
+ViteHub MCP speaks the stateless JSON form of the Streamable HTTP transport: one JSON-RPC message per `POST`, and one JSON answer. It supports the revisions `2025-11-25` and `2025-06-18`, and the methods `initialize`, `ping`, `tools/list`, and `tools/call`. It does not stream, and it keeps no session. Send the negotiated revision in the `MCP-Protocol-Version` header on subsequent requests; unsupported revisions receive HTTP 400.

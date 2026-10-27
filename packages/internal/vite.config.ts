@@ -45,6 +45,7 @@ export default defineConfig({
       "src/build/included-nitro.ts",
       "src/build/mode.ts",
       "src/build/nitro-cache-bypass.ts",
+      "src/build/nitro-workerd-dependencies.ts",
       "src/build/paths.ts",
       "src/build/provider-output-sources.ts",
       "src/build/scan-module.ts",

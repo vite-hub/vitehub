@@ -191,7 +191,7 @@ When someone starts a thread on a page, the overlay also records what they saw, 
 
 ```ts
 interface CommentContext {
-  url: string                     // without the comment mode query and the hash
+  url: string                     // origin and pathname only; no credentials, query, or hash
   title?: string
   route?: string                  // Vue Router route pattern, such as '/blog/:id(.*)*'
   element?: {
@@ -216,7 +216,8 @@ interface CommentContext {
 ```
 
 - **Components:** the overlay walks the Vue component tree from the app container down to the element. A production build keeps that tree, so this works without Vue devtools and changes nothing in the HTML. Pages that Vue does not render get no components.
-- **Files:** a production build keeps only the component name, which for `<script setup>` is the name of its file. At build time, Comments lists the `.vue` files of the project by name, and the server adds the files of each name to the thread. A name that two files share, such as `index`, gets both. The list skips `node_modules`, `dist`, `public`, and dot directories. In development, restart the server after you add a component.
+- **URL:** the overlay drops all query parameters and the hash. The server checks that the submitted URL matches the request origin and thread page, then stores only the origin and normalized pathname.
+- **Files:** a production build keeps only the component name, which for `<script setup>` is the name of its file. At build time, Comments lists the `.vue` files of the project by name, and the server adds the files of each name to the thread. In Nuxt, it also uses the resolved component registry, including custom prefixes, component directories, and client/server suffixes. A name that two files share, such as `index`, gets both unless Nuxt resolves that name to a specific component. The list skips `node_modules`, `dist`, `public`, and dot directories. Nuxt rescans refresh its resolved names; in other Vite apps, restart the server after you add a component.
 - **Build:** the commit and branch come from the host or CI at build time (`VERCEL_GIT_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `COMMIT_REF`, or `GITHUB_SHA`), else from Git. The GitHub repository and the pull request come from the same place, for [`forge`](/docs/comments/configure#post-comments-to-the-pull-request). The browser cannot set them, and cannot set file names.
 
 The Console shows the context in each thread's fields. `describeCommentContext(context)` from `vite-hub/comments` returns the same label and value pairs.

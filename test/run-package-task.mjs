@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 const DEFAULT_MAX_PARALLEL = 2
 const DEFAULT_PARALLEL_SAFE_PACKAGES = Object.freeze([
   "@vite-hub/env",
+  "@vite-hub/gateways",
   "@vite-hub/markdown-template",
   "@vite-hub/runtime",
 ])

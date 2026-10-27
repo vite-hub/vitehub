@@ -10,6 +10,7 @@ import {
 import { ConsoleRequestError } from "../client/request";
 import ConsoleEnvActivity from "./console-env-activity.vue";
 import ConsoleEnvAccess from "./console-env-access.vue";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const readonly = ref(false);
@@ -155,7 +156,7 @@ onMounted(load);
         <UButton label="Reload" color="neutral" variant="ghost" :loading="busy" @click="load" />
       </div>
       <p v-if="inspection?.metadata" class="text-xs text-muted">
-        Updated {{ new Date(inspection.metadata.updatedAt).toLocaleString() }}
+        Updated {{ consoleDateTime(inspection.metadata.updatedAt) }}
       </p>
       <div v-if="access?.permissions.includes('preview')" class="flex items-center gap-3">
         <code v-if="preview" class="break-all text-sm">{{ preview }}</code>

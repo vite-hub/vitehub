@@ -1,9 +1,9 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
+import { and, desc, eq, exists, inArray, sql } from "drizzle-orm"
 
 import { commentsSchema } from "./database.ts"
 
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentMetadata, CommentThread, CommentThreadStatus } from "./types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentMetadata, CommentThread, CommentThreadStatus, ReplyOptions } from "./types.ts"
 
 const { vitehubCommentThreads: threads, vitehubComments: comments, vitehubCommentScopeCounters: counters } = commentsSchema
 
@@ -20,8 +20,8 @@ export interface CommentsStore {
   threadOf(commentId: string): Promise<string | undefined>
   create(input: { scope: string, page: string, anchor?: CommentAnchor, context?: CommentContext, metadata?: CommentMetadata, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
   edit(commentId: string, input: { body: string, mentions: CommentMention[] }): Promise<Comment | undefined>
-  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<Comment>
-  setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<void>
+  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }, options?: ReplyOptions): Promise<{ comment: Comment } | { error: "not-found" | "resolved" }>
+  setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
   removeComment(commentId: string): Promise<void>
   /** Deletes every thread of a scope with its comments. Returns their IDs for forge cleanup. */
@@ -134,14 +134,27 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
       ])
       return toThread(saved[0]!, [comment])
     },
-    async reply(threadId, { body, author, mentions }) {
+    async reply(threadId, { body, author, mentions }, { allowResolved = false } = {}) {
       const now = Date.now()
       const comment: CommentRow = { id: crypto.randomUUID(), threadId, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      await database.batch([
-        database.insert(comments).values(comment),
-        database.update(threads).set({ updatedAt: now }).where(eq(threads.id, threadId)),
+      const [inserted, , parents] = await database.batch([
+        // Read the parent in the insert statement, inside the same atomic batch as its activity update.
+        database.insert(comments).select(database.select({
+          id: sql<string>`${comment.id}`.as("id"),
+          threadId: threads.id,
+          body: sql<string>`${comment.body}`.as("body"),
+          mentions: sql<string>`${comment.mentions}`.as("mentions"),
+          author: sql<string>`${comment.author}`.as("author"),
+          createdAt: sql<number>`${now}`.as("created_at"),
+          editedAt: sql<null>`null`.as("edited_at"),
+        }).from(threads).where(and(eq(threads.id, threadId), allowResolved ? undefined : eq(threads.status, "open")))).returning(),
+        database.update(threads).set({ updatedAt: now }).where(and(eq(threads.id, threadId), exists(
+          database.select({ id: comments.id }).from(comments).where(eq(comments.id, comment.id)),
+        ))),
+        database.select({ status: threads.status }).from(threads).where(eq(threads.id, threadId)),
       ])
-      return toComment(comment)
+      if (inserted[0]) return { comment: toComment(inserted[0]) }
+      return { error: parents[0]?.status === "resolved" ? "resolved" : "not-found" }
     },
     async edit(commentId, { body, mentions }) {
       const [row] = await database.select().from(comments).where(eq(comments.id, commentId)).limit(1)
@@ -155,9 +168,13 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
     },
     async setStatus(threadId, status, by) {
       const now = Date.now()
-      await database.update(threads).set(status === "resolved"
-        ? { status, resolvedBy: JSON.stringify(by), resolvedAt: now, updatedAt: now }
-        : { status, resolvedBy: null, resolvedAt: null, updatedAt: now }).where(eq(threads.id, threadId))
+      const [updated, rows] = await database.batch([
+        database.update(threads).set(status === "resolved"
+          ? { status, resolvedBy: JSON.stringify(by), resolvedAt: now, updatedAt: now }
+          : { status, resolvedBy: null, resolvedAt: null, updatedAt: now }).where(eq(threads.id, threadId)).returning(),
+        database.select().from(comments).where(eq(comments.threadId, threadId)).orderBy(comments.createdAt),
+      ])
+      return updated[0] ? toThread(updated[0], rows) : undefined
     },
     async removeThread(threadId) {
       // SQLite enforces the foreign key only with `PRAGMA foreign_keys`, so remove the comments in the same batch.

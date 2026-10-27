@@ -82,6 +82,7 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 - A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
 - Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
+- Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
 - Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names are display text only.
 - The overlay is a custom element with a shadow root, so the page's CSS does not reach it.
 
@@ -93,11 +94,13 @@ On a preview, `forge: { provider: "github" }` posts each thread to the pull requ
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
-| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup. |
+| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
 | `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
 | `@vite-hub/comments/runtime/sqlite` | `openCommentsSqlite()`, the SQLite file of `comments()`. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
+
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With an H3 request `event`, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

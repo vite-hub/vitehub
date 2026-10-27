@@ -258,6 +258,26 @@ const statusError = ref<string>();
 const runCursor = ref<string>();
 const previousCursors = ref<Array<string | undefined>>([]);
 const costSupported = computed(() => summary.value?.costSupported === true);
+// A partial total keeps its "recorded" note, but the note is quieter than the number it qualifies.
+const totals = computed(() => {
+  const value = summary.value;
+  if (!value) return [];
+  const items = [
+    { label: "Sessions", text: `${value.sessionCount.toLocaleString("en")}${value.totals.invocationsAvailable ? "" : " recorded"}` },
+    { label: "Tokens", text: formatTokenEvidence(value.totals.totalTokens, value.totals.totalTokensAvailable) },
+  ];
+  if (costSupported.value) {
+    items.push(
+      { label: "Cost", text: formatCostEvidence(value.totals.costUsd, value.totals.costEstimated, value.totals.costAvailable) },
+      { label: "Average per priced session", text: value.totals.averageCostUsd === undefined ? "Unavailable" : formatCost(value.totals.averageCostUsd, value.totals.costEstimated) },
+    );
+  }
+  return items.map(({ label, text }) => ({
+    label,
+    note: text.endsWith(" recorded") ? "recorded" : undefined,
+    value: text.replace(/ recorded$/, ""),
+  }));
+});
 const agentOptions = computed(() => [
   { label: "All agents", value: "all" },
   ...[
@@ -461,7 +481,7 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           <UButton aria-label="Refresh usage" color="neutral" icon="i-lucide-refresh-cw" size="sm" variant="ghost" :disabled="loading" @click="refresh(); loadStatus();" />
         </template>
       </UDashboardNavbar>
-      <ConsolePageToolbar role="search" aria-label="Session history filters">
+      <ConsolePageToolbar role="search" aria-label="Session history filters" width="6xl">
         <UInput v-model="searchInput" type="search" icon="i-lucide-search" placeholder="Search sessions" aria-label="Search session history" class="min-w-40 flex-1 sm:max-w-72" size="sm" />
         <USelect v-model="selectedAgent" :items="agentOptions" value-key="value" aria-label="Agent" size="sm" class="w-40 max-w-full" />
         <USelect v-model="status" :items="statusOptions" value-key="value" aria-label="Session status" size="sm" class="w-36" />
@@ -477,10 +497,13 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
         </p>
         <template v-if="summary">
           <dl class="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-default bg-(--ui-border)" :class="costSupported ? 'sm:grid-cols-4' : 'sm:grid-cols-2'" aria-label="Session history totals">
-            <div class="bg-default px-4 py-3"><dt class="text-xs text-muted">Sessions</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.sessionCount.toLocaleString('en') }}{{ summary.totals.invocationsAvailable ? '' : ' recorded' }}</dd></div>
-            <div class="bg-default px-4 py-3"><dt class="text-xs text-muted">Tokens</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatTokenEvidence(summary.totals.totalTokens, summary.totals.totalTokensAvailable) }}</dd></div>
-            <div v-if="costSupported" class="bg-default px-4 py-3"><dt class="text-xs text-muted">Cost</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ formatCostEvidence(summary.totals.costUsd, summary.totals.costEstimated, summary.totals.costAvailable) }}</dd></div>
-            <div v-if="costSupported" class="bg-default px-4 py-3"><dt class="text-xs text-muted">Average per priced session</dt><dd class="mt-1 text-lg font-semibold tabular-nums">{{ summary.totals.averageCostUsd === undefined ? 'Unavailable' : formatCost(summary.totals.averageCostUsd, summary.totals.costEstimated) }}</dd></div>
+            <div v-for="total in totals" :key="total.label" class="bg-default px-4 py-3">
+              <dt class="text-xs text-muted">{{ total.label }}</dt>
+              <dd class="mt-1 flex items-baseline gap-1.5 tabular-nums">
+                <span class="text-lg font-semibold text-highlighted">{{ total.value }}</span>
+                <span v-if="total.note" class="text-xs text-muted">{{ total.note }}</span>
+              </dd>
+            </div>
           </dl>
         </template>
         <p v-else-if="loading" class="py-5 text-sm text-muted" role="status">Loading session history…</p>
@@ -490,7 +513,12 @@ onBeforeUnmount(() => { request?.abort(); clearTimeout(searchTimer); });
           aria-label="Usage sections"
           color="neutral"
           size="sm"
-          :ui="{ root: 'items-stretch gap-3', list: 'w-fit', trigger: 'data-[state=inactive]:text-default' }"
+          :ui="{
+            root: 'items-stretch gap-3',
+            list: 'w-fit gap-1 bg-transparent p-0',
+            indicator: 'hidden',
+            trigger: 'rounded-md px-2.5 data-[state=inactive]:text-muted data-[state=inactive]:hover:text-highlighted data-[state=active]:bg-elevated data-[state=active]:text-highlighted',
+          }"
         >
           <template #overview>
             <UEmpty v-if="summary && !summary.available && summary.totals.invocationsAvailable" v-bind="emptyState" variant="naked" />

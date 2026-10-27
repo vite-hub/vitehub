@@ -35,13 +35,14 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0033({ message: "[vitehub] Rate Limit policy must be an object." })
   }
   const limit = Object.hasOwn(policy, "limit") ? policy.limit : undefined
-  const window = Object.hasOwn(policy, "window") ? policy.window : undefined
+  // Not named `window`: Nitro 2 server bundles replace the type check of that name with "undefined".
+  const duration = Object.hasOwn(policy, "window") ? policy.window : undefined
   const enforcement = Object.hasOwn(policy, "enforcement") ? policy.enforcement : undefined
   const failure = Object.hasOwn(policy, "failure") ? policy.failure : undefined
   if (limit === undefined || !Number.isInteger(limit) || limit <= 0) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0034({ message: "[vitehub] Rate Limit limit must be a positive integer." })
   }
-  if (typeof window !== "string") {
+  if (typeof duration !== "string") {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0031({ message: "[vitehub] Rate Limit window must use a duration such as \"10s\", \"1m\", \"1h\", or \"1d\"." })
   }
   if (enforcement !== undefined && enforcement !== "best-effort" && enforcement !== "strict") {
@@ -55,8 +56,8 @@ export function normalizeRateLimitPolicy(policy: RateLimitPolicy): ResolvedRateL
     enforcement: enforcement ?? "best-effort",
     failure: failure ?? "deny",
     limit,
-    window: window as RateLimitWindow,
-    windowMs: parseRateLimitWindow(window as RateLimitWindow),
+    window: duration as RateLimitWindow,
+    windowMs: parseRateLimitWindow(duration as RateLimitWindow),
   }
 }
 

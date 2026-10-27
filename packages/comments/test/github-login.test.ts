@@ -9,7 +9,8 @@ import { anchor, createDatabase } from "./harness.ts"
 
 import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
-import type { CommentsUser } from "../src/types.ts"
+import type { CommentsHandlerOptions } from "../src/runtime/handler.ts"
+import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
 const origin = "http://site.test"
 
@@ -27,11 +28,11 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
   }
 }
 
-async function setup(githubLogin: CommentsGitHubLogin, development = false) {
-  const comments = defineComments()
+async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"] } = {}) {
+  const comments = defineComments({ identify: options.identify })
   const database = await createDatabase()
   defineCommentsPlugin({ comments, database: () => database, overlay: "/overlay.js", development })({})
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, githubLogin }))
+  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, githubLogin, session: options.session }))
   const call = async (path: string, init: RequestInit = {}) => {
     const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, init))
     return { response, body: response.status === 204 ? undefined : await response.json() as { data?: any } }
@@ -81,6 +82,21 @@ describe("default policy", () => {
 })
 
 describe("GitHub sign-in in the Comments API", () => {
+  it("keeps identify authoritative when it denies a signed-in GitHub person", async () => {
+    const login = fakeLogin(ada(true))
+    const user = vi.spyOn(login, "user")
+    const call = await setup(login, false, { identify: () => null })
+    const { body } = await call("/session")
+    expect(body!.data).toMatchObject({ user: null, can: { read: false } })
+    expect(user).not.toHaveBeenCalled()
+  })
+
+  it.each([null, { id: "app-user", name: "Grace" }])("uses the app session before the GitHub fallback: %j", async (sessionUser) => {
+    const call = await setup(fakeLogin(ada(true)), false, { session: async () => sessionUser })
+    const { body } = await call("/session")
+    expect(body!.data.user.id).toBe(sessionUser?.id ?? "gh-ada")
+  })
+
   it("offers the sign-in to people who are not signed in, and keeps comment mode on", async () => {
     const call = await setup(fakeLogin(null))
     const { response, body } = await call("/session")

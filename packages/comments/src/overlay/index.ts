@@ -118,7 +118,7 @@ class CommentsOverlay extends HTMLElement {
   private frame = 0
   private hover?: Element
   private drafted = new Set<string>()
-  private editing?: { element: HTMLElement, field: string, digest: string, original: string }
+  private editing?: { element: HTMLElement, field: string, digest: string, original: string, initial: string }
   private editStop?: () => void
   private toastTimer?: ReturnType<typeof setTimeout>
   private toast?: HTMLElement
@@ -264,7 +264,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, commentsHintQuery), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target), x: event.clientX, y: event.clientY }
     this.render()
   }
 
@@ -329,7 +329,12 @@ class CommentsOverlay extends HTMLElement {
       this.showToast(error.why, "error")
       return
     }
-    this.threads = threads
+    // Retained cards keep their callbacks while polling refreshes their data.
+    const current = new Map(this.threads.map(thread => [thread.id, thread]))
+    this.threads = threads.map(thread => {
+      const existing = current.get(thread.id)
+      return existing ? Object.assign(existing, thread) : thread
+    })
     this.renderToolbar()
     this.render()
   }
@@ -342,8 +347,9 @@ class CommentsOverlay extends HTMLElement {
 
   private joinRoom() {
     if (!this.session?.realtime) return
+    this.room?.destroy()
     const guest = readGuest()
-    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : this.session.user ?? undefined)
+    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
     const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })
     room.onUpdate(() => {
       this.renderToolbar()
@@ -365,7 +371,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private ensureAuthor(nameInput?: HTMLInputElement): boolean {
-    if (this.session?.user) return true
+    if (this.account()) return true
     if (readGuest()) return true
     const name = nameInput?.value.trim()
     if (!name) {
@@ -373,6 +379,7 @@ class CommentsOverlay extends HTMLElement {
       return false
     }
     saveGuest(name)
+    this.joinRoom()
     return true
   }
 
@@ -409,7 +416,7 @@ class CommentsOverlay extends HTMLElement {
 
   private async removeComment(thread: PageThread, commentId: string) {
     const first = thread.comments[0]?.id === commentId
-    const [error] = first ? await api.remove(thread.id) : await api.removeComment(thread.id, commentId)
+    const [error] = await api.removeComment(thread.id, commentId)
     if (error) return this.failed(error)
     if (first) {
       this.threads = this.threads.filter(candidate => candidate.id !== thread.id)
@@ -433,7 +440,7 @@ class CommentsOverlay extends HTMLElement {
       this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", "/_vitehub/content"] })
       return
     }
-    this.editing = { element, field, digest: value.digest, original: element.textContent ?? "" }
+    this.editing = { element, field, digest: value.digest, original: element.textContent ?? "", initial: value.value }
     element.textContent = value.value
     element.setAttribute("data-vitehub-editing", "")
     element.contentEditable = "plaintext-only"
@@ -468,14 +475,15 @@ class CommentsOverlay extends HTMLElement {
     if (!editing) return
     this.editing = undefined
     this.editStop?.()
-    const { element, field, digest, original } = editing
+    const { element, field, digest, original, initial } = editing
     element.contentEditable = "inherit"
     element.removeAttribute("data-vitehub-editing")
     const value = (element.textContent ?? "").trim()
-    if (!save || value === original.trim()) {
+    if (!save) {
       element.textContent = original
       return
     }
+    if (value === initial.trim()) return
     const [error] = await api.saveField({ field, value, ifDigest: digest })
     if (error) {
       element.textContent = original
@@ -606,7 +614,7 @@ class CommentsOverlay extends HTMLElement {
       const box = element.getBoundingClientRect()
       const x = box.left + (cursor.x / 1000) * box.width
       const y = box.top + (cursor.y / 1000) * box.height
-      const color = user.color ?? colorOf(user.id)
+      const color = typeof user.color === "string" && /^#[\da-f]{6}$/i.test(user.color) ? user.color : colorOf(user.id)
       const arrow = svg(`<path d="M4 2l16 7-7 2-3 8z" fill="${color}" stroke="#000" stroke-width="1.5"/>`)
       nodes.push(h("div", { className: "cursor", style: `left:${x}px;top:${y}px` }, arrow, h("span", { style: `background:${color}` }, user.name ?? "Someone")))
     }

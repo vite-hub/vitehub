@@ -44,6 +44,19 @@ export default defineConfig({
         find: "vite-hub/agent/vue",
         replacement: resolve(workspaceRoot, "packages/agent/src/vue.ts"),
       },
+      // The rail, Content editing, and live editing import these. Their exports point to dist/, which a fresh checkout has not built.
+      {
+        find: "@vite-hub/auth/vue",
+        replacement: resolve(workspaceRoot, "packages/auth/src/vue.ts"),
+      },
+      {
+        find: "@vite-hub/content/editor",
+        replacement: resolve(workspaceRoot, "packages/content/src/editor.ts"),
+      },
+      {
+        find: "@vite-hub/realtime/vue",
+        replacement: resolve(workspaceRoot, "packages/realtime/src/vue.ts"),
+      },
       {
         find: "vite-hub/source/client",
         replacement: resolve(workspaceRoot, "packages/source/src/client.ts"),
