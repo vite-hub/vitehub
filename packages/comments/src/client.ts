@@ -111,7 +111,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       for (const thread of list) {
         const local = byId.get(thread.id)
         if (removed.has(thread.id)) continue
-        next.set(thread.id, local && local.updatedAt > thread.updatedAt ? local : thread)
+        next.set(thread.id, local && (local.updatedAt > thread.updatedAt || (changed.has(thread.id) && local.updatedAt === thread.updatedAt)) ? local : thread)
       }
       // A thread that someone made or changed while the list was on its way is not in the list yet.
       for (const id of changed) {
@@ -138,7 +138,11 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     refresh().catch(() => undefined)
   }
   const apply = (event: CommentEvent): void => {
-    if (event.type === "thread") upsert(event.thread)
+    if (event.type === "thread") {
+      const local = byId.get(event.thread.id)
+      if (local?.updatedAt === event.thread.updatedAt) refreshQuietly()
+      else upsert(event.thread)
+    }
     else if (event.type === "deleted") drop(event.threadId)
     else refreshQuietly()
   }

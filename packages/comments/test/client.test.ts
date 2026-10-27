@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
 import { createMemoryTransport } from "../src/testing.ts"
@@ -13,6 +13,8 @@ function setup() {
   const client = createCommentsClient({ transport: store, user: ana, query: { page: "/pricing" } })
   return { client, store }
 }
+
+afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
@@ -229,6 +231,41 @@ describe("createCommentsClient", () => {
       listeners[0]!({ type: "thread", thread: newer })
       listeners[0]!({ type: "thread", thread: stale })
       expect(pushing.threads[0]!.messages).toHaveLength(2)
+      stop()
+    })
+
+    it("keeps a local reply when a pending list has the same timestamp", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000)
+      const { pending, transport } = slowList()
+      const client = createCommentsClient({ transport })
+      const thread = await client.create({ subject, anchor, body: "First" })
+      const loading = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+      await client.reply({ threadId: thread.id, body: "Second" })
+      pending[0]!.answer()
+      await loading
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second"])
+    })
+
+    it("reconciles equal-timestamp events without rolling back a local reply", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000)
+      const store = createMemoryTransport({ user: ana })
+      const old = await store.create({ subject, anchor, body: "First" })
+      const listeners: Array<(event: { type: "thread", thread: CommentThread }) => void> = []
+      const client = createCommentsClient({ transport: {
+        ...store,
+        subscribe: listener => { listeners.push(listener); return () => undefined },
+      } })
+      const stop = client.start()
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      await client.reply({ threadId: old.id, body: "Second" })
+      listeners[0]!({ type: "thread", thread: old })
+      expect(client.threads[0]!.messages).toHaveLength(2)
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(client.threads[0]!.messages).toHaveLength(2)
+      const remote = await store.as(ben).reply({ threadId: old.id, body: "Third" })
+      listeners[0]!({ type: "thread", thread: remote })
+      await vi.waitFor(() => expect(client.threads[0]!.messages).toHaveLength(3))
       stop()
     })
 

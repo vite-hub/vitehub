@@ -780,6 +780,58 @@ describe("thread actions", () => {
     expect((field.element as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("keeps text typed while a reply is being sent", async () => {
+    const request = pending();
+    const onReply = vi.fn().mockReturnValue(request.promise);
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { onReply, thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    const field = wrapper.get("textarea");
+    await field.setValue("First reply");
+    await field.trigger("keydown", { key: "Enter" });
+    await field.setValue("Second thought");
+    request.finish();
+    await flushPromises();
+    expect(onReply).toHaveBeenCalledWith("First reply", []);
+    expect(field.element).toHaveProperty("value", "Second thought");
+  });
+
+  it("keeps text typed while an edit is being saved", async () => {
+    const request = pending();
+    const onEdit = vi.fn().mockReturnValue(request.promise);
+    const wrapper = mount(CommentReply, { attachTo: document.body, global, props: { editable: true, message, onEdit } });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    const field = wrapper.get("textarea");
+    await field.setValue("First edit");
+    await field.trigger("keydown", { key: "Enter" });
+    await field.setValue("Second edit");
+    request.finish();
+    await flushPromises();
+    expect(wrapper.get("textarea").element).toHaveProperty("value", "Second edit");
+  });
+
+  it.each(["Close", "Resolve"])("protects a dirty reply from %s", async (action) => {
+    const { wrapper, client } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    const field = wrapper.get("[data-slot=comment-thread] textarea");
+    await field.setValue("Unsent reply");
+    await wrapper.get(`[aria-label=${action}]`).trigger("click");
+    await flushPromises();
+    expect(wrapper.get("[data-slot=comment-thread] textarea").element).toHaveProperty("value", "Unsent reply");
+    expect(client.threads[0]?.status).toBe("open");
+  });
+
+  it.each(["Close", "Resolve"])("protects a dirty edit from %s", async (action) => {
+    const { wrapper, client } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("[data-variant=edit] textarea").setValue("Unsent edit");
+    await wrapper.get(`[aria-label=${action}]`).trigger("click");
+    await flushPromises();
+    expect(wrapper.get("[data-variant=edit] textarea").element).toHaveProperty("value", "Unsent edit");
+    expect(client.threads[0]?.status).toBe("open");
+  });
+
   it("closes the edit box only after the edit was saved", async () => {
     const save = pending();
     const onEdit = vi.fn().mockReturnValueOnce(save.promise);

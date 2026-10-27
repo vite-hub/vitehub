@@ -257,6 +257,7 @@ export function createAnchor(target: AnchorTarget, options: CreateAnchorOptions 
 }
 
 interface QuoteMatch {
+  ambiguous: boolean
   start: number
   /** How many characters around the quote match the stored prefix and suffix. */
   score: number
@@ -275,12 +276,13 @@ function findQuote(text: string, anchor: TextAnchor): QuoteMatch | undefined {
     while (score < anchor.prefix.length && before.at(-1 - score) === anchor.prefix.at(-1 - score)) score++
     let tail = 0
     while (tail < anchor.suffix.length && after[tail] === anchor.suffix[tail]) tail++
-    matches.push({ start: at, score: score + tail })
+    matches.push({ start: at, score: score + tail, ambiguous: false })
   }
   if (matches.length === 1) return matches[0]
   const needed = Math.min(minimumContext, anchor.prefix.length + anchor.suffix.length)
   const best = matches.reduce<QuoteMatch | undefined>((top, match) => (!top || match.score > top.score ? match : top), undefined)
-  return best && needed > 0 && best.score >= needed ? best : undefined
+  if (!best || needed === 0 || best.score < needed) return undefined
+  return { ...best, ambiguous: matches.filter(match => match.score === best.score).length > 1 }
 }
 
 function boundary(nodes: Text[], offset: number, end: boolean): { node: Text, offset: number } | undefined {
@@ -299,6 +301,7 @@ function visible(rect: AnchorRect): boolean {
 }
 
 interface TextResolution {
+  ambiguous: boolean
   position: ResolvedAnchor
   score: number
 }
@@ -332,6 +335,7 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   return {
     position: { clipped: isClipped(element, x, y), detached: false, kind: "text", x, y, width: rect.width, height: rect.height, element },
     score: match.score,
+    ambiguous: match.ambiguous,
   }
 }
 
@@ -364,8 +368,9 @@ export function resolveAnchor(anchor: CommentAnchor, root: ParentNode = document
     for (const element of found) {
       const resolution = resolveText(anchor, element)
       if (resolution && (!best || resolution.score > best.score)) best = resolution
+      else if (resolution && best && resolution.score === best.score) best.ambiguous = true
     }
-    return best?.position ?? { detached: true }
+    return best && !best.ambiguous ? best.position : { detached: true }
   }
   const element = found.length === 1 ? found[0] : undefined
   if (!element) return { detached: true }

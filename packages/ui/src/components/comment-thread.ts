@@ -71,7 +71,10 @@ export const CommentReply = defineComponent({
       editing.value = true;
     }
     async function save(submit: CommentComposerSubmit) {
-      if (await run(() => props.onEdit?.(props.message.id, submit.body, submit.mentions))) editing.value = false;
+      const submitted = draft.value;
+      const submittedMentions = mentions.value;
+      if (await run(() => props.onEdit?.(props.message.id, submit.body, submit.mentions))
+        && draft.value === submitted && mentions.value === submittedMentions) editing.value = false;
     }
     async function remove() {
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
@@ -203,10 +206,14 @@ export const CommentThread = defineComponent({
       if (sending.value) return;
       sending.value = true;
       failure.value = undefined;
+      const submitted = reply.value;
+      const submittedMentions = mentions.value;
       try {
         await props.onReply?.(submit.body, [...submit.mentions]);
-        reply.value = "";
-        mentions.value = [];
+        if (reply.value === submitted && mentions.value === submittedMentions) {
+          reply.value = "";
+          mentions.value = [];
+        }
         void nextTick(() => composer.value?.focus());
       } catch (cause) {
         failure.value = reason(cause);
@@ -216,12 +223,18 @@ export const CommentThread = defineComponent({
     }
     // Resolve and Reopen show their failure too.
     async function act(task: (() => Done) | undefined) {
+      if (root.value && shakeDirtyComposers(root.value)) return;
       failure.value = undefined;
       try {
         await task?.();
       } catch (cause) {
         failure.value = reason(cause);
       }
+    }
+
+    function close() {
+      if (root.value && shakeDirtyComposers(root.value)) return;
+      emit("close");
     }
 
     return () => {
@@ -251,7 +264,7 @@ export const CommentThread = defineComponent({
               size: "xs",
               variant: "ghost",
             }),
-            h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: () => emit("close"), size: "xs", variant: "ghost" }),
+            h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
             quote ? h("blockquote", { "data-slot": "comment-thread-quote" }, quote) : null,

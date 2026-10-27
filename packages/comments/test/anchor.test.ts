@@ -264,6 +264,15 @@ describe("ambiguous and clipped anchors", () => {
     expect(resolved(position).element).toBe(document.querySelectorAll("p")[1])
   })
 
+  it.each([
+    "<p>Go now.</p><p>Go now.</p>",
+    "<p>Go now. Go now.</p><p>Go now.</p>",
+  ])("detaches equally matching quotes across elements: %s", (html) => {
+    page(html)
+    for (const element of document.querySelectorAll("p")) place(element, { left: 5, top: 5, width: 100, height: 10 })
+    expect(resolveAnchor({ kind: "text", selector: "p", exact: "Go", prefix: "", suffix: " now." })).toEqual({ detached: true })
+  })
+
   it("marks a spot that a scroll container clips", () => {
     page(`<div id="list" style="overflow: auto"><div id="row"></div></div>`)
     const list = document.getElementById("list")!
@@ -307,6 +316,10 @@ describe("quote matching", () => {
     const position = quote("Go now. Stop now. Go later.", { exact: "Go", prefix: "now. Stop now. ", suffix: " later." })
     expect(resolved(position).x).toBe(0)
     expect(position.detached).toBe(false)
+  })
+
+  it("detaches repeated quotes with identical qualifying context", () => {
+    expect(quote("Go now. Go now.", { exact: "Go", prefix: "", suffix: " now." })).toEqual({ detached: true })
   })
 
   it("detaches a repeated quote that has no context to tell the copies apart", () => {
