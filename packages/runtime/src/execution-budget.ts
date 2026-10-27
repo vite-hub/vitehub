@@ -161,7 +161,7 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, node:
   schedule()
 }
 
-function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode, externalSignal?: AbortSignal): ExecutionBudget {
+function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode, externalSignal?: AbortSignal, deadlineController = controller): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
@@ -176,8 +176,8 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       state.sharedController.signal.throwIfAborted()
     }
     if (!node.disposed && limits.deadlineAt !== undefined && Date.now() >= limits.deadlineAt) {
-      controller.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
-      controller.signal.throwIfAborted()
+      deadlineController.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
+      deadlineController.signal.throwIfAborted()
     }
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
@@ -221,6 +221,8 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         else if (!childController.signal.aborted) listenUntilReleased(options.signal, () => abortChild(options.signal?.reason), childNode, releaseSignals)
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
+      // An inherited deadline (including a tie) still cancels its owner's subtree.
+      const childDeadlineController = deadlineAt === limits.deadlineAt ? deadlineController : childController
       if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, childNode, state.sharedController.signal)
       return createBudget(state, {
         deadlineAt,
@@ -228,7 +230,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         maxOutputBytes: minDefined(limits.maxOutputBytes, childLimits.maxOutputBytes),
         maxRetries: minDefined(limits.maxRetries, childLimits.maxRetries),
         maxToolCalls: minDefined(limits.maxToolCalls, childLimits.maxToolCalls),
-      }, childController, childNode, options.signal)
+      }, childController, childNode, options.signal, childDeadlineController)
     },
     consume(counter, amount = 1) {
       consume(counter, amount)
