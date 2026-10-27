@@ -1,5 +1,6 @@
 import { resolveBaseURL } from "better-auth"
 import { getCookies } from "better-auth/cookies"
+import { readSetCookies } from "./set-cookie.ts"
 
 import type { Auth } from "better-auth"
 
@@ -10,7 +11,7 @@ import type { Auth } from "better-auth"
  */
 export const authSessionMarkerCookie = "vitehub_session"
 
-const markerAttributes = ["domain", "expires", "max-age", "path", "samesite"]
+const markerAttributes = ["domain", "expires", "max-age", "path", "samesite", "partitioned"]
 
 function readSetCookie(cookie: string): { attributes: string[], cleared: boolean, name: string } {
   const [pair = "", ...rest] = cookie.split(";").map(part => part.trim())
@@ -36,7 +37,7 @@ export function withSessionMarker(auth: Auth): Auth {
   const markedHandler: Auth["handler"] = async (request) => {
     // Better Auth stops its response hooks at the first returned response. Process the final result instead.
     const response = await handler(request)
-    const setCookies = response.headers.getSetCookie()
+    const setCookies = readSetCookies(response.headers)
     if (setCookies.length === 0) return response
     const context = await auth.$context
     const options = context.options

@@ -175,7 +175,7 @@ The hook runs for every Better Auth path that refreshes a stored session: `/get-
 
 ## Session marker cookie
 
-When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, and `SameSite` attribute, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/configure#privacy) reads it to skip the session request for visitors who never signed in.
+When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/configure#privacy) can use it to skip the session request for visitors who never signed in when marker mode is enabled.
 
 ## Storage placement metadata
 

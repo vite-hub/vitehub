@@ -42,7 +42,7 @@ describe("session marker cookie", () => {
   ] as const)("tracks session creation and clearing after a user response hook through %s", async (_name, createHandler) => {
     const definition = createDefinition([{
       id: "application-response",
-      onResponse(response) {
+      async onResponse(response) {
         const headers = new Headers(response.headers)
         headers.set("x-application-response", "1")
         // A returned response ends Better Auth's response hook pipeline.
@@ -63,8 +63,52 @@ describe("session marker cookie", () => {
     expect(find(signOut, authSessionMarkerCookie)).toMatch(/^vitehub_session=;.*Max-Age=0/i)
   })
 
+  it("handles combined cookie headers when getSetCookie is unavailable", async () => {
+    const preference = 'preferences="a,b"; Path=/; Expires=Wed, 09 Jun 2038 10:18:14 GMT'
+    const definition = createDefinition([{
+      id: "legacy-headers",
+      async onResponse(response) {
+        const headers = new Headers(response.headers)
+        if (headers.has("set-cookie")) {
+          headers.append("set-cookie", preference)
+          headers.set("set-cookie", headers.get("set-cookie")!)
+        }
+        const final = new Response(response.body, { headers, status: response.status })
+        Object.defineProperty(final.headers, "getSetCookie", { value: undefined })
+        return { response: final }
+      },
+    }])
+    const empty = await handleAuthRequest(definition, new Request(`${origin}/api/auth/get-session`))
+    expect(empty.status).toBe(200)
+    expect(empty.headers.get("set-cookie")).toBeNull()
+    const signUp = await post(definition, "sign-up/email", account)
+    expect(signUp.status).toBe(200)
+    expect(find(signUp, authSessionMarkerCookie)).toMatch(/^vitehub_session=1;/)
+    expect(signUp.headers.getSetCookie()).toContain(preference)
+    const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const signOut = await post(definition, "sign-out", {}, cookie)
+    expect(signOut.status).toBe(200)
+    expect(find(signOut, authSessionMarkerCookie)).toMatch(/^vitehub_session=;.*Max-Age=0/i)
+    expect(signOut.headers.getSetCookie()).toContain(preference)
+  })
+
+  it("preserves Partitioned on session creation and clearing", async () => {
+    const definition = createDefinition()
+    const auth = createAuth(definition, { advanced: { defaultCookieAttributes: { partitioned: true, secure: true, sameSite: "none" } } })
+    const signUp = await post(definition, "sign-up/email", account, undefined, auth.handler)
+    expect(signUp.status).toBe(200)
+    const token = signUp.headers.getSetCookie().find(cookie => /session_token=/.test(cookie))!
+    expect(token).toMatch(/; Partitioned/i)
+    expect(find(signUp, authSessionMarkerCookie)).toMatch(/; Partitioned/i)
+    expect(find(signUp, authSessionMarkerCookie)).not.toMatch(/HttpOnly/i)
+    const cookie = signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const signOut = await post(definition, "sign-out", {}, cookie, auth.handler)
+    expect(find(signOut, authSessionMarkerCookie)).toMatch(/; Partitioned/i)
+    expect(find(signOut, authSessionMarkerCookie)).toMatch(/Max-Age=0/i)
+  })
+
   it("uses the request's resolved cookie name with a dynamic cross-subdomain configuration", async () => {
-    const definition = createDefinition([{ id: "passthrough", onResponse: response => ({ response }) }])
+    const definition = createDefinition([{ id: "passthrough", onResponse: async response => ({ response }) }])
     const auth = createAuth(definition, {
       advanced: {
         cookies: { session_token: { name: "app_session" } },
