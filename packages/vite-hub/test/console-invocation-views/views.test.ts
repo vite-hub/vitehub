@@ -2573,9 +2573,9 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     expect(wrapper.get(".vh-invocation-inspector__status").text()).toContain("Failed");
-    expect(wrapper.get(".vh-invocation-error").text()).toBe(
-      "Provider errorThe provider stopped before returning a result.",
-    );
+    expect(wrapper.get(".vh-invocation-error__title").text()).toBe("Run failed");
+    expect(wrapper.get(".vh-invocation-error__code").text()).toBe("Provider error");
+    expect(wrapper.get(".vh-invocation-error__message").text()).toBe("The provider stopped before returning a result.");
     const secondary = mount(AgentInvocationInspector, { props: { invocation, showError: false } });
     expect(secondary.text()).toContain("Failed");
     expect(secondary.find(".vh-invocation-error").exists()).toBe(false);
@@ -2589,13 +2589,13 @@ describe("Agent Invocation UI", () => {
       error: { code: "AGENT_R0726", message: "Workspace spend cap reached" },
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(wrapper.find(".vh-invocation-error__recovery").exists()).toBe(false);
+    expect(wrapper.find(".vh-invocation-error__fix").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-error__details").text()).toContain("Workspace spend cap reached");
     const explicit = mount(AgentInvocationInspector, { props: { invocation: { ...invocation, error: { ...invocation.error!, fix: "Contact the workspace owner." } } } });
-    expect(explicit.get(".vh-invocation-error__recovery").text()).toContain("Contact the workspace owner.");
+    expect(explicit.get(".vh-invocation-error__fix").text()).toContain("Contact the workspace owner.");
   });
 
-  it("keeps bounded runtime diagnostics available behind a disclosure", () => {
+  it("keeps bounded runtime diagnostics available behind a disclosure", async () => {
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z",
       error: {
@@ -2616,10 +2616,18 @@ describe("Agent Invocation UI", () => {
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    expect(wrapper.get(".vh-invocation-error__details summary").text()).toBe("Diagnostic details");
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"code": "provider_unavailable"');
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"requestId": "request-123"');
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain("The upstream socket closed.");
+    const toggle = wrapper.get(".vh-invocation-error__action[aria-controls]");
+    const details = wrapper.get(".vh-invocation-error__details");
+    expect(toggle.text()).toBe("Details");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(toggle.attributes("aria-controls")).toBe(details.attributes("id"));
+    expect(details.attributes("hidden")).toBeDefined();
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.get(".vh-invocation-error__details").attributes("hidden")).toBeUndefined();
+    expect(details.text()).toContain('"code": "provider_unavailable"');
+    expect(details.text()).toContain('"requestId": "request-123"');
+    expect(details.text()).toContain("The upstream socket closed.");
   });
 
   it("uses the cancellation timestamp for terminal duration", () => {
