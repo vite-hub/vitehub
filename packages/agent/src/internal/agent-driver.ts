@@ -14,7 +14,7 @@ import type {
   AgentAskQuestionsResolver,
   AgentAttachmentExecutionOptions,
   AgentDriverAdaptiveCapacityOptions,
-  AgentDriverGateway,
+  AiGateway,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -53,7 +53,7 @@ export type NormalizedAgentDriver<
     cwd?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
-    gateway?: AgentDriverGateway
+    gateway?: AiGateway
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
     launch?: AgentProviderLaunchResolver<TRuntimeConfig>

@@ -45,8 +45,8 @@ export interface TypesafeEnvOptions {
 }
 
 /**
- * Declares the TypeSafe Jev provider, API key, and model. `defineAgent({ driver: { ask } })`, `llmGate()`, `llmRoute()`,
- * and `jev()` read this group from `env.server.typesafe`.
+ * Declares the TypeSafe Jev provider, API key, and model. `defineAgent({ driver: { ask } })`, `llmGate()`, and
+ * `llmRoute()` read this group from `env.server.typesafe`.
  */
 export function typesafeEnv(options: TypesafeEnvOptions = {}): EnvRuntimeConfigOptions {
   const provider = options.provider || "typesafe"

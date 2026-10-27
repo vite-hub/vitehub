@@ -171,9 +171,9 @@ vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-siz
 
 `prune` uses the same rules and lock file. Without `--dry-run` it removes data. `--json` prints the report.
 
-### Route model requests through a gateway
+### AI gateways
 
-Set `gateway` to send the provider's model requests to an LLM proxy or gateway. Import a preset from `vite-hub/agent/gateways`. Like a Nuxt module, each preset reads its URL and key from the environment, so the code names only the gateway:
+An AI gateway is one object from `vite-hub/agent/gateways` that knows where model requests go. Set it as `driver.gateway` to send the provider's model requests to an LLM proxy or gateway. A gateway that can answer [TypeSafe Jev](#use-an-ask-driver) questions also has `gateway.ask()`. Like a Nuxt module, each preset reads its URL and key from the environment, so the code names only the gateway:
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
@@ -198,17 +198,23 @@ CF_ACCESS_CLIENT_SECRET=...
 
 Pass a value to override its variable, for example `cliproxy({ url: 'https://proxy.example.com', apiKey: () => useServerEnv().proxyKey })`.
 
-Each preset knows the base URL that each Driver expects, so one gateway definition works for Codex and Claude Code:
+Each preset knows the base URL that each Driver expects, so one gateway definition works for Codex and Claude Code. The table also shows which presets answer Jev questions with `ask()`:
 
-| Preset | Codex base URL | Claude Code base URL | Variables |
-| --- | --- | --- | --- |
-| `cliproxy()` | `<url>/v1` | `<url>` | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
-| `litellm()` | `<url>/v1` | `<url>` | `LITELLM_URL`, `LITELLM_API_KEY` |
-| `ollama()` | `<url>/v1` | `<url>` | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `OPENROUTER_API_KEY` |
-| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `openai()` | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
-| `anthropic()` | | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` |
+| Preset | Codex | Claude Code | `ask()` (Jev) | Variables |
+| --- | --- | --- | --- | --- |
+| `cliproxy()` | `<url>/v1` | `<url>` | No | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
+| `litellm()` | `<url>/v1` | `<url>` | No | `LITELLM_URL`, `LITELLM_API_KEY` |
+| `ollama()` | `<url>/v1` | `<url>` | No | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
+| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | No | `OPENROUTER_API_KEY` |
+| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `typesafe-ai/jev` at `https://ai-gateway.vercel.sh/v4/ai` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
+| `openai()` | `https://api.openai.com/v1` | | No | `OPENAI_API_KEY` |
+| `anthropic()` | | `https://api.anthropic.com` | No | `ANTHROPIC_API_KEY` |
+| `typesafe()` | | | `jev-latest` at `https://api.typesafe.ai` | `TYPESAFE_API_KEY` |
+| `cloudflare()` | | | `jev-latest` through a [custom provider](#cloudflare-ai-gateway) | `TYPESAFE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, `CLOUDFLARE_AI_GATEWAY_TOKEN` (optional), `CLOUDFLARE_AI_GATEWAY_SLUG` (default `typesafe`) |
+
+The type of a preset says what it can do. `typesafe()`, `vercel()`, and `cloudflare()` return `AiGateway<{ ask: true }>`, so `ask()` exists. The others return `AiGateway<{ ask: false }>`, so calling `ask()` is a type error, and a call that skips the types fails with `AGENT_R1013`. A gateway without a base URL for the selected Driver fails at definition time with `AGENT_R0976`.
+
+CLIProxyAPI has no `ask()`. Its upstreams are model APIs: it accepts OpenAI, Claude, and Gemini model requests and forwards them to providers or to `openai-compatibility` endpoints. It does not forward other paths, such as TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access. It reads `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, or takes `{ clientId, clientSecret }`.
 
@@ -218,12 +224,12 @@ ViteHub finds the presets in Agent files and declares their variables in Server 
 
 `url` is the gateway origin. A trailing `/v1` is removed. Every preset accepts `apiKey` and `headers`. `apiKey` and each header value accept a string, a sealed Server Env value, or an invocation-time resolver that may return `undefined`. ViteHub reads values for each invocation. A missing URL, key, or header value fails the invocation with `AGENT_R0980`, `AGENT_R0977`, or `AGENT_R0978` and names the variable to set. A preset that does not serve the selected Driver fails at definition time with `AGENT_R0976`.
 
-Use `defineGateway()` for an endpoint without a preset:
+Use `defineAiGateway()` for an endpoint without a preset. It routes Driver model requests; it has no `ask()`:
 
 ```ts
-import { defineGateway } from 'vite-hub/agent/gateways'
+import { defineAiGateway } from 'vite-hub/agent/gateways'
 
-export const gateway = defineGateway({
+export const gateway = defineAiGateway({
   name: 'internal',
   baseURL: { 'codex': 'https://llm.example.com/openai/v1', 'claude-code': 'https://llm.example.com/anthropic' },
   apiKeyEnv: ['INTERNAL_LLM_KEY'],
@@ -232,6 +238,22 @@ export const gateway = defineGateway({
 ```
 
 `auth` selects how the gateway receives the key. `'bearer'`, the default, sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`.
+
+`cloudflare()` routes only Jev questions. Cloudflare AI Gateway also proxies OpenAI at `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/openai` and Anthropic at `.../anthropic`, but each route takes a different key: an OpenAI key as `Authorization: Bearer`, an Anthropic key as `x-api-key`, and a TypeSafe key for Jev. One gateway has one key, so route a Driver through Cloudflare with its own `defineAiGateway()`:
+
+```ts
+import { defineAiGateway } from 'vite-hub/agent/gateways'
+
+const { CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_AI_GATEWAY_ID } = process.env
+
+export const codexThroughCloudflare = defineAiGateway({
+  name: 'cloudflare-openai',
+  baseURL: { codex: `https://gateway.ai.cloudflare.com/v1/${CLOUDFLARE_ACCOUNT_ID}/${CLOUDFLARE_AI_GATEWAY_ID}/openai` },
+  apiKeyEnv: ['OPENAI_API_KEY'],
+  // Only for an authenticated gateway.
+  headers: { 'cf-aig-authorization': `Bearer ${process.env.CLOUDFLARE_AI_GATEWAY_TOKEN}` },
+})
+```
 
 `apiKeyEnv` reads host variables, not Server Env. Use `apiKey: () => useServerEnv().internal.key` when the key is declared in Server Env. A `baseURL` entry can also be a resolver, so the URL can come from Server Env for each invocation.
 
@@ -495,7 +517,7 @@ The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.typ
 | `'vercel'` | `https://ai-gateway.vercel.sh/v4/ai/evaluation-model` | `AI_GATEWAY_API_KEY`, or `VERCEL_OIDC_TOKEN` on Vercel | `typesafe-ai/jev` |
 | `'cloudflare'` | `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/custom-<slug>/v1/systemone` | `TYPESAFE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, optional `CLOUDFLARE_AI_GATEWAY_TOKEN` and `CLOUDFLARE_AI_GATEWAY_SLUG` | `jev-latest` |
 
-`TYPESAFE_DEFAULT_MODEL` overrides the model of each route. The provider is a build option. The values are optional during Env resolution, so a server that does not use Jev still starts. A missing value fails the request with `AGENT_R0936` and names the variable to set. A rejected key fails with `AGENT_R1009`, and its `fix` names the variables.
+`TYPESAFE_DEFAULT_MODEL` overrides the model of each route. The provider is a build option. The routes are the same as the `typesafe()`, `vercel()`, and `cloudflare()` [AI gateways](#ai-gateways). The values are optional during Env resolution, so a server that does not use Jev still starts. A missing value fails the request with `AGENT_R0936` and names the variable to set. A rejected key fails with `AGENT_R1009`, and its `fix` names the variables.
 
 #### Cloudflare AI Gateway
 
@@ -541,39 +563,34 @@ The TypeSafe API key goes to TypeSafe through the gateway as `Authorization: Bea
 
 ### Ask Jev outside an Agent
 
-`jev()` from `vite-hub/agent/gateways` returns a client with the same questions and answers as `driver.ask`. Use it in a server route, a Queue, or a Schedule. Without options, it reads the `typesafe` Server Env group:
+The `typesafe()`, `vercel()`, and `cloudflare()` [AI gateways](#ai-gateways) answer the same questions as `driver.ask` with `gateway.ask()`. Use it in a server route, a Queue, or a Schedule:
 
 ```ts [server/api/label.post.ts]
 import { defineEventHandler, readBody } from 'h3'
 import { ask } from 'vite-hub/agent'
-import { jev } from 'vite-hub/agent/gateways'
+import { typesafe } from 'vite-hub/agent/gateways'
+
+// Reads TYPESAFE_API_KEY.
+const gateway = typesafe()
 
 export default defineEventHandler(async (event) => {
   const { text } = await readBody<{ text: string }>(event)
-  const answers = await jev().ask(text, {
+  const answers = await gateway.ask(text, {
     label: ask.choice('Which label fits?', { invoice: 'Bills and receipts.', none: 'No label fits.' }),
   })
   return answers.label.choice
 })
 ```
 
-Pass `provider` and the credentials when the application stores them, for example one key for each tenant. The client then uses only these values and does not read Server Env:
+Pass the credentials when the application stores them, for example one key for each tenant. A passed value replaces its variable:
 
 ```ts
-jev({ provider: 'typesafe', apiKey })
-jev({ provider: 'vercel', apiKey })
-jev({ provider: 'cloudflare', apiKey, cloudflare: { accountId, gatewayId, token, slug } })
+typesafe({ apiKey })
+vercel({ apiKey })
+cloudflare({ apiKey, accountId, gatewayId, token, slug })
 ```
 
-| Option | Description |
-| --- | --- |
-| `provider` | `'typesafe'`, `'vercel'`, or `'cloudflare'`. Without it, the client reads `env.server.typesafe`. |
-| `apiKey` | The TypeSafe API key, or the AI Gateway API key for `'vercel'`. Required, except for `'vercel'` on Vercel. |
-| `cloudflare` | `accountId`, `gatewayId`, optional `token` for an authenticated gateway, and optional `slug` (default `typesafe`). |
-| `model` | Model ID. Default: `jev-latest`, or `typesafe-ai/jev` for `'vercel'`. With Server Env, `TYPESAFE_DEFAULT_MODEL` comes first. |
-| `fetch` | Custom fetch implementation. Default: `globalThis.fetch`. |
-
-`ask(state, questions, { signal, onUsage })` sends the questions in bounded requests and retries transient failures, as `driver.ask` does. `onUsage` receives the `model`, `provider`, and token `usage` of each request. It throws the same diagnostics. With explicit credentials, `AGENT_R0936` and `AGENT_R1009` name the `jev()` options instead of variables.
+Every ask preset also takes `model` (default `jev-latest`, or `typesafe-ai/jev` for `vercel()`) and `fetch`. `gateway.ask(state, questions, { signal, onUsage })` sends the questions in bounded requests and retries transient failures, as `driver.ask` does. `onUsage` receives the `model`, `provider`, and token `usage` of each request. A missing key fails with `AGENT_R0977`, a missing Cloudflare account or gateway with `AGENT_R0980`, and a rejected key with `AGENT_R1009`; each names the variable to set, or the option when you passed the value. Secret resolvers receive only `{ abortSignal }`, because `ask()` runs outside an Invocation.
 
 ### Provider exit evidence
 

@@ -1490,7 +1490,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1008: dynamicError,
     AGENT_R1009: {
       why: ({ provider, status }: { provider: string, status: number, env?: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
-      fix: ({ env }: { provider: string, status: number, env?: string }) => env ? `Set or rotate ${env} in the Server Env of this deployment.` : "Pass a valid apiKey to jev(), or rotate the key.",
+      fix: ({ env }: { provider: string, status: number, env?: string }) => env ? `Set or rotate ${env} in the Server Env of this deployment.` : "Pass a valid apiKey to the gateway, or rotate the key.",
     },
     AGENT_R1010: {
       why: ({ provider, status, attempts }: { provider: string, status?: number, attempts: number }) => `[vitehub] The ${provider} Jev provider failed${status === undefined ? " to respond" : ` with HTTP ${status}`} after ${attempts} attempts.`,
@@ -1498,6 +1498,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     },
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
+    AGENT_R1013: dynamicError,
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",

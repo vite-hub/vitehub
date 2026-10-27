@@ -73,7 +73,7 @@ vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { cliproxy, defineGateway, vercel } from "../src/gateways.ts"
+import { cliproxy, defineAiGateway, vercel } from "../src/gateways.ts"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
@@ -540,7 +540,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-gateway-conflict"
     await expect(createProviderAgentAdapter({
       env: async () => ({ [variable]: "https://other.example" }),
-      gateway: defineGateway({ name: "proxy", baseURL: { "claude-code": "https://proxy.example" }, apiKey: "k" }),
+      gateway: defineAiGateway({ name: "proxy", baseURL: { "claude-code": "https://proxy.example" }, apiKey: "k" }),
       provider: "claude-code",
     }).generate(context(threadId) as never)).rejects.toThrow(`driver.gateway sets ${variable}`)
   })
@@ -631,7 +631,7 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         env: { SHORT_TOKEN: shortSecret },
-        gateway: defineGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
+        gateway: defineAiGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
         launch: {
           args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
