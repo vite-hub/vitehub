@@ -215,9 +215,11 @@ Give `database` a string that says where the database is. The string names a var
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the directory that the server starts in. |
 | `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` for one with a token. |
 
+On Node, the runtime variables can also contain a `file:` location. Comments chooses the connector for the server's runtime, so the file path stays out of the build. Workers support D1 and remote libSQL databases.
+
 On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
 
-With a Nitro Cloudflare preset, such as `NITRO_PRESET=cloudflare_module`, `vite dev` runs the server in workerd, which cannot open that file. There, threads go to a local D1 binding `COMMENTS` that Miniflare keeps in `.wrangler/state`, or to the `database` option when you set one. Set Nitro's `devServer.runner` to `node-worker` to keep the file.
+With a Nitro Cloudflare preset, such as `NITRO_PRESET=cloudflare_module`, `vite dev` runs the server in workerd, which cannot open that file. There, threads go to a local D1 binding `COMMENTS` that Miniflare keeps in `.wrangler/state`, or to the `database` option when you set one. An unset `env:` variable falls back to that local D1 database. Set Nitro's `devServer.runner` to `node-worker` to keep the file.
 
 When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.
 
@@ -250,7 +252,7 @@ pnpm wrangler deploy
 
 Comments adds the `COMMENTS` binding to the Wrangler config of the build, without a database id, and `wrangler deploy` creates the D1 database. When `wrangler.jsonc` already has a binding with that name, Comments uses yours, with its id. Name a binding `DB` and you can leave out `database`.
 
-To try the Worker on your computer, run `pnpm wrangler dev` after the build. Wrangler keeps a local D1 database in `.wrangler/state`. Set the Nitro preset with `NITRO_PRESET` when you build, not in `vite.config.ts`: with the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
+To try the Worker on your computer, run `pnpm wrangler dev` after the build, or `NITRO_PRESET=cloudflare_module pnpm vite dev` during development. Both keep a local D1 database in `.wrangler/state`.
 
 Add the variables of [Sign in with GitHub](#sign-in-with-github) as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
 
@@ -448,7 +450,7 @@ Guests always post through the App. When a token fails, the App posts the commen
 
 A change answers before GitHub does. Each thread has `forge` with `state`: `posted`, `pending`, or `failed` with the `error`, and the `url` of its comment. The next change of the thread tries again, and so does `comments.sync(threadId)`.
 
-Comments keeps the GitHub ids in the `vitehub_comment_forge` table, so run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+Comments keeps the GitHub ids in the `vitehub_comment_forge` table. The `comments()` plugin creates it with the other tables. With `vitehub()`, run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
 
 App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
 

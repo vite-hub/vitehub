@@ -54,7 +54,7 @@ export interface CommentsOptions {
    *
    * The development server uses `.vitehub/data/comments.sqlite`, unless `database` is a file or a set variable. Under a
    * Nitro Cloudflare preset, it runs in workerd, which cannot open that file, so it uses a local D1 binding `COMMENTS`
-   * instead, unless `database` names another location.
+   * instead, unless `database` names another location. An unset `env:` variable falls back to that local D1 database.
    */
   database?: string
 }
@@ -357,11 +357,11 @@ async function writeDefaultDefinition(directory: string, imports: CommentsImport
 async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve", workerd: boolean): Promise<StandaloneDatabase> {
   const where = options.database || undefined
   // Fails the build on a location that Comments cannot use.
-  parseDatabaseLocation(where, "comments")
+  const location = parseDatabaseLocation(where, "comments")
   if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
-  if (command !== "serve") return { ...(where ? { where } : {}), node: Boolean(where?.startsWith("file:")) }
-  if (where?.startsWith("file:")) return { where, node: true }
-  if (workerd) return { where: where ?? "d1:COMMENTS", node: false }
+  if (command !== "serve") return { ...(where ? { where } : {}), node: location.kind === "file" }
+  if (location.kind === "file") return { where, node: true }
+  if (workerd) return { where: where ?? "d1:COMMENTS", ...(location.kind === "env" ? { fallback: "d1:COMMENTS" } : {}), node: false }
   const data = resolve(projectRoot, ".vitehub/data")
   await mkdir(data, { recursive: true })
   // Threads written on this computer stay out of Git.
@@ -434,10 +434,13 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         // Nitro has resolved plugin options, config files and preset defaults before installing modules.
         const runner = nitro.options.devServer.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
         const standalone = await standaloneDatabase(projectRoot, options.standalone, nitro.options.dev ? "serve" : "build", runner === "miniflare")
+        // Production variables may name files, so the resolved runtime selects the connector.
+        if (!nitro.options.dev) standalone.node = nitro.options.node
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
         const definition = discover() ?? join(directory, "definition.mjs")
         await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, imports, standalone }))
         await addD1Binding(projectRoot, nitro.options, standalone.where)
+        await addD1Binding(projectRoot, nitro.options, standalone.fallback)
       },
     } : undefined,
     api: {
