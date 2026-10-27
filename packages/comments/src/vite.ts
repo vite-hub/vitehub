@@ -2,6 +2,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -77,7 +78,40 @@ const defaultImports: CommentsImports = {
  */
 export async function readCommentsDatabase(file: string): Promise<string | undefined> {
   const source = await readFile(file, "utf8").catch(() => "")
-  return /\bdatabase\s*:\s*["'`]([\w-]+)["'`]/.exec(source)?.[1]
+  const module = scanModule(source, file)
+  if (module.errors.length) return
+  const bindings = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
+    if (statement.declaration?.type === "VariableDeclaration") {
+      for (const declaration of statement.declaration.declarations) {
+        if (declaration.id.type === "Identifier" && declaration.id.name === "comments") bindings.add(declaration.id.name)
+      }
+    }
+    for (const specifier of statement.specifiers) {
+      const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      if (name === "comments" && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
+    }
+  }
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration") continue
+    for (const binding of declaration.declarations) {
+      if (binding.id.type !== "Identifier" || !bindings.has(binding.id.name) || !binding.init) continue
+      const call = unwrapExpression(binding.init)
+      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineComments") continue
+      const options = argumentExpression(call.arguments[0])
+      if (options?.type !== "ObjectExpression") return
+      for (const property of objectProperties(options).reverse()) {
+        // A later spread or dynamic key may replace an earlier Database option.
+        if (property.key === undefined) return
+        if (property.key !== "database") continue
+        if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
+        return staticString(property.value)
+      }
+      return
+    }
+  }
 }
 
 /** The directory of the prebuilt overlay script in this package. */

@@ -134,15 +134,10 @@ function getOpenWorkflowConfig(config: ResolvedWorkflowOptions): OpenWorkflowSto
   }
 }
 
-function getRuntimeKey(config: ResolvedWorkflowOptions): string {
-  return JSON.stringify(getOpenWorkflowConfig(config))
-}
-
 async function createOpenWorkflowRuntime(
-  config: ResolvedWorkflowOptions,
+  options: OpenWorkflowStorageConfig,
   importer: OpenWorkflowImporter,
 ): Promise<OpenWorkflowRuntime> {
-  const options = getOpenWorkflowConfig(config)
   const [{ OpenWorkflow }, backendModule] = await Promise.all([
     importOpenWorkflowModule<OpenWorkflowModule>("openworkflow", importer),
     options.backend === "sqlite"
@@ -178,10 +173,11 @@ async function createOpenWorkflowRuntime(
 
 export async function getOpenWorkflowRuntime(config: ResolvedWorkflowOptions): Promise<OpenWorkflowRuntime> {
   const cache = runtimes
-  const key = getRuntimeKey(config)
+  const options = getOpenWorkflowConfig(config)
+  const key = JSON.stringify(options)
   let runtime = cache.get(key)
   if (!runtime) {
-    runtime = createOpenWorkflowRuntime(config, openWorkflowImporter)
+    runtime = createOpenWorkflowRuntime(options, openWorkflowImporter)
     cache.set(key, runtime)
     void runtime.catch(() => {
       if (cache.get(key) === runtime) cache.delete(key)

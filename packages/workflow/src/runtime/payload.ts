@@ -13,8 +13,8 @@ type PayloadValidator<T> =
   | ((payload: unknown) => T | Promise<T>)
 
 export async function readRequestPayload<T = unknown>(request: Request): Promise<T> {
-  const contentType = request.headers.get("content-type") || ""
-  if (contentType.includes("application/json")) {
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase()
+  if (contentType === "application/json") {
     return await request.json() as T
   }
   return await request.text() as T

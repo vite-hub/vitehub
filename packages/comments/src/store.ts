@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from "drizzle-orm"
+import { and, desc, eq, exists, inArray, sql } from "drizzle-orm"
 
 import { commentsSchema } from "./database.ts"
 
@@ -18,8 +18,8 @@ export interface CommentsStore {
   /** The thread that holds a comment. */
   threadOf(commentId: string): Promise<string | undefined>
   create(input: { page: string, anchor: CommentAnchor, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
-  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<Comment>
-  setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<void>
+  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<{ comment: Comment } | { error: "not-found" | "resolved" }>
+  setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
   removeComment(commentId: string): Promise<void>
   /** Distinct authors, newest first, for `@` suggestions. */
@@ -111,17 +111,34 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
     async reply(threadId, { body, author, mentions }) {
       const now = Date.now()
       const comment: CommentRow = { id: crypto.randomUUID(), threadId, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      await database.batch([
-        database.insert(comments).values(comment),
-        database.update(threads).set({ updatedAt: now }).where(eq(threads.id, threadId)),
+      const [inserted, , parents] = await database.batch([
+        // Read the parent in the insert statement, inside the same atomic batch as its activity update.
+        database.insert(comments).select(database.select({
+          id: sql<string>`${comment.id}`.as("id"),
+          threadId: threads.id,
+          body: sql<string>`${comment.body}`.as("body"),
+          mentions: sql<string>`${comment.mentions}`.as("mentions"),
+          author: sql<string>`${comment.author}`.as("author"),
+          createdAt: sql<number>`${now}`.as("created_at"),
+          editedAt: sql<null>`null`.as("edited_at"),
+        }).from(threads).where(and(eq(threads.id, threadId), eq(threads.status, "open")))).returning(),
+        database.update(threads).set({ updatedAt: now }).where(and(eq(threads.id, threadId), exists(
+          database.select({ id: comments.id }).from(comments).where(eq(comments.id, comment.id)),
+        ))),
+        database.select({ status: threads.status }).from(threads).where(eq(threads.id, threadId)),
       ])
-      return toComment(comment)
+      if (inserted[0]) return { comment: toComment(inserted[0]) }
+      return { error: parents[0]?.status === "resolved" ? "resolved" : "not-found" }
     },
     async setStatus(threadId, status, by) {
       const now = Date.now()
-      await database.update(threads).set(status === "resolved"
-        ? { status, resolvedBy: JSON.stringify(by), resolvedAt: now, updatedAt: now }
-        : { status, resolvedBy: null, resolvedAt: null, updatedAt: now }).where(eq(threads.id, threadId))
+      const [updated, rows] = await database.batch([
+        database.update(threads).set(status === "resolved"
+          ? { status, resolvedBy: JSON.stringify(by), resolvedAt: now, updatedAt: now }
+          : { status, resolvedBy: null, resolvedAt: null, updatedAt: now }).where(eq(threads.id, threadId)).returning(),
+        database.select().from(comments).where(eq(comments.threadId, threadId)).orderBy(comments.createdAt),
+      ])
+      return updated[0] ? toThread(updated[0], rows) : undefined
     },
     async removeThread(threadId) {
       // SQLite enforces the foreign key only with `PRAGMA foreign_keys`, so remove the comments in the same batch.

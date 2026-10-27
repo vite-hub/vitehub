@@ -154,7 +154,7 @@ async function check(args: string[], context: ViteHubCliContext): Promise<number
     throw new TypeError("[vitehub] --timeout must be a positive number of milliseconds.");
   const [{ defineAgent }, { cliproxy }, { createAgentStatusReader }, { sshLaunch }] = await Promise.all([
     import("@vite-hub/agent"),
-    import("@vite-hub/agent/gateways"),
+    import("@vite-hub/gateways"),
     import("@vite-hub/agent/server"),
     import("@vite-hub/sandbox/ssh"),
   ]);

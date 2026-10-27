@@ -3,6 +3,7 @@ import type { ButtonProps } from "@nuxt/ui";
 import { computed, onBeforeUnmount, ref } from "vue";
 
 import { consoleProblem } from "../client/problem";
+import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
 
 /**
@@ -60,7 +61,11 @@ const docsAction = computed<ButtonProps | undefined>(() =>
 const stateActions = computed<ButtonProps[]>(() => {
   const main: ButtonProps[] = [];
   const action = problem.value?.action;
-  if (action === "sign-in") main.push({ label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+  if (action === "sign-in") {
+    // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
+    const signIn = consoleSignInURL({ document, location: window.location });
+    main.push(signIn ? { label: "Sign in again", icon: "i-ph-sign-in-light", to: signIn, external: true } : { label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+  }
   else if (action === "reload") main.push({ label: "Reload", icon: "i-ph-arrows-clockwise-light", onClick: reload });
   else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
   const first = main[0];

@@ -19,6 +19,7 @@ import {
 } from "../sections";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
+import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -104,7 +105,7 @@ const sessionItems = computed(() =>
 const summary = computed(() => {
   const count = availableSections.value.length;
   const groups = sectionGroups.value.length;
-  if (!count) return isConsoleSignInRequired(error.value) ? "Sign in to see what this project enables." : "No primitives enabled yet.";
+  if (!count) return "No primitives enabled yet.";
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
 
@@ -113,9 +114,17 @@ async function loadRecentSessions(): Promise<void> {
   await recentSessions.refresh();
 }
 
-async function loadSections(): Promise<void> {
+// Without a session the Console has nothing to show, so the Overview is one centered state.
+const signedOut = computed(() => !loading.value && !availableSections.value.length && isConsoleSignInRequired(error.value));
+const checking = ref(false);
+const stillSignedOut = ref(false);
+// With a sign-in page, the Console sends the person there and back. Without one, it asks them to sign in elsewhere.
+const signInURL = computed(() => (signedOut.value ? consoleSignInURL({ document, location: window.location }) : undefined));
+
+/** A quiet load keeps the current page on screen while it runs, so the signed-out state does not flash a skeleton. */
+async function loadSections(quiet = false): Promise<void> {
   const currentRequest = ++request;
-  loading.value = true;
+  if (!quiet) loading.value = true;
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
     if (!navigation) throw consoleNavigationError(props.sectionsBase) ?? viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
@@ -131,6 +140,35 @@ async function loadSections(): Promise<void> {
   }
 }
 
+/** Asks again whether this browser has a session. Only a check that someone asked for reports "still not signed in". */
+async function checkSession(asked: boolean): Promise<void> {
+  if (checking.value) return;
+  checking.value = true;
+  if (asked) stillSignedOut.value = false;
+  try {
+    await loadSections(true);
+  } finally {
+    checking.value = false;
+  }
+  if (asked) stillSignedOut.value = signedOut.value;
+  checkIfReturned();
+}
+
+// People sign in in another tab, so the Console checks again when this tab is shown or focused again. A return while a
+// request is in flight waits for its answer, because that request may have left before the sign-in.
+let returnedDuringRequest = false;
+function checkOnReturn(): void {
+  if (document.visibilityState !== "visible") return;
+  if (loading.value || checking.value) returnedDuringRequest = true;
+  else if (signedOut.value) void checkSession(false);
+}
+
+function checkIfReturned(): void {
+  if (!returnedDuringRequest) return;
+  returnedDuringRequest = false;
+  if (signedOut.value) void checkSession(false);
+}
+
 async function openSection(routeName: string): Promise<void> {
   await router.push({ name: resolveConsoleRouteName(route.name, routeName) });
 }
@@ -144,9 +182,15 @@ async function openSession(agentName: string, invocation: string): Promise<void>
 
 onMounted(() => {
   lastSection.value = readLastConsoleSection();
-  void loadSections();
+  void loadSections().then(checkIfReturned);
+  document.addEventListener("visibilitychange", checkOnReturn);
+  window.addEventListener("focus", checkOnReturn);
 });
-onBeforeUnmount(() => request++);
+onBeforeUnmount(() => {
+  request++;
+  document.removeEventListener("visibilitychange", checkOnReturn);
+  window.removeEventListener("focus", checkOnReturn);
+});
 </script>
 
 <template>
@@ -166,7 +210,43 @@ onBeforeUnmount(() => request++);
       </template>
 
       <template #body>
-        <main class="px-5 pb-24 pt-8 sm:px-8 lg:pt-12">
+        <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
+        <main
+          v-if="signedOut"
+          class="flex flex-1 flex-col items-center justify-center px-6 pb-24 pt-12 text-center"
+          aria-labelledby="console-home-signed-out"
+        >
+          <span class="vitehub-console__overview-mark grid size-10 place-items-center rounded-full border border-default" aria-hidden="true">
+            <ConsoleMark class="size-[1.125rem]" />
+          </span>
+          <h2 id="console-home-signed-out" class="mt-4 text-base font-semibold text-balance text-highlighted">Sign in to use the Console</h2>
+          <p class="mt-1.5 max-w-sm text-sm text-pretty text-muted">
+            {{ signInURL ? "You are not signed in, or your session ended." : "You are not signed in, or your session ended. Sign in, then come back to this tab." }}
+          </p>
+          <UButton
+            v-if="signInURL"
+            class="mt-5"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-log-in"
+            label="Sign in"
+            :to="signInURL"
+            external
+          />
+          <UButton
+            v-else
+            class="mt-5"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            icon="i-lucide-refresh-cw"
+            label="Check again"
+            :loading="checking"
+            @click="checkSession(true)"
+          />
+          <p class="mt-3 min-h-5 text-xs text-muted" role="status">{{ stillSignedOut ? "You are still not signed in." : "" }}</p>
+        </main>
+        <main v-else class="px-5 pb-24 pt-8 sm:px-8 lg:pt-12">
           <div class="mx-auto flex w-full max-w-3xl flex-col gap-10">
             <!-- Every block puts its label in a narrow left column, so rows of every section start on one edge. -->
             <header class="vitehub-console__overview-block items-center" data-header>
@@ -192,16 +272,6 @@ onBeforeUnmount(() => request++);
               </div>
             </div>
 
-            <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
-            <UAlert
-              v-else-if="error && !availableSections.length && isConsoleSignInRequired(error)"
-              color="neutral"
-              variant="subtle"
-              icon="i-lucide-log-in"
-              title="Sign in to use the Console"
-              description="You are not signed in, or your session ended. Sign in, then reload this page."
-              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadSections }]"
-            />
             <ConsoleState
               v-else-if="error && !availableSections.length"
               icon="i-lucide-cloud-off"
