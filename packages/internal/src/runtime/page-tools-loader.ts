@@ -129,8 +129,11 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
       if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
       if (signal.aborted) return undefined
       const cleanup = start({ tool, signal, open: tool.id === open, exit })
-      if (cleanup instanceof Function) signal.addEventListener("abort", () => cleanup(), { once: true })
-      return tool
+      if (cleanup instanceof Function) {
+        if (signal.aborted) cleanup()
+        else signal.addEventListener("abort", () => cleanup(), { once: true })
+      }
+      return signal.aborted ? undefined : tool
     }
     catch (error) {
       console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)

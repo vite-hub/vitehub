@@ -96,6 +96,29 @@ describe("loadViteHubPageTools", () => {
     expect(started.map(context => context.tool.id)).toEqual(["console"])
     expect(console.error).toHaveBeenCalledOnce()
   })
+
+  it("cleans up exactly once when a tool exits during startup", async () => {
+    page("https://site.test/?vitehub=comments")
+    session({ tools: [comments, pill] })
+    let mounted = false
+    let context: ViteHubPageToolContext | undefined
+    const cleanup = vi.fn(() => { mounted = false })
+    const start = vi.fn((value: ViteHubPageToolContext) => {
+      context = value
+      mounted = true
+      value.exit()
+      return cleanup
+    })
+    const load = async () => ({ default: start })
+
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(start).toHaveBeenCalledOnce()
+    expect(context?.signal.aborted).toBe(true)
+    expect(mounted).toBe(false)
+    expect(cleanup).toHaveBeenCalledOnce()
+    context?.exit()
+    expect(cleanup).toHaveBeenCalledOnce()
+  })
 })
 
 describe("readViteHubPageSession", () => {

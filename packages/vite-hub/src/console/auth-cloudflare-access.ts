@@ -146,6 +146,8 @@ export async function handleCloudflareAccessConsoleRequest(
   const mountBase = consoleAuthMountBase(mountBaseURL)
   const publicPath = event.url.pathname
   const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath
+  // Page tools apply their own visitor and API authorization, independently of the Console.
+  if (path === "/_vitehub/page/session" || path.startsWith("/_vitehub/page/assets/")) return
   if (!(path === "/_vitehub" || path.startsWith("/_vitehub/") || path === "/api/_vitehub/console" || path.startsWith("/api/_vitehub/console/"))) return
   const { identity, response } = await checkCloudflareAccessToken(event.req, resolveSettings, verify)
   if (response) return response
