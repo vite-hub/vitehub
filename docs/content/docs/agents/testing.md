@@ -2,9 +2,10 @@
 title: Test an Agent
 description: Check Agent contracts with deterministic tests, Evals, and a local invocation before you deploy.
 navigation.title: Test an Agent
-navigation.order: 62
-navigation.group: Verify
+navigation.order: 51
+navigation.group: Inspect and evaluate
 icon: i-lucide-test-tube
+navigation.kind: Guides
 ---
 
 Test an Agent at the boundary where its behavior matters. Use a direct

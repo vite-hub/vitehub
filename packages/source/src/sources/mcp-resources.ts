@@ -3,7 +3,7 @@ import { AnnotationsSchema, BlobResourceContentsSchema, ResourceContentsSchema }
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath } from "../core/path.ts"
-import { matchesAny } from "./path.ts"
+import { createPathMatcher, matchesAny } from "./path.ts"
 
 import type { FileSource, SourceCacheOptions, SourceContent, SourceContext } from "../core/types.ts"
 import type { SSEClientTransportOptions } from "@modelcontextprotocol/sdk/client/sse.js"
@@ -222,9 +222,11 @@ async function withMcpClient<T>(
   request: McpResourcesRequestOptions | undefined,
   callback: (client: McpResourcesClient, request: McpResourcesRequestOptions) => Promise<T>,
 ) {
-  const signal = ctx.abortSignal
+  const signal = ctx.abortSignal && request?.signal
+    ? AbortSignal.any([ctx.abortSignal, request.signal])
+    : ctx.abortSignal ?? request?.signal
   const requestSignal = signal ?? new AbortController().signal
-  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, ctx))
+  const resolved = await abortable(signal, mcpInterruptedMessage, () => resolveMcpServer(server, { ...ctx, abortSignal: signal }))
   if (isMcpResourcesClient(resolved)) {
     return await abortable(signal, mcpInterruptedMessage, () => callback(resolved, withRequestSignal(request, requestSignal)))
   }
@@ -311,20 +313,15 @@ function resourceKey<TKey extends string>(
   return normalizeSafeSourcePath(resolved) as TKey
 }
 
-function shouldInclude(path: string, options: Pick<McpResourcesSourceOptions, "ignore" | "include">) {
-  if (options.include && !matchesAny(path, options.include)) return false
-  if (options.ignore && matchesAny(path, options.ignore)) return false
-  return true
-}
-
 function isIgnoredBeforeContentRead(
   resource: McpResourceDescriptor,
   candidate: string,
   options: Pick<McpResourcesSourceOptions, "ignore" | "path">,
+  matchesIgnore: (path: string) => boolean,
 ) {
   if (!options.ignore) return false
   if (options.path || resource.mimeType || candidate.split("/").at(-1)?.includes(".")) {
-    return matchesAny(candidate, options.ignore)
+    return matchesIgnore(candidate)
   }
   // An extensionless descriptor is only a provisional path. Its final key is
   // determined by the content MIME type, so do not guess an extension here.
@@ -463,7 +460,7 @@ async function listAllResources(client: McpResourcesClient, request: McpResource
       seenCursors.add(cursor)
     }
     const page = parseResourceListPage(await client.listResources(cursor === undefined ? undefined : { cursor }, request))
-    resources.push(...page.resources)
+    for (const resource of page.resources) resources.push(resource)
     cursor = page.nextCursor
   } while (cursor !== undefined)
   return resources
@@ -484,11 +481,13 @@ async function createEntries<TKey extends string>(
 ) {
   const entries: ResourceEntry<TKey>[] = []
   const seen = new Map<string, string>()
+  const matchesInclude = createPathMatcher(options.include)
+  const matchesIgnore = options.ignore ? createPathMatcher(options.ignore) : () => false
   for (const resource of resources) {
     // Apply an explicit ignore before reading content to infer a missing MIME type.
     // An excluded resource must not trigger a remote read or leak a provider error.
     const candidate = resourceKey(resource, options)
-    if (isIgnoredBeforeContentRead(resource, candidate, options)) continue
+    if (isIgnoredBeforeContentRead(resource, candidate, options, matchesIgnore)) continue
     let contents: McpResourceContent[] | undefined
     let resolvedResource = resource
     if (client && resourcePathNeedsContentMimeType(resource, options)) {
@@ -496,7 +495,7 @@ async function createEntries<TKey extends string>(
       resolvedResource = resourceWithContentMimeType(resource, contents)
     }
     const key = resourceKey(resolvedResource, options, options.path ? candidate : undefined)
-    if (!shouldInclude(key, options)) continue
+    if (!matchesInclude(key) || matchesIgnore(key)) continue
     const existingUri = seen.get(key)
     if (seen.has(key)) {
       throw sourceError(`[vitehub] mcpResources produced duplicate path ${JSON.stringify(key)} for ${JSON.stringify(existingUri)} and ${JSON.stringify(resource.uri)}.`)

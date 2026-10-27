@@ -21,6 +21,7 @@ const packedPackages = [
   "sandbox",
   "env",
   "forge",
+  "gateways",
   "markdown-template",
   "rate-limit",
   "runtime",

@@ -15,6 +15,7 @@ import * as ownerAgentMcp from "@vite-hub/agent/mcp";
 import * as ownerAgentProcessRuntime from "@vite-hub/agent/runtime/process";
 import * as ownerAgentVite from "@vite-hub/agent/vite";
 import * as ownerAgentVue from "@vite-hub/agent/vue";
+import * as ownerAuthConsole from "@vite-hub/auth/runtime/console";
 import ownerAuthHandler from "@vite-hub/auth/server";
 import * as ownerAuthVue from "@vite-hub/auth/vue";
 import * as ownerBlobClient from "@vite-hub/blob/client";
@@ -35,6 +36,7 @@ import * as frameworkAgentVue from "vite-hub/agent/vue";
 import { defineConsoleAuth } from "vite-hub/console/auth";
 import { defineConsoleAuthClient } from "vite-hub/console/auth/client";
 import { createInlineConsoleAuth } from "vite-hub/console/auth/inline";
+import * as frameworkAuthConsole from "vite-hub/_internal/auth/runtime/console";
 import frameworkAuthHandler from "vite-hub/auth/server";
 import * as frameworkAuthVue from "vite-hub/auth/vue";
 import * as frameworkBlobClient from "vite-hub/blob/client";
@@ -126,6 +128,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/invocations-dev",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
+  "@vite-hub/auth/runtime/console",
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/runtime/dev",
@@ -147,9 +150,9 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/rate-limit/runtime/console",
-  "@vite-hub/sandbox-task/runtime/empty-registry",
-  "@vite-hub/sandbox-task/runtime/provider-loader",
-  "@vite-hub/sandbox-task/runtime/state",
+  "@vite-hub/sandbox/task/runtime/empty-registry",
+  "@vite-hub/sandbox/task/runtime/provider-loader",
+  "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/runtime/dev",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
@@ -200,7 +203,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli") return "framework tooling";
-  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite)(?:\/|$)/.test(path))
+  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path))
@@ -211,6 +214,18 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 }
 
 describe("framework package contract", () => {
+  it("imports from h3 only what h3 1 exports, because Nuxt 4 bundles h3 as its own h3 1", async () => {
+    const h3V1Exports = new Set(Object.keys(await import("h3-v1")));
+    const missing = globSync("dist/**/*.js", { cwd: packageRoot }).flatMap((file) => {
+      const source = readFileSync(`${packageRoot}/${file}`, "utf8");
+      return [...source.matchAll(/^import \{([^}]*)\} from "h3";/gm)]
+        .flatMap(([, names]) => names!.split(",").map(name => name.trim().split(/\s+as\s+/)[0]!))
+        .filter(name => name && !h3V1Exports.has(name))
+        .map(name => `${file}: ${name}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   it("keeps the root export intentionally small", () => {
     expect(Object.keys(framework)).toEqual(["vitehub"]);
   });
@@ -234,6 +249,9 @@ describe("framework package contract", () => {
     expect(frameworkAgentVue.useAgent).toBe(ownerAgentVue.useAgent);
     expect(frameworkAgentVue.useChat).toBe(ownerAgentVue.useChat);
     expect(frameworkAuthHandler).toBe(ownerAuthHandler);
+    expect(frameworkAuthConsole.readAuthEventConsoleRecords).toBe(ownerAuthConsole.readAuthEventConsoleRecords);
+    expect(frameworkAuthConsole.listAuthEvents).toBe(ownerAuthConsole.listAuthEvents);
+    expect(frameworkAuthConsole.aggregateAuthEvents).toBe(ownerAuthConsole.aggregateAuthEvents);
     expect(frameworkAuthVue.authClient).toBe(ownerAuthVue.authClient);
     expect(frameworkAuthVue.useUserSession).toBe(ownerAuthVue.useUserSession);
     expect(frameworkBlobContentType.detectContentType).toBe(ownerBlobContentType.detectContentType);

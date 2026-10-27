@@ -2,7 +2,7 @@ import { glob as tinyglobby } from "tinyglobby"
 
 import { sourceError } from "../core/errors.ts"
 import { normalizeSafeSourcePath, normalizeSourcePath } from "../core/path.ts"
-import { matchesAny } from "./path.ts"
+import { createPathMatcher } from "./path.ts"
 
 import type { FileSource, SourceContext, SourceFile } from "../core/types.ts"
 
@@ -45,9 +45,11 @@ export async function collectGlobFiles(rootDir: string, options: GlobSourceOptio
     ignore: ["**/.git/**", "**/node_modules/**", ...ignore],
     onlyFiles: true,
   })
+  const matchesInclude = createPathMatcher(include)
+  const matchesIgnore = createPathMatcher(ignore)
   let keys = files
     .map(file => normalizeSafeSourcePath(file, { allowReserved: true }))
-    .filter(file => matchesAny(file, include) && !matchesAny(file, ignore))
+    .filter(file => matchesInclude(file) && !matchesIgnore(file))
   if (options.followSymlinks) {
     const rooted: string[] = []
     for (const key of keys) {
@@ -63,9 +65,14 @@ export function globFilePath(key: string, paths: ResolvedGlobPaths, followSymlin
   return resolveRootedGlobFilePath(key, paths, followSymlinks)
 }
 
+interface GlobKeyListing {
+  keys: string[]
+  keySet: Set<string>
+}
+
 interface GlobKeyCache {
-  snapshot?: { key: string, keys: Promise<string[]> }
-  latest?: { key: string, keys: string[] }
+  snapshot?: { key: string, listing: Promise<GlobKeyListing> }
+  latest?: { key: string, listing: GlobKeyListing }
 }
 
 /**
@@ -96,42 +103,43 @@ export function glob(input: GlobInput): FileSource<string> {
     return (await collectGlobFiles(resolveSourceRoot(ctx), options)).keys
   }
 
-  async function refreshKeys(ctx: SourceContext) {
+  async function refreshListing(ctx: SourceContext) {
     const key = await getContextKey(ctx)
     const keys = await loadKeys(ctx)
-    cacheFor(ctx).latest = { key, keys }
-    return keys
+    const listing = { keys, keySet: new Set(keys) }
+    cacheFor(ctx).latest = { key, listing }
+    return listing
   }
 
-  async function getCachedKeys(ctx: SourceContext) {
-    if (options.keyCache === false) return await refreshKeys(ctx)
+  async function getCachedListing(ctx: SourceContext) {
+    if (options.keyCache === false) return await refreshListing(ctx)
     const key = await getContextKey(ctx)
     const cache = cacheFor(ctx)
     if (!cache.snapshot || cache.snapshot.key !== key) {
-      const keys = refreshKeys(ctx)
-      const entry = { key, keys }
+      const listing = refreshListing(ctx)
+      const entry = { key, listing }
       cache.snapshot = entry
-      keys.catch(() => {
+      listing.catch(() => {
         if (cache.snapshot === entry) cache.snapshot = undefined
       })
     }
-    return await cache.snapshot.keys
+    return await cache.snapshot.listing
   }
 
-  async function getKnownKeys(ctx: SourceContext) {
+  async function getKnownListing(ctx: SourceContext) {
     const key = await getContextKey(ctx)
     const { latest } = cacheFor(ctx)
-    if (latest?.key === key) return latest.keys
-    return await getCachedKeys(ctx)
+    if (latest?.key === key) return latest.listing
+    return await getCachedListing(ctx)
   }
 
   async function assertKey(key: string, ctx: SourceContext) {
-    const keys = await getKnownKeys(ctx)
-    if (keys.includes(key)) return
+    const listing = await getKnownListing(ctx)
+    if (listing.keySet.has(key)) return
     if (options.keyCache !== false) {
       throw missingKeyError(key)
     }
-    if ((await refreshKeys(ctx)).includes(key)) return
+    if ((await refreshListing(ctx)).keySet.has(key)) return
     throw missingKeyError(key)
   }
 
@@ -146,10 +154,10 @@ export function glob(input: GlobInput): FileSource<string> {
     name: "glob",
     async prepare(ctx: SourceContext) {
       cacheFor(ctx).snapshot = undefined
-      await getCachedKeys(ctx)
+      await getCachedListing(ctx)
     },
-    getKeys(ctx: SourceContext) {
-      return getCachedKeys(ctx)
+    async getKeys(ctx: SourceContext) {
+      return (await getCachedListing(ctx)).keys.slice()
     },
     async getMeta(key: string, ctx: SourceContext) {
       await assertKey(key, ctx)

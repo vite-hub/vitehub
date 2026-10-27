@@ -1,163 +1,226 @@
 ---
 title: Installation
 navigation.title: Installation
-description: Install the ViteHub framework distribution, select a deployment preset, or choose a direct owner package for advanced composition.
+description: Set up a Vite or Nuxt app, check one server route, and prepare ViteHub types.
 navigation.order: 2
+navigation.group: Get started
 icon: i-lucide-download
 ---
 
-Use this page to add ViteHub to an existing Vite or Nuxt application. Install
-`vite-hub` when you build an application. It provides the Vite integration, the
-Nuxt module, the CLI, and every public feature import through one dependency.
+Choose your framework before you install packages:
 
-The first-success tutorials use a minimal Vite and H3 server, so they do not
-install Nitro. Use the Nitro setup below when you deploy through Nitro or a
-host preset that needs Nitro's server output.
+- **Vite with Nitro** is the path below. Nitro discovers server routes and builds the Node.js server. Use it for a new server app or an existing Vite app.
+- **Nuxt** already has a server. Skip to [Install in Nuxt](#install-in-nuxt) and use its ViteHub module.
+
+The quickstarts continue in the app you set up here. Install `vite-hub` for
+application code. It provides the integration, CLI, and `vite-hub/*` feature
+imports through one dependency.
 
 ## Prerequisites
 
 - Node.js 24.15 or newer.
-- Vite 8 or newer.
-- An ESM package with `"type": "module"` or a `vite.config.mts` file.
-- A package manager such as `pnpm`, `npm`, `yarn`, or `bun`.
+- pnpm. The examples use pnpm commands throughout.
+- Vite 8 or newer for the Vite path.
+- An existing Nuxt 4 app, version 4.5.2 or newer, for the Nuxt path.
 
-Model providers and hosted primitives may require credentials. Each feature
-guide lists its own environment, network, and billing prerequisites before the
-first call.
+This setup and the first storage and Agent tutorials need no credentials.
+Hosted services and models can require accounts and incur charges. Their
+tutorials list those requirements before you call a provider.
 
-## Install the framework distribution
+## Create a Vite app
 
-Add `vite-hub` and Nitro to an existing Vite application. Nitro builds the server
-output for the selected host.
+For a new app, create a directory:
 
-```bash [Terminal]
-pnpm add vite-hub nitro
+```bash [commands/create-vite-app]
+mkdir vitehub-app
+cd vitehub-app
 ```
 
-Register `vitehub()`. It includes Nitro's Vite plugin, so you do not add `nitro()`.
+Create `package.json`. In an existing app, keep its dependencies and scripts,
+set `"type": "module"`, and add the scripts you need.
+
+```json [package.json]
+{
+  "name": "vitehub-app",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 3000 --strictPort",
+    "build": "vite build",
+    "start": "node .output/server/index.mjs"
+  }
+}
+```
+
+Install the framework distribution and its server dependencies. These Nitro
+and H3 versions match the server integration used by ViteHub.
+
+```bash [commands/install-vite]
+pnpm add vite-hub nitro@3.0.260903-beta h3@2.0.1-rc.33
+pnpm add -D vite@^8 typescript@^6 @types/node@^24
+```
+
+Register `vitehub()` in `vite.config.ts`. Keep your existing framework plugins
+if you already have an app. ViteHub includes Nitro's Vite plugin.
 
 ```ts [vite.config.ts]
 import { defineConfig } from "vite"
 import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  plugins: [
-    vitehub({ preset: "node" }),
-  ],
+  plugins: [vitehub({ preset: "node" })],
 })
 ```
 
-## Select a deployment preset
+`preset` is required. Start with `node` for this local server. The other presets
+are `cloudflare`, `vercel`, `netlify`, and `deno`. A preset selects the host
+output and default providers for enabled features.
 
-`preset` is required. Use `node`, `cloudflare`, `vercel`, `netlify`, or `deno`.
-The preset selects the host, the Nitro preset, and the default provider for each
-enabled feature. Start with `node` for local work, then change the preset when
-you deploy. [Frameworks and hosts](/docs/frameworks-hosts#choose-a-preset) lists
-the output and default providers for each preset.
+## Prepare Vite types
 
-## Enable features
+Create `tsconfig.json`, or add `vite-hub/tsconfig` to your existing `extends`.
+The inherited config includes `.vitehub/types.d.ts`, which references the
+generated declarations for your enabled features. It requires TypeScript 5.5
+or newer.
 
-Each feature is off until you enable it in `vitehub()`, for example
-`vitehub({ preset: "node", kv: true })`. Env is on unless you set `env: false`.
-Workflow turns on with `agent` unless you set `workflow: false`. A feature that
-the preset cannot provide fails the build instead of falling back to another
-provider.
-
-Import application APIs from explicit feature subpaths.
-
-```ts [server/agents/support.ts]
-import { defineAgent } from "vite-hub/agent"
-import { access } from "vite-hub/agent/capabilities"
-import { requireRateLimit } from "vite-hub/rate-limit"
-import { defineWorkspace } from "vite-hub/workspace"
-
-void defineAgent
-void access
-void requireRateLimit
-void defineWorkspace
+```json [tsconfig.json]
+{
+  "extends": ["vite-hub/tsconfig"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["server/**/*.ts", "vite.config.ts"]
+}
 ```
+
+Prepare the entry before opening generated imports in your editor:
+
+```bash [commands/prepare-types]
+pnpm vitehub types prepare
+```
+
+After this first setup, add `"postinstall": "vitehub types prepare"` to your
+package scripts to repeat it after future installs. Vite config resolution
+and builds refresh it too. If your config declares `files`, it replaces the
+inherited list. Include `.vitehub/types.d.ts` in that list.
 
 ## Install in Nuxt
 
-In Nuxt, register the framework module instead of `vitehub()`.
-Nuxt provides its own Nitro integration, so do not install `nitro` separately.
+Run these steps in your existing Nuxt 4 app. Add ViteHub and H3 1 for the
+explicit server imports used in the tutorials. Nuxt supplies Nitro.
+
+```bash [commands/install-nuxt]
+pnpm add vite-hub h3@^1.15.11
+```
+
+Register the module in `nuxt.config.ts`. Keep your other Nuxt options.
 
 ```ts [nuxt.config.ts]
 import viteHubNuxt from "vite-hub/nuxt"
 
 export default defineNuxtConfig({
+  buildDir: ".nuxt",
   modules: [
     [viteHubNuxt, { preset: "node" }],
   ],
 })
 ```
 
-The [Nuxt guide](/docs/frameworks-hosts/nuxt) lists the differences from the
-Vite integration.
+Keep `buildDir` outside `node_modules`. The pinned Nitro 2 build cannot compile
+generated TypeScript there. Using `.nuxt` keeps these files in your app directory.
 
-## Add coding provider packages
+Keep the TypeScript config generated by Nuxt. The ViteHub module adds generated
+types to it. The [Nuxt guide](/docs/frameworks-hosts/nuxt) covers Nuxt-specific
+configuration.
 
-Install third-party model providers and chat adapters separately. Built-in coding
-providers use the provider runtime pinned by ViteHub, but ViteHub does not install
-their large native binaries. Add `@openai/codex@0.149.1` for Codex or
-`@anthropic-ai/claude-agent-sdk@0.3.246` for Claude Code.
+## Check one route
 
-Self-hosted Node builds on macOS and Linux package only the build host's OS, CPU,
-and Linux libc payload. Build on the same host type as the deployment host.
+Both framework paths discover `server/api/health.get.ts` at `/api/health`.
+Create the directories and this file. The explicit H3 import also works in
+Nuxt, where server helpers can be auto-imported.
 
-Until T3 publishes the provider runtime on npm, pnpm consumers using a built-in
-coding provider must set `blockExoticSubdeps: false` in `pnpm-workspace.yaml`.
-ViteHub pins an exact pkg.pr.new tarball rather than a moving branch.
+```ts [server/api/health.get.ts]
+import { defineEventHandler } from "h3"
 
-The distribution includes the Workflow DevKit runtime and builders for Vercel
-Workflow. Install other provider SDKs only when you use them.
-
-## Install an owner package directly
-
-Every `@vite-hub/*` package can also be installed on its own. Use a package
-directly when you build a library or need to configure one integration
-without the framework distribution.
-
-| Path | Direct install | Integration |
-| --- | --- | --- |
-| Server Primitives | `pnpm add @vite-hub/kv vite` | `hubKv()` from `@vite-hub/kv/vite` |
-| Rate Limit | `pnpm add @vite-hub/rate-limit vite` | `hubRateLimit()` from `@vite-hub/rate-limit/vite` |
-| Agents | `pnpm add @vite-hub/agent vite` | `hubAgent()` from `@vite-hub/agent/vite` |
-
-::tip
-Start new applications with `vite-hub`. Direct owner packages are the
-escape hatch when package-level control is the goal.
-::
-
-## Add generated types
-
-Vite integrations write types under `.vitehub/types`. Include that directory when
-your application uses generated names or stable `#vitehub/...` imports. The Nuxt
-module adds these types to the Nuxt TypeScript config for you.
-
-```json [tsconfig.json]
-{
-  "include": [
-    "server/**/*.ts",
-    "src/**/*.ts",
-    ".vitehub/types/**/*.d.ts"
-  ]
-}
+export default defineEventHandler(() => ({ ok: true }))
 ```
 
-## Verify the integration
+Run your chosen app:
 
-Run the application with its Vite-based development command. If a server API
-is missing its Vite integration, ViteHub reports the configuration error instead
-of selecting another provider.
+```bash [commands/dev]
+pnpm dev
+```
 
-The two first-success guides include complete build and runtime commands:
+In a second terminal, check the route. The Vite setup uses port `3000`; Nuxt
+uses that port by default. Use the URL printed by your server if it differs.
 
-- [First Server Primitive](/docs/getting-started/first-server-primitive) stores and reads a KV value without credentials.
-- [First Agent](/docs/getting-started/first-agent) runs a deterministic Agent Invocation without a model key.
+```bash [commands/check]
+curl http://localhost:3000/api/health
+```
 
-## Next steps
+The response should be:
 
-- Read [Vite Integrations and Provider Output](/docs/development/integrations-and-output) to understand integration ownership.
-- Open [Server Primitives](/docs/getting-started/server-primitives) to choose infrastructure.
-- Open [Agents](/docs/agents) to choose an Agent Driver and Capabilities.
+```json [output/health.json]
+{"ok":true}
+```
+
+This proves that the app serves a route. The next tutorial enables and calls
+a ViteHub feature. A `404` at `/` is expected for the Vite server if you have
+not added a homepage.
+
+## Add your first feature
+
+Choose [First Server Primitive](/docs/getting-started/first-server-primitive)
+to save and read a setting, or [First Agent](/docs/getting-started/first-agent)
+to run an offline greeting. Both use this app and its development command.
+
+Features are off until you enable them in the ViteHub options, for example
+`kv: true`. Env is on by default. Enabling Agent also enables Workflow unless
+you set `workflow: false`. A preset that cannot provide an enabled feature
+fails the build. See [Frameworks and hosts](/docs/frameworks-hosts).
+
+For the Vite app, stop the dev server before testing the production build:
+
+```bash [commands/build-vite]
+pnpm build
+pnpm start
+```
+
+For Nuxt, use its build command and run the generated Node entry:
+
+```bash [commands/build-nuxt]
+pnpm build
+node .output/server/index.mjs
+```
+
+The Node server defaults to port `3000`. Repeat the health request to check it.
+Keep `.vitehub`, `.output`, `.nuxt`, `node_modules`, and `.env` out of version
+control. Local data under `.vitehub/data` needs persistent storage if you want
+to retain it across deployments.
+
+## Alternative: install one package
+
+Install an `@vite-hub/*` owner package directly when you build a library or
+configure a standalone integration. For example, `@vite-hub/kv` exposes
+`hubKv()` from `@vite-hub/kv/vite`. In that setup, you own the server entry and
+host integration.
+
+The application tutorials use `vite-hub` and imports such as `vite-hub/kv`.
+Use the relevant package README when you choose standalone composition.
+
+## Optional model and coding providers
+
+Install provider packages only when you use them. Model Drivers need `ai`
+and the credentials described in [Agent Drivers](/docs/agents/agent-drivers).
+Built-in coding Drivers use `@openai/codex@0.149.1` or
+`@anthropic-ai/claude-agent-sdk@0.3.246`. ViteHub bundles its pinned provider
+runtime; consumers do not need to change pnpm's exotic dependency settings.
+
+Self-hosted Node builds copy native coding-provider packages for the build
+host's OS, CPU, and Linux libc. Build on the same host type you deploy to.

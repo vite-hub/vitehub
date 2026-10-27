@@ -1,9 +1,10 @@
 ---
 title: Forge Channels
 description: Run an Agent on GitLab, Forgejo, and Codeberg pull request events, with the Server Env and webhook setup for each forge.
-navigation.order: 40.6
-navigation.group: Connect
+navigation.order: 41
+navigation.group: Channels
 icon: i-lucide-git-pull-request
+navigation.kind: Guides
 ---
 
 `gitlab()` and `forgejo()` connect pull requests to an Agent. GitLab merge requests use the same pull request context. The merge request `iid` is the pull request number, including projects in nested groups.

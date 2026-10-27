@@ -14,7 +14,7 @@ import { createQueueProvisionStep } from "./provision.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
-import type { Plugin, ResolvedConfig } from "vite"
+import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
 export { discoverQueueDefinitions } from "./discovery.ts"
@@ -38,6 +38,11 @@ export interface QueueNitroConfigOptions {
   projectRoot: string
   root: string
   serverDirs?: string[]
+  /**
+   * The Vite config that a framework replays to make its Nitro config.
+   * Queue reads `queue` from it and adds its Cloudflare entries to the provider output of this config, so the final Nitro config keeps them.
+   */
+  viteConfig?: UserConfig
 }
 
 /** Options that a framework distribution passes to `hubQueue()`. */
@@ -251,11 +256,13 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
         }
       },
       queue: {
-        async createNitroConfig({ development = false, nitro, projectRoot, root, serverDirs }) {
-          const config = { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, nitro }
+        async createNitroConfig({ development = false, nitro, projectRoot, root, serverDirs, viteConfig }) {
+          const config = viteConfig ?? { [VITEHUB_NITRO_CONFIG_CONTEXT]: true, nitro }
           const resolvedConfig = resolvedConfigs.get(root)
           const state = resolvedConfig ? buildStates.get(resolvedConfig) : undefined
-          const projectQueue = state ? state.queue : queueOptions.has(root) ? queueOptions.get(root) : options
+          const projectQueue = viteConfig
+            ? viteConfig.queue ?? options
+            : state ? state.queue : queueOptions.has(root) ? queueOptions.get(root) : options
           nuxtProjectRoot = projectRoot
           nuxtServerQueueDirs = [...new Set(serverDirs || [resolve(projectRoot, "server"), resolve(root, "server")])]
             .map(dir => `${resolve(dir, "queues").replace(/\\/g, "/")}/`)

@@ -26,6 +26,7 @@ type MemoryNode = {
   metadata?: Record<string, unknown>
   mtime: number
   revision?: string
+  digest?: string
 }
 
 function now() {
@@ -197,6 +198,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   #writeFile(path: string, file: WorkspaceFile): void {
     file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
+    if (this.#nodes.get(normalized)?.type === "directory") {
+      throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
+    }
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
       type: "file",
@@ -234,7 +238,7 @@ class MemoryWorkspaceStore implements WorkspaceStore {
       mtime: node.mtime,
       mediaType: node.mediaType,
       metadata: structuredClone(node.metadata),
-      digest: node.type === "file" ? await sha256(content) : undefined,
+      digest: node.type === "file" ? (node.digest ??= await sha256(content)) : undefined,
     }
   }
 

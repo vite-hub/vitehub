@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
-import { anthropic, cliproxy, cloudflareAccess, defineGateway, litellm, ollama, openai, openrouter, vercel } from "../src/gateways.ts"
+import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
 import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { resolveAgentDriverGateway } from "../src/internal/agent-gateway.ts"
@@ -32,13 +32,13 @@ describe("gateway presets", () => {
   })
 
   it("validates custom gateways", () => {
-    expect(() => defineGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex" or "claude-code"')
-    expect(() => defineGateway({ name: "x", baseURL: { codex: "ftp://proxy" }, apiKey: "k" })).toThrow("http or https URL")
-    expect(() => defineGateway({ name: "x", baseURL: { codex: "https://proxy" } })).toThrow("needs apiKey or apiKeyEnv")
-    expect(() => defineGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { "bad header": "v" } })).toThrow("not a valid HTTP header name")
-    expect(() => defineGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { Authorization: "v" } })).toThrow("sets the API key with apiKey")
+    expect(() => defineAiGateway({ name: "x", baseURL: {} })).toThrow('must set a baseURL for "codex" or "claude-code"')
+    expect(() => defineAiGateway({ name: "x", baseURL: { codex: "ftp://proxy" }, apiKey: "k" })).toThrow("http or https URL")
+    expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" } })).toThrow("needs apiKey or apiKeyEnv")
+    expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { "bad header": "v" } })).toThrow("not a valid HTTP header name")
+    expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", headers: { Authorization: "v" } })).toThrow("sets the API key with apiKey")
     // SAFETY: This fixture supplies an unknown option to test runtime validation.
-    expect(() => defineGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", url: "https://proxy" } as never)).toThrow("does not support: url")
+    expect(() => defineAiGateway({ name: "x", baseURL: { codex: "https://proxy" }, apiKey: "k", url: "https://proxy" } as never)).toThrow("does not support: url")
   })
 })
 
@@ -71,7 +71,7 @@ describe("gateway resolution", () => {
   })
 
   it("sends an x-api-key gateway key as a Codex header", async () => {
-    const gateway = defineGateway({ name: "keyed", baseURL: { codex: "https://keyed.example/v1" }, apiKey: "k", auth: "x-api-key" })
+    const gateway = defineAiGateway({ name: "keyed", baseURL: { codex: "https://keyed.example/v1" }, apiKey: "k", auth: "x-api-key" })
     const resolved = await resolveAgentDriverGateway(gateway, "codex", context)
     expect(resolved.launchArgs).not.toContain("env_key")
     expect(resolved.launchArgs).toContain('env_http_headers={\\"x-api-key\\"=\\"VITEHUB_GATEWAY_API_KEY\\"}')
@@ -185,8 +185,15 @@ describe("gateway Server Env", () => {
       await mkdir(join(root, "server", "agents", "plain"), { recursive: true })
       await writeFile(join(root, "server", "agents", "dev", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { cliproxy, cloudflareAccess as access } from "vite-hub/agent/gateways"`,
+        `import { cliproxy, cloudflareAccess as access } from "vite-hub/gateways"`,
         `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: access() }) } })`,
+      ].join("\n"))
+      await mkdir(join(root, "server", "agents", "labels"), { recursive: true })
+      await writeFile(join(root, "server", "agents", "labels", "agent.ts"), [
+        `import { defineAgent } from "vite-hub/agent"`,
+        `import { cloudflare } from "vite-hub/gateways"`,
+        `const gateway = cloudflare()`,
+        `export default defineAgent({ driver: { run: async ({ prompt }) => ({ output: await gateway.ask(prompt, {}) }) } })`,
       ].join("\n"))
       await writeFile(join(root, "server", "agents", "plain", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
@@ -198,6 +205,13 @@ describe("gateway Server Env", () => {
         cliproxy: {
           apiKey: { names: ["CLIPROXY_API_KEY"], required: false, secret: true },
           url: { names: ["CLIPROXY_URL"], required: false, secret: false },
+        },
+        cloudflare: {
+          accountId: { names: ["CLOUDFLARE_ACCOUNT_ID"], required: false, secret: false },
+          apiKey: { names: ["TYPESAFE_API_KEY"], required: false, secret: true },
+          gatewayId: { names: ["CLOUDFLARE_AI_GATEWAY_ID"], required: false, secret: false },
+          slug: { names: ["CLOUDFLARE_AI_GATEWAY_SLUG"], required: false, secret: false },
+          token: { names: ["CLOUDFLARE_AI_GATEWAY_TOKEN"], required: false, secret: true },
         },
         cloudflareAccess: {
           clientId: { names: ["CF_ACCESS_CLIENT_ID"], required: false, secret: true },
@@ -234,6 +248,14 @@ describe("driver.gateway", () => {
 
   it("rejects a gateway that does not serve the Driver", () => {
     expect(() => defineAgent({ driver: { kind: "claude-code", gateway: openai() } })).toThrow('Gateway "openai" does not serve the claude-code Driver')
+    expect(() => defineAgent({ driver: { kind: "codex", gateway: typesafe({ apiKey: "k" }) } })).toThrow('Gateway "typesafe" does not serve the codex Driver')
+    expect(() => defineAgent({ driver: { kind: "codex", gateway: cloudflare({ apiKey: "k" }) } })).toThrow('Gateway "cloudflare" does not serve the codex Driver')
+  })
+
+  it("routes Driver requests through a gateway that also answers Jev questions", async () => {
+    const gateway = vercel({ apiKey: "gateway-key" })
+    expect(() => defineAgent({ driver: { kind: "codex", gateway } })).not.toThrow()
+    expect((await resolveAgentDriverGateway(gateway, "codex", context)).environment).toEqual({ VITEHUB_GATEWAY_API_KEY: "gateway-key" })
   })
 
   it("rejects driver.env values that the gateway owns", () => {

@@ -15,7 +15,7 @@ it("reuses message diagnostic handles and keeps their input-error classification
     expect(error).toBeInstanceOf(Diagnostic)
     expect(error.cause).toBe(cause)
     expect(error.sources).toBe(sources)
-    expect(error).toMatchObject({ code, name: code, message: "Invalid message", docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-public-errors" })
+    expect(error).toMatchObject({ code, name: code, message: "Invalid message", docs: "https://vitehub.dev/docs/reference/errors-diagnostics#agent-diagnostics" })
     expect(error.fix).toBeUndefined()
     expect(agentDiagnostics[code]().message).toBe("")
     expect(agentDiagnostics[code]({ message: 42 }).message).toBe("42")

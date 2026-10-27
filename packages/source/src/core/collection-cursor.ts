@@ -46,7 +46,7 @@ function decodeBase64Url(value: string): string {
   const normalized = value.replaceAll("-", "+").replaceAll("_", "/")
   const binary = atob(normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "="))
   if (btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "") !== value) throw new TypeError("Noncanonical base64url cursor")
-  return new TextDecoder().decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+  return new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
 }
 
 function hasPrimitiveRuntimeTag(value: unknown, tag: string): boolean {

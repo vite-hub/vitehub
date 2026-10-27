@@ -2,6 +2,7 @@ export const workspaceStoreTarget: unique symbol = Symbol.for("vitehub.workspace
 
 export interface WorkspaceStoreTarget {
   provider: string
+  containsPath?(ancestor: string, path: string): Promise<boolean>
 }
 
 export type WorkspaceStoreTargetCarrier = {

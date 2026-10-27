@@ -1,5 +1,10 @@
 # vite-hub
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `vite-hub` is the ViteHub application distribution. It registers enabled integrations through one `vitehub()` call and exposes application APIs on explicit `vite-hub/*` feature imports.
 
 Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or both. Install an `@vite-hub/*` owner package directly when you are building a library, another framework integration, or a custom package composition.
@@ -89,6 +94,10 @@ The Deno preset emits `.output/deno.json`, stages emitted runtime packages and i
 ## Build, inspect, and deploy
 
 The preset tells ViteHub which integrations and Provider Output to generate. Depending on the host and enabled features, a build can write Runtime Registries under `.vitehub`, Cloudflare Worker output and `wrangler.json` under `dist`, Vercel Build Output under `.vercel/output`, Netlify functions under `.netlify/v1`, or Node and Deno artifacts under `.output`.
+
+Nuxt's Cloudflare preset enables Nitro deployment configuration by default and
+writes `.output/server/wrangler.json`. Set `nitro.cloudflare.deployConfig: false`
+only when you manage that configuration yourself.
 
 A successful build proves that ViteHub discovered the configured definitions and wrote the selected output. It does not prove that remote resources exist, credentials are valid, deployment succeeded, or a hosted provider completed a live operation. Follow the selected [host guide](https://vitehub.dev/docs/frameworks-hosts) for provisioning, environment variables, deployment commands, and current proof.
 

@@ -129,6 +129,8 @@ const netlifyAgentFunctionName = "vitehub-agent"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
+// AI gateways import advocaat for ask(); in this workspace the package is a sibling of the Agent package.
+const gatewaysPackageRoot = fileURLToPath(new URL("../../gateways/", import.meta.url)).replace(/\\/g, "/")
 const optionalAgentRuntimeExternals = [
   "@anthropic-ai/claude-agent-sdk",
   "bufferutil",
@@ -139,8 +141,8 @@ const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
-  "@vite-hub/sandbox-task",
-  "@vite-hub/sandbox-task/*",
+  "@vite-hub/sandbox/task",
+  "@vite-hub/sandbox/task/*",
   "@vite-hub/shell",
   "@vite-hub/shell/*",
   "@vite-hub/workflow",
@@ -155,7 +157,9 @@ function isAgentPackageImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const normalized = importer.replace(/\\/g, "/")
   return normalized.includes("/node_modules/@vite-hub/agent/")
+    || normalized.includes("/node_modules/@vite-hub/gateways/")
     || normalized.startsWith(agentPackageRoot)
+    || normalized.startsWith(gatewaysPackageRoot)
 }
 
 function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions): string[] {
@@ -165,8 +169,8 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
     bundled.add("@vite-hub/workflow/*")
   }
   if (options.workspaceDependencyRuntimeImports?.sandboxTask || options.workspaceDependencyRuntimeImports?.sandboxTaskRuntimeState) {
-    bundled.add("@vite-hub/sandbox-task")
-    bundled.add("@vite-hub/sandbox-task/*")
+    bundled.add("@vite-hub/sandbox/task")
+    bundled.add("@vite-hub/sandbox/task/*")
   }
   if (options.workspaceDependencyRuntimeImports?.shellWorkspace) {
     bundled.add("@vite-hub/shell")
@@ -1622,6 +1626,19 @@ function generatedRuntimeHelpers(): string[] {
   ]
 }
 
+function generatedRequestHeadersHelper(): string[] {
+  return [
+    "function requestHeaders(event: H3Event) {",
+    "  const headers = new Headers()",
+    "  for (const [name, value] of Object.entries(getRequestHeaders(event))) {",
+    "    if (value !== undefined) headers.set(name, value)",
+    "  }",
+    "  return headers",
+    "}",
+    "",
+  ]
+}
+
 function generatedCloudflareChatStateHelper(): string[] {
   return [
     "",
@@ -2003,6 +2020,7 @@ async function generateAgentWebhookRouteHandler(
 
   return [
     ...deploymentCatalog.imports,
+    `import type { AgentChannelWebhookRouteOptions } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`,
     ...(options.cloudflareState
       ? [
           `import { createCloudflareAgentState, getActiveCloudflareEnv } from ${JSON.stringify(subpath(agentImportBase, "cloudflare"))}`,
@@ -2024,7 +2042,7 @@ async function generateAgentWebhookRouteHandler(
     "  const method = event.method || 'POST'",
     "  return createAgentWebhookRequest({",
     "    body: method === 'GET' || method === 'HEAD' ? undefined : getRequestWebStream(event),",
-    "    headers: getRequestHeaders(event),",
+    "    headers: requestHeaders(event),",
     "    method,",
     "    node: event.node,",
     "    signal: event.req?.signal,",
@@ -2032,6 +2050,7 @@ async function generateAgentWebhookRouteHandler(
     "  })",
     "}",
     "",
+    ...generatedRequestHeadersHelper(),
     ...generatedRuntimeHelpers(),
     ...(options.cloudflareState ? generatedCloudflareChatStateHelper() : []),
     ...(options.libsqlState ? generatedLibsqlChatStateHelper(options.libsqlState, true) : []),
@@ -2097,14 +2116,14 @@ async function generateAgentWebhookRouteHandler(
       : []),
     "",
     `const webhookAliases: Record<string, { agent: string, webhook: string }> = ${JSON.stringify(Object.fromEntries(Object.entries(options.webhookAliases || {}).map(([path, target]) => [normalizeNitroRoute(path).replace(/\/+$/, "") || "/", target])))};`,
-    `const configuredWebhookAliasPaths = new Set(${JSON.stringify((options.explicitWebhookAliasPaths || []).map(path => normalizeNitroRoute(path).replace(/\/+$/, "") || "/"))});`,
+    `const configuredWebhookAliasPaths = new Set<string>(${JSON.stringify((options.explicitWebhookAliasPaths || []).map(path => normalizeNitroRoute(path).replace(/\/+$/, "") || "/"))});`,
     "export const declaredWebhookHandler = defineEventHandler(async (event) => {",
     "  const pathname = getRequestURL(event).pathname.replace(/\\/+$/, '') || '/'",
     "  const cloudflare = cloudflareFromEvent(event)",
-    `  const optionsForAgent = (agent: string) => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) })`,
+    `  const optionsForAgent = (agent: string): AgentChannelWebhookRouteOptions => ({ agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare${runtimeRouteOption}, ${webhookStateOption}waitUntil: waitUntilFromEvent(event) })`,
     "  const alias = webhookAliases[pathname]",
     "  if (alias) {",
-    "    const request = new Request(getRequestURL(event), { headers: getRequestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
+    "    const request = new Request(getRequestURL(event), { headers: requestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
     "    const conflictingAgents: string[] = []",
     "    const configuredAlias = configuredWebhookAliasPaths.has(pathname)",
     "    for (const [agent, handler] of Object.entries(webhookHandlers)) {",
@@ -2116,7 +2135,7 @@ async function generateAgentWebhookRouteHandler(
     "    return await handler(await toRequest(event), alias.webhook, optionsForAgent(alias.agent))",
     "  }",
     // Match before acquiring the body stream, so unrelated application routes can still read it.
-    "  const request = new Request(getRequestURL(event), { headers: getRequestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
+    "  const request = new Request(getRequestURL(event), { headers: requestHeaders(event), method: event.method || 'GET', signal: event.req?.signal })",
     "  const matches: string[] = []",
     "  for (const [agent, handler] of Object.entries(webhookHandlers)) {",
     "    if (await handler.matchesPath(request, optionsForAgent(agent))) matches.push(agent)",
@@ -2145,7 +2164,7 @@ async function generateAgentWebhookRouteHandler(
       ? [
           "  if (isInspectionRoute) {",
           "    const cloudflare = cloudflareFromEvent(event)",
-          "    const request = createAgentWebhookRequest({ headers: getRequestHeaders(event), method: event.method || 'GET', node: event.node, signal: event.req?.signal, url: getRequestURL(event) })",
+          "    const request = createAgentWebhookRequest({ headers: requestHeaders(event), method: event.method || 'GET', node: event.node, signal: event.req?.signal, url: getRequestURL(event) })",
           `    return await agentInspectionResponse(agent, request, { ${routeCapabilities.requestOption}cloudflare, event${runtimeRouteOption || ", runtime: runtimeFromEvent(event)"}, waitUntil: waitUntilFromEvent(event) })`,
           "  }",
         ]
@@ -2491,6 +2510,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     ...workflowRuntime.setup,
     ...workspaceDependencyRuntime.setup,
     ...deploymentCatalog.setup,
+    ...generatedRequestHeadersHelper(),
     ...generatedRuntimeHelpers(),
     "",
     "function runtimeEnvValue(cloudflare, key) {",
@@ -2529,7 +2549,7 @@ async function generateAgentDiscordGatewayRouteHandler(
     "  if (!webhookUrl) {",
     "    throw createError({ statusCode: 500, statusMessage: 'Discord Gateway route requires an Agent webhook route.' })",
     "  }",
-    `  return await handler(new Request(requestUrl, { method: event.method || 'GET', headers: getRequestHeaders(event) }), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
+    `  return await handler(new Request(requestUrl, { method: event.method || 'GET', headers: requestHeaders(event) }), { agentIdentity: agentIdentities[agent], ${routeCapabilities.requestOption}cloudflare, durationMs${runtimeRouteOption}, waitUntil: waitUntilFromEvent(event), webhookUrl })`,
     "})",
     "",
   ].join("\n")

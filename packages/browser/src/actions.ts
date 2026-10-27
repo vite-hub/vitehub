@@ -1,3 +1,4 @@
+import { runtimeBinding } from "./internal/runtime-binding.ts"
 import { withBrowserTimeout } from "./internal/timeout.ts"
 import runtimeConfig from "#vitehub/browser/runtime"
 
@@ -50,22 +51,6 @@ function actionTimeoutMs(input: Record<string, unknown>): number {
   visit(input)
   if (requestedTimeoutMs <= DEFAULT_ACTION_TIMEOUT_MS) return DEFAULT_ACTION_TIMEOUT_MS
   return Math.min(requestedTimeoutMs, MAX_PROVIDER_LIFECYCLE_TIMEOUT_MS) + PROVIDER_TIMEOUT_GRACE_MS
-}
-
-async function runtimeBinding(name: string): Promise<unknown> {
-  // SAFETY: Runtime hosts install an optional binding map; values stay unknown and own properties are checked below.
-  const environment = (globalThis as { __env__?: Record<string, unknown> }).__env__
-  if (environment && Object.hasOwn(environment, name)) {
-    const globalBinding = environment[name]
-    if (globalBinding) return globalBinding
-  }
-  try {
-    const workers = await import("cloudflare:workers") as { env?: Record<string, unknown> }
-    return workers.env && Object.hasOwn(workers.env, name) ? workers.env[name] : undefined
-  }
-  catch {
-    return
-  }
 }
 
 async function resolveBinding(): Promise<BrowserRunBinding> {
@@ -128,10 +113,18 @@ async function runQuickAction(
   action: BrowserAction,
   input: Record<string, unknown>,
 ): Promise<Response> {
+  let timedOut = false
+  const response = binding.quickAction(action, input).then((result) => {
+    if (timedOut) void result.body?.cancel().catch(() => {})
+    return result
+  })
   return await withBrowserTimeout(
-    binding.quickAction(action, input),
+    response,
     () => browserProviderError("cloudflare", `run ${action} quick action`),
-    { timeoutMs: actionTimeoutMs(input) },
+    {
+      timeoutMs: actionTimeoutMs(input),
+      onTimeout() { timedOut = true },
+    },
   )
 }
 

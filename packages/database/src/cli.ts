@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
-import { findPackageJSON } from "node:module"
+import { createRequire, findPackageJSON } from "node:module"
 import { pathToFileURL } from "node:url"
 
 import type { DBModulePublicOptions } from "./types.ts"
@@ -87,13 +87,36 @@ function resolveDrizzleKitBin(projectRoots: string[]): string | undefined {
     const drizzleKitBin = resolveDrizzleKitBinFromRoot(projectRoot)
     if (drizzleKitBin) return drizzleKitBin
   }
+  // pnpm keeps Kit beside the facade's real directory, outside the application's symlink.
+  for (const projectRoot of projectRoots) {
+    let facadeManifest: string | undefined
+    try {
+      facadeManifest = resolvePackageManifest("vite-hub", projectRoot)
+      if (facadeManifest) facadeManifest = realpathSync(facadeManifest)
+    }
+    catch {
+      continue
+    }
+    const bin = facadeManifest && resolveDrizzleKitBinFromRoot(dirname(facadeManifest))
+    if (bin) return bin
+  }
   return undefined
+}
+
+function resolvePackageManifest(name: string, projectRoot: string): string | undefined {
+  const base = pathToFileURL(resolve(projectRoot, "package.json"))
+  try {
+    return createRequire(base).resolve(`${name}/package.json`)
+  }
+  catch {
+    return findPackageJSON(name, base)
+  }
 }
 
 function resolveDrizzleKitBinFromRoot(projectRoot: string): string | undefined {
   let packageJsonFile: string | undefined
   try {
-    packageJsonFile = findPackageJSON("drizzle-kit", pathToFileURL(resolve(projectRoot, "package.json")))
+    packageJsonFile = resolvePackageManifest("drizzle-kit", projectRoot)
   }
   catch {
     return
@@ -125,6 +148,18 @@ async function runDrizzleKit(
     ? config.databaseNames.map(name => ({ configFile: config.generatedDrizzleConfigFilesByDatabase[name]!, database: config.databases?.[name] }))
     : [{ configFile: config?.generatedDrizzleConfigFile ?? ".vitehub/database/drizzle.config.ts", database: config?.databases?.[config.databaseNames[0]!] }]
 
+  if (feature === "migrate") {
+    for (const run of runs) {
+      if (!run.database || run.database.dialect !== "sqlite" || run.database.cloudflare?.http) continue
+      // Use the same invocation-time env values and local fallback as the generated Kit config.
+      const { database } = run
+      const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
+      run.database = { ...database, connection: {
+        authToken: resolveConfigValue(database.connection?.authToken, context.env ?? process.env) || undefined,
+        url: resolveConfigValue(database.connection?.url, context.env ?? process.env) || defaultUrl,
+      } }
+    }
+  }
   const dryRun = feature === "migrate" && args.includes("--dry-run")
   const allowDataLoss = args.includes("--allow-data-loss")
   if (feature === "migrate" && (dryRun || !allowDataLoss)) {
@@ -166,7 +201,7 @@ async function checkPendingMigrations(
   // The CLI contributor is loaded while Vite resolves the project config.
   const { readMigrationPlan } = await import("./internal/migration-plan.ts")
   const [error, plan] = database
-    ? await readMigrationPlan(database, { env: context.env ?? process.env, projectRoot })
+    ? await readMigrationPlan({ ...database, migrationsDir: resolve(projectRoot, database.migrationsDir) }, { env: context.env ?? process.env, projectRoot })
     : [databaseErrorDiagnostics.DATABASE_MIGRATION_CHECK_FAILED({ database: "default", problem: "ViteHub has no resolved Database config. Run the command in a project that uses `hubDb()`." }), undefined]
   if (error) {
     context.stderr.write(`${formatRuntimeDiagnosticError(error)}\n`)

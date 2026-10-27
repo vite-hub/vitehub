@@ -1,8 +1,10 @@
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
 import { createAuthForRequest } from "@vite-hub/auth/server"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
-import { consoleAuthPath } from "./auth-path.ts"
+import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
+import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -11,6 +13,7 @@ function escapeHTML(value: string): string {
 }
 
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
+  const development = isConsoleDevelopmentBuild()
   const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
   const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
@@ -42,18 +45,18 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
     <main>
       <h1>Sign in</h1>
       <p>${message}</p>
-      <a href="${escapeHTML(startPath)}">${escapeHTML(buttonLabel)}</a>
+      <a href="${escapeHTML(startPath)}"${development ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>
     </main>
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors 'none'",
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
   })
@@ -72,6 +75,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     || !response.headers.get("content-type")?.startsWith("text/plain")
   ) return response
 
+  const development = isConsoleDevelopmentBuild()
   const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
@@ -129,11 +133,11 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
     status: 403,
@@ -266,4 +270,45 @@ export interface ConsoleSessionReader {
 export async function readConsoleSessionUser(auth: ConsoleSessionReader, request: Pick<Request, "headers">): Promise<ConsoleUser | undefined> {
   const session = v.safeParse(consoleSessionSchema, await auth.api.getSession({ headers: request.headers }))
   return session.success ? session.output.user : undefined
+}
+
+/** The app Auth access routes that protect the Console, and the Auth functions that check them. */
+export interface ConsoleAppAuthAccessOptions {
+  getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader
+  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false }) => Promise<Response | undefined>
+  /** Rejects a request without a session. Used for a Console path that no access route matches. */
+  requireSession: (event: object) => Promise<Response | undefined>
+  routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
+}
+
+/**
+ * The Console access `check` and `user` for `console: { auth: "app" }`. The generated Console plugin calls this, so it
+ * works for an H3 2 event and for an H3 1 event such as Nuxt 4's, which has no `url`.
+ */
+export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions): {
+  check: (event: object) => Promise<Response | undefined>
+  user: (event: object) => Promise<ConsoleUser | undefined>
+} {
+  return {
+    async check(event) {
+      const request = toEventRequest(event)
+      const path = consoleEventPath(event, request)
+      const method = request.method.toUpperCase()
+      const matched = options.routes.filter((route) => {
+        if (route.method && route.method !== method) return false
+        if (path === route.route) return true
+        if (!route.route.endsWith("/**")) return false
+        const base = route.route.slice(0, -3)
+        return path === base || path.startsWith(`${base}/`)
+      })
+      if (!matched.length) return options.requireSession(event)
+      const indexes = matched.map(route => route.index)
+      const required = matched.filter(route => route.authorize).map(route => route.index)
+      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false })
+    },
+    user(event) {
+      const request = toEventRequest(event)
+      return readConsoleSessionUser(options.getAuthForRequest(request, undefined, event), request)
+    },
+  }
 }

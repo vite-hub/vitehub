@@ -119,6 +119,11 @@ export function consoleRequestError(statusCode: number, statusMessage: string, c
   return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
 }
 
+/** Tells if the Console runs on a development server. */
+export function isConsoleDevelopmentRuntime(): boolean {
+  return globalThis.process?.env?.NODE_ENV === "development"
+}
+
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
   setConsoleResponseHeaders(event)
   const method = event.method ?? event.req?.method ?? event.node?.req?.method

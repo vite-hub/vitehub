@@ -36,6 +36,33 @@ describe("internal Forge client", () => {
     expect(fixture.calls.filter(call => call.method === "POST")).toHaveLength(2)
   })
 
+  it.each(["fresh", "cached"])("isolates %s token details from later callers", async (source) => {
+    const now = Date.now()
+    const expiresAt = now + 120_000
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now)
+    try {
+      let calls = 0
+      const fetcher: typeof fetch = async () => Response.json({ token: `token-${++calls}`, expires_at: new Date(expiresAt).toISOString() })
+      const input = { appId: 1, privateKey: privateKeys("pkcs8"), fetch: fetcher }
+      const credentials = githubAppCredentials(input)
+      if (source === "cached") await credentials.installationToken(42)
+      const details = await credentials.installationToken(42)
+      details.token = "caller-changed-token"
+      details.expiresAt.setTime(now + 86_400_000)
+
+      const other = githubAppCredentials(input)
+      await expect(other.installationToken(42)).resolves.toEqual({ token: "token-1", expiresAt: new Date(expiresAt) })
+      expect(calls).toBe(1)
+
+      clock.mockReturnValue(now + 60_000)
+      await expect(other.installationToken(42)).resolves.toMatchObject({ token: "token-2" })
+      expect(calls).toBe(2)
+    }
+    finally {
+      clock.mockRestore()
+    }
+  })
+
   it("renews tokens at the 60-second expiry margin", async () => {
     const now = Date.now()
     const clock = vi.spyOn(Date, "now").mockReturnValue(now)

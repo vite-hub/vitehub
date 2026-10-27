@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/time.ts"
+import { consoleDateTime, dayLabel, exactTimestamps, recentTimestamp } from "../src/console/runtime/client/time.ts"
 
 describe("recentTimestamp", () => {
   const now = Date.parse("2026-10-06T12:00:00.000Z")
@@ -47,5 +47,17 @@ describe("dayLabel and exactTimestamps", () => {
       utc: "Oct 6, 2026, 09:05:03 UTC",
     })
     expect(exactTimestamps("nope")).toBeUndefined()
+  })
+})
+
+describe("consoleDateTime", () => {
+  it("formats dates in English whatever the browser language", () => {
+    // The zone is the viewer's, so only the English shape is fixed.
+    expect(consoleDateTime("2026-10-25T11:30:00.000Z")).toMatch(/^[A-Z][a-z]{2} \d{1,2}, \d{4}, \d{1,2}:\d{2}\s[AP]M$/)
+    expect(consoleDateTime(Date.parse("2026-10-25T11:30:00.000Z"))).toBe(consoleDateTime("2026-10-25T11:30:00.000Z"))
+  })
+
+  it("returns an invalid timestamp unchanged", () => {
+    expect(consoleDateTime("nope")).toBe("nope")
   })
 })
