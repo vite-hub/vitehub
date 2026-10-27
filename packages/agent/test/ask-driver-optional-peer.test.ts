@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { fileURLToPath } from "node:url"
 
-import { ask } from "../src/ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { askJev } from "../src/internal/ask-runtime.ts"
 import { hubAgent } from "../src/vite.ts"
 

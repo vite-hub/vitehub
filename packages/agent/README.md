@@ -86,7 +86,8 @@ export default defineAgent({
 
 ```ts
 // server/agents/labeller.ts
-import { ask, defineAgent } from "@vite-hub/agent";
+import { defineAgent } from "@vite-hub/agent";
+import { ask } from "@vite-hub/gateways";
 
 export default defineAgent({
   driver: {

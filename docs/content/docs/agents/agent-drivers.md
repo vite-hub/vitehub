@@ -346,7 +346,8 @@ pnpm add advocaat
 The Driver asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to ask through Vercel AI Gateway or Cloudflare AI Gateway instead:
 
 ```ts [server/agents/labeller.ts]
-import { ask, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
 import { cloudflare } from 'vite-hub/gateways'
 
 export default defineAgent({
@@ -361,7 +362,8 @@ export default defineAgent({
 Build the questions with `ask`:
 
 ```ts [server/agents/labeller.ts]
-import { ask, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
@@ -391,7 +393,8 @@ Jev reads the Invocation `data` when a caller sets it, else the prompt text, els
 
 ```ts [server/agents/labeller.ts]
 import { useServerEnv } from '#vitehub/env/server'
-import { ask, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {

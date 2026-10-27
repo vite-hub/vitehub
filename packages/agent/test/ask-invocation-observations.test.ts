@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ask } from "../src/ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { defineAgent, runAgent } from "../src/index.ts"
 import { usage } from "../src/capabilities/usage.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"

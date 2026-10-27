@@ -1876,6 +1876,9 @@ importers:
       '@vite-hub/forge':
         specifier: workspace:*
         version: link:../forge
+      '@vite-hub/gateways':
+        specifier: workspace:*
+        version: link:../gateways
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime

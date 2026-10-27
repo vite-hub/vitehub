@@ -1,4 +1,4 @@
-import { ask } from "../ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { askJev } from "../internal/ask-runtime.ts"

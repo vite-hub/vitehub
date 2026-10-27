@@ -97,8 +97,8 @@ export default defineAgent({
 An [ask Driver](/docs/agents/agent-drivers#use-an-ask-driver) takes a gateway with `ask()`. Without one, it uses `typesafe()`:
 
 ```ts [server/agents/labeller.ts]
-import { ask, defineAgent } from 'vite-hub/agent'
-import { cloudflare } from 'vite-hub/gateways'
+import { defineAgent } from 'vite-hub/agent'
+import { ask, cloudflare } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
