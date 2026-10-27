@@ -1,11 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ask } from "../src/ask.ts"
-import { askJev } from "../src/internal/ask-runtime.ts"
+import { ask, typesafe } from "../src/index.ts"
 
-vi.mock("../src/internal/server-env.ts", () => ({
-  importServerEnvModule: async () => ({ useServerEnv: () => ({ typesafe: { apiKey: "test-sdk-key", model: "jev-latest", provider: "typesafe" } }) }),
-}))
+const gateway = typesafe({ apiKey: "test-sdk-key", model: "jev-latest" })
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -13,7 +10,7 @@ describe("Ask through the installed advocaat SDK", () => {
   it.each([0, 42, false, true, { toJSON: () => 0 }, { toJSON: () => false }])("converts scalar state %j to text for the SDK Entry contract", async (state) => {
     const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: Parameters<typeof globalThis.fetch>[1]) => Response.json({ answers: { accepted: { type: "noul", noul: 0.75 } } }))
     vi.stubGlobal("fetch", fetch)
-    await expect(askJev({}, state, { accepted: ask.if("Accept it?", { threshold: 0.5 }) })).resolves.toEqual({ accepted: true })
+    await expect(gateway.ask(state, { accepted: ask.if("Accept it?", { threshold: 0.5 }) })).resolves.toEqual({ accepted: true })
     expect(fetch).toHaveBeenCalledOnce()
     expect(JSON.parse(String(fetch.mock.calls[0]?.[1]?.body))).toEqual({ state: String(JSON.parse(JSON.stringify(state))), questions: { accepted: { type: "noul", instructions: "Accept it?" } }, model: "jev-latest" })
   })
@@ -29,7 +26,7 @@ describe("Ask through the installed advocaat SDK", () => {
     const fetch = vi.fn(async (_input: Parameters<typeof globalThis.fetch>[0], _init?: Parameters<typeof globalThis.fetch>[1]) => Response.json({ answers }))
     vi.stubGlobal("fetch", fetch)
     const criteria = [0, false, nested] as const
-    const result = await askJev({}, nested, {
+    const result = await gateway.ask(nested, {
       chance: ask.chance(false, { true: 0, false: false }),
       choice: ask.choice(0, { no: false, yes: nested }),
       switch: ask.switch(true, { no: 0, yes: true }),

@@ -73,7 +73,8 @@ vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { cliproxy, defineAiGateway, vercel } from "../src/gateways.ts"
+import { cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
+import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
@@ -467,8 +468,9 @@ describe("Provider Agent Driver", () => {
   it.each(["codex", "claude-code"] as const)("resolves %s gateway secrets with invocation purpose", async (provider) => {
     const threadId = "thread-gateway-purpose"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const apiKey = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "proxy-key" : undefined)
-    const header = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "client-id" : undefined)
+    // The Agent passes its credential context to gateway resolvers, with the Invocation purpose.
+    const apiKey = vi.fn((context: AiGatewayContext) => Reflect.get(context, "purpose") === "invocation" ? "proxy-key" : undefined)
+    const header = vi.fn((context: AiGatewayContext) => Reflect.get(context, "purpose") === "invocation" ? "client-id" : undefined)
     await createProviderAgentAdapter({
       gateway: cliproxy({ url: "https://proxy.example", apiKey, headers: { "X-Client": header } }),
       provider,

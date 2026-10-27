@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { ask } from "../src/ask.ts"
-import { cliproxy, cloudflare, defineAiGateway, typesafe, vercel } from "../src/gateways.ts"
+import { ask, cliproxy, cloudflare, defineAiGateway, typesafe, vercel } from "../src/index.ts"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -122,9 +121,9 @@ describe("gateway.ask()", () => {
   it("names the missing variables before any request", async () => {
     for (const name of ["TYPESAFE_API_KEY", "VITEHUB_TYPESAFE_API_KEY", "CLOUDFLARE_ACCOUNT_ID", "CLOUDFLARE_AI_GATEWAY_ID"]) vi.stubEnv(name, undefined)
     const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
-    await expect(typesafe({ fetch }).ask("state", questions)).rejects.toMatchObject({ code: "AGENT_R0977", message: expect.stringContaining("Set TYPESAFE_API_KEY, or pass apiKey") })
+    await expect(typesafe({ fetch }).ask("state", questions)).rejects.toMatchObject({ code: "GATEWAYS_R0002", message: expect.stringContaining("Set TYPESAFE_API_KEY, or pass apiKey") })
     await expect(cloudflare({ apiKey: "ts-key", fetch, gatewayId: "finance" }).ask("state", questions)).rejects.toMatchObject({
-      code: "AGENT_R0980",
+      code: "GATEWAYS_R0004",
       message: expect.stringContaining("Set CLOUDFLARE_ACCOUNT_ID, or pass accountId"),
     })
     expect(fetch).not.toHaveBeenCalled()
@@ -134,21 +133,21 @@ describe("gateway.ask()", () => {
     const rejected = vi.fn<typeof globalThis.fetch>(async () => Response.json({ error: "unauthorized" }, { status: 401 }))
     const explicit = await cloudflare({ accountId: "account", apiKey: "ts-key", fetch: rejected, gatewayId: "finance" }).ask("state", questions).catch((error: unknown) => error)
     expect(rejected).toHaveBeenCalledOnce()
-    expect(explicit).toMatchObject({ code: "AGENT_R1009", providerStatus: 401, status: 503 })
+    expect(explicit).toMatchObject({ code: "GATEWAYS_R0008", providerStatus: 401, status: 503 })
     expect(String((explicit as Error).message)).toContain("Cloudflare AI Gateway Jev provider rejected the API key with HTTP 401")
     expect((explicit as { fix?: string }).fix).toContain("Pass a valid apiKey to the gateway")
 
     vi.stubEnv("TYPESAFE_API_KEY", "env-ts-key")
     const fromEnv = await typesafe({ fetch: rejected }).ask("state", questions).catch((error: unknown) => error)
-    expect((fromEnv as { fix?: string }).fix).toContain("Set or rotate TYPESAFE_API_KEY")
+    expect((fromEnv as { fix?: string }).fix).toBe("Set or rotate TYPESAFE_API_KEY.")
   })
 
   it("fails with a diagnostic when a Driver-only gateway is asked anyway", async () => {
     const gateways = [cliproxy({ apiKey: "k", url: "https://proxy.example" }), defineAiGateway({ apiKey: "k", baseURL: { codex: "https://proxy.example/v1" }, name: "internal" })]
     for (const gateway of gateways) {
       // SAFETY: The types reject ask() on these gateways; the call checks the runtime diagnostic.
-      await expect((gateway as unknown as { ask: typeof typesafe extends () => infer G ? G extends { ask: infer A } ? A : never : never }).ask("state", questions)).rejects.toMatchObject({
-        code: "AGENT_R1013",
+      await expect((gateway as unknown as ReturnType<typeof typesafe>).ask("state", questions)).rejects.toMatchObject({
+        code: "GATEWAYS_R0005",
         message: expect.stringContaining(`Gateway "${gateway.name}" routes Driver model requests and cannot answer Jev questions`),
       })
     }

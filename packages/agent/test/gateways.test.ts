@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverAgentGatewayEnv } from "../src/channel-env-discovery.ts"
-import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/gateways.ts"
+import { anthropic, cliproxy, cloudflare, cloudflareAccess, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "@vite-hub/gateways"
 import { createAgentInspectionMetadata, defineAgent } from "../src/index.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { resolveAgentDriverGateway } from "../src/internal/agent-gateway.ts"
@@ -185,13 +185,13 @@ describe("gateway Server Env", () => {
       await mkdir(join(root, "server", "agents", "plain"), { recursive: true })
       await writeFile(join(root, "server", "agents", "dev", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { cliproxy, cloudflareAccess as access } from "vite-hub/agent/gateways"`,
+        `import { cliproxy, cloudflareAccess as access } from "vite-hub/gateways"`,
         `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: access() }) } })`,
       ].join("\n"))
       await mkdir(join(root, "server", "agents", "labels"), { recursive: true })
       await writeFile(join(root, "server", "agents", "labels", "agent.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { cloudflare } from "vite-hub/agent/gateways"`,
+        `import { cloudflare } from "vite-hub/gateways"`,
         `const gateway = cloudflare()`,
         `export default defineAgent({ driver: { run: async ({ prompt }) => ({ output: await gateway.ask(prompt, {}) }) } })`,
       ].join("\n"))

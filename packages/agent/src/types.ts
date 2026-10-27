@@ -1,5 +1,6 @@
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
-import type { AskAnswers, AskAnswerType, AskQuestion, AskQuestions } from "./ask.ts"
+import type { AskAnswerType, AskQuestion } from "./ask.ts"
+import type { AiGateway } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
 import type { AgentInvocationAnnotationValue, AgentInvocationRecord, AgentInvocations } from "./invocations.ts"
 import type { StandardJSONSchemaV1, StandardSchemaV1 } from "@standard-schema/spec"
@@ -1823,7 +1824,7 @@ export interface AgentProviderDriverOptions<
     attachments?: AgentAttachmentExecutionOptions
   }
   /**
-   * Send model requests to an LLM proxy or gateway, such as `cliproxy({ url })` from `@vite-hub/agent/gateways`.
+   * Send model requests to an LLM proxy or gateway, such as `cliproxy({ url })` from `vite-hub/gateways`.
    * ViteHub writes the provider configuration and passes the key and headers in the provider environment.
    * A gateway replaces Codex `credentials`.
    */
@@ -1913,61 +1914,7 @@ export type AgentProviderCredentialResolver<
   TRuntimeConfig extends AgentRuntimeConfig = AgentRuntimeConfig,
 > = MaybeResolvable<AgentProviderCredentialValue, AgentProviderCredentialContext<TRuntimeConfig>>
 
-/**
- * A gateway API key or header value: a string, a sealed Server Env value, or an invocation-time resolver.
- * `undefined` or an empty string fails the invocation, so optional Server Env values can be passed directly.
- */
-export type AiGatewaySecret = MaybeResolvable<AgentProviderCredentialValue | undefined, AgentProviderCredentialContext>
-
-/** What an AI gateway does besides routing the model requests of provider Drivers. */
-export interface AiGatewayCapabilities {
-  /** The gateway answers TypeSafe Jev questions with `gateway.ask()`. */
-  ask: boolean
-}
-
-export interface AiGatewayAskOptions {
-  /** Receives the model, provider, and token counts of each Jev request. */
-  onUsage?: (usage: AgentUsageRecord) => void
-  /** Cancels the pending Jev requests. */
-  signal?: AbortSignal
-}
-
-/**
- * Answers TypeSafe Jev questions about `state`. Build the questions with `ask` from `@vite-hub/agent`. Large question sets
- * are sent in sequential bounded requests, and transient provider failures are retried.
- */
-export type AiGatewayAsk = <const Q extends AskQuestions>(state: unknown, questions: Q, options?: AiGatewayAskOptions) => Promise<AskAnswers<Q>>
-
-/** How a provider Driver reaches an AI gateway: a base URL per Driver, the key, and extra headers. */
-export interface AiGatewayDefinition {
-  /** Name shown in Agent inspection and diagnostics. */
-  name: string
-  /**
-   * Base URL for each Driver. Codex sends OpenAI Responses requests to `<url>/responses`.
-   * Claude Code sends Anthropic Messages requests to `<url>/v1/messages`.
-   * A Driver without an entry cannot use this gateway. A resolver runs for each invocation, so the URL can come from Server Env.
-   */
-  baseURL: Partial<Record<BuiltInAgentDriverName, MaybeResolvable<string, AgentProviderCredentialContext>>>
-  /** API key. When it is not set, ViteHub reads the first non-empty variable in `apiKeyEnv`. */
-  apiKey?: AiGatewaySecret
-  /** Process environment variables that supply the API key, in lookup order. */
-  apiKeyEnv?: readonly string[]
-  /** How the gateway receives the API key. `"bearer"` (default) sends `Authorization: Bearer`. `"x-api-key"` sends `x-api-key`. */
-  auth?: "bearer" | "x-api-key"
-  /** Extra request headers, such as Cloudflare Access service-token headers. Values are treated as secrets. */
-  headers?: Record<string, AiGatewaySecret>
-}
-
-/**
- * An AI gateway: an HTTP endpoint for the model requests of provider Drivers (`defineAgent({ driver: { gateway } })`) and,
- * when `TCapabilities` has `ask: true`, for TypeSafe Jev questions (`gateway.ask()`). Build one with a preset from
- * `@vite-hub/agent/gateways` or with `defineAiGateway()`.
- */
-export type AiGateway<TCapabilities extends Partial<AiGatewayCapabilities> = Partial<AiGatewayCapabilities>> = AiGatewayDefinition & (
-  TCapabilities["ask"] extends true ? { ask: AiGatewayAsk }
-    : TCapabilities["ask"] extends false ? { ask?: never }
-      : { ask?: AiGatewayAsk }
-)
+export type { AiGateway } from "@vite-hub/gateways"
 
 type KnownCodexReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max" | "ultra"
 /** A non-empty reasoning effort advertised by the selected Codex model. */
@@ -2083,7 +2030,7 @@ export type AgentAskQuestionsResolver<
 /**
  * Answers typed questions with TypeSafe Jev in bounded requests. The answers are the Invocation output.
  * Jev reads Invocation `data` when present, else the prompt, else the latest user message.
- * Credentials and the model come from the Server Env group `typesafe`, declared with `typesafeEnv()`.
+ * Questions go through `driver.gateway`, an AI gateway from `vite-hub/gateways`. Default: `typesafe()`.
  *
  * Each question is recorded in the Invocation's trace as `agent.tool.start` (`tool.input`: the question sent), then
  * `agent.tool.finish` (`tool.output`: the answer; `ask.answer`: the choice, score, chance or boolean;
@@ -2107,9 +2054,13 @@ export interface AgentAskDriver<
   capacity?: AgentDriverCapacityOptions
   credentials?: never
   execution?: never
+  /**
+   * Where the questions go: `typesafe()`, `vercel()`, or `cloudflare()` from `vite-hub/gateways`.
+   * Default: `typesafe()`, which reads `TYPESAFE_API_KEY` from Server Env.
+   */
+  gateway?: AiGateway<{ ask: true }>
   instructions?: never
   kind?: never
-  gateway?: never
   launch?: never
   model?: never
   permissionMode?: never

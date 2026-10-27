@@ -1,11 +1,8 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { ask } from "../src/ask.ts"
-import { anthropic, cliproxy, cloudflare, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/gateways.ts"
-import { defineAgent } from "../src/index.ts"
+import { anthropic, ask, cliproxy, cloudflare, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
 
-import type { AiGateway, AiGatewayAsk } from "../src/gateways.ts"
-import type { AskChoiceAnswer } from "../src/ask.ts"
+import type { AiGateway, AiGatewayAsk, AskChoiceAnswer } from "../src/index.ts"
 
 describe("AI gateway capabilities", () => {
   it("gives ask() only to gateways that answer Jev questions", () => {
@@ -27,10 +24,9 @@ describe("AI gateway capabilities", () => {
     }>()
   })
 
-  it("accepts every gateway as driver.gateway", () => {
+  it("accepts every gateway as AiGateway", () => {
     expectTypeOf(vercel()).toExtend<AiGateway>()
     expectTypeOf(cliproxy()).toExtend<AiGateway>()
-    defineAgent({ driver: { gateway: vercel(), kind: "codex" } })
-    defineAgent({ driver: { gateway: cliproxy(), kind: "claude-code" } })
+    expectTypeOf(typesafe()).toExtend<AiGateway<{ ask: true }>>()
   })
 })

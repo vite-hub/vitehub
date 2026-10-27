@@ -129,6 +129,8 @@ const netlifyAgentFunctionName = "vitehub-agent"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
+// AI gateways import advocaat for ask(); in this workspace the package is a sibling of the Agent package.
+const gatewaysPackageRoot = fileURLToPath(new URL("../../gateways/", import.meta.url)).replace(/\\/g, "/")
 const optionalAgentRuntimeExternals = [
   "@anthropic-ai/claude-agent-sdk",
   "bufferutil",
@@ -155,7 +157,9 @@ function isAgentPackageImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const normalized = importer.replace(/\\/g, "/")
   return normalized.includes("/node_modules/@vite-hub/agent/")
+    || normalized.includes("/node_modules/@vite-hub/gateways/")
     || normalized.startsWith(agentPackageRoot)
+    || normalized.startsWith(gatewaysPackageRoot)
 }
 
 function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions): string[] {

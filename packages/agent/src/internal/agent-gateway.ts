@@ -1,12 +1,11 @@
-import { resolveRuntimeValue } from "@vite-hub/runtime"
+import { aiGatewaySupports, normalizeAiGateway, resolveAiGatewayDriverRoute } from "@vite-hub/gateways/internal"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { codexConfigArg } from "./codex-launch-args.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
-import type { AgentProviderCredentialContext, AiGatewayDefinition, AiGatewaySecret, BuiltInAgentDriverName } from "../types.ts"
+import { gatewayEnvValue } from "./gateway-env.ts"
+import type { AiGatewayDefinition } from "@vite-hub/gateways"
+import type { AiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import type { AgentProviderCredentialContext, BuiltInAgentDriverName } from "../types.ts"
 
-const gatewayKeys = new Set(["apiKey", "apiKeyEnv", "auth", "baseURL", "headers", "name"])
-const headerName = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
-const environmentName = /^[A-Za-z_][A-Za-z0-9_]*$/
 const codexProviderId = "vitehub"
 const codexApiKeyEnvironment = "VITEHUB_GATEWAY_API_KEY"
 // A gateway can answer 200 and then relay an upstream error, such as `server_is_overloaded`.
@@ -21,131 +20,20 @@ export interface ResolvedAgentDriverGateway {
   launchArgs?: string
 }
 
-function invalid(message: string): never {
-  throw agentDiagnostics.AGENT_R0975({ message: `[vitehub] ${message}` })
-}
-
-function validBaseURL(name: string, driver: string, url: unknown, fail: (message: string) => never): string {
-  if (!hasRuntimeType(url, "string") || !URL.canParse(url) || !/^https?:$/.test(new URL(url).protocol)) {
-    fail(`Gateway "${name}" baseURL.${driver} must be an http or https URL.`)
-  }
-  return url.replace(/\/+$/, "")
-}
-
-function isSecretInput(value: unknown): boolean {
-  return hasRuntimeType(value, "string")
-    || hasRuntimeType(value, "function")
-    || (isRuntimeRecord(value) && (hasRuntimeType(value.unseal, "function") || hasRuntimeType(value.resolve, "function")))
-}
-
-// An explicit undefined secret, such as an unset optional Server Env value, must fail the
-// invocation rather than fall back to another credential.
-const missingSecret = () => undefined
-
-/**
- * Marks an AI gateway that answers Jev questions. A symbol key, so key checks and copies skip it. Such a gateway may
- * have no Driver base URL.
- */
-export const aiGatewayAsks: unique symbol = Symbol.for("vitehub.aiGateway.ask")
-
-/** Validate a gateway definition and return a frozen copy with its Driver routes. */
-export function normalizeAgentDriverGateway(value: unknown): AiGatewayDefinition {
-  if (!isRuntimeRecord(value) || Array.isArray(value)) invalid("A driver gateway must be an object.")
-  const unknown = Object.keys(value).filter(key => !gatewayKeys.has(key))
-  if (unknown.length) invalid(`A driver gateway does not support: ${unknown.join(", ")}.`)
-  if (!hasRuntimeType(value.name, "string") || !value.name.trim()) invalid("A driver gateway name must be a non-empty string.")
-  const name = value.name.trim()
-  if (!isRuntimeRecord(value.baseURL) || Array.isArray(value.baseURL)) invalid(`Gateway "${name}" baseURL must be an object keyed by Driver.`)
-  const baseURL: AiGatewayDefinition["baseURL"] = {}
-  for (const [driver, url] of Object.entries(value.baseURL)) {
-    if (driver !== "codex" && driver !== "claude-code") invalid(`Gateway "${name}" baseURL has an unknown Driver "${driver}". Use "codex" or "claude-code".`)
-    if (url === undefined) continue
-    if (hasRuntimeType(url, "function") || (isRuntimeRecord(url) && hasRuntimeType(url.resolve, "function"))) {
-      // SAFETY: The resolver shape is checked above; its URL is validated when an invocation resolves it.
-      baseURL[driver] = url as NonNullable<AiGatewayDefinition["baseURL"][typeof driver]>
-      continue
-    }
-    baseURL[driver] = validBaseURL(name, driver, url, invalid)
-  }
-  if (!Object.keys(baseURL).length && Reflect.get(value, aiGatewayAsks) !== true) invalid(`Gateway "${name}" must set a baseURL for "codex" or "claude-code".`)
-  if (value.auth !== undefined && value.auth !== "bearer" && value.auth !== "x-api-key") invalid(`Gateway "${name}" auth must be "bearer" or "x-api-key".`)
-  if (value.apiKey !== undefined && !isSecretInput(value.apiKey)) invalid(`Gateway "${name}" apiKey must be a string, sealed Server Env value, or resolver.`)
-  if (value.apiKeyEnv !== undefined && (!Array.isArray(value.apiKeyEnv) || !value.apiKeyEnv.every(item => hasRuntimeType(item, "string") && environmentName.test(item)))) {
-    invalid(`Gateway "${name}" apiKeyEnv must be a list of environment variable names.`)
-  }
-  const apiKey = Object.hasOwn(value, "apiKey") && value.apiKey === undefined ? missingSecret : value.apiKey
-  const apiKeyEnv = Array.isArray(value.apiKeyEnv) ? value.apiKeyEnv.filter((item): item is string => hasRuntimeType(item, "string")) : undefined
-  if (apiKey === undefined && !apiKeyEnv?.length) invalid(`Gateway "${name}" needs apiKey or apiKeyEnv.`)
-  let headers: AiGatewayDefinition["headers"]
-  if (value.headers !== undefined) {
-    if (!isRuntimeRecord(value.headers) || Array.isArray(value.headers)) invalid(`Gateway "${name}" headers must be an object.`)
-    headers = {}
-    for (const [header, item] of Object.entries(value.headers)) {
-      if (!headerName.test(header)) invalid(`Gateway "${name}" header name "${header}" is not a valid HTTP header name.`)
-      if (/^(?:authorization|x-api-key)$/i.test(header)) invalid(`Gateway "${name}" sets the API key with apiKey, not with the "${header}" header.`)
-      if (item === undefined) {
-        headers[header] = missingSecret
-        continue
-      }
-      if (!isSecretInput(item)) invalid(`Gateway "${name}" header "${header}" must be a string, sealed Server Env value, or resolver.`)
-      // SAFETY: isSecretInput validated the credential input shape above.
-      headers[header] = item as NonNullable<AiGatewayDefinition["headers"]>[string]
-    }
-  }
-  return Object.freeze({
-    name,
-    baseURL: Object.freeze(baseURL),
-    // SAFETY: isSecretInput validated the credential input shape above.
-    ...(apiKey === undefined ? {} : { apiKey: apiKey as AiGatewayDefinition["apiKey"] }),
-    ...(apiKeyEnv === undefined ? {} : { apiKeyEnv: Object.freeze(apiKeyEnv) }),
-    ...(value.auth === undefined ? {} : { auth: value.auth }),
-    ...(headers === undefined ? {} : { headers: Object.freeze(headers) }),
-  })
-}
+/** Validate a gateway for `driver.gateway` and keep its Driver routes. */
+export const normalizeAgentDriverGateway: (value: unknown) => AiGatewayDefinition = normalizeAiGateway
 
 /** Fail at definition time when a gateway cannot serve the selected Driver. */
 export function assertAgentDriverGatewaySupports(gateway: AiGatewayDefinition, driver: BuiltInAgentDriverName): void {
-  if (!gateway.baseURL[driver]) {
+  if (!aiGatewaySupports(gateway, driver)) {
     throw agentDiagnostics.AGENT_R0976({ message: `[vitehub] Gateway "${gateway.name}" does not serve the ${driver} Driver. Set baseURL["${driver}"] or choose another gateway.` })
   }
 }
 
-export async function resolveSecret(value: AiGatewaySecret, context: AgentProviderCredentialContext): Promise<string | undefined> {
-  const resolved: unknown = await resolveRuntimeValue(value, context)
-  const unseal = isRuntimeRecord(resolved) ? resolved.unseal : undefined
-  const secret = hasRuntimeType(unseal, "function") ? Reflect.apply(unseal, resolved, []) : resolved
-  return hasRuntimeType(secret, "string") && secret.trim() ? secret.trim() : undefined
-}
-
-async function resolveApiKey(gateway: AiGatewayDefinition, context: AgentProviderCredentialContext): Promise<string> {
-  if (gateway.apiKey !== undefined) {
-    const apiKey = await resolveSecret(gateway.apiKey, context)
-    if (apiKey) return apiKey
-    throw agentDiagnostics.AGENT_R0977({ message: `[vitehub] Gateway "${gateway.name}" apiKey resolved to an empty value.` })
-  }
-  for (const name of gateway.apiKeyEnv || []) {
-    const value = process.env[name]?.trim()
-    if (value) return value
-  }
-  throw agentDiagnostics.AGENT_R0977({ message: `[vitehub] Gateway "${gateway.name}" needs an API key. Set ${(gateway.apiKeyEnv || []).join(" or ")}, or pass apiKey.` })
-}
-
-async function resolveHeaders(gateway: AiGatewayDefinition, context: AgentProviderCredentialContext): Promise<[string, string][]> {
-  const headers: [string, string][] = []
-  for (const [name, input] of Object.entries(gateway.headers || {})) {
-    const value = await resolveSecret(input, context)
-    // Codex drops a header whose variable is unset, so a missing value would surface later as a 401 or 403 from the gateway.
-    if (!value) throw agentDiagnostics.AGENT_R0978({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" resolved to an empty value.` })
-    if (/[\r\n]/.test(value)) throw agentDiagnostics.AGENT_R0978({ message: `[vitehub] Gateway "${gateway.name}" header "${name}" must not contain line breaks.` })
-    headers.push([name, value])
-  }
-  return headers
-}
-
-function codexGateway(gateway: AiGatewayDefinition, baseURL: string, apiKey: string, headers: [string, string][]): ResolvedAgentDriverGateway {
+function codexGateway(gateway: AiGatewayDefinition, { apiKey, auth, baseURL, headers }: AiGatewayDriverRoute): ResolvedAgentDriverGateway {
   const environment: Record<string, string> = { [codexApiKeyEnvironment]: apiKey }
   const headerEnvironment: Record<string, string> = {}
-  if (gateway.auth === "x-api-key") headerEnvironment["x-api-key"] = codexApiKeyEnvironment
+  if (auth === "x-api-key") headerEnvironment["x-api-key"] = codexApiKeyEnvironment
   headers.forEach(([name, value], index) => {
     const variable = `VITEHUB_GATEWAY_HEADER_${index}`
     environment[variable] = value
@@ -158,7 +46,7 @@ function codexGateway(gateway: AiGatewayDefinition, baseURL: string, apiKey: str
     codexConfigArg(`${provider}.base_url`, JSON.stringify(baseURL)),
     codexConfigArg(`${provider}.wire_api`, JSON.stringify("responses")),
     codexConfigArg(`${provider}.stream_max_retries`, String(codexGatewayStreamRetries)),
-    ...(gateway.auth === "x-api-key" ? [] : [codexConfigArg(`${provider}.env_key`, JSON.stringify(codexApiKeyEnvironment))]),
+    ...(auth === "x-api-key" ? [] : [codexConfigArg(`${provider}.env_key`, JSON.stringify(codexApiKeyEnvironment))]),
     ...(Object.keys(headerEnvironment).length
       ? [codexConfigArg(`${provider}.env_http_headers`, `{${Object.entries(headerEnvironment).map(([name, variable]) => `${JSON.stringify(name)}=${JSON.stringify(variable)}`).join(",")}}`)]
       : []),
@@ -166,12 +54,12 @@ function codexGateway(gateway: AiGatewayDefinition, baseURL: string, apiKey: str
   return { environment, launchArgs: args.join(" ") }
 }
 
-function claudeGateway(gateway: AiGatewayDefinition, baseURL: string, apiKey: string, headers: [string, string][]): ResolvedAgentDriverGateway {
+function claudeGateway({ apiKey, auth, baseURL, headers }: AiGatewayDriverRoute): ResolvedAgentDriverGateway {
   return {
     environment: {
       ANTHROPIC_BASE_URL: baseURL,
       // Claude Code prefers ANTHROPIC_API_KEY when it is non-empty, so set only the variable for the selected header.
-      ...(gateway.auth === "x-api-key"
+      ...(auth === "x-api-key"
         ? { ANTHROPIC_API_KEY: apiKey, ANTHROPIC_AUTH_TOKEN: "" }
         : { ANTHROPIC_API_KEY: "", ANTHROPIC_AUTH_TOKEN: apiKey }),
       // Own this variable even without extra headers, just like the authentication variables.
@@ -180,20 +68,18 @@ function claudeGateway(gateway: AiGatewayDefinition, baseURL: string, apiKey: st
   }
 }
 
-/** Resolve the gateway into the provider process environment and Codex launch arguments. */
+/** Resolve the gateway into the provider process environment and Codex launch arguments. Preset values come from Server Env. */
 export async function resolveAgentDriverGateway(
   gateway: AiGatewayDefinition,
   driver: BuiltInAgentDriverName,
   context: AgentProviderCredentialContext,
 ): Promise<ResolvedAgentDriverGateway> {
   assertAgentDriverGatewaySupports(gateway, driver)
-  const baseURL = validBaseURL(gateway.name, driver, await resolveRuntimeValue(gateway.baseURL[driver], context), (message) => {
-    throw agentDiagnostics.AGENT_R0980({ message: `[vitehub] ${message}` })
+  const route = await resolveAiGatewayDriverRoute(gateway, driver, {
+    ...context,
+    env: async (preset, field) => await gatewayEnvValue(preset, field, context),
   })
-  const [apiKey, headers] = await Promise.all([resolveApiKey(gateway, context), resolveHeaders(gateway, context)])
-  return driver === "codex"
-    ? codexGateway(gateway, baseURL, apiKey, headers)
-    : claudeGateway(gateway, baseURL, apiKey, headers)
+  return driver === "codex" ? codexGateway(gateway, route) : claudeGateway(route)
 }
 
 /** Merge gateway values into the resolved `driver.env`. A gateway owns its variables. */

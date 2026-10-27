@@ -1,13 +1,12 @@
-import { agentDiagnostics } from "./agent-diagnostics.ts"
-import { aiGatewayAsks, normalizeAgentDriverGateway, resolveSecret } from "./internal/agent-gateway.ts"
-import { askJev, cloudflareJevBaseURL } from "./internal/ask-runtime.ts"
-import { gatewayEnvNames, gatewayEnvValue } from "./internal/gateway-env.ts"
-import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
-import type { JevRoute } from "./internal/ask-runtime.ts"
-import type { BuiltInGatewayEnv } from "./internal/gateway-env.ts"
-import type { AgentProviderCredentialContext, AiGateway, AiGatewayAsk, AiGatewayDefinition, AiGatewaySecret } from "./types.ts"
+import { cloudflareJevBaseURL, askJev } from "./jev.ts"
+import { aiGatewayAsks, isRecord, normalizeAiGateway, resolveAiGatewaySecret } from "./definition.ts"
+import { gatewayDiagnostics } from "./diagnostics.ts"
+import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 
-export type { AiGateway, AiGatewayAsk, AiGatewayAskOptions, AiGatewayCapabilities, AiGatewayDefinition, AiGatewaySecret } from "./types.ts"
+import type { AskAnswers, AskQuestions } from "./ask.ts"
+import type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
+import type { JevRequestContext, JevRoute } from "./jev.ts"
+import type { AiGateway, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewaySecret, AiGatewayUsage } from "./types.ts"
 
 /** Options shared by every gateway preset. */
 export interface AiGatewayPresetOptions {
@@ -59,33 +58,32 @@ export interface CloudflareAccessOptions {
   clientSecret?: AiGatewaySecret
 }
 
-type GatewayField<TGateway extends keyof BuiltInGatewayEnv> = keyof BuiltInGatewayEnv[TGateway] & string
 
 function origin(url: unknown, label: string): string {
-  if (!hasRuntimeType(url, "string") || !url.trim()) throw agentDiagnostics.AGENT_R0975({ message: `[vitehub] ${label}({ url }) must be a non-empty URL.` })
+  if (typeof url !== "string" || !url.trim()) throw gatewayDiagnostics.GATEWAYS_R0001({ message: `[vitehub] ${label}({ url }) must be a non-empty URL.` })
   return url.trim().replace(/\/+$/, "").replace(/\/v1$/, "")
 }
 
 function present(value: unknown): boolean {
-  return isRuntimeRecord(value) || (hasRuntimeType(value, "string") && value.trim() !== "")
+  return isRecord(value) || (typeof value === "string" && value.trim() !== "")
 }
 
 /** A resolver that reads one Server Env value and names its variables when the value is missing. */
-function requiredEnv<TGateway extends keyof BuiltInGatewayEnv>(
-  gateway: TGateway,
-  field: GatewayField<TGateway>,
+function requiredEnv<TPreset extends AiGatewayEnvPreset>(
+  preset: TPreset,
+  field: AiGatewayEnvFieldName<TPreset>,
   missing: (names: string) => never,
-): (context: AgentProviderCredentialContext) => Promise<unknown> {
+): (context: AiGatewayContext) => Promise<unknown> {
   return async (context) => {
-    const value = await gatewayEnvValue(gateway, field, context)
-    return present(value) ? value : missing(gatewayEnvNames(gateway, field).join(" or "))
+    const value = await readAiGatewayEnv(context, preset, field)
+    return present(value) ? value : missing(aiGatewayVendorNames(preset, field).join(" or "))
   }
 }
 
-function apiKeyFromEnv(gateway: keyof BuiltInGatewayEnv & ("anthropic" | "cliproxy" | "cloudflare" | "litellm" | "openai" | "openrouter" | "typesafe" | "vercel")): AiGatewaySecret {
-  // SAFETY: Server Env returns a string or a sealed secret for these fields, which resolveSecret accepts.
+function apiKeyFromEnv(gateway: "anthropic" | "cliproxy" | "cloudflare" | "litellm" | "openai" | "openrouter" | "typesafe" | "vercel"): AiGatewaySecret {
+  // SAFETY: The environment holds a string or a sealed secret for these fields, which resolveAiGatewaySecret accepts.
   return requiredEnv(gateway, "apiKey", (names) => {
-    throw agentDiagnostics.AGENT_R0977({ message: `[vitehub] Gateway "${gateway}" needs an API key. Set ${names}, or pass apiKey.` })
+    throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${gateway}" needs an API key. Set ${names}, or pass apiKey.` })
   }) as AiGatewaySecret
 }
 
@@ -96,7 +94,7 @@ function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string |
     return { "codex": `${root}/v1`, "claude-code": root }
   }
   const read = requiredEnv(gateway, "url", (names) => {
-    throw agentDiagnostics.AGENT_R0980({ message: `[vitehub] Gateway "${gateway}" needs a URL. Set ${names}, or pass url.` })
+    throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "${gateway}" needs a URL. Set ${names}, or pass url.` })
   })
   return {
     "codex": async context => `${origin(await read(context), gateway)}/v1`,
@@ -108,66 +106,84 @@ function hostedBaseURL(gateway: "cliproxy" | "litellm" | "ollama", url: string |
 /** How a gateway answers Jev questions. Secrets resolve for each `ask()` call. */
 interface JevAskSpec {
   apiKey: AiGatewaySecret
-  baseURL: () => Promise<string>
+  baseURL: (context: AiGatewayContext) => Promise<string>
   fetch?: typeof globalThis.fetch
   /** Header values that may resolve to nothing, such as the token of an open gateway. */
   headers?: Record<string, AiGatewaySecret>
   /** The variables that hold the key, for the fix of a rejected key. Undefined when the caller passed it. */
   keyEnv?: string
   label: string
-  model: string
+  model: string | ((context: AiGatewayContext) => Promise<string>)
   protocol: JevRoute["protocol"]
   /** Vercel: without its own key, advocaat signs in with VERCEL_OIDC_TOKEN. */
   oidc?: boolean
 }
 
-function askContext(signal: AbortSignal | undefined): AgentProviderCredentialContext {
-  // SAFETY: Jev requests run outside an Invocation. Preset resolvers read only the abort signal and the host Env.
-  return { abortSignal: signal } as AgentProviderCredentialContext
-}
+/** The route resolver of an ask gateway. ViteHub Agents call it with their Server Env context. */
+export const aiGatewayAskRoute: unique symbol = Symbol.for("vitehub.aiGateway.askRoute")
 
-function jevAsk(name: string, spec: JevAskSpec): AiGatewayAsk {
-  return async (state, questions, { onUsage, signal } = {}) => await askJev({
-    ...(signal ? { abortSignal: signal } : {}),
-    ...(onUsage ? { recordUsage: onUsage } : {}),
-    route: async () => {
-      const context = askContext(signal)
-      const resolvedKey = await resolveSecret(spec.apiKey, context)
+type AskRouteResolver = (context: AiGatewayContext) => Promise<JevRoute>
+
+function jevRoute(name: string, spec: JevAskSpec): AskRouteResolver {
+  return async (context) => {
+      const resolvedKey = await resolveAiGatewaySecret(spec.apiKey, context)
       // A Vercel OIDC token signs in as OIDC, not as an AI Gateway key.
       const apiKey = spec.oidc && resolvedKey === globalThis.process?.env?.VERCEL_OIDC_TOKEN?.trim() ? undefined : resolvedKey
-      if (!apiKey && !spec.oidc) throw agentDiagnostics.AGENT_R0977({ message: `[vitehub] Gateway "${name}" apiKey resolved to an empty value.` })
+      if (!apiKey && !spec.oidc) throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" apiKey resolved to an empty value.` })
       const headers: Record<string, string> = {}
       for (const [header, input] of Object.entries(spec.headers ?? {})) {
-        const value = await resolveSecret(input, context)
+        const value = await resolveAiGatewaySecret(input, context)
         if (value) headers[header] = value
       }
       return {
         ...(apiKey ? { apiKey } : {}),
-        baseURL: await spec.baseURL(),
+        baseURL: await spec.baseURL(context),
         ...(spec.fetch ? { fetch: spec.fetch } : {}),
         ...(Object.keys(headers).length ? { headers } : {}),
         ...(spec.keyEnv ? { keyEnv: spec.keyEnv } : {}),
         label: spec.label,
-        model: spec.model,
+        model: typeof spec.model === "string" ? spec.model : await spec.model(context),
         name,
         protocol: spec.protocol,
       }
-    },
+  }
+}
+
+/** Asks through a gateway with a resolver context, observers, and usage records. ViteHub Agents use it for `driver.ask`. */
+export async function askAiGateway<const Q extends AskQuestions>(
+  gateway: AiGateway,
+  state: unknown,
+  questions: Q,
+  options: { context?: AiGatewayContext, observe?: JevRequestContext["observe"], onUsage?: (usage: AiGatewayUsage) => void, signal?: AbortSignal } = {},
+): Promise<AskAnswers<Q>> {
+  const route: unknown = Reflect.get(gateway, aiGatewayAskRoute)
+  if (typeof route !== "function") return await unsupportedAsk(gateway.name)(state, questions)
+  const context: AiGatewayContext = { ...options.context, ...(options.signal ? { abortSignal: options.signal } : {}) }
+  return await askJev({
+    ...(options.signal ? { abortSignal: options.signal } : {}),
+    ...(options.observe ? { observe: options.observe } : {}),
+    ...(options.onUsage ? { recordUsage: options.onUsage } : {}),
+    // SAFETY: Only createAiGateway sets this symbol, with an AskRouteResolver.
+    route: async () => await (route as AskRouteResolver)(context),
   }, state, questions)
 }
 
 function unsupportedAsk(name: string): AiGatewayAsk {
   return async () => {
-    throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] Gateway "${name}" routes Driver model requests and cannot answer Jev questions. Use typesafe(), vercel(), or cloudflare() for ask().` })
+    throw gatewayDiagnostics.GATEWAYS_R0005({ message: `[vitehub] Gateway "${name}" routes Driver model requests and cannot answer Jev questions. Use typesafe(), vercel(), or cloudflare() for ask().` })
   }
 }
 
-function createAiGateway(definition: AiGatewayDefinition, ask?: AiGatewayAsk): AiGateway {
-  const routes = normalizeAgentDriverGateway(ask ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
-  const gateway = { ...routes }
+function createAiGateway(definition: AiGatewayDefinition, route?: AskRouteResolver): AiGateway {
+  const routes = normalizeAiGateway(route ? Object.defineProperty({ ...definition }, aiGatewayAsks, { value: true }) : definition)
+  const gateway: AiGateway = { ...routes }
   // Not enumerable, so copies and `driver.gateway` keep only the Driver routes.
-  Object.defineProperty(gateway, "ask", { value: ask ?? unsupportedAsk(routes.name) })
-  if (ask) Object.defineProperty(gateway, aiGatewayAsks, { value: true })
+  Object.defineProperty(gateway, "ask", {
+    value: route
+      ? (async (state, questions, options = {}) => await askAiGateway(gateway, state, questions, options)) satisfies AiGatewayAsk
+      : unsupportedAsk(routes.name),
+  })
+  if (route) Object.defineProperties(gateway, { [aiGatewayAsks]: { value: true }, [aiGatewayAskRoute]: { value: route } })
   return Object.freeze(gateway)
 }
 
@@ -181,8 +197,8 @@ function preset(definition: AiGatewayDefinition, options: AiGatewayPresetOptions
 }
 
 /** Variables of the key, or undefined when the caller passed it. */
-function keyEnv(gateway: keyof BuiltInGatewayEnv, options: { apiKey?: unknown } | undefined): string | undefined {
-  return options && Object.hasOwn(options, "apiKey") ? undefined : gatewayEnvNames(gateway, "apiKey" as never).join(" or ")
+function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | undefined): string | undefined {
+  return options && Object.hasOwn(options, "apiKey") ? undefined : aiGatewayVendorNames(preset, "apiKey").join(" or ")
 }
 
 /**
@@ -200,9 +216,9 @@ export function defineAiGateway(gateway: AiGatewayDefinition): AiGateway<{ ask: 
  */
 export function cloudflareAccess(options: CloudflareAccessOptions = {}): Record<string, AiGatewaySecret> {
   const fromEnv = (field: "clientId" | "clientSecret", header: string): AiGatewaySecret => {
-    // SAFETY: Server Env returns a string or a sealed secret for these fields, which resolveSecret accepts.
+    // SAFETY: The environment holds a string or a sealed secret for these fields, which resolveAiGatewaySecret accepts.
     return requiredEnv("cloudflareAccess", field, (names) => {
-      throw agentDiagnostics.AGENT_R0978({ message: `[vitehub] Gateway header "${header}" needs a value. Set ${names}, or pass cloudflareAccess({ ${field} }).` })
+      throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway header "${header}" needs a value. Set ${names}, or pass cloudflareAccess({ ${field} }).` })
     }) as AiGatewaySecret
   }
   // A present option replaces its variable even when it is undefined, so the invocation fails instead.
@@ -224,8 +240,8 @@ export function litellm(options: AiHostedGatewayOptions = {}): AiGateway<{ ask: 
 
 /** [Ollama](https://docs.ollama.com). Serves Codex and Claude Code. Reads `OLLAMA_URL` and `OLLAMA_API_KEY`; defaults to `http://localhost:11434` without a key. */
 export function ollama(options: AiHostedGatewayOptions = {}): AiGateway<{ ask: false }> {
-  const read = (field: "apiKey" | "url") => async (context: AgentProviderCredentialContext) => {
-    const value = await gatewayEnvValue("ollama", field, context)
+  const read = (field: "apiKey" | "url") => async (context: AiGatewayContext) => {
+    const value = await readAiGatewayEnv(context, "ollama", field)
     return present(value) ? value : undefined
   }
   const url = read("url")
@@ -238,8 +254,8 @@ export function ollama(options: AiHostedGatewayOptions = {}): AiGateway<{ ask: f
           "claude-code": async context => origin(await url(context) ?? "http://localhost:11434", "ollama"),
         },
     // A local server does not check the key, but both CLIs need one to skip their own sign-in.
-    // SAFETY: Server Env returns a string or a sealed secret for this field, which resolveSecret accepts.
-    apiKey: (async (context: AgentProviderCredentialContext) => await read("apiKey")(context) ?? "ollama") as AiGatewaySecret,
+    // SAFETY: The environment holds a string or a sealed secret for this field, which resolveAiGatewaySecret accepts.
+    apiKey: (async (context: AiGatewayContext) => await read("apiKey")(context) ?? "ollama") as AiGatewaySecret,
   }, options))
 }
 
@@ -262,7 +278,7 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true }>
     baseURL: { "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code" },
     apiKey: apiKeyFromEnv("vercel"),
   }, options)
-  const ask = jevAsk("vercel", {
+  const route = jevRoute("vercel", {
     apiKey: definition.apiKey,
     baseURL: async () => "https://ai-gateway.vercel.sh/v4/ai",
     ...(options?.fetch ? { fetch: options.fetch } : {}),
@@ -273,8 +289,8 @@ export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true }>
     oidc: !(options && Object.hasOwn(options, "apiKey")),
     protocol: "vercel",
   })
-  // SAFETY: createAiGateway attaches the ask route built above.
-  return createAiGateway(definition, ask) as AiGateway<{ ask: true }>
+  // SAFETY: createAiGateway attaches ask() for the route built above.
+  return createAiGateway(definition, route) as AiGateway<{ ask: true }>
 }
 
 /** The OpenAI API with an API key. Serves Codex. Reads `OPENAI_API_KEY`. */
@@ -287,21 +303,24 @@ export function anthropic(options?: AiGatewayPresetOptions): AiGateway<{ ask: fa
   return defineAiGateway(preset({ name: "anthropic", baseURL: { "claude-code": "https://api.anthropic.com" }, apiKey: apiKeyFromEnv("anthropic"), auth: "x-api-key" }, options))
 }
 
-/** [TypeSafe](https://typesafe.ai). Answers Jev questions; it serves no Driver. Reads `TYPESAFE_API_KEY`. */
+/** [TypeSafe](https://typesafe.ai). Answers Jev questions; it serves no Driver. Reads `TYPESAFE_API_KEY` and `TYPESAFE_DEFAULT_MODEL`. */
 export function typesafe(options?: TypesafeGatewayOptions): AiGateway<{ ask: true }> {
   const definition = preset({ name: "typesafe", baseURL: {}, apiKey: apiKeyFromEnv("typesafe") }, options)
-  const ask = jevAsk("typesafe", {
+  const route = jevRoute("typesafe", {
     apiKey: definition.apiKey,
     baseURL: async () => "https://api.typesafe.ai",
     ...(options?.fetch ? { fetch: options.fetch } : {}),
     ...(definition.headers ? { headers: definition.headers } : {}),
     ...(keyEnv("typesafe", options) ? { keyEnv: keyEnv("typesafe", options) } : {}),
     label: "TypeSafe",
-    model: options?.model?.trim() || "jev-latest",
+    model: options?.model?.trim() || (async (context) => {
+      const model = await readAiGatewayEnv(context, "typesafe", "model")
+      return typeof model === "string" && model.trim() ? model.trim() : "jev-latest"
+    }),
     protocol: "typesafe",
   })
-  // SAFETY: createAiGateway attaches the ask route built above.
-  return createAiGateway(definition, ask) as AiGateway<{ ask: true }>
+  // SAFETY: createAiGateway attaches ask() for the route built above.
+  return createAiGateway(definition, route) as AiGateway<{ ask: true }>
 }
 
 /**
@@ -312,31 +331,32 @@ export function typesafe(options?: TypesafeGatewayOptions): AiGateway<{ ask: tru
  */
 export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ ask: true }> {
   const definition = preset({ name: "cloudflare", baseURL: {}, apiKey: apiKeyFromEnv("cloudflare") }, options)
-  const value = async (field: "accountId" | "gatewayId" | "slug", given: string | undefined) => {
+  const value = async (context: AiGatewayContext, field: "accountId" | "gatewayId" | "slug", given: string | undefined) => {
     if (given !== undefined) return given.trim()
-    const read = await gatewayEnvValue("cloudflare", field, askContext(undefined))
-    return hasRuntimeType(read, "string") ? read.trim() : ""
+    const read = await readAiGatewayEnv(context, "cloudflare", field)
+    return typeof read === "string" ? read.trim() : ""
   }
-  const required = async (field: "accountId" | "gatewayId", given: string | undefined) => {
-    const resolved = await value(field, given)
+  const required = async (context: AiGatewayContext, field: "accountId" | "gatewayId", given: string | undefined) => {
+    const resolved = await value(context, field, given)
     if (resolved) return resolved
     const label = field === "accountId" ? "an account ID" : "a gateway ID"
-    throw agentDiagnostics.AGENT_R0980({ message: `[vitehub] Gateway "cloudflare" needs ${label}. Set ${gatewayEnvNames("cloudflare", field).join(" or ")}, or pass ${field}.` })
+    throw gatewayDiagnostics.GATEWAYS_R0004({ message: `[vitehub] Gateway "cloudflare" needs ${label}. Set ${aiGatewayVendorNames("cloudflare", field).join(" or ")}, or pass ${field}.` })
   }
   // An open gateway has no token, so a missing one is left out instead of failing.
   const token: AiGatewaySecret = Object.hasOwn(options, "token")
     ? options.token
-    : async context => await gatewayEnvValue("cloudflare", "token", context) as string | undefined
-  const ask = jevAsk("cloudflare", {
+    // SAFETY: The environment holds a string or a sealed secret for the token.
+    : async context => await readAiGatewayEnv(context, "cloudflare", "token") as string | undefined
+  const route = jevRoute("cloudflare", {
     apiKey: definition.apiKey,
-    baseURL: async () => cloudflareJevBaseURL({
-      accountId: await required("accountId", options.accountId),
-      gatewayId: await required("gatewayId", options.gatewayId),
-      slug: await value("slug", options.slug),
+    baseURL: async context => cloudflareJevBaseURL({
+      accountId: await required(context, "accountId", options.accountId),
+      gatewayId: await required(context, "gatewayId", options.gatewayId),
+      slug: await value(context, "slug", options.slug),
     }),
     ...(options.fetch ? { fetch: options.fetch } : {}),
-    headers: { "cf-aig-authorization": async (context: AgentProviderCredentialContext) => {
-      const resolved = await resolveSecret(token, context)
+    headers: { "cf-aig-authorization": async (context: AiGatewayContext) => {
+      const resolved = await resolveAiGatewaySecret(token, context)
       return resolved ? `Bearer ${resolved}` : undefined
     } },
     ...(Object.hasOwn(options, "apiKey") ? {} : { keyEnv: "TYPESAFE_API_KEY or CLOUDFLARE_AI_GATEWAY_TOKEN" }),
@@ -344,6 +364,6 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
     model: options.model?.trim() || "jev-latest",
     protocol: "typesafe",
   })
-  // SAFETY: createAiGateway attaches the ask route built above.
-  return createAiGateway(definition, ask) as AiGateway<{ ask: true }>
+  // SAFETY: createAiGateway attaches ask() for the route built above.
+  return createAiGateway(definition, route) as AiGateway<{ ask: true }>
 }

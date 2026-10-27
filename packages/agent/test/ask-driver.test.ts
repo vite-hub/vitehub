@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { createRuntimeRegistry } from "../../env/src/core/resolve.ts"
-import { env } from "../../env/src/core/declarations.ts"
-import { typesafeEnv } from "../../env/src/presets.ts"
-import { resolveServerEnv } from "../../env/src/server.ts"
+import { cliproxy, cloudflare, vercel } from "@vite-hub/gateways"
 
 import { llmGate, llmRoute } from "../src/capabilities.ts"
 import { createAgentInspectionMetadata, defineAgent, runAgent } from "../src/index.ts"
@@ -12,11 +9,8 @@ import { ask } from "../src/ask.ts"
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts"
 import { askState } from "../src/internal/ask-runtime.ts"
 import * as askRuntime from "../src/internal/ask-runtime.ts"
-import { importServerEnvModule } from "../src/internal/server-env.ts"
 
 type FakeQuestions = Record<string, { criteria?: Record<string, unknown>, type: string }>
-
-const fake = vi.hoisted(() => ({ serverEnv: {} as Record<string, unknown>, useRequestBindings: false, resolveEnv: undefined as (() => unknown) | undefined }))
 
 /** A fake TypeSafe API: no network. It receives SDK questions; each choice answers with its first label. */
 const askJev = vi.hoisted(() => vi.fn(async (_state: unknown, questions: FakeQuestions, _options?: unknown): Promise<Record<string, unknown>> =>
@@ -37,13 +31,6 @@ vi.mock("advocaat", () => ({
     }),
   }),
 }))
-vi.mock("../src/internal/server-env.ts", () => ({
-  importServerEnvModule: async () => ({
-    useServerEnv: (event?: unknown) => fake.resolveEnv ? fake.resolveEnv() : fake.useRequestBindings
-      ? { typesafe: { apiKey: getCloudflareEnv(event)?.TYPESAFE_API_KEY } }
-      : fake.serverEnv,
-  }),
-}))
 
 const runtime = () => ({
   memo: vi.fn(),
@@ -52,17 +39,11 @@ const runtime = () => ({
   waitUntil: vi.fn(),
 })
 
-const sealed = (value: string) => ({ unseal: () => value })
-
-function mockServerEnv(typesafe: unknown) {
-  fake.serverEnv = typesafe === undefined ? {} : { typesafe }
-}
-
 beforeEach(() => {
   askJev.mockClear()
-  fake.useRequestBindings = false
-  fake.resolveEnv = undefined
-  mockServerEnv({ apiKey: sealed("ts-key"), model: "jev-latest", provider: "typesafe" })
+  vi.unstubAllEnvs()
+  for (const name of ["VITEHUB_TYPESAFE_API_KEY", "VITEHUB_TYPESAFE_MODEL", "TYPESAFE_DEFAULT_MODEL", "AI_GATEWAY_API_KEY", "VITEHUB_VERCEL_API_KEY"]) vi.stubEnv(name, undefined)
+  vi.stubEnv("TYPESAFE_API_KEY", "ts-key")
 })
 
 describe("ask Driver", () => {
@@ -131,13 +112,10 @@ describe("ask Driver", () => {
 
   it("binds request Env for concurrent dynamic question resolvers", async () => {
     const dispatch = vi.spyOn(askRuntime, "askJev").mockResolvedValue({ spam: true })
-    fake.useRequestBindings = true
     const agent = defineAgent({
       driver: { ask: async () => {
-        const { useServerEnv } = await importServerEnvModule()
         await Promise.resolve()
-        const env = useServerEnv?.()
-        return { spam: ask.if(JSON.stringify(env)) }
+        return { spam: ask.if(String(getCloudflareEnv(undefined)?.TYPESAFE_API_KEY)) }
       } },
       runtime: false,
     })
@@ -149,7 +127,7 @@ describe("ask Driver", () => {
       }, { prompt: apiKey })))
       expect(dispatch).toHaveBeenCalledTimes(2)
       for (const [, state, questions] of dispatch.mock.calls) {
-        expect(questions.spam).toMatchObject({ instructions: JSON.stringify({ typesafe: { apiKey: state } }) })
+        expect(questions.spam).toMatchObject({ instructions: state })
       }
       expect(getCloudflareEnv(undefined, { fallback: true })?.TYPESAFE_API_KEY).toBeUndefined()
     }
@@ -207,51 +185,51 @@ describe("ask Driver", () => {
     expect(askJev).not.toHaveBeenCalled()
   })
 
-  it("lets the Vercel provider use VERCEL_OIDC_TOKEN without an API key", async () => {
-    vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
-    mockServerEnv({ model: "typesafe-ai/jev", provider: "vercel" })
-    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
-
-    await expect(runAgent(agent, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
-    expect(askJev).toHaveBeenCalledWith("Win money", expect.any(Object), { model: "typesafe-ai/jev", provider: "vercel", signal: undefined })
-    vi.unstubAllEnvs()
-  })
-
-  it("explains a missing Server Env group or API key", async () => {
-    mockServerEnv(undefined)
-    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
-
-    await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0935",
-      message: expect.stringContaining("typesafe: typesafeEnv()"),
-    })
-
-    mockServerEnv({ provider: "typesafe" })
-    await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0936",
-      message: expect.stringContaining("TYPESAFE_API_KEY"),
-    })
-  })
-
-  it("diagnoses a missing preset key while preserving unrelated required Env failures", async () => {
+  it("reads the request's Cloudflare bindings for the default typesafe() gateway", async () => {
     vi.stubEnv("TYPESAFE_API_KEY", undefined)
     const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
-    try {
-      fake.resolveEnv = () => resolveServerEnv(createRuntimeRegistry({ typesafe: typesafeEnv() }), { env: {} })
-      await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-        code: "AGENT_R0936",
-        message: expect.stringContaining("TYPESAFE_API_KEY"),
-      })
-      expect(askJev).not.toHaveBeenCalled()
 
-      fake.resolveEnv = () => resolveServerEnv(createRuntimeRegistry({ unrelated: env({ source: env.source("TYPESAFE_API_KEY") }) }), { env: {} })
-      await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-        code: "ENV_REQUIRED_MISSING",
-      })
-    }
-    finally {
-      vi.unstubAllEnvs()
-    }
+    await expect(runAgent(agent, { ...runtime(), cloudflare: { env: { TYPESAFE_API_KEY: "binding-key" } } }, { prompt: "Win money" })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenCalledWith("Win money", expect.any(Object), expect.objectContaining({ apiKey: "binding-key", baseURL: "https://api.typesafe.ai", provider: "typesafe" }))
+  })
+
+  it("asks through driver.gateway", async () => {
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
+    const viaVercel = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") }, gateway: vercel() }, runtime: false })
+    await expect(runAgent(viaVercel, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
+    const [, , vercelOptions] = askJev.mock.calls[0] ?? []
+    expect(vercelOptions).toMatchObject({ baseURL: "https://ai-gateway.vercel.sh/v4/ai", model: "typesafe-ai/jev", provider: "vercel" })
+    expect(vercelOptions).not.toHaveProperty("apiKey")
+
+    const viaCloudflare = defineAgent({
+      driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", apiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },
+      runtime: false,
+    })
+    await expect(runAgent(viaCloudflare, runtime(), { prompt: "Win money" })).resolves.toEqual({ spam: true })
+    expect(askJev).toHaveBeenLastCalledWith("Win money", expect.any(Object), expect.objectContaining({
+      apiKey: "tenant-key",
+      baseURL: "https://gateway.ai.cloudflare.com/v1/account/finance/custom-typesafe",
+      headers: { "cf-aig-authorization": "Bearer cf-token" },
+      provider: "typesafe",
+    }))
+  })
+
+  it("rejects a driver.ask gateway that cannot answer Jev questions", () => {
+    // SAFETY: The types reject this gateway; the call checks the runtime diagnostic.
+    expect(() => defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cliproxy({ apiKey: "k", url: "https://proxy.example" }) as never } })).toThrow(
+      expect.objectContaining({ code: "AGENT_R1013", message: expect.stringContaining('Gateway "cliproxy" does not') }),
+    )
+  })
+
+  it("names the missing key before any request", async () => {
+    vi.stubEnv("TYPESAFE_API_KEY", undefined)
+    const agent = defineAgent({ driver: { ask: { spam: ask.if("Is it spam?") } }, runtime: false })
+
+    await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
+      code: "GATEWAYS_R0002",
+      message: expect.stringContaining("TYPESAFE_API_KEY"),
+    })
+    expect(askJev).not.toHaveBeenCalled()
   })
 
   it("rejects values that are not Jev questions", async () => {
@@ -259,7 +237,7 @@ describe("ask Driver", () => {
     const agent = defineAgent({ driver: { ask: () => ({ spam: "Is it spam?" }) } as never, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "Win money" })).rejects.toMatchObject({
-      code: "AGENT_R0937",
+      code: "GATEWAYS_R0007",
       message: expect.stringContaining('Jev question "spam"'),
     })
   })
@@ -277,7 +255,7 @@ describe("ask Driver", () => {
     const agent = defineAgent({ driver: { ask: { question: question as never } }, runtime: false })
 
     await expect(runAgent(agent, runtime(), { prompt: "value" })).rejects.toMatchObject({
-      code: "AGENT_R0937",
+      code: "GATEWAYS_R0007",
       message: expect.stringContaining(name === "if" ? "threshold must be" : `${name} criteria must have`),
     })
     expect(askJev).not.toHaveBeenCalled()
@@ -312,7 +290,7 @@ describe("Jev decisions for ask Driver Agents", () => {
   })
 
   it.each(["gate", "route"] as const)("uses request Cloudflare bindings for the %s decision and main Driver", async (kind) => {
-    fake.useRequestBindings = true
+    vi.stubEnv("TYPESAFE_API_KEY", undefined)
     const agent = defineAgent({
       capabilities: [kind === "gate"
         ? llmGate({ allow: { safe: "Normal email." }, id: "gate", reject: { unsafe: "Phishing." } })

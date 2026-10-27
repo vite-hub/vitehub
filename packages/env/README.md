@@ -116,11 +116,9 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | Preset | Declares |
 | --- | --- |
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
-| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`; `"cloudflare"` reads `TYPESAFE_API_KEY` and `cloudflare.accountId` (`CLOUDFLARE_ACCOUNT_ID`), `cloudflare.gatewayId` (`CLOUDFLARE_AI_GATEWAY_ID`), the Secret `cloudflare.token` (`CLOUDFLARE_AI_GATEWAY_TOKEN`), and `cloudflare.slug` (`CLOUDFLARE_AI_GATEWAY_SLUG`, default `typesafe`). `TYPESAFE_DEFAULT_MODEL` overrides the model. |
+| `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key, account, or gateway during Env resolution. The ask Driver, `llmGate()`, and `llmRoute()` require `TYPESAFE_API_KEY` for the TypeSafe and Cloudflare providers, and the account and gateway IDs for Cloudflare, and report `AGENT_R0936` when one is missing. The Vercel provider can use `VERCEL_OIDC_TOKEN` without an API key.
-
-`@vite-hub/agent` reads `typesafeEnv()` from the `typesafe` group for `driver.ask`:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
 
 ```ts
 env: {
