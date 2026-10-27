@@ -48,6 +48,7 @@ export interface ConsoleOperationView {
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
   operation: string
+  pagination?: { limit: number, cursor: Readonly<Record<string, string>> }
 }
 
 export type ConsoleSectionView =
@@ -215,11 +216,17 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
     : []
   const link = record(view.link)
   const when = record(link?.when)
+  const pagination = record(view.pagination)
+  const cursor = record(pagination?.cursor)
+  const cursorPaths = Object.entries(cursor ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
   return {
     columns,
     kind: "operation-view",
     notice: view.notice,
     operation: view.operation,
+    ...(typeof pagination?.limit === "number" && Number.isInteger(pagination.limit) && pagination.limit > 0 && cursorPaths.length
+      ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
+      : {}),
     ...(filters.length ? { filters } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }

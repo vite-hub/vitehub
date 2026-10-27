@@ -16,7 +16,19 @@ import { shellErrorDiagnostics } from "../error-diagnostics.ts"
 function applyOutputLimit(result: ShellObservation, maxLength?: number): ShellObservation {
   const limit = normalizeOutputLength(maxLength)
   if (limit === undefined) return result
-  const next = { ...result, maxOutputLength: limit }
+  const next: ShellObservation = {
+    command: result.command,
+    cwd: result.cwd,
+    durationMs: result.durationMs,
+    event: result.event,
+    exitCode: result.exitCode,
+    maxOutputLength: limit,
+    outputTruncated: result.outputTruncated,
+    stderr: result.stderr,
+    stdout: result.stdout,
+    timedOut: result.timedOut,
+    workspaceGuardrail: result.workspaceGuardrail,
+  }
   let truncated = false
   if (next.stdout.length > limit) {
     next.stdout = `${next.stdout.slice(0, limit)}\n[output truncated to ${limit} characters]\n`
@@ -33,6 +45,33 @@ function normalizeOutputLength(value: number | undefined): number | undefined {
   if (value === undefined) return undefined
   if (value === Number.POSITIVE_INFINITY) return undefined
   return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+}
+
+function limitOutputOptions(options: ShellRuntimeExecOptions, policy: ShellSessionPolicy): ShellRuntimeExecOptions {
+  const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
+  const policyOutputLength = normalizeOutputLength(policy.maxOutputLength)
+  const maxOutputLength = requestedOutputLength === undefined
+    ? policyOutputLength
+    : policyOutputLength === undefined
+      ? requestedOutputLength
+      : Math.min(requestedOutputLength, policyOutputLength)
+  let stdoutRemaining = maxOutputLength
+  let stderrRemaining = maxOutputLength
+  const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
+    callback && ((data: string) => {
+      const limit = remaining()
+      if (limit === undefined) return callback(data)
+      if (limit <= 0) return
+      const chunk = data.slice(0, limit)
+      consume(chunk.length)
+      if (chunk) callback(chunk)
+    })
+  return {
+    ...options,
+    maxOutputLength,
+    onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
+    onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
+  }
 }
 
 function createPolicyObservation(command: string, cwd: string | undefined, message: string): ShellObservation {
@@ -87,24 +126,8 @@ class RuntimeShellSession implements ShellSession {
 
     this.#shellCalls += 1
     const started = Date.now()
-    const requestedOutputLength = normalizeOutputLength(options.maxOutputLength)
-    const policyOutputLength = normalizeOutputLength(this.policy.maxOutputLength)
-    const maxOutputLength = requestedOutputLength === undefined
-      ? policyOutputLength
-      : policyOutputLength === undefined
-        ? requestedOutputLength
-        : Math.min(requestedOutputLength, policyOutputLength)
-    let stdoutRemaining = maxOutputLength
-    let stderrRemaining = maxOutputLength
-    const limitedCallback = (callback: ((data: string) => void) | undefined, remaining: () => number | undefined, consume: (value: number) => void) =>
-      callback && ((data: string) => {
-        const limit = remaining()
-        if (limit === undefined) return callback(data)
-        if (limit <= 0) return
-        const chunk = data.slice(0, limit)
-        consume(chunk.length)
-        if (chunk) callback(chunk)
-      })
+    options = limitOutputOptions(options, this.policy)
+    const maxOutputLength = options.maxOutputLength
     const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
@@ -114,8 +137,6 @@ class RuntimeShellSession implements ShellSession {
       maxOutputLength,
       signal,
       timeout: options.timeout ?? this.policy.timeout,
-      onStdout: limitedCallback(options.onStdout, () => stdoutRemaining, value => { stdoutRemaining = Math.max(0, (stdoutRemaining ?? 0) - value) }),
-      onStderr: limitedCallback(options.onStderr, () => stderrRemaining, value => { stderrRemaining = Math.max(0, (stderrRemaining ?? 0) - value) }),
     })
     options.budget?.recordOutputBytes(new TextEncoder().encode(result.stdout).byteLength + new TextEncoder().encode(result.stderr).byteLength)
 
@@ -145,6 +166,7 @@ class RuntimeShellSession implements ShellSession {
     if (maxProcesses !== undefined && this.#processes.size + this.#starts.size >= maxProcesses) {
       throw shellErrorDiagnostics.SHELL_R0010({ message: `[vitehub] Shell session process budget exhausted after ${this.policy.maxProcesses} processes.` })
     }
+    options = limitOutputOptions(options, this.policy)
     const signal = options.budget && options.signal && options.signal !== options.budget.signal
       ? AbortSignal.any([options.signal, options.budget.signal])
       : options.budget?.signal ?? options.signal
@@ -175,7 +197,7 @@ class RuntimeShellSession implements ShellSession {
       stopTask = Promise.resolve().then(() => process.stop()).then(
         result => {
           this.#processes.delete(trackedProcess)
-          return result
+          return applyOutputLimit(result, options.maxOutputLength)
         },
         error => {
           stopTask = undefined

@@ -274,6 +274,21 @@ describe("comment mode", () => {
 });
 
 describe("mentions", () => {
+  it("discards a lookup after the mention token is deleted", async () => {
+    const { client, wrapper } = await layer();
+    await drop(wrapper);
+    let resolve!: (people: CommentUser[]) => void;
+    const search = vi.spyOn(client, "users").mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const field = textarea(wrapper);
+    await field.setValue("Hi @be");
+    await vi.waitFor(() => expect(search).toHaveBeenCalled());
+    await field.setValue("Hi ");
+    resolve([ben]);
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect((field.element as HTMLTextAreaElement).value).toBe("Hi ");
+  });
+
   it("suggests people after @, inserts the pick, and sends the id", async () => {
     const { client, wrapper } = await layer();
     await drop(wrapper);

@@ -1,3 +1,4 @@
+import { commentsErrorDiagnostics } from "./errors.ts"
 import type { CommentActor, CommentMessage, CommentSubject, CommentThread, CommentUser } from "./types.ts"
 
 export type CommentAction = "read" | "write" | "resolve" | "delete"
@@ -51,6 +52,12 @@ export function defineComments(definition: CommentsDefinition = {}): CommentsDef
 
 export function isCommentsDefinition(value: unknown): value is CommentsDefinition {
   return value !== null && Object(value) === value && Reflect.get(Object(value), marker) === true
+}
+
+/** Validate the imported application module before installing its runtime. */
+export function validateCommentsDefinition(value: unknown, file: string): CommentsDefinition {
+  if (!isCommentsDefinition(value)) throw commentsErrorDiagnostics.COMMENTS_B0002({ file })
+  return value
 }
 
 /** A subject kind of your own, such as `drop`. */

@@ -9,6 +9,7 @@ import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 
 import { commentsErrorDiagnostics } from "./errors.ts"
+import { validateCommentsDefinition } from "./define.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -115,10 +116,11 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
   const name = options.database === undefined ? "undefined" : JSON.stringify(options.database)
   return [
     `import { databases } from ${JSON.stringify(options.imports.database)}`,
-    `import { createAuthUsers, createCommentsStore, installComments } from ${JSON.stringify(options.imports.runtime)}`,
+    `import { createAuthUsers, createCommentsStore, installComments, validateCommentsDefinition } from ${JSON.stringify(options.imports.runtime)}`,
     ...(options.auth ? [`import { getAuth } from ${JSON.stringify(options.imports.auth)}`] : []),
     `import * as app from ${JSON.stringify(pathToFileURL(options.entry).href)}`,
     "",
+    `const definition = validateCommentsDefinition(app.default ?? app.comments, ${JSON.stringify(options.entry)})`,
     `const databaseName = ${name}`,
     "",
     "function entry() {",
@@ -132,7 +134,7 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
     "  installComments(() => {",
     "    const { db, schema } = entry()",
     "    return {",
-    "      definition: app.default ?? app.comments,",
+    "      definition,",
     "      store: createCommentsStore(db, { commentCounters: schema.commentCounters, commentMessages: schema.commentMessages, commentThreads: schema.commentThreads }),",
     ...(options.auth ? ["      users: createAuthUsers(() => getAuth()),"] : []),
     "    }",
@@ -172,13 +174,21 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
         Reflect.set(config, "nitro", kit.config)
       },
     },
-    configResolved(config: ResolvedConfig) {
+    async configResolved(config: ResolvedConfig) {
       const entry = discover()
       if (!entry) return
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const nitroContext = (config as ResolvedConfig & CommentsPluginConfig)[VITEHUB_NITRO_CONFIG_CONTEXT]
       const hasDatabase = nitroContext || config.plugins.some(plugin => plugin.name === "@vite-hub/database/vite")
       if (!hasDatabase) throw commentsErrorDiagnostics.COMMENTS_B0001({ file: entry.slice((projectRoot ?? "").length + 1) || entry })
+      const { runnerImport } = await import("vite")
+      const { module: app } = await runnerImport<{ default?: unknown, comments?: unknown }>(entry, {
+        configFile: false,
+        root: projectRoot,
+        resolve: { alias: config.resolve?.alias },
+        logLevel: "silent",
+      })
+      validateCommentsDefinition(app.default ?? app.comments, displayPath(entry, projectRoot ?? ""))
     },
     vitehub: {
       async databases(context: DatabaseContributionContext) {

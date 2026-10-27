@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
+import { runOperation } from "@vite-hub/internal/operations"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
@@ -14,7 +15,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
+import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
@@ -132,6 +133,34 @@ describe("Console document editor route", () => {
       await expect(call(method, {}), method).resolves.toMatchObject({ status: 403 })
     }
     await expect(call("definitions.list", { section: "kv" })).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("requires a write grant to acquire or take over an edit lease", async () => {
+    const session = vi.fn(() => ({ available: true }))
+    install(fakeActions({ session }))
+    const input = { collection: "posts", id: "hello", session: "viewer" }
+    const agent = (action: string) => runOperation(consoleOperationRegistry(), "documents.action", { action: "session", body: { ...input, action }, section: "content" }, {
+      access: { mode: "agent", sections: "all" }, surface: "agent", user: { id: "viewer" },
+    })
+
+    installConsoleAccess({ authorize: () => ({ sections: ["content:read"] }), mode: "open" })
+    for (const action of ["report", "release"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 200 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: true })
+    }
+    session.mockClear()
+    for (const action of ["acquire", "takeover"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 403 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: false, status: 403 })
+    }
+    expect(session).not.toHaveBeenCalled()
+
+    installConsoleAccess({ authorize: () => ({ sections: ["content"] }), mode: "open" })
+    for (const action of ["acquire", "takeover"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 200 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: true })
+    }
+    expect(session).toHaveBeenCalledTimes(4)
   })
 
   it("serves the dashboard and search actions of every section page with the section access", async () => {

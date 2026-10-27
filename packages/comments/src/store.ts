@@ -245,11 +245,11 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
   }
 
   function candidateAuthors(where: SQL) {
-    return db.select({ id: messages.authorId, image: messages.authorImage, name: messages.authorName, threadId: messages.threadId })
+    return db.select({ createdAt: messages.createdAt, messageId: messages.id, id: messages.authorId, image: messages.authorImage, name: messages.authorName, threadId: messages.threadId })
       .from(messages)
       .innerJoin(threads, eq(threads.id, messages.threadId))
       .where(where)
-      .orderBy(desc(messages.createdAt))
+      .orderBy(desc(messages.createdAt), desc(messages.id))
   }
 
   return {
@@ -259,7 +259,7 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       const where = [
         ...(subject ? [eq(threads.subjectKind, subject.kind), eq(threads.subjectId, subject.id)] : []),
         ...(query.status ? [eq(threads.status, query.status)] : []),
-        ...(query.mine && query.userId ? [eq(threads.authorId, query.userId)] : []),
+        ...(query.mine ? [query.userId ? eq(threads.authorId, query.userId) : sql`1 = 0`] : []),
         ...(query.mentions
           ? [query.userId
               ? sql`exists (select 1 from ${messages} where ${messages.threadId} = ${threads.id} and ${messages.mentions} like ${`%${escapeLike(JSON.stringify(query.userId))}%`} escape '\\')`
@@ -369,21 +369,29 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     },
     async knownUsers(query, limit, canRead) {
       const pattern = `%${escapeLike(query.toLowerCase())}%`
-      const rows = await candidateAuthors(sql`lower(coalesce(${messages.authorName}, ${messages.authorId})) like ${pattern} escape '\\'`).limit(candidateLimit)
+      const matching = sql`lower(coalesce(${messages.authorName}, ${messages.authorId})) like ${pattern} escape '\\'`
       const seen = new Map<string, CommentUser>()
       const readable = new Map<string, Promise<boolean>>()
-      for (const row of rows) {
-        if (seen.has(row.id)) continue
-        let allowed = readable.get(row.threadId)
-        if (!allowed) {
-          allowed = (async () => {
-            const found = await find(row.threadId)
-            return found ? await canRead(found) : false
-          })()
-          readable.set(row.threadId, allowed)
+      let before: { createdAt: number, messageId: string } | undefined
+      while (seen.size < limit) {
+        const rows = await candidateAuthors(and(matching, before
+          ? or(lt(messages.createdAt, before.createdAt), and(eq(messages.createdAt, before.createdAt), lt(messages.id, before.messageId)))
+          : undefined)!).limit(candidateLimit)
+        for (const row of rows) {
+          if (seen.has(row.id)) continue
+          let allowed = readable.get(row.threadId)
+          if (!allowed) {
+            allowed = (async () => {
+              const found = await find(row.threadId)
+              return found ? await canRead(found) : false
+            })()
+            readable.set(row.threadId, allowed)
+          }
+          if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
+          if (seen.size >= limit) break
         }
-        if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
-        if (seen.size >= limit) break
+        if (rows.length < candidateLimit) break
+        before = rows.at(-1)!
       }
       return [...seen.values()]
     },

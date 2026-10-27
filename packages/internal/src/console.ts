@@ -66,6 +66,8 @@ export interface ViteHubConsoleOperationView {
   notice: string
   /** Operation name, such as `comments.list`. */
   operation: string
+  /** Fetch every page with `limit` and a `before` object whose keys read these dot paths from the last item. */
+  pagination?: { limit: number, cursor: Readonly<Record<string, string>> }
 }
 
 export interface ViteHubConsoleAuthView {

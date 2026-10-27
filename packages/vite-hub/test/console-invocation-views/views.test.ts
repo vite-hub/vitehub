@@ -2573,13 +2573,52 @@ describe("Agent Invocation UI", () => {
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
     expect(wrapper.get(".vh-invocation-inspector__status").text()).toContain("Failed");
-    expect(wrapper.get(".vh-invocation-error").text()).toBe(
-      "Provider errorThe provider stopped before returning a result.",
-    );
+    expect(wrapper.get(".vh-invocation-error__title").text()).toBe("Run failed");
+    expect(wrapper.get(".vh-invocation-error__code").text()).toBe("Provider error");
+    expect(wrapper.get(".vh-invocation-error__message").text()).toBe("The provider stopped before returning a result.");
     const secondary = mount(AgentInvocationInspector, { props: { invocation, showError: false } });
     expect(secondary.text()).toContain("Failed");
     expect(secondary.find(".vh-invocation-error").exists()).toBe(false);
 
+  });
+
+  it.each([
+    ["https://vitehub.dev/docs/agents/limits-and-errors#AGENT_R0726", true],
+    ["javascript:alert(document.domain)", false],
+    ["java\nscript:alert(document.domain)", false],
+    ["data:text/html,<script>alert(1)</script>", false],
+    ["http://vitehub.dev/docs/agents/limits-and-errors", false],
+    ["//vitehub.dev/docs/agents/limits-and-errors", false],
+    ["/docs/agents/limits-and-errors", false],
+    ["https://", false],
+    ["https://[invalid", false],
+  ])("validates failed-run documentation links while retaining the diagnostic: %s", async (docs, allowed) => {
+    const error = { code: "AGENT_R0726", docs, message: "Workspace spend cap reached" };
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z", id: "quota", observations: [],
+      status: "failed", traceId: "trace", updatedAt: "2026-08-22T00:00:00.000Z",
+      error,
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    const link = wrapper.find(".vh-invocation-error__actions a");
+    expect(link.exists()).toBe(allowed);
+    if (allowed) {
+      expect(link.attributes("href")).toBe(docs);
+      expect(link.text()).toBe("Read the docs");
+    }
+    await wrapper.get(".vh-invocation-error__action[aria-controls]").trigger("click");
+    const diagnostic = wrapper.get(".vh-invocation-error__details").text();
+    expect(JSON.parse(diagnostic)).toMatchObject(error);
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      await wrapper.get("button.vh-invocation-error__action:not([aria-controls])").trigger("click");
+      expect(writeText).toHaveBeenCalledWith(diagnostic);
+    } finally {
+      vi.unstubAllGlobals();
+      wrapper.unmount();
+    }
   });
 
   it("renders provider-owned recovery instructions without guessing advice", () => {
@@ -2589,13 +2628,13 @@ describe("Agent Invocation UI", () => {
       error: { code: "AGENT_R0726", message: "Workspace spend cap reached" },
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
-    expect(wrapper.find(".vh-invocation-error__recovery").exists()).toBe(false);
+    expect(wrapper.find(".vh-invocation-error__fix").exists()).toBe(false);
     expect(wrapper.get(".vh-invocation-error__details").text()).toContain("Workspace spend cap reached");
     const explicit = mount(AgentInvocationInspector, { props: { invocation: { ...invocation, error: { ...invocation.error!, fix: "Contact the workspace owner." } } } });
-    expect(explicit.get(".vh-invocation-error__recovery").text()).toContain("Contact the workspace owner.");
+    expect(explicit.get(".vh-invocation-error__fix").text()).toContain("Contact the workspace owner.");
   });
 
-  it("keeps bounded runtime diagnostics available behind a disclosure", () => {
+  it("keeps bounded runtime diagnostics available behind a disclosure", async () => {
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z",
       error: {
@@ -2616,10 +2655,18 @@ describe("Agent Invocation UI", () => {
     };
     const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
 
-    expect(wrapper.get(".vh-invocation-error__details summary").text()).toBe("Diagnostic details");
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"code": "provider_unavailable"');
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain('"requestId": "request-123"');
-    expect(wrapper.get(".vh-invocation-error__details pre").text()).toContain("The upstream socket closed.");
+    const toggle = wrapper.get(".vh-invocation-error__action[aria-controls]");
+    const details = wrapper.get(".vh-invocation-error__details");
+    expect(toggle.text()).toBe("Details");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    expect(toggle.attributes("aria-controls")).toBe(details.attributes("id"));
+    expect(details.attributes("hidden")).toBeDefined();
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.get(".vh-invocation-error__details").attributes("hidden")).toBeUndefined();
+    expect(details.text()).toContain('"code": "provider_unavailable"');
+    expect(details.text()).toContain('"requestId": "request-123"');
+    expect(details.text()).toContain("The upstream socket closed.");
   });
 
   it("uses the cancellation timestamp for terminal duration", () => {

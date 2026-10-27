@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
@@ -7,8 +7,9 @@ import { consoleRpcHeader } from "../rpc.ts"
 import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 import { uploadConsoleMedia } from "./media.ts"
-import { consoleRequestError, consoleRequestJSON, isConsoleDevelopmentRuntime } from "./request.ts"
+import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 
 import type { H3Event } from "h3"
 import type { OperationContext } from "@vite-hub/internal/operations"
@@ -181,7 +182,7 @@ function isLoopbackAddress(address: string): boolean {
  * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
  */
 function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
-  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentRuntime()) return
+  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentBuild()) return
   const hostHeader = request.headers.get("host") ?? url.host
   const forwarded = request.headers.get("x-forwarded-host")
   if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
@@ -192,6 +193,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
   assertLoopbackWithoutSignIn(request, url, context)
+  assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
@@ -227,6 +229,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
     access: context.access,
+    development: isConsoleDevelopmentBuild(),
     request,
     response: context.response,
     // The CLI names itself. Only the unauthenticated `local` access of `vite dev` trusts it more than the Console.

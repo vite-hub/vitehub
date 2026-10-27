@@ -73,4 +73,5 @@ export function createAuthUsers(getAuth: () => BetterAuthUsers): CommentsUsers {
   }
 }
 export { createCommentsStore } from "./store.ts"
+export { validateCommentsDefinition } from "./define.ts"
 export type { CommentsDatabase, CommentsStore, CommentsTables } from "./store.ts"

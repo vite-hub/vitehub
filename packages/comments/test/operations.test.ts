@@ -124,6 +124,28 @@ it("checks read access before searching mention suggestions", async () => {
   expect(search).not.toHaveBeenCalled()
 })
 
+it("returns no threads for an anonymous mine query", async () => {
+  setup(defineComments({ authorize: () => true }))
+  await create()
+  expect(await call("comments.list", {}, null)).toMatchObject({ ok: true, value: [expect.anything()] })
+  expect(await call("comments.list", { mine: true }, null)).toEqual({ ok: true, value: [] })
+})
+
+it.each([false, true])("scans past repeated authors for mention suggestions (hidden: %s)", async (hidden) => {
+  setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden || thread.author.id !== member.id }))
+  const prolific = await create()
+  const other = { ...member, id: "ben", name: "Anna Other" }
+  await create(other)
+  await client.batch(Array.from({ length: 201 }, (_, index) => ({
+    sql: "insert into vitehub_comment_messages select ?, thread_id, body, author_id, author_name, author_image, actor, mentions, attachments, created_at + 1000 + ?, edited_at from vitehub_comment_messages where id = ?",
+    args: [`repeated-${index}`, index, prolific.messages[0]!.id],
+  })), "write")
+  expect(await call("comments.users", { query: "an" })).toEqual({
+    ok: true,
+    value: [...(hidden ? [] : [{ id: member.id, name: member.name }]), { id: other.id, name: other.name }],
+  })
+})
+
 it("uses Auth user fields to authorize mentions and keeps suggestions public", async () => {
   const ben = { id: "ben", name: "Ben", role: "member", email: "ben@example.com" }
   const guest = { id: "guest", name: "Guest", role: "guest", email: "guest@example.com" }

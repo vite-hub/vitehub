@@ -2,6 +2,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { getTableColumns, getTableName } from "drizzle-orm"
 import { afterEach, describe, expect, it } from "vitest"
@@ -25,7 +26,7 @@ async function project(withComments: boolean): Promise<string> {
   roots.push(root)
   await writeFile(join(root, "package.json"), "{}")
   await mkdir(join(root, "server"))
-  if (withComments) await writeFile(join(root, "server", "comments.ts"), "export default {}\n")
+  if (withComments) await writeFile(join(root, "server", "comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\nexport default defineComments()\n`)
   return root
 }
 
@@ -138,7 +139,7 @@ describe("hubComments", () => {
     expect(config.nitro).toMatchObject({ plugins: [file] })
     const source = await readFile(file, "utf8")
     expect(source).toContain('import { databases } from "vite-hub/database/drizzle"')
-    expect(source).toContain('import { createAuthUsers, createCommentsStore, installComments } from "vite-hub/comments/server"')
+    expect(source).toContain('import { createAuthUsers, createCommentsStore, installComments, validateCommentsDefinition } from "vite-hub/comments/server"')
     expect(source).toContain('import { getAuth } from "vite-hub/auth/server"')
     expect(source).toContain("users: createAuthUsers(() => getAuth())")
     expect(renderCommentsNitroPlugin({ auth: false, entry: join(root, "server/comments.ts"), imports: { auth: "a", database: "d", databaseDefinition: "x", databaseSchema: "s", operations: "o", runtime: "r" } })).not.toContain("getAuth")
@@ -148,18 +149,41 @@ describe("hubComments", () => {
     const root = await project(true)
     const plugin = hubComments()
     await configHook(plugin)({ root })
-    const resolve = (plugins: Array<{ name: string }>) => (plugin.configResolved as unknown as (config: ResolvedConfig) => void)({ plugins } as unknown as ResolvedConfig)
-    expect(() => resolve([])).toThrowError(/server\/comments.ts needs a Database/)
+    const resolve = (plugins: Array<{ name: string }>) => (plugin.configResolved as unknown as (config: ResolvedConfig) => Promise<void>)({ plugins } as unknown as ResolvedConfig)
+    await expect(resolve([])).rejects.toThrowError(/server\/comments.ts needs a Database/)
     try {
-      resolve([])
+      await resolve([])
     }
     catch (error) {
       expect(error).toMatchObject({ code: "COMMENTS_B0001", fix: expect.stringContaining("database: false") })
     }
-    expect(() => resolve([{ name: "@vite-hub/database/vite" }])).not.toThrow()
+    await expect(resolve([{ name: "@vite-hub/database/vite" }])).resolves.toBeUndefined()
     // An app without the file needs nothing.
     const plain = hubComments()
     await configHook(plain)({ root: await project(false) })
     expect(() => (plain.configResolved as unknown as (config: ResolvedConfig) => void)({ plugins: [] } as unknown as ResolvedConfig)).not.toThrow()
+  })
+
+  it.each(["export const other = {}", "export default {}", "export default null", "export default () => ({})"])("rejects an invalid comments module during configuration: %s", async (source) => {
+    const root = await project(true)
+    await writeFile(join(root, "server/comments.ts"), source)
+    const plugin = hubComments()
+    await configHook(plugin)({ root })
+    // SAFETY: The hook only reads the Database plugin from this partial resolved config.
+    const resolve = plugin.configResolved as unknown as (config: Pick<ResolvedConfig, "plugins">) => Promise<void>
+    await expect(resolve({ plugins: [{ name: "@vite-hub/database/vite" }] })).rejects.toMatchObject({ code: "COMMENTS_B0002" })
+  })
+
+  it("validates the generated module before installing the lazy runtime", async () => {
+    const root = await project(true)
+    const entry = join(root, "server/comments.mjs")
+    await writeFile(entry, "export default {}")
+    const file = join(root, "plugin.mjs")
+    await writeFile(file, renderCommentsNitroPlugin({
+      auth: false,
+      entry,
+      imports: { auth: "unused", database: "data:text/javascript,export const databases = {}", databaseDefinition: "unused", databaseSchema: "unused", operations: "unused", runtime: new URL("../src/server.ts", import.meta.url).href },
+    }))
+    await expect(import(/* @vite-ignore */ pathToFileURL(file).href)).rejects.toMatchObject({ code: "COMMENTS_B0002" })
   })
 })
