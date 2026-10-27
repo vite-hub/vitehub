@@ -83,15 +83,17 @@ One Connections store identifies one host. Do not clone the whole database onto 
 
 ## Runtime behavior and limits
 
-Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSettings.launchArgs` and Agent `sandbox` are rejected with `AGENT_R1015`. They would let caller code replace the runtime-owned launch or receive its credentials. The first-party Codex `auth.json` login is a separate credential flow.
+Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSettings.launchArgs`, `binaryPath`, `homePath`, `shadowHomePath` and Agent `sandbox` are rejected with `AGENT_R1015`. They would let caller code replace the runtime-owned launch or receive its credentials. Install `@openai/codex` in the app; this gateway does not fall back to a command from `PATH`. The first-party Codex `auth.json` login is a separate credential flow.
 
 ViteHub selects `openai_chatgpt_plan`, the public Responses endpoint, HTTP streaming and the token as the provider key. It sets Codex `clientInfo` from `appName` and `appVersion`. The token stays in the child environment; shell tools receive an empty token variable. The launcher redacts the token from protocol output and errors.
+
+Each Invocation uses a fresh runtime-owned Codex Home, ignores inherited `CODEX_HOME`, and disables project configuration, inherited MCP servers and hooks. Only ViteHub supplies the Capability tool transport. The Home is removed after shutdown. Follow-up turns replay the supplied conversation history; native Codex session cursors and Home retention are not used for this gateway.
 
 The gateway disables apps, plugins, image generation, computer/browser use, tool search, code mode and child agents. ViteHub Capability tools still run through Codex's local tool transport. They do not use hosted Responses MCP. The verified Codex version, `0.164.0`, sends `store: false`, `stream: true`, array input and developer instructions without the rejected Responses parameters. A different Codex version should pass the local integration test before use.
 
 Connections refreshes when less than 15 minutes remain, subject to OpenAI's `earliest_refresh_at`. It serializes refreshes and stores the replacement access token, expiry and rotating refresh token together. Terminal refresh errors such as `refresh_token_reused` clear the unusable grant and require sign-in.
 
-If a token expires during an Invocation, ViteHub stops Codex and reports `AGENT_R1014`. Review completed tool effects, then start another Invocation. ViteHub resolves a new token and uses its existing thread-resume behavior when the caller continues the same thread. It does not replay the interrupted Invocation automatically. Transient inference failures get at most three HTTP attempts.
+If a token expires during an Invocation, ViteHub stops Codex and reports `AGENT_R1014`. Review completed tool effects, then start another Invocation. ViteHub resolves a new token and replays the supplied conversation history when the caller continues the same thread. It does not replay the interrupted Invocation automatically. Transient inference failures get at most three HTTP attempts.
 
 Model Drivers through the AI SDK are a follow-up. This Codex path cannot run in Cloudflare Workers. An AI SDK path needs its own runtime-owned credential transport, request restrictions and streaming error handling.
 

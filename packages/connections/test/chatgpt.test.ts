@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 import { chatgptTransfers } from "../src/internal/chatgpt-transfer.ts"
@@ -51,6 +51,24 @@ describe("ChatGPT plan Connections", () => {
     expect(next.searchParams.has("id_token_hint")).toBe(false)
     await test.connect()
     expect(test.fake.state.registrations).toBe(1)
+  })
+
+  it.each(["identity", "account", "read", "persist"])("fences the old grant after a successful exchange followed by %s failure", async (failure) => {
+    const test = await setup()
+    await test.connect()
+    const attempt = await test.authorize()
+    const callback = await test.fake.callback(attempt.url)
+    if (failure === "identity") test.fake.state.signWithWrongKey = true
+    if (failure === "account") test.fake.state.subject = "other-account"
+    const read = failure === "read" ? vi.spyOn(test.store.secrets, "read").mockRejectedValueOnce(new Error("read unavailable")) : undefined
+    const persist = failure === "persist" ? vi.spyOn(test.store.state, "putForToken").mockRejectedValueOnce(new Error("state unavailable")) : undefined
+    await expect(test.runtime.complete({ state: callback.searchParams.get("state")!, code: callback.searchParams.get("code")!, clientId: callback.searchParams.get("client_id") ?? undefined })).rejects.toThrow()
+    read?.mockRestore()
+    persist?.mockRestore()
+    test.clock.now += 61_000
+    await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(await test.runtime.inspect("chatgpt")).toMatchObject({ status: "reauth_required" })
+    expect(test.fake.state.refreshes).toBe(0)
   })
 
   it("requires an explicit Agent access map and rejects generic credential use", async () => {

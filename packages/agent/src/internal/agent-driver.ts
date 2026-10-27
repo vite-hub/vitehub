@@ -275,7 +275,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
   if (gateway) assertAgentDriverGatewaySupports(gateway, provider)
-  if (isChatGPTGateway(gateway) && (value.launch !== undefined || isPlainRecord(value.providerSettings) && value.providerSettings.launchArgs !== undefined)) throw agentDiagnostics.AGENT_R1015()
+  const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
+  if (isChatGPTGateway(gateway) && (value.launch !== undefined || ["launchArgs", "binaryPath", "homePath", "shadowHomePath"].some(key => settings?.[key] !== undefined))) throw agentDiagnostics.AGENT_R1015()
   // A gateway replaces Codex sign-in. Layers cannot unset inherited credentials, so the gateway wins
   // and credential-only rules no longer apply.
   const credentials = gateway ? undefined : value.credentials

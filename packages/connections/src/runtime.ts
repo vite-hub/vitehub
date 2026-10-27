@@ -1014,8 +1014,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { releaseLease = false; quarantine = true }, () => { releaseLease = true; quarantine = false })
       // A successful exchange may already have replaced the provider grant. Keep
       // the mutation fenced until the replacement token and state are durable.
-      releaseLease = chatgpt
-      quarantine = !chatgpt
+      releaseLease = false
+      quarantine = true
       let account: ConnectionAccount | undefined
       try {
         account = chatgpt && authorization.chatgpt && clientId

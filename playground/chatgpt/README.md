@@ -50,7 +50,7 @@ From the worktree root:
 
 ```sh
 HEAVY_WAIT=0 heavy corepack pnpm exec vp run --cache -t @vite-hub/agent#build
-HEAVY_WAIT=0 VITEHUB_TEST_CODEX_BINARY="$(command -v codex)" heavy --light corepack pnpm --dir packages/agent exec vp test test/chatgpt-codex.test.ts
+HEAVY_WAIT=0 VITEHUB_TEST_REAL_CODEX=1 heavy --light corepack pnpm --dir packages/agent exec vp test test/chatgpt-codex.test.ts
 ```
 
-This runs real Codex against a loopback OAuth, JWKS and Responses fake. It exercises a ViteHub Capability, a shell environment dump, HTTP errors, bounded retries and token expiry. It uses an isolated Codex Home, closes its listeners and never calls real OpenAI authentication. Without `VITEHUB_TEST_CODEX_BINARY`, these integration tests are skipped.
+Install `@openai/codex@0.164.0` in the app first. The gateway resolves the installed package and rejects a caller-supplied executable. This runs real Codex against a loopback OAuth, JWKS and Responses fake. It exercises a ViteHub Capability, a shell environment dump, HTTP errors, bounded retries and token expiry. It uses an isolated Codex Home, closes its listeners and never calls real OpenAI authentication. Without `VITEHUB_TEST_REAL_CODEX`, these integration tests are skipped.

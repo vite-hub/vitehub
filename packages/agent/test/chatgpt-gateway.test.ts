@@ -14,6 +14,10 @@ it("describes a Connection without credentials and accepts only a local Codex Dr
   expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt() }, sandbox: { runtime: {} } } as never)).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
 })
 
+it.each(["binaryPath", "homePath", "shadowHomePath"])("rejects caller-owned %s for ChatGPT", (setting) => {
+  expect(() => defineAgent({ driver: { kind: "codex", gateway: chatgpt(), providerSettings: { [setting]: "/tmp/caller-owned" } } })).toThrow(expect.objectContaining({ code: "AGENT_R1015" }))
+})
+
 it("sets the exact Codex plan profile and keeps the token out of arguments", () => {
   const gateway = chatgptCodexGateway({ accessToken: "local-test-token", expiresAt: 123, api: "https://api.openai.com/v1", clientInfo: { name: "App", title: "App", version: "1" } })
   expect(gateway.environment).toEqual({ VITEHUB_CHATGPT_ACCESS_TOKEN: "local-test-token" })
@@ -21,7 +25,7 @@ it("sets the exact Codex plan profile and keeps the token out of arguments", () 
   expect(args).toEqual([
     "-c", 'model_provider="openai_chatgpt_plan"',
     "-c", 'model_providers.openai_chatgpt_plan={name="ChatGPT plan",base_url="https://api.openai.com/v1",wire_api="responses",env_key="VITEHUB_CHATGPT_ACCESS_TOKEN",requires_openai_auth=false,supports_websockets=false,request_max_retries=2,stream_max_retries=0}',
-    ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent"].flatMap(feature => ["-c", `features.${feature}=false`]),
+    ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent", "hooks", "codex_hooks"].flatMap(feature => ["-c", `features.${feature}=false`]),
     "-c", 'shell_environment_policy.set.VITEHUB_CHATGPT_ACCESS_TOKEN=""',
   ])
   expect(gateway.launchArgs).not.toContain("local-test-token")

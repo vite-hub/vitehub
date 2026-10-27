@@ -5,7 +5,7 @@ import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
-import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
+import { codexConfigArg, codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
 import { resolveAgentInstructions } from "./agent-instructions.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
@@ -2925,8 +2925,8 @@ async function* runProvider<
   // SAFETY: The provider runtime accepts the transport thread ID or a generated non-empty UUID.
   const threadId = (transportSessionId || crypto.randomUUID()) as ThreadId
   const auxiliary = isAuxiliaryAgentAdapterContext(context)
-  // A Sandbox session lasts one invocation, so provider sessions cannot resume in the next one.
-  const preservesProviderSession = !auxiliary && !options.sandbox && (options.provider !== "codex"
+  // Sandbox and ChatGPT homes last one invocation; conversation history is replayed on the next one.
+  const preservesProviderSession = !auxiliary && !options.sandbox && !chatgptExpiry && (options.provider !== "codex"
     || options.credentials === undefined
     || Boolean(options.credentialProfile?.trim()))
   const releaseSessionLock = sessionKey && !auxiliary
@@ -3282,7 +3282,7 @@ async function* runProvider<
       pendingResumeCursor = durableResumeState.cursor
       resumeInstructions = durableResumeState.instructions
     }
-    if (codexHomeRetention) {
+    if (codexHomeRetention && !gateway?.chatgpt) {
       // The home is known only after credentials and driver.env resolve. Retention runs in the background.
       const home = resolveCodexHome({
         credentialHome: codexCredentialHome?.homePath,
@@ -3301,6 +3301,7 @@ async function* runProvider<
       })
     }
     const providerExecutable = options.providerSettings?.binaryPath ?? resolveInstalledProviderExecutable(options.provider)
+    if (gateway?.chatgpt && !providerExecutable) throw agentDiagnostics.AGENT_R1015()
     const providerCommand = providerExecutable === undefined || (hasRuntimeType(providerExecutable, "string") && !providerExecutable.trim())
       ? (options.provider === "codex" ? "codex" : "claude")
       : providerExecutable
@@ -3336,10 +3337,14 @@ async function* runProvider<
       providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
+    let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
+      chatgptHome = join(launchRoot, "codex-home")
+      await mkdir(chatgptHome, { mode: 0o700 })
+      providerRuntimeEnvironment.CODEX_HOME = chatgptHome
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment])
-      const launcher = await materializeProviderLauncher(launchRoot, { command: providerCommand }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
+      const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
     }
@@ -3588,6 +3593,10 @@ async function* runProvider<
       generatedLaunchArgs,
       ...(codexDeveloperInstructions === undefined ? [] : [codexDeveloperInstructionsArg(codexDeveloperInstructions)]),
       gateway?.launchArgs,
+      ...(gateway?.chatgpt ? [
+        codexConfigArg("mcp_servers", "{}"),
+        codexConfigArg("projects", `{${JSON.stringify(providerCwd)}={trust_level="untrusted"}}`),
+      ] : []),
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot
       // reject them before the host receives the request. Shell policy stays intact.
@@ -3622,6 +3631,7 @@ async function* runProvider<
       ...options.providerSettings,
       binaryPath: providerLauncher || providerExecutable,
       ...(codexCredentialHome ? { homePath: codexCredentialHome.homePath } : {}),
+      ...(chatgptHome ? { homePath: chatgptHome } : {}),
       ...(launchArgs === undefined ? {} : { launchArgs }),
     }).filter(([, value]) => value !== undefined))
     const runtimeOptions: Parameters<typeof createProviderRuntime>[0] = {

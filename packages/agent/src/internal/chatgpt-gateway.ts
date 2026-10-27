@@ -28,7 +28,7 @@ export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgen
   const args = [
     codexConfigArg("model_provider", '"openai_chatgpt_plan"'),
     codexConfigArg("model_providers.openai_chatgpt_plan", `{${Object.entries(provider).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join(",")}}`),
-    ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent"].map(feature => codexConfigArg(`features.${feature}`, "false")),
+    ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent", "hooks", "codex_hooks"].map(feature => codexConfigArg(`features.${feature}`, "false")),
     codexConfigArg(`shell_environment_policy.set.${chatgptTokenEnvironment}`, '""'),
   ]
   return {

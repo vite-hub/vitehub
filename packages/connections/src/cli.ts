@@ -107,6 +107,9 @@ function isLoopback(url: URL): boolean {
 }
 
 const inspectionSchema = v.object({
+  connectedAt: v.optional(v.string()),
+  refreshedAt: v.optional(v.string()),
+  mcp: v.optional(v.string()),
   expiresAt: v.optional(v.string()),
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
