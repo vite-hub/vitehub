@@ -446,7 +446,7 @@ Guests always post through the App. When a token fails, the App posts the commen
 
 A change answers before GitHub does. Each thread has `forge` with `state`: `posted`, `pending`, or `failed` with the `error`, and the `url` of its comment. The next change of the thread tries again, and so does `comments.sync(threadId)`.
 
-Comments keeps the GitHub ids in the `vitehub_comment_forge` table, so run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+Comments keeps the GitHub ids in the `vitehub_comment_forge` table. The `comments()` plugin creates it with the other tables. With `vitehub()`, run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
 
 App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
 
