@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull, like } from "drizzle-orm"
 
 import { commentsSchema } from "../database.ts"
 import { createGitHubClient, GitHubRequestError } from "./github.ts"
@@ -101,9 +101,21 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     return claimed.length ? now : undefined
   }
 
+  /** Retain the remote identity before removing its link, so a failed DELETE can be retried without the thread. */
+  async function deletePosted(at: CommentsForgeTarget, remoteId: string, token: () => Promise<string>, existing?: LinkRow): Promise<void> {
+    const id = `cleanup:${at.repository}#${remoteId}`
+    await database.insert(links).values({ id, threadId: null, repository: at.repository, pullRequest: at.pullRequest, remoteId, updatedAt: Date.now() }).onConflictDoNothing()
+    if (existing && existing.id !== id) {
+      await database.delete(links).where(and(eq(links.id, existing.id), eq(links.remoteId, remoteId)))
+    }
+    await github.deleteComment(await token(), at.repository, remoteId)
+    await database.delete(links).where(eq(links.id, id))
+  }
+
   /**
    * The first saved remote identity wins, even if its POST outlived its lease. A late creator cannot overwrite
-   * the winner, and deletes its own extra comment. If deletion already removed the row, it cleans up its POST.
+   * the winner, and queues deletion of its own extra comment before trying it. Cleanup survives a failed DELETE,
+   * even when the original thread and link have already been removed.
    */
   async function recordPosted(id: string, at: CommentsForgeTarget, posted: GitHubComment, body: string, token: () => Promise<string>, postedAs?: "author" | "app"): Promise<LinkRow | undefined> {
     const [saved] = await database.update(links).set({
@@ -112,8 +124,22 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     }).where(and(eq(links.id, id), isNull(links.remoteId))).returning()
     if (saved) return saved
     const current = await row(id)
-    if (current?.remoteId !== posted.id) await github.deleteComment(await token(), at.repository, posted.id)
+    if (current?.remoteId !== posted.id) await deletePosted(at, posted.id, token)
     return current
+  }
+
+  /** Cleanup rows are independent of thread membership, so even a deleted thread can retry its remote deletions. */
+  async function retryCleanup(): Promise<void> {
+    const pending = await database.select().from(links).where(like(links.id, "cleanup:%"))
+    for (const existing of pending) {
+      try {
+        await removeLink(existing, () => github.appToken(existing.repository))
+      }
+      catch (error) {
+        await save(existing.id, { error: message(error) })
+        console.warn("[vitehub] Comments could not delete a pull request comment:", error)
+      }
+    }
   }
 
   /** A claimed row may have reached GitHub before its creator died or lost the response. Never blindly repost it. */
@@ -144,8 +170,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       current = await row(current.id)
     }
     if (current?.remoteId) {
-      await github.deleteComment(await token(), current.repository, current.remoteId)
-      await database.delete(links).where(and(eq(links.id, current.id), eq(links.remoteId, current.remoteId)))
+      await deletePosted(current, current.remoteId, token, current)
     }
   }
 
@@ -291,6 +316,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
   }
 
   async function syncThread(threadId: string): Promise<void> {
+    await retryCleanup()
     let thread = await store.get(threadId)
     const rows = await rowsOfThread(threadId)
     const at = rows[0] ? { repository: rows[0].repository, pullRequest: rows[0].pullRequest } : thread ? await target(thread) : undefined
@@ -339,6 +365,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
           await save(first.id, { minimized: resolved })
         }
         catch (error) {
+          await save(first.id, { error: message(error) })
           console.warn(`[vitehub] Comments could not ${resolved ? "hide" : "show"} the comment of thread ${thread.id}:`, error)
         }
       }

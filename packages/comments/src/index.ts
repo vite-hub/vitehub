@@ -142,7 +142,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const current = store()
       if (!current) return notInstalled()
       const threadId = await current.threadOf(commentId)
-      const thread = threadId ? await current.get(threadId) : undefined
+      const [thread] = await withForge([threadId ? await current.get(threadId) : undefined].filter(found => found !== undefined))
       return thread ? [undefined, thread] : notFound(commentId)
     },
     async getByNumber(scope, number) {
