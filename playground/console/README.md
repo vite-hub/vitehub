@@ -6,8 +6,9 @@ Run the real Console client against deterministic, synthetic data:
 pnpm exec vp run console:dev
 ```
 
-Open <http://localhost:5173/_vitehub/>. Console components and `@vite-hub/ui`
-load directly from source, so UI edits use Vite hot module replacement.
+Open <http://localhost:5173/_vitehub/>. Console components, `@vite-hub/ui`, and
+the browser modules of Auth, Content, and Realtime load directly from source, so
+the playground needs no build and UI edits use Vite hot module replacement.
 
 The `Review image attachments` session covers persisted input and output images with landscape and portrait fixtures. `mock-rpc.ts` connects the Console's RPC calls to the synthetic HTTP responses.
 
