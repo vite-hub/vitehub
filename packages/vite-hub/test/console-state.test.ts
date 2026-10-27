@@ -57,6 +57,20 @@ describe("Console state", () => {
     finally { app.unmount() }
   })
 
+  it("links Sign in again to the sign-in page that the Console page names", () => {
+    const meta = { getAttribute: (name: string) => (name === "content" ? "/sign-in" : null) }
+    vi.stubGlobal("document", { querySelector: (selector: string) => (selector === 'meta[name="vitehub-console-sign-in"]' ? meta : null) })
+    vi.stubGlobal("window", { location: new URL("http://vitehub.local/_vitehub/env") })
+    try {
+      const { app, root } = render({ error: new ConsoleRequestError(401), retry: vi.fn(), title: "Could not load Env" })
+      try {
+        expect(root.querySelector("[data-button='Sign in again']")?.getAttribute("href")).toBe("/sign-in?redirect=%2F_vitehub%2Fenv")
+      }
+      finally { app.unmount() }
+    }
+    finally { vi.unstubAllGlobals() }
+  })
+
   it("offers a retry only for a transient failure with a retry handler", () => {
     const retry = vi.fn()
     const transient = render({ error: new ConsoleRequestError(503), retry, title: "Could not load keys" })
@@ -73,6 +87,15 @@ describe("Console state", () => {
       transient.app.unmount()
       withoutHandler.app.unmount()
     }
+  })
+
+  it("keeps the compact actions short enough for one sidebar row", () => {
+    const { app, buttons, root } = render({ compact: true, error: new ConsoleRequestError(500), retry: vi.fn(), title: "Could not load Agents" })
+    try {
+      expect(buttons).toEqual(["Try again", "Docs"])
+      expect(root.textContent).toContain("· 500")
+    }
+    finally { app.unmount() }
   })
 
   it("links the setup guide of the section in an empty state", () => {

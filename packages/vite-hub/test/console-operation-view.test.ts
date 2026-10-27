@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
-import { operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
+import { parseConsoleContributedSection, parseConsoleSectionContent } from "../src/console/runtime/definitions.ts"
+import { loadOperationItems, operationCell, operationItems, operationLink, operationValue } from "../src/console/runtime/client/operation-view.ts"
 import { ConsoleRequestError, requestConsoleOperation } from "../src/console/runtime/client/request.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
@@ -20,6 +20,7 @@ const section: ViteHubConsoleOperationSection = {
     link: { label: "Open", template: "/items/{id}", when: { equals: "page", path: "kind" } },
     notice: "From the fixtures.list operation.",
     operation: "fixtures.list",
+    pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
   },
 }
 
@@ -50,10 +51,36 @@ describe("operation view", () => {
     expect(operationItems({ id: 1 })).toEqual([])
   })
 
+  it("loads older threads with the last item's cursor and preserves the filter", async () => {
+    if (section.view.kind !== "operation-view") throw new Error("expected an operation view")
+    const first = Array.from({ length: 200 }, (_, index) => ({ id: `thread-${index}`, updatedAt: 1000 - index }))
+    const older = { id: "older", updatedAt: 0 }
+    const requests: unknown[] = []
+    vi.stubGlobal("fetch", async (_url: string, init: RequestInit) => {
+      requests.push(JSON.parse(String(init.body)).input)
+      return Response.json({ ok: true, value: requests.length === 1 ? first : [older] })
+    })
+    expect(await loadOperationItems("/api/_vitehub/console/definitions", section.view, { mine: true }, new AbortController().signal)).toEqual([...first, older])
+    expect(requests).toEqual([{ mine: true, limit: 200 }, { mine: true, limit: 200, before: { id: "thread-199", updatedAt: 801 } }])
+  })
+
+  it("stops pagination when the filter's request is aborted", async () => {
+    if (section.view.kind !== "operation-view") throw new Error("expected an operation view")
+    const controller = new AbortController()
+    const fetch = vi.fn(async () => {
+      controller.abort()
+      return Response.json({ ok: true, value: Array.from({ length: 200 }, (_, id) => ({ id, updatedAt: 1 })) })
+    })
+    vi.stubGlobal("fetch", fetch)
+    await expect(loadOperationItems("/api/_vitehub/console/definitions", section.view, {}, controller.signal)).rejects.toMatchObject({ name: "AbortError" })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
   it("has no build-time data, and survives the section catalog and the client parser", async () => {
     expect(await readViteHubConsoleSection(section, undefined)).toEqual({ kind: "operation-view" })
     const described = describeViteHubConsoleSection(section)
     expect(described.view).toEqual(section.view)
+    expect(parseConsoleContributedSection(described)?.view).toEqual(section.view)
     expect(() => describeViteHubConsoleSection({ ...section, view: { ...section.view, operation: "nope" } as never })).toThrowError(/operation name/)
     expect(parseConsoleSectionContent({ kind: "operation-view", section: "fixtures" }, "fixtures")).toEqual({ kind: "operation-view" })
     const catalog = installConsoleDefinitions("/operation-view-test", { fixtures: { kind: "operation-view" } }, [described as never])

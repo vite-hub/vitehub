@@ -1,3 +1,5 @@
+import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
+import type { AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { betterAuth } from "better-auth"
@@ -9,6 +11,7 @@ import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
 
+import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
@@ -919,3 +922,36 @@ export const auth = new Proxy({}, {
     return Reflect.ownKeys(getAuth() as object)
   },
 }) as RegisteredAuth
+
+/** Read the configured log from server code. Apply access checks before returning it to a caller. */
+export function getAuthEvents(definition: AuthDefinition = resolveDefaultDefinition(), request?: Pick<Request, "headers" | "url">): AuthEventStore | undefined {
+  const events = resolveAuthOptions(definition, { request, env: envResolverFor(definition) }).options.events
+  return events ? events.store : undefined
+}
+
+export async function listAuthEvents(input: AuthEventListInput = {}, definition?: AuthDefinition): Promise<AuthEventPage> {
+  const store = getAuthEvents(definition)
+  if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
+  return store.list(input)
+}
+
+export async function aggregateAuthEvents(window: AuthEventWindow, definition?: AuthDefinition): Promise<AuthEventAggregates> {
+  const store = getAuthEvents(definition)
+  if (!store) throw authErrorDiagnostics.AUTH_R0018({ message: "Auth events are disabled. Configure events.store in defineAuth()." })
+  return store.aggregate(window)
+}
+
+/** Resolve the primary Definition once, with the same request context for the provider and Console policy. */
+export function getAuthConsoleForRequest(request: Request, event?: unknown): AuthConsole {
+  const definition = resolveDefaultDefinition()
+  const resolved = resolveAuthOptions(definition, {
+    request,
+    event,
+    env: envResolverFor(definition),
+  });
+  return createAuthConsole(
+    createAuthenticationProvider(resolved.providerOptions),
+    resolved.options.console as AuthConsoleOptions | undefined,
+    resolved.options.events ? resolved.options.events.store : undefined,
+  );
+}

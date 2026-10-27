@@ -16,6 +16,7 @@ export function shouldPassThroughAuthResponse(basePath: string, status: number):
   return basePath === "/" && status === 404
 }
 
+import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
 import type { IncomingMessage } from "node:http"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
@@ -48,7 +49,7 @@ export interface AuthVitePluginAPI {
   refresh: () => ResolvedAuthViteConfig | undefined
 }
 
-export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata }
+export type AuthVitePlugin = Plugin & { api: AuthVitePluginAPI, vitehub: ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata }
 
 export interface AuthInspectionOptions {
   projectRoot: string
@@ -146,29 +147,39 @@ function authAmbientTypesPath(root: string): string {
   return resolve(root, ".vitehub", "types", "auth.d.ts")
 }
 
-function renderAuthAmbientTypes(options: { definition?: string, importBase?: string, serverEnv: boolean } = { serverEnv: false }): string {
-  const importBase = options.importBase ?? authPackageName
-  const serverImport = `${importBase}/server`
+function authServerTypesPath(root: string): string {
+  return resolve(root, ".vitehub", "types", "auth-server.d.ts")
+}
+
+function renderAuthAmbientTypes(options: { definition?: string, serverEnv: boolean } = { serverEnv: false }): string {
   const registry = options.definition
     ? [`interface AuthRegistry { definition: typeof import(${JSON.stringify(options.definition)}).default }`]
     : []
+  // The ServerEnv import makes this file a module, so its global names need `declare global`.
+  if (options.serverEnv) {
+    return [
+      `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
+      "",
+      "declare global {",
+      "  namespace ViteHub {",
+      "    interface AuthRuntimeEnv extends ServerEnv {}",
+      ...registry.map(line => `    ${line}`),
+      "  }",
+      "}",
+      "",
+    ].join("\n")
+  }
+  return registry.length ? ["declare namespace ViteHub {", ...registry.map(line => `  ${line}`), "}", ""].join("\n") : "export {}\n"
+}
+
+/**
+ * The declaration of the virtual module. It stays out of a file with imports, which would make it an augmentation of
+ * a module that must already resolve. A Nuxt 4 app resolves `#vitehub/auth/server` only in the bundler, so its
+ * tsconfig would not find it and the types of everything that imports the Auth handlers would be `any`.
+ */
+function renderAuthServerTypes(importBase: string = authPackageName): string {
+  const serverImport = `${importBase}/server`
   return [
-    // The ServerEnv import makes this file a module, so its global names need `declare global`.
-    ...(options.serverEnv
-      ? [
-          `import type { ServerEnv } from ${JSON.stringify(envServerModuleId)}`,
-          "",
-          "declare global {",
-          "  namespace ViteHub {",
-          "    interface AuthRuntimeEnv extends ServerEnv {}",
-          ...registry.map(line => `    ${line}`),
-          "  }",
-          "}",
-          "",
-        ]
-      : registry.length
-        ? ["declare namespace ViteHub {", ...registry.map(line => `  ${line}`), "}", ""]
-        : []),
     `declare module ${JSON.stringify(AUTH_SERVER_ID)} {`,
     `  export * from ${JSON.stringify(serverImport)}`,
     `  export { handleAuth as default } from ${JSON.stringify(serverImport)}`,
@@ -182,9 +193,9 @@ async function refreshAuthGeneratedFiles(root: string, config?: ResolvedAuthVite
     writeFileIfChanged(resolve(root, generatedAuthAccessMiddlewareHandler), renderAuthAccessMiddlewareHandler(config)),
     writeFileIfChanged(authAmbientTypesPath(root), renderAuthAmbientTypes({
       definition: config && typeImportSpecifier(dirname(authAmbientTypesPath(root)), config.definition.handler),
-      importBase: options.importBase,
       serverEnv: Boolean(options.serverEnv),
     })),
+    writeFileIfChanged(authServerTypesPath(root), renderAuthServerTypes(options.importBase)),
     writeFileIfChanged(resolve(root, generatedAuthRouteHandler), renderAuthRouteHandler()),
   ])
 }
@@ -308,6 +319,7 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       refresh: refreshRuntimeConfig,
     },
     vitehub: {
+      cli: async () => resolvedOptions() === false ? undefined : (await import("./cli.ts")).createAuthCliContributor(),
       inspect: () => {
         if (resolvedOptions() === false) return
         return {
@@ -365,6 +377,10 @@ export function hubAuth(options?: AuthModuleOptions, internalOptions: InternalAu
       }
     },
     configureServer(server) {
+      // `ssrLoadModule()` works only when the `ssr` environment runs modules in this process. Vite checks
+      // `instanceof RunnableDevEnvironment`. A `runner` check gives the same result with a second copy of Vite.
+      // Nuxt 5 does not run the `ssr` environment here. Its Nitro server serves the Auth route.
+      if (!("runner" in server.environments.ssr)) return
       server.middlewares.use(async (request, response, next) => {
         try {
           const config = runtimeConfig ?? refreshRuntimeConfig()

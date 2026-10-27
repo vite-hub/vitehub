@@ -48,10 +48,12 @@ export interface ConsoleOperationView {
   link?: { label?: string, template: string, when?: { equals: string, path: string } }
   notice: string
   operation: string
+  pagination?: { limit: number, cursor: Readonly<Record<string, string>> }
 }
 
 export type ConsoleSectionView =
   | ConsoleOperationView
+  | { kind: "auth-management"; notice: string }
   | { kind: "definition-catalog", notice: string }
   | { columns: readonly ConsoleRecordColumn[], kind: "record-table", notice: string }
   | { kind: "document-editor", notice: string }
@@ -146,6 +148,7 @@ export interface ConsoleContributedSection {
 
 export type ConsoleSectionContent =
   | { kind: "operation-view" }
+  | { kind: "auth-management" }
   | { definitions: readonly ConsoleDefinitionSummary[], kind: "definition-catalog" }
   | { kind: "record-table", records: readonly ConsoleRecord[] }
   | { collections: readonly ConsoleDocumentCollection[], kind: "document-editor", setup?: ConsoleDocumentSetup }
@@ -213,11 +216,17 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
     : []
   const link = record(view.link)
   const when = record(link?.when)
+  const pagination = record(view.pagination)
+  const cursor = record(pagination?.cursor)
+  const cursorPaths = Object.entries(cursor ?? {}).filter((entry): entry is [string, string] => text(entry[1]))
   return {
     columns,
     kind: "operation-view",
     notice: view.notice,
     operation: view.operation,
+    ...(typeof pagination?.limit === "number" && Number.isInteger(pagination.limit) && pagination.limit > 0 && cursorPaths.length
+      ? { pagination: { limit: pagination.limit, cursor: Object.fromEntries(cursorPaths) } }
+      : {}),
     ...(filters.length ? { filters } : {}),
     ...(text(link?.template) ? { link: { template: link.template, ...(text(link.label) ? { label: link.label } : {}), ...(text(when?.path) && text(when.equals) ? { when: { equals: when.equals, path: when.path } } : {}) } } : {}),
   }
@@ -226,7 +235,12 @@ function parseConsoleOperationView(view: Record<string, unknown>): ConsoleOperat
 function parseConsoleSectionView(value: unknown): ConsoleSectionView | undefined {
   const view = record(value)
   if (!text(view?.notice)) return undefined
-  if (view.kind === "definition-catalog" || view.kind === "document-editor") return { kind: view.kind, notice: view.notice }
+  if (
+    view.kind === "auth-management" ||
+    view.kind === "definition-catalog" ||
+    view.kind === "document-editor"
+  )
+    return { kind: view.kind, notice: view.notice }
   if (view.kind === "operation-view") return parseConsoleOperationView(view)
   if (view.kind !== "record-table" || !Array.isArray(view.columns)) return undefined
   const columns = view.columns.flatMap((entry) => {
@@ -354,6 +368,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
 export function parseConsoleSectionContent(value: unknown, section: string): ConsoleSectionContent | undefined {
   const source = record(value)
   if (source?.section !== section) return undefined
+  if (source.kind === "auth-management") return { kind: "auth-management" };
   if (source.kind === "document-editor") {
     if (!Array.isArray(source.collections)) return undefined
     const setup = parseConsoleDocumentSetup(source.setup)

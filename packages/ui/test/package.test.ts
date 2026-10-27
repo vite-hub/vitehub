@@ -89,6 +89,7 @@ describe("@vite-hub/ui package contract", () => {
     });
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.7.0",
+      "comark-chat": "catalog:",
       katex: "^0.17.0",
       "@nuxt/kit": "4.6.2",
       "@shikijs/langs": "4.5.0",

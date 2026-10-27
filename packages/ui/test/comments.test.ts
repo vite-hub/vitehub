@@ -319,6 +319,21 @@ describe("comment mode", () => {
 });
 
 describe("mentions", () => {
+  it("discards a lookup after the mention token is deleted", async () => {
+    const { client, wrapper } = await layer();
+    await drop(wrapper);
+    let resolve!: (people: CommentUser[]) => void;
+    const search = vi.spyOn(client, "users").mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const field = textarea(wrapper);
+    await field.setValue("Hi @be");
+    await vi.waitFor(() => expect(search).toHaveBeenCalled());
+    await field.setValue("Hi ");
+    resolve([ben]);
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect((field.element as HTMLTextAreaElement).value).toBe("Hi ");
+  });
+
   it("suggests people after @, inserts the pick, and sends the id", async () => {
     const { client, wrapper } = await layer();
     await drop(wrapper);
@@ -976,6 +991,22 @@ describe("accessibility", () => {
 });
 
 describe("links and layout", () => {
+  it.each(["/a/..//evil.example/x", "/..//evil.example/x", "/a/%2e%2e//evil.example/x", "/%2e.//evil.example/x"])("keeps normalized links on the application origin: %s", async (id) => {
+    const { client } = setup([thread(1, { subject: { id, kind: "page" } })]);
+    const wrapper = mount(defineComponent({
+      setup() {
+        const comments = useComments({ client, subject: pricing, location: () => ({ href: "http://app.test/pricing", origin: "http://app.test", search: "" }) });
+        comments.scope.value = "site";
+        return () => h(CommentList, { comments });
+      },
+    }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+    const href = wrapper.find("[data-slot=comment-list-item]").attributes("href");
+    expect(new URL(href!, "http://app.test").origin).toBe("http://app.test");
+  });
+
   it("builds links from subjectUrl for subjects that are not pages", async () => {
     const doc = { id: "docs/intro", kind: "content" };
     const { client } = setup([thread(1, { subject: doc }), thread(2)]);

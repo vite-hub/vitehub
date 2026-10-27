@@ -31,6 +31,15 @@ function resolved(position: ReturnType<typeof resolveAnchor>): ResolvedAnchor {
   return position
 }
 
+it.each([
+  '<p>Ship it today. Ship it today.</p>',
+  '<p>Ship it today.</p><p>Ship it today.</p>',
+])("detaches quotes whose context is tied: %s", (html) => {
+  page(html)
+  for (const element of document.querySelectorAll("p")) place(element, { left: 0, top: 0, width: 100, height: 20 })
+  expect(resolveAnchor({ kind: "text", selector: "p", exact: "it", prefix: "Ship ", suffix: " today." })).toEqual({ detached: true })
+})
+
 describe("createAnchor selectors", () => {
   it("prefers data-comment-id, then id, then data-testid", () => {
     page(`<div id="a" data-testid="t" data-comment-id="c"></div><div id="b" data-testid="u"></div><div data-testid="v"></div>`)

@@ -174,7 +174,12 @@ describe("Console Go to shortcuts", () => {
 
   it("keeps the documented chords stable", () => {
     expect(consoleOverviewShortcut).toEqual(["g", "o"])
-    expect(Object.fromEntries(Object.keys(consoleSectionShortcutKeys).map(section => [section, consoleSectionShortcut(section)?.join(" ")]))).toEqual({
+    expect(
+      Object.fromEntries(
+        Object.keys(consoleSectionShortcutKeys).map(section => [section, consoleSectionShortcut(section)?.join(" ")]),
+      ),
+    ).toEqual({
+      auth: "g h",
       agents: "g a",
       content: "g t",
       usage: "g u",

@@ -176,9 +176,6 @@ function normalizeQuery(query: Readonly<Record<string, unknown>>): NormalizedQue
     const values = stringList(value).map(entry => entry.toLocaleLowerCase())
     if (values.length) normalized.filters[key] = [...new Set(values)].sort()
   }
-  const filters = Object.create(null) as Record<string, string[]>
-  for (const [key, value] of Object.entries(normalized.filters).sort(([a], [b]) => compareProtocolStrings(a, b))) filters[key] = value
-  normalized.filters = filters
   return normalized
 }
 
@@ -200,12 +197,12 @@ function matches(item: unknown, query: NormalizedQuery, searchFields: readonly s
 function sortItems<TItem>(items: TItem[], sort: ArrayCollectionSort | undefined): TItem[] {
   if (!sort) return items
   const direction = sort.direction === "desc" ? -1 : 1
-  return items.sort((left, right) => {
-    const leftValue = firstScalar(collectionValueAt(left, sort.field))
-    const rightValue = firstScalar(collectionValueAt(right, sort.field))
-    if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
-    return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
-  })
+  return items.map(item => ({ item, value: firstScalar(collectionValueAt(item, sort.field)) }))
+    .sort(({ value: leftValue }, { value: rightValue }) => {
+      if (Number(leftValue) === leftValue && Number(rightValue) === rightValue) return (leftValue - rightValue) * direction
+      return String(leftValue ?? "").localeCompare(String(rightValue ?? "")) * direction
+    })
+    .map(({ item }) => item)
 }
 
 function buildFacets(items: readonly unknown[], fields: readonly string[], maxValues: number): CollectionFacets {
@@ -264,7 +261,7 @@ export function array<TItem, const TFilter extends string = never>(
   const maxValues = options.maxLimit ?? defaultMaxLimit
   const signatureFields = JSON.stringify({ search: [...searchFields].sort(), sort: options.sort ? { direction: options.sort.direction ?? "asc", field: options.sort.field } : null })
 
-  async function snapshot(signal: AbortSignal | undefined): Promise<{ digest: string, items: readonly TItem[] }> {
+  async function snapshot(signal: AbortSignal | undefined, includeDigest: boolean): Promise<{ digest: string, items: readonly TItem[] }> {
     const result = typeof load === "function" ? await load({ signal }) : load
     signal?.throwIfAborted()
     const items: unknown = Array.isArray(result) ? result : Reflect.get(Object(result), "items")
@@ -275,7 +272,7 @@ export function array<TItem, const TFilter extends string = never>(
     if (digest !== undefined && (String(digest) !== digest || !digest)) {
       throw sourceErrorDiagnostics.SOURCE_R0009({ message: "[vitehub] array() digest must be a non-empty string." })
     }
-    const contentDigest = String(digest ?? await sha256(JSON.stringify(items)))
+    const contentDigest = includeDigest ? String(digest ?? await sha256(JSON.stringify(items))) : ""
     const schema = options.schema
     if (schema) {
       const parsed = await Promise.all(items.map(async (item, index) => {
@@ -334,7 +331,7 @@ export function array<TItem, const TFilter extends string = never>(
     pagination: "provider",
     querySchema,
     async load({ cursor, limit, query, signal }) {
-      const { digest, items } = await snapshot(signal)
+      const { digest, items } = await snapshot(signal, true)
       const normalized = normalizeQuery(query)
       const matching = sortItems(items.filter(item => matches(item, normalized, searchFields)), options.sort)
       const signature = await sha256(`${signatureFields}\n${JSON.stringify(normalized)}`)
@@ -357,7 +354,7 @@ export function array<TItem, const TFilter extends string = never>(
   if (key !== undefined) {
     if (String(key) !== key || !key) throw sourceErrorDiagnostics.SOURCE_R0028({ message: "[vitehub] array() key must be a field path." })
     source.get = async (value, { signal }) => {
-      const { items } = await snapshot(signal)
+      const { items } = await snapshot(signal, false)
       return items.find(item => scalarValues(collectionValueAt(item, key)).includes(value)) ?? null
     }
   }

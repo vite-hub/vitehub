@@ -19,6 +19,7 @@ import {
 } from "../sections";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
+import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -90,11 +91,7 @@ const notEnabledPrimitives = computed(() =>
     ? []
     : consolePrimitives.filter((entry) => entry.id !== "usage" && !sections.value.includes(entry.id)),
 );
-const lastSectionDetails = computed(() =>
-  availableSections.value.find((section) => section.id === lastSection.value),
-);
 const agentsEnabled = computed(() => sections.value.includes("agents"));
-const showContinue = computed(() => Boolean(lastSectionDetails.value) || agentsEnabled.value);
 const sessionItems = computed(() =>
   recentSessions.items.value.slice(0, 5).map((item) => ({
     agentName: item.agentName,
@@ -108,19 +105,26 @@ const sessionItems = computed(() =>
 const summary = computed(() => {
   const count = availableSections.value.length;
   const groups = sectionGroups.value.length;
-  if (!count) return isConsoleSignInRequired(error.value) ? "Sign in to see what this project enables." : "No primitives enabled yet.";
+  if (!count) return "No primitives enabled yet.";
   return `${count} ${count === 1 ? "primitive" : "primitives"} enabled in ${groups} ${groups === 1 ? "group" : "groups"}.`;
 });
-
 
 async function loadRecentSessions(): Promise<void> {
   sessionsLoadedAt.value = Date.now();
   await recentSessions.refresh();
 }
 
-async function loadSections(): Promise<void> {
+// Without a session the Console has nothing to show, so the Overview is one centered state.
+const signedOut = computed(() => !loading.value && !availableSections.value.length && isConsoleSignInRequired(error.value));
+const checking = ref(false);
+const stillSignedOut = ref(false);
+// With a sign-in page, the Console sends the person there and back. Without one, it asks them to sign in elsewhere.
+const signInURL = computed(() => (signedOut.value ? consoleSignInURL({ document, location: window.location }) : undefined));
+
+/** A quiet load keeps the current page on screen while it runs, so the signed-out state does not flash a skeleton. */
+async function loadSections(quiet = false): Promise<void> {
   const currentRequest = ++request;
-  loading.value = true;
+  if (!quiet) loading.value = true;
   try {
     const navigation = await loadConsoleNavigation(props.sectionsBase);
     if (!navigation) throw consoleNavigationError(props.sectionsBase) ?? viteHubErrorDiagnostics.VITE_HUB_R0101({ message: "The console could not load its configuration." });
@@ -136,6 +140,35 @@ async function loadSections(): Promise<void> {
   }
 }
 
+/** Asks again whether this browser has a session. Only a check that someone asked for reports "still not signed in". */
+async function checkSession(asked: boolean): Promise<void> {
+  if (checking.value) return;
+  checking.value = true;
+  if (asked) stillSignedOut.value = false;
+  try {
+    await loadSections(true);
+  } finally {
+    checking.value = false;
+  }
+  if (asked) stillSignedOut.value = signedOut.value;
+  checkIfReturned();
+}
+
+// People sign in in another tab, so the Console checks again when this tab is shown or focused again. A return while a
+// request is in flight waits for its answer, because that request may have left before the sign-in.
+let returnedDuringRequest = false;
+function checkOnReturn(): void {
+  if (document.visibilityState !== "visible") return;
+  if (loading.value || checking.value) returnedDuringRequest = true;
+  else if (signedOut.value) void checkSession(false);
+}
+
+function checkIfReturned(): void {
+  if (!returnedDuringRequest) return;
+  returnedDuringRequest = false;
+  if (signedOut.value) void checkSession(false);
+}
+
 async function openSection(routeName: string): Promise<void> {
   await router.push({ name: resolveConsoleRouteName(route.name, routeName) });
 }
@@ -149,9 +182,15 @@ async function openSession(agentName: string, invocation: string): Promise<void>
 
 onMounted(() => {
   lastSection.value = readLastConsoleSection();
-  void loadSections();
+  void loadSections().then(checkIfReturned);
+  document.addEventListener("visibilitychange", checkOnReturn);
+  window.addEventListener("focus", checkOnReturn);
 });
-onBeforeUnmount(() => request++);
+onBeforeUnmount(() => {
+  request++;
+  document.removeEventListener("visibilitychange", checkOnReturn);
+  window.removeEventListener("focus", checkOnReturn);
+});
 </script>
 
 <template>
@@ -171,14 +210,51 @@ onBeforeUnmount(() => request++);
       </template>
 
       <template #body>
-        <main class="px-5 pb-24 pt-8 sm:px-8 lg:pt-14">
-          <div class="mx-auto w-full max-w-2xl">
-            <header class="flex items-center gap-3">
+        <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
+        <main
+          v-if="signedOut"
+          class="flex flex-1 flex-col items-center justify-center px-6 pb-24 pt-12 text-center"
+          aria-labelledby="console-home-signed-out"
+        >
+          <span class="vitehub-console__overview-mark grid size-10 place-items-center rounded-full border border-default" aria-hidden="true">
+            <ConsoleMark class="size-[1.125rem]" />
+          </span>
+          <h2 id="console-home-signed-out" class="mt-4 text-base font-semibold text-balance text-highlighted">Sign in to use the Console</h2>
+          <p class="mt-1.5 max-w-sm text-sm text-pretty text-muted">
+            {{ signInURL ? "You are not signed in, or your session ended." : "You are not signed in, or your session ended. Sign in, then come back to this tab." }}
+          </p>
+          <UButton
+            v-if="signInURL"
+            class="mt-5"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-log-in"
+            label="Sign in"
+            :to="signInURL"
+            external
+          />
+          <UButton
+            v-else
+            class="mt-5"
+            color="neutral"
+            variant="outline"
+            size="sm"
+            icon="i-lucide-refresh-cw"
+            label="Check again"
+            :loading="checking"
+            @click="checkSession(true)"
+          />
+          <p class="mt-3 min-h-5 text-xs text-muted" role="status">{{ stillSignedOut ? "You are still not signed in." : "" }}</p>
+        </main>
+        <main v-else class="px-5 pb-24 pt-8 sm:px-8 lg:pt-12">
+          <div class="mx-auto flex w-full max-w-3xl flex-col gap-10">
+            <!-- Every block puts its label in a narrow left column, so rows of every section start on one edge. -->
+            <header class="vitehub-console__overview-block items-center" data-header>
               <span class="vitehub-console__overview-mark grid size-10 shrink-0 place-items-center rounded-full border border-default">
                 <ConsoleMark class="size-[1.125rem]" />
               </span>
               <div class="min-w-0">
-                <h1 class="truncate text-sm font-medium text-highlighted">
+                <h1 class="truncate text-base font-semibold tracking-tight text-highlighted">
                   {{ installedNavigation?.projectName || "ViteHub Console" }}
                 </h1>
                 <p class="text-sm text-muted">
@@ -187,27 +263,17 @@ onBeforeUnmount(() => request++);
               </div>
             </header>
 
-            <div v-if="loading" class="mt-12 grid gap-10" aria-hidden="true">
-              <div v-for="index in 3" :key="index" class="grid gap-3">
-                <USkeleton class="h-4 w-24 rounded-sm" />
-                <USkeleton v-for="row in 3" :key="row" class="h-6 rounded-md" />
+            <div v-if="loading" class="flex flex-col gap-10" aria-hidden="true">
+              <div v-for="index in 3" :key="index" class="vitehub-console__overview-block">
+                <USkeleton class="h-4 w-16 rounded-sm sm:mt-3" />
+                <div class="grid gap-2 py-1.5">
+                  <USkeleton v-for="row in 3" :key="row" class="h-7 rounded-md" />
+                </div>
               </div>
             </div>
 
-            <!-- With app sign-in, the Console page loads for anyone; its data needs a signed-in user. -->
-            <UAlert
-              v-else-if="error && !availableSections.length && isConsoleSignInRequired(error)"
-              class="mt-10"
-              color="neutral"
-              variant="subtle"
-              icon="i-lucide-log-in"
-              title="Sign in to use the Console"
-              description="You are not signed in, or your session ended. Sign in, then reload this page."
-              :actions="[{ label: 'Reload', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: loadSections }]"
-            />
             <ConsoleState
               v-else-if="error && !availableSections.length"
-              class="mt-12"
               icon="i-lucide-cloud-off"
               title="Could not load sections"
               :error="error"
@@ -215,158 +281,122 @@ onBeforeUnmount(() => request++);
             />
 
             <template v-else>
-              <section v-if="!availableSections.length" class="mt-12">
-                <h2 class="text-sm font-medium text-highlighted">Add your first primitive</h2>
-                <p class="mt-1 max-w-md text-sm leading-6 text-muted">
-                  No primitive in this project has a Console page yet. Enable one in the ViteHub configuration, then reload the Console.
-                </p>
-                <div class="mt-4 flex flex-wrap gap-2">
-                  <UButton
-                    color="neutral"
-                    icon="i-lucide-rocket"
-                    label="Start with KV"
-                    size="sm"
-                    target="_blank"
-                    to="https://vitehub.dev/docs/getting-started/first-server-primitive"
-                    variant="solid"
-                  />
-                  <UButton
-                    color="neutral"
-                    :icon="consoleSectionDetails.agents.icon"
-                    label="Build an Agent"
-                    size="sm"
-                    target="_blank"
-                    to="https://vitehub.dev/docs/getting-started/first-agent"
-                    variant="outline"
-                  />
-                </div>
-              </section>
-
-              <section v-if="showContinue" class="mt-12" aria-labelledby="console-home-continue">
-                <div class="vitehub-console__overview-label">
-                  <h2 id="console-home-continue">Continue</h2>
-                  <button
-                    v-if="lastSectionDetails"
-                    type="button"
-                    class="vitehub-console__overview-link"
-                    @click="lastSectionDetails && openSection(lastSectionDetails.routeName)"
-                  >
-                    <span class="flex items-center justify-between gap-3">
-                      <span class="vitehub-console__overview-icon size-9">
-                        <ConsoleSectionIcon :section="lastSectionDetails.id" :icon="lastSectionDetails.icon" class="size-[1.125rem]" />
-                      </span>
-                      <span class="font-mono text-xs uppercase tracking-[0.08em] text-dimmed">Last visited</span>
-                    </span>
-                    <span class="mt-auto block pt-6 text-base font-semibold text-highlighted">{{ lastSectionDetails.label }}</span>
-                    <span class="mt-1 block text-sm text-muted">{{ lastSectionDetails.description }}</span>
-                    <span class="mt-4 inline-flex items-center gap-1.5 text-xs font-medium text-muted transition-colors group-hover:text-highlighted">
-                      Continue in {{ lastSectionDetails.label }}
-                      <UIcon name="i-lucide-arrow-right" class="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                    </span>
-                  </button>
-
-                  <div v-if="agentsEnabled" class="flex flex-col overflow-hidden rounded-lg border border-default" :class="lastSectionDetails ? 'min-h-40' : ''">
-                    <div class="flex items-center justify-between gap-3 border-b border-default px-4 py-2.5">
-                      <span class="flex items-center gap-2 text-sm font-medium text-highlighted">
-                        <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="size-4 text-muted" />
-                        Recent sessions
-                      </span>
-                      <UButton
-                        color="neutral"
-                        variant="ghost"
-                        size="xs"
-                        label="View all"
-                        trailing-icon="i-lucide-arrow-right"
-                        @click="openSection(consoleSectionDetails.agents.routeName)"
-                      />
-                    </div>
-                    <div v-if="recentSessions.pending.value && !sessionItems.length" class="grid gap-2 p-4" aria-hidden="true">
-                      <USkeleton v-for="index in 3" :key="index" class="h-6 rounded-md" />
-                    </div>
-                    <div v-else-if="recentSessions.error.value" class="flex flex-1 items-center gap-2 px-4 py-6 text-sm text-muted">
-                      <UIcon name="i-lucide-cloud-off" class="size-4 shrink-0" />
-                      <span class="min-w-0 flex-1">Could not load recent sessions.</span>
-                      <UButton color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
-                    </div>
-                    <p v-else-if="!sessionItems.length" class="flex flex-1 items-center px-4 py-6 text-sm text-muted">
-                      No Agent sessions yet. Invoke an Agent to see its sessions here.
-                    </p>
-                    <ul v-else class="divide-y divide-default">
-                      <li v-for="session in sessionItems" :key="session.id">
-                        <button
-                          type="button"
-                          class="vitehub-console__overview-row grid w-full grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5 text-left disabled:cursor-default"
-                          :disabled="!session.agentName"
-                          :aria-label="`Open ${session.agentName || 'Agent'} session ${session.context}, status ${session.status}${session.time ? `, ${session.time}` : ''}`"
-                          @click="session.agentName && openSession(session.agentName, session.id)"
-                        >
-                          <span class="size-1.5 rounded-full" :class="session.dot" aria-hidden="true" />
-                          <span class="flex min-w-0 items-baseline gap-2">
-                            <span class="min-w-0 truncate text-sm font-medium text-highlighted">{{ session.agentName || "Agent Invocation" }}</span>
-                            <span class="truncate font-mono text-xs text-muted">{{ session.context }}</span>
-                          </span>
-                          <span class="flex items-center gap-3 text-xs text-muted">
-                            <span class="hidden sm:inline">{{ session.status }}</span>
-                            <span v-if="session.time" class="w-12 text-right font-mono tabular-nums text-dimmed">{{ session.time }}</span>
-                          </span>
-                        </button>
-                      </li>
-                    </ul>
+              <section v-if="!availableSections.length" class="vitehub-console__overview-block" aria-labelledby="console-home-start">
+                <p class="vitehub-console__overview-label" aria-hidden="true">Get started</p>
+                <div class="sm:pt-2.5">
+                  <h2 id="console-home-start" class="text-sm font-medium text-highlighted">Add your first primitive</h2>
+                  <p class="mt-1 max-w-md text-sm text-pretty text-muted">
+                    No primitive in this project has a Console page yet. Enable one in the ViteHub configuration, then reload the Console.
+                  </p>
+                  <div class="mt-4 flex flex-wrap gap-2">
+                    <UButton
+                      color="neutral"
+                      icon="i-lucide-rocket"
+                      label="Start with KV"
+                      size="sm"
+                      target="_blank"
+                      to="https://vitehub.dev/docs/getting-started/first-server-primitive"
+                      variant="solid"
+                    />
+                    <UButton
+                      color="neutral"
+                      :icon="consoleSectionDetails.agents.icon"
+                      label="Build an Agent"
+                      size="sm"
+                      target="_blank"
+                      to="https://vitehub.dev/docs/getting-started/first-agent"
+                      variant="outline"
+                    />
                   </div>
                 </div>
-
               </section>
 
-              <section
-                v-for="group in sectionGroups"
-                :key="group.id"
-                class="mt-12"
-                :aria-labelledby="`console-home-group-${group.id}`"
-              >
-                <div class="vitehub-console__overview-label">
-                  <h2 :id="`console-home-group-${group.id}`">{{ group.label }}</h2>
-                </div>
+              <section v-if="agentsEnabled" class="vitehub-console__overview-block" aria-labelledby="console-home-sessions">
+                <h2 id="console-home-sessions" class="vitehub-console__overview-label">Recent sessions</h2>
                 <ul class="vitehub-console__overview-list">
-                  <li v-for="section in group.sections" :key="section.id" class="vitehub-console__overview-row group" data-cell>
-                    <!-- The button covers the row. The Docs link sits above it, so a link never nests in the button. -->
-                    <button
-                      type="button"
-                      class="vitehub-console__overview-cell-target absolute inset-0"
-                      :aria-label="`Open ${section.label}`"
-                      @click="openSection(section.routeName)"
-                    />
-                    <span class="vitehub-console__overview-icon">
-                      <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="size-3.5" />
-                    </span>
-                    <span class="pointer-events-none min-w-0">
-                      <span class="block text-sm font-medium text-highlighted">{{ section.label }}</span>
-                      <span class="mt-1 block text-[13px]/[18px] text-muted">{{ section.description }}</span>
-                    </span>
-                    <a
-                      v-if="section.docs"
-                      class="vitehub-console__overview-docs pointer-events-auto relative ms-auto inline-flex items-center gap-1"
-                      :href="section.docs"
-                      rel="noreferrer"
-                      target="_blank"
-                      :aria-label="`${section.label} documentation`"
-                    >
-                      Docs
-                    </a>
+                  <li v-if="recentSessions.pending.value && !sessionItems.length" class="grid gap-2 px-2 py-1.5" aria-hidden="true">
+                    <USkeleton v-for="index in 3" :key="index" class="h-7 rounded-md" />
                   </li>
-                  <li
-                    v-for="filler in group.fillers"
-                    :key="filler.index"
-                    class="vitehub-console__overview-filler hidden"
-                    :class="[filler.sm ? 'sm:block' : '', filler.lg ? 'lg:block' : 'lg:hidden']"
-                    aria-hidden="true"
-                  />
+                  <li v-else-if="recentSessions.error.value" class="vitehub-console__overview-row">
+                    <UIcon name="i-lucide-cloud-off" class="vitehub-console__overview-icon" />
+                    <span class="vitehub-console__overview-description">Could not load recent sessions.</span>
+                    <UButton class="ms-auto" color="neutral" variant="link" size="xs" label="Try again" @click="loadRecentSessions" />
+                  </li>
+                  <li v-else-if="!sessionItems.length" class="vitehub-console__overview-row">
+                    <ConsoleSectionIcon section="agents" :icon="consoleSectionDetails.agents.icon" class="vitehub-console__overview-icon" />
+                    <span class="vitehub-console__overview-description">No Agent sessions yet. Invoke an Agent to see its sessions here.</span>
+                  </li>
+                  <template v-else>
+                    <li v-for="session in sessionItems" :key="session.id">
+                      <button
+                        type="button"
+                        class="vitehub-console__overview-row"
+                        :disabled="!session.agentName"
+                        :aria-label="`Open ${session.agentName || 'Agent'} session ${session.context}, status ${session.status}${session.time ? `, ${session.time}` : ''}`"
+                        @click="session.agentName && openSession(session.agentName, session.id)"
+                      >
+                        <span class="vitehub-console__overview-icon" aria-hidden="true">
+                          <span class="size-1.5 rounded-full" :class="session.dot" />
+                        </span>
+                        <span class="vitehub-console__overview-name">{{ session.agentName || "Agent Invocation" }}</span>
+                        <span class="vitehub-console__overview-description font-mono text-xs" :title="session.context">{{ session.context }}</span>
+                        <span class="vitehub-console__overview-meta">
+                          <span class="hidden font-sans sm:inline">{{ session.status }}</span>
+                          <span v-if="session.time" class="w-12 text-right tabular-nums">{{ session.time }}</span>
+                        </span>
+                      </button>
+                    </li>
+                  </template>
+                  <li>
+                    <button type="button" class="vitehub-console__overview-row text-muted" @click="openSection(consoleSectionDetails.agents.routeName)">
+                      <UIcon name="i-lucide-arrow-right" class="vitehub-console__overview-icon" />
+                      <span>View all sessions</span>
+                    </button>
+                  </li>
                 </ul>
               </section>
 
-              <section v-if="notEnabledPrimitives.length" class="mt-12" aria-labelledby="console-home-not-enabled">
-                <div class="vitehub-console__overview-label">
-                  <h2 id="console-home-not-enabled">Not enabled</h2>
-                </div>
+              <!-- Groups follow the rail. They sit closer to each other than to the other sections, because together they list what is enabled. -->
+              <div v-if="sectionGroups.length" class="flex flex-col gap-4 sm:gap-2">
+                <section
+                  v-for="group in sectionGroups"
+                  :key="group.id"
+                  class="vitehub-console__overview-block"
+                  :aria-labelledby="`console-home-group-${group.id}`"
+                >
+                  <h2 :id="`console-home-group-${group.id}`" class="vitehub-console__overview-label">{{ group.label }}</h2>
+                  <ul class="vitehub-console__overview-list">
+                    <li v-for="section in group.sections" :key="section.id" class="vitehub-console__overview-row" data-cell>
+                      <!-- The button covers the row. The Docs link sits above it, so a link never nests in the button. -->
+                      <button
+                        type="button"
+                        class="vitehub-console__overview-cell-target absolute inset-0"
+                        :aria-label="`Open ${section.label}`"
+                        @click="openSection(section.routeName)"
+                      />
+                      <ConsoleSectionIcon :section="section.id" :icon="section.icon" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">{{ section.label }}</span>
+                      <span class="vitehub-console__overview-description" :title="section.description">{{ section.description }}</span>
+                      <span class="vitehub-console__overview-meta">
+                        <span v-if="section.id === lastSection" class="hidden font-sans sm:inline">Last visited</span>
+                        <a
+                          v-if="section.docs"
+                          class="vitehub-console__overview-docs"
+                          :href="section.docs"
+                          rel="noreferrer"
+                          target="_blank"
+                          :aria-label="`${section.label} documentation`"
+                        >
+                          Docs
+                        </a>
+                      </span>
+                    </li>
+                  </ul>
+                </section>
+              </div>
+
+              <section v-if="notEnabledPrimitives.length" class="vitehub-console__overview-block" aria-labelledby="console-home-not-enabled">
+                <h2 id="console-home-not-enabled" class="vitehub-console__overview-label">Not enabled</h2>
                 <ul class="vitehub-console__overview-list">
                   <li v-for="entry in notEnabledPrimitives" :key="entry.id">
                     <a
@@ -377,43 +407,32 @@ onBeforeUnmount(() => request++);
                       target="_blank"
                       :aria-label="`Set up ${entry.label}`"
                     >
-                      <span class="vitehub-console__overview-icon">
-                        <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="size-3.5" />
-                      </span>
-                      <span class="text-sm font-medium text-toned">{{ entry.label }}</span>
-                      <span class="vitehub-console__overview-docs ms-auto inline-flex items-center gap-1">
+                      <ConsoleSectionIcon :section="entry.id" :icon="entry.icon" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">{{ entry.label }}</span>
+                      <span class="vitehub-console__overview-description" :title="entry.pitch">{{ entry.pitch }}</span>
+                      <span class="vitehub-console__overview-meta">
                         Set up
                         <UIcon name="i-lucide-arrow-up-right" class="size-3" />
                       </span>
-                    <span class="text-[13px]/[18px] text-muted">{{ entry.pitch }}</span>
-                  </a>
+                    </a>
                   </li>
                 </ul>
               </section>
 
-              <section class="mt-12" aria-labelledby="console-home-learn">
-                <h2 id="console-home-learn" class="vitehub-console__overview-eyebrow">
-                  <span>Learn</span>
-                </h2>
-                <div class="vitehub-console__overview-grid grid gap-px overflow-hidden rounded-lg border border-default sm:grid-cols-2 lg:grid-cols-4">
-                  <a
-                    v-for="guide in consoleGuides"
-                    :key="guide.href"
-                    class="vitehub-console__overview-cell group flex flex-col gap-3 p-4"
-                    :href="guide.href"
-                    rel="noreferrer"
-                    target="_blank"
-                  >
-                    <span class="flex items-center justify-between gap-3">
-                      <UIcon :name="guide.icon" class="size-4 text-muted transition-colors group-hover:text-highlighted" />
-                      <UIcon name="i-lucide-arrow-up-right" class="size-3 text-dimmed transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5" />
-                    </span>
-                    <span>
-                      <span class="block text-sm font-medium text-highlighted">{{ guide.label }}</span>
-                      <span class="mt-1 block text-[13px]/[18px] text-muted">{{ guide.description }}</span>
-                    </span>
-                  </a>
-                </div>
+              <section class="vitehub-console__overview-block" aria-labelledby="console-home-learn">
+                <h2 id="console-home-learn" class="vitehub-console__overview-label">Learn</h2>
+                <ul class="vitehub-console__overview-list">
+                  <li v-for="guide in consoleGuides" :key="guide.href">
+                    <a class="vitehub-console__overview-row" :href="guide.href" rel="noreferrer" target="_blank">
+                      <UIcon :name="guide.icon" class="vitehub-console__overview-icon" />
+                      <span class="vitehub-console__overview-name">{{ guide.label }}</span>
+                      <span class="vitehub-console__overview-description" :title="guide.description">{{ guide.description }}</span>
+                      <span class="vitehub-console__overview-meta">
+                        <UIcon name="i-lucide-arrow-up-right" class="size-3" />
+                      </span>
+                    </a>
+                  </li>
+                </ul>
               </section>
             </template>
           </div>
@@ -424,51 +443,56 @@ onBeforeUnmount(() => request++);
 </template>
 
 <style>
-/* Section labels use mono uppercase eyebrows with a hairline to the right. */
-.vitehub-console__overview-eyebrow {
-  align-items: center;
+/*
+ * The Overview is one column of blocks. Each block has a quiet label on the left and one-line rows on the right:
+ * icon, name, description, and meta. Rows are 2.5rem high, and the label has the same line height, so it lines up
+ * with the first row. Blocks stack on narrow screens.
+ */
+.vitehub-console__overview-block {
+  display: grid;
+  gap: 0.25rem 1.5rem;
+}
+
+/* The header keeps the mark beside the project name on a phone. */
+.vitehub-console__overview-block[data-header] {
+  column-gap: 0.75rem;
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+@media (min-width: 40rem) {
+  .vitehub-console__overview-block,
+  .vitehub-console__overview-block[data-header] {
+    column-gap: 1.5rem;
+    grid-template-columns: 7rem minmax(0, 1fr);
+  }
+}
+
+.vitehub-console__overview-label {
   color: var(--ui-text-muted);
-  display: flex;
-  font-family: var(--font-mono);
-  font-size: 12px;
-  font-weight: 500;
-  gap: 0.75rem;
-  letter-spacing: 0.08em;
-  margin-block-end: 0.75rem;
-  text-transform: uppercase;
+  font-size: 0.8125rem;
+  font-weight: 400;
+  line-height: 1.25rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.vitehub-console__overview-eyebrow::after {
-  background: var(--ui-border);
-  content: "";
-  flex: 1 1 auto;
-  height: 1px;
-  order: 1;
+@media (min-width: 40rem) {
+  .vitehub-console__overview-label {
+    line-height: 2.5rem;
+  }
 }
 
-.vitehub-console__overview-eyebrow > :last-child:not(:first-child) {
-  order: 2;
-}
-
-/* Docs and Set up links stay quiet until the pointer reaches them. */
-.vitehub-console__overview-docs {
-  border-radius: 0.25rem;
-  color: var(--ui-text-dimmed);
-  font-family: var(--font-mono);
-  font-size: 12px;
-  outline: none;
-  transition: color 150ms ease;
-}
-
-.vitehub-console__overview-link:hover,
-.vitehub-console__overview-link:focus-visible {
+.vitehub-console__overview-mark {
   color: var(--ui-text-highlighted);
 }
 
+/* Rows reach past the text edge, so the hover tint has room and the icons still line up with the header. */
 .vitehub-console__overview-list {
   display: flex;
   flex-direction: column;
   margin-inline: -0.5rem;
+  min-width: 0;
 }
 
 .vitehub-console__overview-row {
@@ -478,7 +502,7 @@ onBeforeUnmount(() => request++);
   font-size: 0.875rem;
   gap: 0.75rem;
   line-height: 1.25rem;
-  min-height: 2.75rem;
+  min-height: 2.5rem;
   min-width: 0;
   outline: none;
   padding-inline: 0.5rem;
@@ -488,14 +512,28 @@ onBeforeUnmount(() => request++);
   width: 100%;
 }
 
-.vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover,
-.vitehub-console__overview-row:is(button, a):focus-visible,
-.vitehub-console__overview-row[data-cell]:has(> .vitehub-console__overview-cell-target:focus-visible) {
-  background: var(--ui-bg-elevated);
+.vitehub-console__overview-row:is(button, a) {
+  cursor: pointer;
 }
 
 .vitehub-console__overview-row:disabled {
   cursor: default;
+}
+
+@media (hover: hover) {
+  .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover {
+    background: var(--ui-bg-elevated);
+  }
+
+  .vitehub-console__overview-row:is(button, a, [data-cell]):not(:disabled):hover .vitehub-console__overview-icon {
+    color: var(--ui-text-highlighted);
+  }
+}
+
+.vitehub-console__overview-row:is(button, a):focus-visible,
+.vitehub-console__overview-row[data-cell]:has(> .vitehub-console__overview-cell-target:focus-visible) {
+  background: var(--ui-bg-elevated);
+  box-shadow: inset 0 0 0 2px var(--ui-border-inverted);
 }
 
 .vitehub-console__overview-cell-target {
@@ -506,23 +544,25 @@ onBeforeUnmount(() => request++);
 
 .vitehub-console__overview-icon {
   align-items: center;
-  border: 1px solid var(--ui-border);
-  border-radius: 0.3125rem;
   color: var(--ui-text-muted);
   display: inline-flex;
   flex: none;
-  height: 1.5rem;
+  height: 1rem;
   justify-content: center;
-  width: 1.5rem;
+  pointer-events: none;
+  transition: color 150ms ease;
+  width: 1rem;
 }
 
 .vitehub-console__overview-name {
   color: var(--ui-text-highlighted);
-  min-width: 0;
+  flex: none;
+  font-weight: 500;
+  max-width: 45%;
   overflow: hidden;
+  pointer-events: none;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
 }
 
 .vitehub-console__overview-description {
@@ -530,92 +570,55 @@ onBeforeUnmount(() => request++);
   flex: 1;
   min-width: 0;
   overflow: hidden;
+  pointer-events: none;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .vitehub-console__overview-meta {
-  color: var(--ui-text-dimmed);
+  align-items: center;
+  color: var(--ui-text-muted);
+  display: inline-flex;
   flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  gap: 0.75rem;
   margin-inline-start: auto;
   white-space: nowrap;
 }
 
 /* The Docs link sits above the row button, so a pointer on it opens the docs and not the section. */
 .vitehub-console__overview-docs {
+  border-radius: 0.25rem;
+  margin: -0.25rem -0.375rem;
   outline: none;
+  padding: 0.25rem 0.375rem;
   position: relative;
+  text-underline-offset: 3px;
   transition: color 150ms ease;
   z-index: 1;
 }
 
-.vitehub-console__overview-docs:hover,
-.vitehub-console__overview-docs:focus-visible {
+.vitehub-console__overview-docs:hover {
   color: var(--ui-text-highlighted);
   text-decoration: underline;
-  text-underline-offset: 3px;
+}
+
+.vitehub-console__overview-docs:focus-visible {
+  color: var(--ui-text-highlighted);
+  outline: 2px solid var(--ui-border-inverted);
 }
 
 /* Primitives that are not enabled read one tone quieter, so they look optional. */
 .vitehub-console__overview-row[data-optional] .vitehub-console__overview-name {
   color: var(--ui-text-toned);
+  font-weight: 400;
 }
 
-.vitehub-console__overview-mark {
-  color: var(--ui-text-highlighted);
-}
-
-.vitehub-console__overview-icon {
-  align-items: center;
-  background: var(--ui-bg-muted);
-  border: 1px solid var(--ui-border);
-  border-radius: 0.375rem;
-  color: var(--ui-text-muted);
-  display: inline-flex;
-  flex: none;
-  justify-content: center;
-  transition: color 150ms ease, border-color 150ms ease;
-}
-
-/* Hover layers the elevated tint over the page color because the dark tint is translucent. */
-.vitehub-console__overview-cell,
-.vitehub-console__overview-card,
-.vitehub-console__overview-row {
-  outline: none;
-  transition: background 150ms ease, border-color 150ms ease, box-shadow 150ms ease;
-}
-
-.vitehub-console__overview-row:not(:disabled):hover {
-  background: linear-gradient(var(--ui-bg-elevated), var(--ui-bg-elevated)), var(--ui-bg);
-}
-
-/* Grid cells share hairlines, so hover adds an inset border over the tint. */
-.vitehub-console__overview-cell:hover {
-  background: linear-gradient(var(--ui-bg-elevated), var(--ui-bg-elevated)), var(--ui-bg);
-  box-shadow: inset 0 0 0 1px var(--ui-border-accented);
-}
-
-.vitehub-console__overview-card {
-  background: linear-gradient(var(--ui-bg-muted), var(--ui-bg-muted)), var(--ui-bg);
-}
-
-.vitehub-console__overview-card:hover {
-  background: linear-gradient(var(--ui-bg-elevated), var(--ui-bg-elevated)), var(--ui-bg);
-  border-color: var(--ui-border-accented);
-}
-
-.vitehub-console__overview-cell:hover .vitehub-console__overview-icon,
-.vitehub-console__overview-card:hover .vitehub-console__overview-icon {
-  border-color: var(--ui-border-accented);
-  color: var(--ui-text-highlighted);
-}
-
-.vitehub-console__overview-cell:focus-visible,
-.vitehub-console__overview-cell:has(> .vitehub-console__overview-cell-target:focus-visible),
-.vitehub-console__overview-card:focus-visible,
-.vitehub-console__overview-row:focus-visible {
-  box-shadow: inset 0 0 0 2px var(--ui-border-inverted);
-  position: relative;
-  z-index: 1;
+/* On a phone the name and meta fit; a description after a name would truncate to a few letters. */
+@media (max-width: 40rem) {
+  .vitehub-console__overview-name + .vitehub-console__overview-description {
+    display: none;
+  }
 }
 </style>

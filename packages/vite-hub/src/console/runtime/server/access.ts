@@ -1,9 +1,11 @@
-import { installOperationSectionResolver } from "@vite-hub/internal/operations"
+import { installOperationSectionResolver, operationAccessAllows } from "@vite-hub/internal/operations"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
+import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
+import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
+import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -16,17 +18,20 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `cloudflare-access`: the Cloudflare Access application token.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open", authorize?: ConsoleAuthorize }
+  | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
 /** The checked Console access that a guarded handler receives. Only `withConsoleAccess()` creates it. */
 export interface ConsoleAccess {
   readonly mode: ConsoleAccessMode
-  /** The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. */
-  readonly sections: "all" | readonly ConsoleSectionId[]
+  /**
+   * The sections that this request may use. `"all"` when `console.authorize` is not set or returns `true`. An entry is a
+   * section id, or `"<section>:read"` for a section that the request may only read.
+   */
+  readonly sections: "all" | readonly string[]
   readonly user?: ConsoleUser
 }
 
@@ -35,9 +40,10 @@ export interface ConsoleAccess {
  * - `section`: a section id, or a function that reads it from the request. A request outside the allowed sections gets `403`.
  * - `anySection: true`: the route serves every Console user, such as the section list and the RPC transport.
  * - `user: true`: read the signed-in user before the handler runs, so `access.user` is set.
+ * - `write: true`: the route changes state, so a read-only grant (`"<section>:read"`) is refused.
  */
 export type ConsoleRouteScope =
-  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean }
+  | { section: ConsoleSectionId | ((event: ConsoleRequestEvent) => ConsoleSectionId | undefined), user?: boolean, write?: boolean }
   | { anySection: true, user?: boolean }
 
 /** A Console server handler that runs only after `withConsoleAccess()` accepts the request. */
@@ -80,7 +86,10 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if (policy.mode === "open" && !policy.authorize && !developmentRuntime() && !scope[openWarningKey]) {
+  if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
+    throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
+  }
+  if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
   }
@@ -95,9 +104,42 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   })
 }
 
-/** Whether this server process runs `vite dev`. */
-export function developmentRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "development"
+/** Whether a value stays a path on the same origin after URL normalization. */
+export function isConsoleSignInPage(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
+  if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
+  // Dot segments can turn a single-slash input into a network-path reference when serialized.
+  return !new URL(value, "http://vitehub.local").pathname.startsWith("//")
+}
+
+/** The sign-in page of the installed policy, under the application mount of a Console path. */
+export function consoleSignInPage(pathname: string): string | undefined {
+  const policy = scope[policyKey]
+  const page = policy && "signInPage" in policy ? policy.signInPage : undefined
+  if (!page) return undefined
+  const normalized = new URL(page, "http://vitehub.local")
+  const mounted = `${consoleMountBase(pathname)}${normalized.pathname}${normalized.search}${normalized.hash}`
+  return isConsoleSignInPage(mounted) ? mounted : undefined
+}
+
+/**
+ * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
+ * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
+ * does not read a page, or the access check does not answer `401`.
+ */
+export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
+  const url = consoleRequestURL(event)
+  const page = consoleSignInPage(url.pathname)
+  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  if (!page || (method !== "GET" && method !== "HEAD")) return undefined
+  const access = await checkConsoleAccess(event)
+  if (!isRuntimeResponse(access) || access.status !== 401) return undefined
+  const target = new URL(page, url)
+  target.searchParams.set("redirect", `${url.pathname}${url.search}`)
+  return new Response(null, {
+    headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
+    status: 302,
+  })
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -195,7 +237,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
   if (policy.mode === "local") {
-    if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
+    if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication
@@ -245,12 +287,19 @@ export async function readConsoleOperationUser(access: ConsoleAccess): Promise<C
   const user = await readConsoleAccessUser(access)
   if (user) return user
   // SAFETY: The local developer has the id and name that a Console user needs.
-  return (access.mode === "local" || access.mode === "open") && developmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
+  return (access.mode === "local" || access.mode === "open") && isConsoleDevelopmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
 }
 
+/** Whether the access includes the section, with a read-only grant (`"<section>:read"`) too. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+  return operationAccessAllows(access, section)
+}
+
+/** Whether the access may change the section: it has the full grant, not `"<section>:read"`. */
+export function consoleAccessWrites(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
+  if (!consoleAccessGrant.isValid(access)) return false
+  return operationAccessAllows(access, section, { kind: "write" })
 }
 
 export function allowedConsoleSections(access: ConsoleAccess, available: readonly ConsoleSectionId[]): ConsoleSectionId[] {
@@ -388,6 +437,7 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       const section = typeof declared.section === "function" ? declared.section(event) : declared.section
       // A dynamic scope that cannot resolve to a section is not an unrestricted route.
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
+      if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
     return handler(event, access)
   }
@@ -397,6 +447,34 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
 
 export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
   return typeof route === "function" ? routeScopes.get(route) : undefined
+}
+
+/** Adapt an in-process agent call by checking the installed policy for its user. HTTP callers still need a Console grant. */
+export async function consoleOperationAccess(context: OperationContext): Promise<ConsoleAccess> {
+  // SAFETY: The private grant registry proves this access came from the Console check.
+  if (consoleAccessGrant.isValid(context.access)) return context.access as ConsoleAccess
+  const policy = scope[policyKey]
+  if (!policy || context.surface !== "agent" || context.access.mode !== "agent") {
+    throw consoleRequestError(403, "This Console access was not created by the access check.")
+  }
+  let allowed: ConsoleAccess["sections"] = "all"
+  if (policy.mode !== "local" && policy.authorize) {
+    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    const result = await policy.authorize({ request, ...(context.user ? { user: context.user } : {}) })
+    if (result !== true) {
+      const sections = authorizedSections(result)
+      if (!sections?.length) throw consoleRequestError(403, "This user cannot use Console operations.")
+      allowed = sections
+    }
+  }
+  const candidates = context.access.sections === "all" ? allowed : context.access.sections
+  const checked = { mode: policy.mode, sections: allowed }
+  const sections = candidates === "all" ? "all" : candidates.flatMap((entry) => {
+    const section = entry.endsWith(":read") ? entry.slice(0, -5) : entry
+    if (!operationAccessAllows(checked, section)) return []
+    return [entry.endsWith(":read") || !operationAccessAllows(checked, section, { kind: "write" }) ? `${section}:read` : section]
+  })
+  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(context.user ? { user: context.user } : {}) })
 }
 
 /**

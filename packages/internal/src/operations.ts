@@ -10,6 +10,7 @@ export const operationRpcPath = "/_vitehub/rpc/__call"
 export const operationRpcHeader = "x-vitehub-console"
 /** Response header of the local dev RPC. Its value is {@link projectRootHash} of the project that the server runs. */
 export const operationRootHeader = "x-vitehub-root"
+export const operationExpectedRootsHeader = "x-vitehub-expected-roots"
 /** A short stable hash of a project root. The CLI uses it to see that the dev server runs its own project. */
 export function projectRootHash(root: string): string {
   const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "")
@@ -50,7 +51,10 @@ export interface OperationActor {
 /** The checked Console access of a call. `vite-hub` issues it. `ConsoleAccess` has this shape. */
 export interface OperationAccess {
   readonly mode: string
-  /** The sections that the call may use. `"all"` when no section filter applies. */
+  /**
+   * The sections that the call may use. `"all"` when no section filter applies. An entry is a section id (`"kv"`, every
+   * operation of the section) or `"<section>:read"` (only the operations that read).
+   */
   readonly sections: "all" | readonly string[]
   readonly user?: OperationUser
 }
@@ -63,6 +67,8 @@ export interface OperationContext {
   /** The Agent Actor when an agent calls on behalf of `user`. */
   actor?: OperationActor
   surface: "console" | "cli" | "mcp" | "agent"
+  /** Set by the host from generated build identity, never from request input or runtime NODE_ENV. */
+  development?: boolean
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
@@ -166,6 +172,9 @@ function checkDefinition(definition: unknown): void {
 
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
+/** CLI namespaces owned by built-in commands. */
+export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision"]
+
 /** Input keys that the generated CLI commands read themselves. */
 export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
 
@@ -302,6 +311,9 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
   const commands = new Map<string, AnyOperation>()
   for (const operation of operations) {
     const { command, namespace } = operationCliPath(operation)
+    if (reservedOperationNamespaces.includes(namespace)) {
+      throw invalidDefinition(operation.name, `the CLI namespace ${JSON.stringify(namespace)} is reserved for built-in commands. Set cli.namespace to another name.`)
+    }
     const key = `${namespace} ${command}`
     const other = commands.get(key)
     if (other) {
@@ -364,16 +376,39 @@ export async function parseOperationInput(operation: AnyOperation, input: unknow
 }
 
 /** The section that grants a call, or `false` for any Console user. `undefined` means the input names no valid section. */
-export function operationSection(operation: AnyOperation, input: unknown): string | false | undefined {
+export function operationSection(operation: Pick<AnyOperation, "section">, input: unknown): string | false | undefined {
   const section = operation.section
   // SAFETY: Callers pass input that the operation schema accepted.
   return section instanceof Function ? (section as (value: unknown) => string | undefined)(input) : section
 }
 
-/** Whether the checked access covers the section. */
-export function operationAccessAllows(access: OperationAccess, section: string | false | undefined): boolean {
-  if (section === false) return true
-  return access.sections === "all" || (section !== undefined && access.sections.includes(section))
+/** The suffix of a section grant that allows only reads, such as `"kv:read"`. */
+export const readOnlySectionSuffix = ":read"
+
+/** What one call does, for the read-only check of a section grant. */
+export interface OperationCallKind {
+  kind: OperationKind
+  /** The call only reads, such as a dry run (`readOnlyWhen`). */
+  readOnly?: boolean
+}
+
+/**
+ * Whether the checked access covers the section. Without `call`, a read-only grant (`"kv:read"`) counts, so the answer
+ * is whether the section is visible. With `call`, a read-only grant allows only a `read` operation or a call that only
+ * reads. Every surface (RPC, CLI, agents, MCP) checks access here.
+ */
+export function operationAccessAllows(access: OperationAccess, section: string | false | undefined, call?: OperationCallKind): boolean {
+  if (section === false || access.sections === "all") return true
+  if (section === undefined) return false
+  if (access.sections.includes(section)) return true
+  if (!access.sections.includes(`${section}${readOnlySectionSuffix}`)) return false
+  return call === undefined || call.kind === "read" || call.readOnly === true
+}
+
+/** The kind of one call of an operation: a `readOnlyWhen` match makes a write operation a read. */
+export function operationCall(operation: Pick<AnyOperation, "kind" | "readOnlyWhen">, input: unknown): OperationCallKind {
+  // SAFETY: Callers pass input that the operation schema accepted.
+  return { kind: operation.kind, readOnly: operation.readOnlyWhen?.(input as never) === true }
 }
 
 function text(value: unknown): string | undefined {
@@ -415,6 +450,9 @@ export async function runOperation(registry: OperationRegistry, name: string, in
     if (!operationAccessAllows(context.access, section)) {
       throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${name} needs.` }), { status: 403 })
     }
+    if (!operationAccessAllows(context.access, section, operationCall(operation, parsed))) {
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
+    }
     // SAFETY: The schema of the operation produced `parsed`.
     return { ok: true, value: await (operation.run as (value: unknown, context: OperationContext) => unknown)(parsed, context) }
   }
@@ -439,8 +477,8 @@ export interface OperationTarget {
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
   /**
-   * Project roots that the caller accepts. A local dev server names its project in a response header, and the call fails
-   * with `INTERNAL_R0025` when that project is none of these.
+   * Project roots that the caller accepts. The server checks their hashes before dispatch and rejects a mismatch
+   * with `INTERNAL_R0025`. The response identity is also checked.
    */
   roots?: readonly string[]
 }
@@ -466,17 +504,27 @@ function hasCredentials(env: Record<string, string | undefined>): boolean {
   return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
 }
 
+/** Refuse a stale local discovery target before dispatching any operation. */
+export function assertOperationProject(request: Request, root: string | undefined): void {
+  const expected = request.headers.get(operationExpectedRootsHeader)
+  if (expected === null) return
+  if (root && expected.split(",").includes(projectRootHash(root))) return
+  throw Object.assign(internalErrorDiagnostics.INTERNAL_R0025({ message: "The server runs another project than the command expects." }), { status: 409 })
+}
+
 /** Call one operation over the RPC of a dev server or a deployed app. Never throws. */
 export async function callOperation(target: OperationTarget, name: string, input: unknown): Promise<OperationResult> {
   const base = new URL(target.url)
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
   const url = new URL(operationRpcPath.slice(1), base)
+  const headers = operationHeaders(target.env)
+  if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
   let response: Response
   try {
     response = await (target.fetch ?? fetch)(url.href, {
       // The operation comes first so the server can find large calls within the first bytes.
       body: JSON.stringify({ operation: name, input: input ?? {} }),
-      headers: operationHeaders(target.env),
+      headers,
       method: "POST",
       redirect: "manual",
       signal: AbortSignal.timeout(target.timeout ?? 30_000),

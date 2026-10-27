@@ -60,8 +60,8 @@ function fail(error: Error, status: number): Error {
   return Object.assign(error, { status })
 }
 
-function personOf(user: OperationContext["user"]): CommentUser | null {
-  if (!user) return null
+/** Public identity for stored comments and notifications; policies keep the full user. */
+function personOf(user: CommentUser): CommentUser {
   return { id: user.id, ...(user.name ? { name: user.name } : {}), ...(user.image ? { image: user.image } : {}) }
 }
 
@@ -77,7 +77,7 @@ interface Caller {
 
 async function caller(context: OperationContext): Promise<Caller> {
   const actor = actorOf(context.actor)
-  return { runtime: await commentsRuntime(), user: personOf(context.user), ...(actor ? { actor } : {}) }
+  return { runtime: await commentsRuntime(), user: context.user, ...(actor ? { actor } : {}) }
 }
 
 interface Target {
@@ -96,7 +96,7 @@ function policy(who: Caller): NonNullable<CommentsRuntime["definition"]["authori
 async function permitted(who: Caller, action: CommentAction, target: Target = {}, user: CommentUser | null = who.user): Promise<boolean> {
   const subject = target.subject ?? target.thread?.subject
   const actor = user === who.user ? who.actor : undefined
-  return Boolean(await policy(who)({ action, user, ...(actor ? { actor } : {}), ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }))
+  return Boolean(await policy(who)({ action, user: user ? { ...user } : null, ...(actor ? { actor } : {}), ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }))
 }
 
 async function allow(who: Caller, action: CommentAction, target?: Target): Promise<void> {
@@ -105,7 +105,7 @@ async function allow(who: Caller, action: CommentAction, target?: Target): Promi
 
 function author(who: Caller): CommentUser {
   if (!who.user) throw fail(commentsErrorDiagnostics.COMMENTS_R0012(), 401)
-  return who.user
+  return personOf(who.user)
 }
 
 function scopeOf(runtime: CommentsRuntime, target: CommentSubject): string {
@@ -159,7 +159,7 @@ function announce(who: Caller, context: OperationContext, thread: CommentThread,
     try {
       const readers: CommentUser[] = []
       for (const person of mentioned) {
-        if (await permitted(who, "read", { thread }, person).catch(() => false)) readers.push(person)
+        if (await permitted(who, "read", { thread }, person).catch(() => false)) readers.push(personOf(person))
       }
       if (readers.length) await onMention({ mentioned: readers, message, thread })
     }
@@ -218,7 +218,7 @@ const list = defineOperation({
     const readable: CommentThread[] = []
     let before = input.before
     // Threads the caller may not read are left out, so ask again after them until the page is full or the threads end.
-    for (let round = 0; round < 50 && readable.length < limit; round++) {
+    while (readable.length < limit) {
       const threads = await who.runtime.store.list({ ...input, limit, ...(before ? { before } : {}), ...(who.user ? { userId: who.user.id } : {}) })
       const allowed = await mapLimit(threads, authorizeConcurrency, thread => permitted(who, "read", { thread }).catch(() => false))
       for (const [index, thread] of threads.entries()) {
@@ -253,6 +253,7 @@ const create = defineOperation({
   name: "comments.create",
   run: async (input, context): Promise<CommentThread> => {
     const who = await caller(context)
+    await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
     noAttachments(input.attachments)
     const person = author(who)
@@ -343,11 +344,12 @@ const remove = defineOperation({
     const deletesThread = !target || target.id === found.messages[0]?.id
     // People delete their own messages, and a thread only when every message in it is theirs. Everything else, and every
     // Agent, needs the `delete` action.
-    const mine = (authorId: string) => who.user !== null && !who.actor && authorId === who.user.id
-    const owns = deletesThread ? found.messages.every(entry => mine(entry.author.id)) : mine(target.author.id)
+    const ownerId = who.user && !who.actor ? who.user.id : undefined
+    const owns = ownerId !== undefined && (deletesThread ? found.messages.every(entry => entry.author.id === ownerId) : target.author.id === ownerId)
     if (!owns) await allow(who, "delete", { thread: found })
     if (deletesThread) {
-      await who.runtime.store.deleteThread(found.id)
+      const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
+      if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
       return null
     }
     return who.runtime.store.deleteMessage(found.id, target.id, Date.now())
@@ -378,6 +380,7 @@ const users = defineOperation({
   name: "comments.users",
   run: async (input, context): Promise<CommentUser[]> => {
     const who = await caller(context)
+    await allow(who, "read")
     // Only people who can write mention anyone, so only they get suggestions.
     await allow(who, "write")
     const query = input.query.trim()
@@ -391,16 +394,16 @@ const users = defineOperation({
 
 const session = defineOperation({
   description: "Tell the comments overlay who is signed in and what that person may do. Nothing else leaves the server.",
-  input: v.strictObject({}),
+  input: v.strictObject({ subject: v.optional(subject) }),
   kind: "read",
   name: "comments.session",
-  run: async (_input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
+  run: async (input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
     const who = await caller(context)
     // A visitor who is not signed in gets no answer from the policy: the overlay asks on every page view, so the policy
     // does not run for each anonymous one, and nothing about the app leaks.
     if (!who.user) return { canRead: false, canWrite: false, user: null }
     // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
-    const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action).catch(() => false) : Promise.resolve(false)
+    const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action, { subject: input.subject }).catch(() => false) : Promise.resolve(false)
     const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
     return { canRead, canWrite: canRead && canWrite && who.user !== null, user: who.user }
   },

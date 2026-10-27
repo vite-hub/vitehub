@@ -1,9 +1,10 @@
 ---
 title: Agent Definitions
 description: Declare how one Agent runs, what it can use, and how callers reach it.
-navigation.order: 21
-navigation.group: Core
+navigation.order: 10
+navigation.group: Define and run
 icon: i-lucide-file-user
+navigation.kind: Reference
 ---
 
 An Agent Definition is the single configuration object for one Agent. It selects an [Agent Driver](/docs/agents/agent-drivers), attaches Capabilities and Workspace context, and defines any Channels, Actor resolution, hooks, or hosted runtime behavior.
@@ -12,32 +13,25 @@ ViteHub discovers definitions in `server/agents`. Both `server/agents/support.ts
 
 ## Define an Agent
 
-Start with the execution path. This Agent uses ViteHub's built-in Codex Driver:
+This Agent answers a prompt with a model. `runtime: false` keeps its execution inline so a direct caller can wait for the result.
 
-```ts [server/agents/review.ts]
+```ts [server/agents/support.ts]
 import { defineAgent } from 'vite-hub/agent'
 
 export default defineAgent({
-  description: 'Reviews the current repository change.',
-  driver: 'codex',
-})
-```
-
-The shorthand uses `permissions: 'ask'`. Provider actions request approval unless the Agent Definition opts into another policy.
-
-Use a tagged built-in value when the Driver needs options:
-
-```ts [server/agents/review.ts]
-export default defineAgent({
+  runtime: false,
   driver: {
-    kind: 'codex',
-    model: 'gpt-5.5',
-    permissions: 'ask',
+    model: 'openai/gpt-5.1-mini',
+    instructions: 'Answer support questions. Say when you need more information.',
   },
 })
 ```
 
-For application-supplied execution, use exactly one structural Driver variant: `{ model }`, `{ run }`, or [`{ ask }`](/docs/agents/agent-drivers#use-an-ask-driver).
+Configure [model credentials](/docs/agents/agent-drivers#use-a-model-backed-driver) before running it. For a first result without a model or API key, follow [First Agent](/docs/getting-started/first-agent).
+
+A Driver selects one execution path: a model, a custom `run` function, typed `ask` questions, or a coding provider. The built-in `driver: 'codex'` and `driver: 'claude-code'` shorthands use `permissions: 'ask'`; provider actions request approval. Read [Agent Drivers](/docs/agents/agent-drivers) for provider setup and tagged options such as `{ kind: 'codex', model: 'gpt-5.5' }`.
+
+Continue with [Run an Agent](/docs/agents/invocations#run-an-agent) to call this definition, or [Build a chat app](/docs/agents/build-a-chat-app) to connect a model to a browser UI.
 
 ## Bound an Invocation budget
 
@@ -86,145 +80,15 @@ AI SDK Model Drivers make one output-only correction call when a known tool rece
 
 ## Extend an Agent
 
-Use `extends` to make one Agent Definition the default for another:
+Use `extends` to reuse one Agent Definition. The child gets a fresh runtime; Channels and hooks merge by key; matching entries replace inherited values. Static Capabilities merge by ID, with an optional extension hook. Persistent stores remain shared when both definitions select the same store.
 
-```ts [server/agents/bot-dev/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
-import bot from '../bot/agent'
-
-export default defineAgent({
-  extends: bot,
-  driver: { model: 'gpt-5.6-sol' },
-  workspace: {
-    store: { provider: 'local', root: '.vitehub/workspaces/bot-dev' },
-  },
-})
-```
-
-The child gets a fresh runtime from the parent's configuration. `name` is not inherited; discovery names each Agent from its own file. Configure separate persistent storage when the Agents must keep separate data. An explicitly shared store or adapter remains shared.
-
-Child configuration overrides parent defaults. Channels, Sources, Skills, and hooks merge by key, replacing each matching definition or callback as a whole. Static Capabilities merge by `id`: the child replaces a matching Capability and appends new ones. A child Capability with an `extend(inherited)` hook combines with the matching parent Capability instead. A Capability resolver replaces the inherited list or resolver. Other arrays replace the parent array. A child `driver.launch` replaces the entire inherited launch command or resolver, including `onExit`. If the child omits `launch`, it inherits the parent launch. Changing a Driver kind or store provider replaces that configuration.
-
-Three options compose with the parent, so the child does not restate it:
-
-```ts [server/agents/bot-dev/agent.ts]
-import { defineAgent } from 'vite-hub/agent'
-import { mcp } from 'vite-hub/agent/capabilities'
-import bot from '../bot/agent'
-
-export default defineAgent({
-  extends: bot,
-  // Receives the parent's list. An array replaces it.
-  driver: { requirements: inherited => [...inherited, 'kubectl'] },
-  // Adds a server to the parent's mcp() servers. `false` removes an inherited server.
-  capabilities: [mcp({ servers: { portal: { connection: 'portal' } } })],
-  // Sets the mode of every Source that does not set its own, including inherited Sources.
-  workspace: { materialize: 'none' },
-})
-```
-
-- `driver.requirements` can be a function of the inherited list. Without a parent, it receives `[]`.
-- A child `mcp()` merges `servers`, `integrity`, and `toolOverrides` by server name into the parent's `mcp()` Capability. The child's entry for a server wins as a whole, and options that the child leaves unset, such as `unavailableNotice`, are inherited. Set `inherit: false` to replace the parent's `mcp()` Capability.
-- `workspace.materialize` is the default [`materialize` mode](/docs/workspace/configure) for every Source in `workspace.sources` that does not set its own. Sources that Capabilities contribute keep their own mode.
-
-A discovered child also uses the [Connection access rules](/docs/connections/configure#access-rules) of the Agents it extends. A rule that names the child wins over an inherited rule.
-
-`extends` accepts one definition created by `defineAgent()` in the same package instance. It does not discover files in the parent's directory. Import shared instructions in TypeScript with `?raw` and pass them through `driver.instructions`. Share Skills through explicit Sources or a directory link.
-
-A definition that is not discovered, such as one created in a Schedule, uses the colocated Skills of the discovered Agent it extends. It reads them when it runs, so module import order does not matter. Use `agentWithSkills()` to add Skills to such a definition without an Agent folder:
-
-```ts [server/schedules/changelog.ts]
-import { agentWithSkills, defineAgent } from 'vite-hub/agent'
-import botDev from '../agents/bot-dev/agent'
-import changelogSkill from './changelog-skill.md?raw'
-
-const changelogAgent = agentWithSkills(
-  defineAgent({ extends: botDev, name: 'changelog' }),
-  { 'changelog-writing': changelogSkill },
-)
-```
-
-Each key is a Skill name, and each value is its `SKILL.md` content. The result keeps the inherited Skills. A Skill with the same name replaces the inherited one.
+Read [Agent presets and inheritance](/docs/agents/agent-presets#extend-an-agent) for examples, merge rules, shared Skills, and Workspace discovery.
 
 ### Named presets
 
-Use [Agent presets](/docs/agents/presets) to choose a built-in workflow and follow its setup guide.
+Use `preset` and `presets` to select a locally imported definition by name. Select one parent with either `preset` or `extends`.
 
-Export ordinary `defineAgent()` definitions from a preset package. Consumers import them and select a local name:
-
-```ts
-import { defineAgent } from "vite-hub/agent"
-import { notetaker } from "@example/agents"
-
-export default defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
-  name: "meeting-notes",
-  driver: { model: "gpt-5.6-sol" },
-})
-```
-
-`preset` must name an own entry in `presets`. Selection uses the same composition as `extends`, including child overrides and a fresh runtime. Specify one parent with either `preset` or `extends`. The map belongs to this definition; it does not register global names or load packages. Neither the map nor its selected name becomes model instructions.
-
-Preset packages must declare `@vite-hub/agent` as a peer dependency so their definitions share the application's package instance. Package authors must include instruction content and required assets explicitly; selecting a preset does not discover its package directory.
-
-A preset can expose typed options with the same `defineAgent()` function:
-
-```ts
-export const notetaker = defineAgent({
-  options: { format: "concise" as "concise" | "detailed", labels: ["notes"] },
-  configure: ({ format }) => defineAgent({
-    driver: { kind: "codex", instructions: `Write ${format} notes.` },
-  }),
-})
-```
-
-Consumers select the definition and override only the options they need:
-
-```ts
-const notes = defineAgent({
-  preset: "notetaker",
-  presets: { notetaker },
-  options: { format: "detailed", labels: [] },
-  driver: { model: "gpt-5.4" },
-})
-
-notes.options.format // "concise" | "detailed"
-```
-
-Configured presets can declare a `configKey` to expose a module-style configuration block. The block keeps the preset's option names visible at the call site:
-
-```ts
-const notes = defineAgent({
-  configKey: 'notetaker',
-  options: { format: 'concise' as 'concise' | 'detailed' },
-  configure: ({ format }) => defineAgent({
-    driver: { kind: 'codex', instructions: `Write ${format} notes.` },
-  }),
-})
-
-const detailed = defineAgent({
-  extends: notes,
-  notetaker: { format: 'detailed' },
-})
-```
-
-Use `extends: [notes, options]` when options belong beside the selected preset, for example `defineAgent({ extends: [notes, { format: 'detailed' }] })`. The named block and tuple can be combined; tuple values take precedence when both provide the same key. The legacy `extends` plus `options` form remains available, but a definition cannot mix it with a named block or tuple.
-
-`options` must be a plain record and uses nested defaults. Built-in instance roots are rejected by the types. Custom class roots are rejected at runtime because TypeScript cannot distinguish their structure from plain records with callbacks. Child values replace parent values, including `false`, empty arrays, and callbacks. Arrays never concatenate. Nested values with required methods, including class instances, require complete replacements. Omitted or `undefined` values retain their defaults. Annotate optional fields and literal unions in the defaults to describe the accepted configuration. TypeScript checks options against the selected preset. If options come from untyped input, validate them in `configure`.
-
-`configure` runs synchronously when defining or extending the Agent. Return a normal Agent Definition and keep this callback free of network calls and other side effects. The callback receives its own option copy. Copies of standard built-ins preserve their own property descriptors and nested values. Custom class instances and values such as `WeakMap`, `WeakSet`, and `Error` retain their identity across option copies. Detached buffers and their views retain identity. Resizable or growable buffers and their views also retain identity, preserving resize behavior and fixed-length or length-tracking views. Ordinary Agent overrides apply after the callback and remain in effect through further extensions. An inherited Agent name is cleared on each extension. For discovered Agents, a Workspace reference object must use a statically known string `name`; `name: undefined` owns a Workspace. Opaque names require an explicit Workspace ownership marker on the configured definition. A configured Agent exposes its resolved `options` for host setup and inspection; these values do not become model instructions automatically.
-
-For folder Agents discovered from `agent.ts`, define `configure` in that file and return a discoverable `defineAgent()` call. Workspace discovery does not execute imported callbacks or opaque helper calls returned by `configure`, including computed calls such as `builders["workspace"]()` and asserted calls such as `build!()` or `(build as Factory)()`. Return `defineAgent()` directly, or declare `workspace: {}` for owned storage or a named Workspace reference on the configured Agent. It rejects an imported `configure` callback because it cannot determine the required Workspace setup. Discovery also rejects unresolved computed settings keys, quoted keys with unsupported escapes, compound `void` expressions, dynamic Workspace values such as `options.workspaceName`, opaque settings spreads such as `...importedSettings`, imported Capability options and preset registries (including object spreads), option-derived Capability lists such as `options.caps`, returned Agent members such as `agents.storage`, imported Agent parents, imported Channel maps, Channels imported from packages, local Channel factories and opaque calls such as `makeChannel()`, first-party Channel helper calls with opaque options such as `github(options.github)` or `github({ pullRequest: options.pullRequest })`, Channel options defined by accessors such as `get pullRequest()`, dynamic preset selections, logical Capability expressions such as `false || [storage]`, constructed Capability lists such as `Array.of(storage)` or `[plain].concat(storage)`, imported Capability values, destructured Capability bindings, and local Capability member access or calls such as `values.storage` and `values.storage()`. If these contribute an owned Workspace, add `workspace: {}` to the Agent definition. Otherwise, define the settings, parents, Channels, and Capabilities locally with direct bindings so discovery can inspect them.
-
-Discovery reads first-party Channel helper calls, such as `github({ pullRequest: false })`, without running them. It also follows a Channel imported from a relative module, such as `import portal from '../portal.github.ts'`, and inspects that module's export with the same rules. It follows re-exports from relative modules, such as `export { default } from './inner.ts'` and `export * from './channels.ts'`, and rejects re-exports from packages. `github()` owns a Workspace only when `pullRequest` is enabled and `pullRequest.workspace` is not `false`. `discord()`, `http()`, `slack()`, `teams()`, `telegram()`, and `webChat()` own a Workspace only through their `capabilities`. An Agent whose Channels own no Workspace stays a stateless Agent; do not add `workspace: {}` to it.
-
-Discovery rejects Channel option bindings that are mutated or passed to opaque calls, including local callbacks and built-in mutators such as `Object.assign`. It does not execute those calls to inspect their effects. Use unmodified local options, or add `workspace: {}` when the Channel owns a Workspace.
-
-Configured presets use the existing layer rules for capabilities, channels, and hooks. A child replaces a capability with the same ID or a channel or hook with the same key. Distinct hooks remain present; same-key hooks do not automatically compose. Option callbacks are values and are also replaced, never invoked by merging.
-
-Publish the exported definition on npm and import it into `presets`. There is no second preset factory or global package loader.
-
+Choose a [ready-made preset](/docs/agents/presets), or [publish your own](/docs/agents/agent-presets#named-presets) with typed options and a `configure` callback.
 
 ## Return structured output
 
@@ -325,13 +189,14 @@ A child Agent that sets `data` or `intercept` replaces the parent value. ViteHub
 
 Discovered Agents use the active host's Workflow integration by default. Set `runtime: false` when a hosted Agent must complete inline, or select a named Workflow identity with `runtime: workflow('support')`.
 
-With the implicit discovery-default Workflow binding, direct `runAgent()` calls without a discovered host identity remain inline. An explicit `runtime: workflow('support')` binding starts that named Workflow even for a direct call.
+The two-argument `runAgent(agent, input)` form cannot discover the host Workflow by itself. Set `runtime: false` for standalone inline calls, supply an explicit `workflow('support')` binding, or pass a host Runtime Context. See [Run without a host context](/docs/agents/invocations#run-without-a-host-context).
 
 ## Definition options
 
 | Option | Purpose |
 | --- | --- |
-| `extends` | Inherits configuration from one Agent Definition. |
+| `extends`, `preset`, `presets` | Reuse one parent Definition. See [Agent presets and inheritance](/docs/agents/agent-presets). |
+| `options`, `configure`, `configKey` | Expose typed settings on a reusable Agent preset. |
 | `driver` | Required unless inherited. Selects one built-in provider, model-backed, or custom-run execution path. |
 | `capabilities` | Attaches a static list or invocation-time Capability resolver. |
 | `workspace` | Declares or reuses scoped files, Sources, bindings, and access policy. |
@@ -344,6 +209,7 @@ With the implicit discovery-default Workflow binding, direct `runAgent()` calls 
 | `messages` | Applies shared delivery, streaming, concurrency, session, and transcript settings to adapter Channels. |
 | `invoker` | Configures Agent Actor profiles and resolution using the current API name. |
 | `runtime` | Selects inline or Workflow-backed hosted execution. |
+| `invocations` | Selects the [Invocation journal](/docs/agents/invocation-storage) and its storage policy. |
 | `hooks` | Observes input, completion, failure, Capability lifecycle, or hook execution. Finish and error hooks act on the triggering Channel message through [`event.message`](/docs/agents/channels#act-on-the-channel-message-in-hooks). |
 | `runEvents` | Publishes application-owned progress for an invocation with a stable run id. |
 | `name`, `description`, `version` | Adds explicit discovery and inspection metadata. |

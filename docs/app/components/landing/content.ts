@@ -413,7 +413,7 @@ export const portabilityExamples = [
     path: "server/api/release-notes.post.ts",
     code: [
       'import { defineEventHandler } from "h3"',
-      'import { runSandboxTask } from "vite-hub/sandbox-task"',
+      'import { runSandboxTask } from "vite-hub/sandbox/task"',
       "",
       "export default defineEventHandler(async () => {",
       '  const response = await runSandboxTask("release-notes", { notes: "ship it" })',

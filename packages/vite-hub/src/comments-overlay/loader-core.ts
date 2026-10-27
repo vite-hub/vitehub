@@ -152,7 +152,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function readSession(environment: LoaderEnvironment): Promise<OverlaySession | undefined> {
   try {
     const response = await environment.fetch(`${environment.base}_vitehub/rpc/__call`, {
-      body: JSON.stringify({ input: {}, operation: "comments.session" }),
+      body: JSON.stringify({ input: { subject: { id: environment.path(), kind: "page" } }, operation: "comments.session" }),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", "x-vitehub-console": "1" },

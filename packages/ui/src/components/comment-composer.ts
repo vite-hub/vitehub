@@ -158,6 +158,7 @@ export const CommentComposer = defineComponent({
     }
 
     async function findPeople(field: HTMLTextAreaElement) {
+      const run = ++lookup;
       const search = props.users;
       const before = field.value.slice(0, field.selectionStart);
       const match = /(^|\s)@([^\s@]*)$/.exec(before);
@@ -166,7 +167,6 @@ export const CommentComposer = defineComponent({
         return;
       }
       const start = before.length - match[2]!.length - 1;
-      const run = ++lookup;
       const items = await search(match[2]!).catch(() => []);
       if (run !== lookup) return;
       menu.value = items.length > 0 ? { index: 0, items, start } : null;

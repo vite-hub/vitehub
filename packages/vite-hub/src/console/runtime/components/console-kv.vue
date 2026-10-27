@@ -69,6 +69,11 @@ const visibleKeys = computed(() => {
   return filter ? keys.value.filter(key => key.toLowerCase().includes(filter)) : keys.value;
 });
 const keyCount = computed(() => `${keys.value.length}${nextCursor.value ? "+" : ""} ${keys.value.length === 1 && !nextCursor.value ? "key" : "keys"}`);
+// The namespace before the last `:`, such as `cache:nitro:`, shows dimmed so the last segment reads first.
+function keyPrefix(key: string): string {
+  const index = key.lastIndexOf(":");
+  return index > 0 && index < key.length - 1 ? key.slice(0, index + 1) : "";
+}
 const valueFormat = computed(() => [selectedValue.value?.type, selectedValue.value?.format?.toUpperCase()].filter(Boolean).join(" · "));
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -372,7 +377,10 @@ onBeforeUnmount(() => {
               :title="key"
               @click="selectKey(key)"
             >
-              <span class="min-w-0 flex-1 truncate font-mono text-xs">{{ key || "(empty key)" }}</span>
+              <span class="flex min-w-0 flex-1 font-mono text-xs">
+                <span v-if="keyPrefix(key)" class="min-w-0 truncate text-dimmed">{{ keyPrefix(key) }}</span>
+                <span class="max-w-[80%] shrink-0 truncate">{{ key.slice(keyPrefix(key).length) || "(empty key)" }}</span>
+              </span>
             </button>
             <UButton v-if="nextCursor" class="mt-1 self-start" label="Load more" size="sm" variant="ghost" :loading="listLoading" @click="loadMore" />
           </template>

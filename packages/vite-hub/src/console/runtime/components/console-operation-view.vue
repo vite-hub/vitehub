@@ -2,8 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 
 import type { ConsoleContributedSection, ConsoleOperationView } from "../definitions";
-import { operationCell, operationItems, operationLink, operationValue } from "../client/operation-view";
-import { requestConsoleOperation } from "../client/request";
+import { loadOperationItems, operationCell, operationLink, operationValue } from "../client/operation-view";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleState from "./console-state.vue";
@@ -34,9 +33,9 @@ async function load(): Promise<void> {
   controller = current;
   loading.value = true;
   try {
-    const result = await requestConsoleOperation(props.definitionsBase, view.value.operation, { ...activeFilter.value?.input }, { signal: current.signal });
+    const result = await loadOperationItems(props.definitionsBase, view.value, { ...activeFilter.value?.input }, current.signal);
     if (controller !== current) return;
-    items.value = operationItems(result);
+    items.value = result;
     error.value = undefined;
   } catch (cause) {
     if (current.signal.aborted) return;

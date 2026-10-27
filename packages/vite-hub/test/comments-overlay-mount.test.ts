@@ -195,8 +195,27 @@ describe("the comments overlay", () => {
   })
 
   it("hides the writing tools from a reader who may not write", async () => {
-    const { host } = await mounted({ canRead: true, canWrite: false, user: null })
+    const user = { id: "ana", name: "Ana" }
+    const thread = {
+      anchor: { kind: "page" }, author: user, createdAt: 1, id: "readonly", n: 1, scope: "site", status: "open",
+      subject: { id: "/pricing", kind: "page" }, updatedAt: 1,
+      messages: [{ attachments: [], author: user, body: "Readable feedback", createdAt: 1, id: "m1", mentions: [], threadId: "readonly" }],
+    }
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const { operation } = JSON.parse(String(init.body)) as { operation: string }
+      return Response.json({ ok: true, value: operation === "comments.list" ? [thread] : null })
+    }))
+    const { host } = await mounted({ canRead: true, canWrite: false, user })
+    const shadow = host.shadowRoot!
     expect(host.shadowRoot!.querySelector("[data-readonly]")).not.toBeNull()
+    ;(shadow.querySelector("[data-slot='comment-toolbar-list']") as HTMLButtonElement).click()
+    await vi.waitFor(() => expect(shadow.querySelector("a[data-slot='comment-list-item']")).not.toBeNull())
+    ;(shadow.querySelector("a[data-slot='comment-list-item']") as HTMLAnchorElement).click()
+    await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-thread']:not([data-preview])")).not.toBeNull())
+    expect(shadow.textContent).toContain("Readable feedback")
+    expect(shadow.querySelector("[data-slot='comment-composer']")).toBeNull()
+    for (const label of ["Resolve", "Reopen", "Edit", "Delete"]) expect(shadow.querySelector(`[aria-label='${label}']`)).toBeNull()
+    expect(shadow.querySelector("[aria-label='Close']")).not.toBeNull()
   })
 
   it("removes everything when destroyed, and undoes the history patch", async () => {

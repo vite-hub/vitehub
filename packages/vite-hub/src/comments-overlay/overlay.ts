@@ -142,7 +142,7 @@ export function mount(options: MountOptions): OverlayHandle {
     setup() {
       return () =>
         active.value
-          ? h(CommentLayer, { client, hotkey: session.canWrite ? "c" : false, navigate, subject: subject.value, subjectUrl, ...(session.user ? { user: session.user } : {}) }, {
+          ? h(CommentLayer, { client, hotkey: session.canWrite ? "c" : false, navigate, readOnly: !session.canWrite, subject: subject.value, subjectUrl, ...(session.user ? { user: session.user } : {}) }, {
               default: ({ comments }: { comments: never }) => [
                 h(CommentToolbar, { comments }, {
                   default: () => edit.value

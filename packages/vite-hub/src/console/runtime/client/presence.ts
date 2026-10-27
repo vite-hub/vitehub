@@ -333,7 +333,7 @@ export function consoleInitials(name: string): string {
 export function consoleClockTime(value: string | null | undefined): string {
   if (!value) return ""
   const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+  return Number.isNaN(date.getTime()) ? "" : date.toLocaleTimeString("en", { hour: "2-digit", minute: "2-digit" })
 }
 
 /** The names in a live session row, such as `Ana, Ben`. */

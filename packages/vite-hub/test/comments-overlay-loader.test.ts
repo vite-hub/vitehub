@@ -47,10 +47,20 @@ describe("the comments loader", () => {
     expect(page.fetchMock).toHaveBeenCalledOnce()
     const [url, init] = page.fetchMock.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe("/_vitehub/rpc/__call")
-    expect(JSON.parse(String(init.body))).toEqual({ input: {}, operation: "comments.session" })
+    expect(JSON.parse(String(init.body))).toEqual({ input: { subject: { id: "/pricing", kind: "page" } }, operation: "comments.session" })
     expect(init.credentials).toBe("same-origin")
     expect(page.load).toHaveBeenCalledWith("/_vitehub/comments/overlay.abc.js")
     expect(page.mount).toHaveBeenCalledWith(expect.objectContaining({ active: true, base: "/", edit: false, nonce: "n1", session: { canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } } }))
+  })
+
+  it("sends the new page subject when revalidating on navigation", async () => {
+    const page = environment(readable)
+    const loader = runLoader(none, page.env)
+    await loader.ready
+    await page.go("/docs/intro")
+    const [, init] = page.fetchMock.mock.calls.at(-1) as unknown as [string, RequestInit]
+    expect(JSON.parse(String(init.body)).input).toEqual({ subject: { id: "/docs/intro", kind: "page" } })
+    loader.stop()
   })
 
   it("downloads nothing more for a visitor who cannot read, is not signed in, or meets a server without comments", async () => {

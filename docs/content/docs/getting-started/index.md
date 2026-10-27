@@ -1,59 +1,56 @@
 ---
 title: Introduction
-description: Choose the ViteHub layer that matches the first thing you need to build.
+description: Add storage to your app or run your first Agent with ViteHub.
 navigation.title: Introduction
 navigation.order: 1
+navigation.group: Get started
 icon: i-lucide-rocket
 ---
 
-ViteHub adds a server layer to Vite. Server Primitives give application code
-APIs for storage, background work, auth, and other server features. Agents
-combine those APIs with models, coding providers, or application code.
+ViteHub adds server APIs to Vite and Nuxt apps. Use Server Primitives to store
+data or run background work. Use Agents to run application code, call a model,
+or use a coding provider. You can use either part on its own.
 
-Agents can use Server Primitives. Server Primitives also work on their own.
-Start with the path that matches the result your product needs today.
+## Start with one result
 
-## Build your first result
+Follow [Installation](/docs/getting-started/installation) to choose Vite or
+Nuxt and check a server route. Then continue in the same app:
 
-Choose the path for the feature you need. Both work in the same application.
+- [First Server Primitive](/docs/getting-started/first-server-primitive) saves a theme setting in local KV and reads it back.
+- [First Agent](/docs/getting-started/first-agent) calls a function Driver and returns a greeting through HTTP.
 
-| You want to build | Start here |
-| --- | --- |
-| A route that saves and reads settings | [First Server Primitive](/docs/getting-started/first-server-primitive) |
-| An Agent that runs a task and returns a result | [First Agent](/docs/getting-started/first-agent) |
-| Storage, uploads, or background work | [Server Primitives](/docs/getting-started/server-primitives) |
-| A Nuxt app that already uses NuxtHub | [Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub) |
+Both first results work without provider credentials. The Agent tutorial starts
+with an offline function so you can check the invocation before paying for a
+model call.
 
-Start with [Installation](/docs/getting-started/installation) if you have not
-added ViteHub to your app. Use [Guides](/guides) when you want a tutorial for a
-specific feature.
+For a complete model-backed project, follow
+[Build a chat app](/docs/agents/build-a-chat-app). It connects an Agent to a
+chat UI, streams replies, and keeps conversation history. Its offline mode
+needs no credentials. Switching to a model can incur provider charges.
 
-## What ViteHub does
+The server APIs work independently of your frontend. [ViteHub UI](/docs/ui)
+provides Vue and Nuxt components. Read [Built for the Vue ecosystem](/docs/getting-started/built-for-vue)
+for the UI package's design choices.
 
-Most features use the same path:
+## Add the feature your app needs
 
-| Part | What it does |
-| --- | --- |
-| Vite integration | Finds definitions and prepares the selected provider during development and build. |
-| Definition | Declares named work or state, such as an Agent, Workspace, Queue, Workflow, or Schedule. |
-| Server API | Lets application code call a feature through an import such as `kv`, `useWorkspace()`, or `runAgent()`. |
-| Capability | Lets an Agent use a selected operation such as `workspaceShell()` or `kv()`. |
+After the first result, choose a [Server Primitive](/docs/getting-started/server-primitives)
+for uploads, relational data, or background jobs. The feature's tutorial shows
+its setup, a server call, and an expected result. Its Hosts page explains the
+provider requirements.
 
-Application code uses ViteHub imports. The integration handles the
-provider-specific routes, bindings, and files.
+Agents can use these APIs through [Capabilities](/docs/agents/capabilities).
+Give an Agent only the operations it needs. Start with
+[Agent Definitions](/docs/agents/agent-definitions) to select a Driver.
 
-## Verify your setup
+## Work with a coding agent
 
-Check the ViteHub plugin in `vite.config.ts`, the definition file when the
-feature needs one, and the ViteHub call in server code. Each first guide ends
-with a response you can inspect before adding another feature.
+[AI resources](/docs/getting-started/ai-resources) provides the ViteHub skill,
+docs MCP server, and Markdown pages. Give your coding agent the tutorial for
+the feature you are building so it can use the current imports and commands.
 
-## Find the next topic
+## Understand or deploy the app
 
-Read [How ViteHub works](/docs/getting-started/concepts) for the terms used
-across the packages. Open [Build and deploy](/docs/getting-started/build-and-deploy)
-for framework setup, development tools, and deployment guides.
-
-If you use a coding agent to build your application, the
-[AI resources](/docs/getting-started/ai-resources) include the ViteHub skill,
-docs MCP server, and Markdown pages.
+Read [How ViteHub works](/docs/getting-started/concepts) for the shared terms
+and [Build and deploy](/docs/getting-started/build-and-deploy) for host setup.
+If you have a NuxtHub app, use [Migrate from NuxtHub](/docs/getting-started/migrate-from-nuxthub).

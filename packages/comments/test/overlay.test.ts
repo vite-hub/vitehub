@@ -5,6 +5,7 @@ import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
 
+import { defineComments, validateCommentsDefinition } from "../src/define.ts"
 import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware, scriptNonce } from "../src/overlay.ts"
 import { hubComments } from "../src/vite.ts"
 
@@ -19,7 +20,7 @@ async function project(): Promise<string> {
   roots.push(root)
   await writeFile(join(root, "package.json"), "{}")
   await mkdir(join(root, "server"))
-  await writeFile(join(root, "server", "comments.ts"), "export default {}\n")
+  await writeFile(join(root, "server", "comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\nexport default defineComments()\n`)
   return root
 }
 
@@ -30,6 +31,15 @@ const indexHtml = (plugin: ReturnType<typeof hubComments>) => {
   return (hook && "handler" in hook ? hook.handler : hook) as unknown as (html: string) => string
 }
 const assets = { dir: "/dist/comments-overlay", loader: "loader.abc123.js", overlay: "overlay.def456.js" }
+const inertMarkup = [
+  '<svg><![CDATA[</body>]]></svg>',
+  '<svg><![CDATA[> </body><script src="/_vitehub/comments/loader.old.js"></script>]]></svg>',
+  '<math><![CDATA[> </html>]]></math>',
+  `<svg><![CDATA[${"x".repeat(5_000)} </body>]]></svg>`,
+  '<template><script src="/_vitehub/comments/loader.old.js"></script></template>',
+  '<template><template><p>Nested</p></template><script src=/_vitehub/comments/loader.old.js></script></template>',
+  '<script data-example=" src=\'/_vitehub/comments/loader.old.js\' "></script>',
+]
 
 describe("the overlay loader tag", () => {
   it("builds the URL below the app mount, with the overlay file and the page filter", () => {
@@ -88,10 +98,16 @@ describe("the overlay loader tag", () => {
       '<textarea></html></textarea>',
       '<div title="</body>">Hi</div>',
       '<!-- <script src="/_vitehub/comments/loader.old.js"></script> -->',
+      ...inertMarkup,
     ]) {
       expect(injectLoader(`<body>${inner}</body>`, tag)).toBe(`<body>${inner}${tag}</body>`)
       expect(injectLoader(inner, tag)).toBe(inner)
     }
+  })
+
+  it("recognizes an existing loader with an unquoted src", () => {
+    const source = '<body><script src=/_vitehub/comments/loader.old.js></script></body>'
+    expect(injectLoader(source, loaderTag(loaderUrl("", assets)))).toBe(source)
   })
 })
 
@@ -177,6 +193,31 @@ describe("the Nitro middleware", () => {
     expect(await inject(event(), async () => source)).toBe(expected)
   })
 
+  it("preserves CDATA and templates and recognizes unquoted loaders in strings and streams", async () => {
+    const inject = await middleware()
+    for (const inner of inertMarkup) {
+      const source = `<body>${inner}</body>`
+      const expected = `<body>${inner}${loaderTag(url)}</body>`
+      expect(await inject(event(), async () => source)).toBe(expected)
+      expect((await run(inject, html(stream([...source])))).text).toBe(expected)
+    }
+    const source = '<body><script src=/_vitehub/comments/loader.old.js></script></body>'
+    expect(await inject(event(), async () => source)).toBe(source)
+    expect((await run(inject, html(stream([...source])))).text).toBe(source)
+  })
+
+  it("drops string response validators only when the body changes", async () => {
+    const inject = await middleware()
+    for (const source of [page, '<p>fragment</p>', `<body>${loaderTag(url)}</body>`]) {
+      const ev = event("/", "GET", "text/html", { "content-length": String(source.length), etag: '"old"' })
+      const result = await inject(ev, async () => source)
+      const changed = source === page
+      expect(result !== source).toBe(changed)
+      expect(ev.res.headers.get("content-length")).toBe(changed ? null : String(source.length))
+      expect(ev.res.headers.get("etag")).toBe(changed ? null : '"old"')
+    }
+  })
+
   it("preserves Unicode at the retained tail and after injection", async () => {
     const inject = await middleware()
     const first = `<body>😀${"x".repeat(4095)}`
@@ -214,6 +255,17 @@ describe("the Nitro middleware", () => {
     expect((await run(inject, html(page, { "content-security-policy": "script-src 'self'" }))).text).not.toContain("nonce")
   })
 
+  it("applies a response nonce to a loader already injected by Vite", async () => {
+    const inject = await middleware()
+    const policy = { "content-security-policy": "script-src 'nonce-current' 'strict-dynamic'" }
+    for (const nonce of [undefined, "build-time"]) {
+      const source = `<body>${loaderTag(url, nonce)}</body>`
+      const expected = `<body>${loaderTag(url, "current")}</body>`
+      expect(await inject(event("/", "GET", "text/html", policy), async () => source)).toBe(expected)
+      expect((await run(inject, html(stream([...source]), policy))).text).toBe(expected)
+    }
+  })
+
   it("does not add a second loader, and skips other methods, the Console, and anything that is not a page", async () => {
     const inject = await middleware()
     const tagged = `<html><body><script type="module" src="/_vitehub/comments/loader.old.js?f=overlay.old.js"></script></body></html>`
@@ -238,7 +290,7 @@ describe("hubComments overlay", () => {
     const root = await project()
     const plugin = hubComments({ overlayAssets: assets })
     await configHook(plugin)({ root })
-    ;(plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => void)({ base: "/", plugins: [{ name: "@vite-hub/database/vite" }] })
+    await (plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => Promise<void>)({ base: "/", plugins: [{ name: "@vite-hub/database/vite" }] })
     expect(indexHtml(plugin)("<body>Hi</body>")).toBe(`<body>Hi<script type="module" src="/_vitehub/comments/loader.abc123.js?f=overlay.def456.js"></script></body>`)
 
     const off = hubComments({ overlay: false, overlayAssets: assets })
@@ -262,8 +314,8 @@ describe("hubComments overlay", () => {
     await configHook(plugin)({ root })
     const middleware = join(root, ".vitehub/comments/inject-overlay.mjs")
     expect(await readFile(middleware, "utf8")).toContain('"/_vitehub/comments/loader.abc123.js')
-    const resolved = plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => void
-    resolved({ base: "/docs/", plugins: [{ name: "@vite-hub/database/vite" }] })
+    const resolved = plugin.configResolved as unknown as (config: { base: string, plugins: unknown[] }) => Promise<void>
+    await resolved({ base: "/docs/", plugins: [{ name: "@vite-hub/database/vite" }] })
     expect(await readFile(middleware, "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('"/docs/_vitehub/comments/loader.abc123.js')
     expect(indexHtml(plugin)("<body></body>")).toContain('src="/docs/_vitehub/comments/loader.abc123.js')
@@ -281,7 +333,7 @@ describe("hubComments overlay", () => {
       expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(generated)
       expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).not.toContain("/_nuxt/")
       // The resolved config carries Vite's base, and by then another plugin has replaced the define with it. The loader stays.
-      ;(plugin.configResolved as unknown as (config: Record<string, unknown>) => void)({ ...nuxtDev(base), define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/_nuxt/") }, nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
+      await (plugin.configResolved as unknown as (config: Record<string, unknown>) => Promise<void>)({ ...nuxtDev(base), define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/_nuxt/") }, nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
       expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
       expect(indexHtml(plugin)("<body></body>")).toContain(`src="${mount}/_vitehub/comments/loader.abc123.js`)
       expect(JSON.stringify((config.nitro as { publicAssets?: unknown }).publicAssets)).toContain(`"baseURL":"${mount}/_vitehub/comments"`)
@@ -308,7 +360,7 @@ describe("hubComments overlay", () => {
     await configHook(plugin)(config)
     const nitro = config.nitro as { publicAssets: Array<{ baseURL: string }> }
     expect(nitro.publicAssets[0]!.baseURL).toBe("/_vitehub/comments")
-    ;(plugin.configResolved as unknown as (config: unknown) => void)({ base: "/docs/", nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
+    await (plugin.configResolved as unknown as (config: unknown) => Promise<void>)({ base: "/docs/", nitro: config.nitro, plugins: [{ name: "@vite-hub/database/vite" }] })
     expect(nitro.publicAssets[0]!.baseURL).toBe("/docs/_vitehub/comments")
   })
 
@@ -327,8 +379,8 @@ describe("hubComments overlay", () => {
     expect(generated).toContain("render:html")
     const hooks = new Map<string, (html: { bodyAppend: string[] }, context?: unknown) => void>()
     const source = generated.replaceAll(/^import .*$/gm, "").replace("export default function", "function").replace(/const databaseName[\s\S]*?\nconst overlayUrl/, "const overlayUrl")
-    const run = new Function("installComments", "databases", "createCommentsStore", "app", `${source}\nreturn viteHubComments`)
-    const viteHubComments = run(() => undefined, {}, () => undefined, {}) as (app: unknown) => void
+    const run = new Function("installComments", "databases", "createCommentsStore", "app", "validateCommentsDefinition", `${source}\nreturn viteHubComments`)
+    const viteHubComments = run(() => undefined, {}, () => undefined, { default: defineComments() }, validateCommentsDefinition) as (app: unknown) => void
     viteHubComments({ hooks: { hook: (name: string, handler: (html: { bodyAppend: string[] }, context?: unknown) => void) => hooks.set(name, handler) } })
     const html = { bodyAppend: [] as string[] }
     hooks.get("render:html")!(html)

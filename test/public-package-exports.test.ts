@@ -70,6 +70,22 @@ describe("public package export contracts", () => {
     }
   })
 
+  it("classifies Comments server peers without requiring them for client exports", () => {
+    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
+      expect(contract?.optionalRuntimePeers).toEqual(["drizzle-orm"])
+      expect(contract?.optionalDeclarationPeers).toEqual(subpath === "operations" ? [] : ["drizzle-orm"])
+    }
+    for (const subpath of ["", "/client", "/rpc", "/testing"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments${subpath}`)
+      expect(contract?.optionalRuntimePeers).toEqual([])
+      expect(contract?.optionalDeclarationPeers).toEqual([])
+    }
+    const plugin = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/comments/vite")
+    expect(plugin?.optionalRuntimePeers).toEqual([])
+    expect(plugin?.optionalDeclarationPeers).toEqual(["@vite-hub/database", "vite"])
+  })
+
   it("keeps Schedule KV adapter declarations independent from its runtime peer", () => {
     const adapter = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/schedule/runtime/kv")
     expect(adapter?.optionalDeclarationPeers).toEqual([])
@@ -88,7 +104,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
-      ["@vite-hub/sandbox-task/vite", "vite"],
+      ["@vite-hub/sandbox/task/vite", "vite"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["@vite-hub/workspace/nitro", "vite"],
@@ -157,7 +173,7 @@ describe("public package export contracts", () => {
   })
 
   it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
-    const source = readFileSync(join(packageDir("sandbox-task"), "src/internal/shared/request-payload.ts"), "utf8")
+    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/json: \(\) => Promise<unknown>/)
     expect(source).not.toMatch(/json\?:/)
   })

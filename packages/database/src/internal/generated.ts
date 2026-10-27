@@ -147,15 +147,7 @@ function renderDbCredentials(database: ResolvedDrizzleDatabaseConfig) {
     ]
   }
 
-  const url = renderConfigValueExpression(database.connection?.url)
-  const authToken = renderConfigValueExpression(database.connection?.authToken)
-  if (!url) return []
-  return [
-    "  dbCredentials: {",
-    ...(authToken ? [`    authToken: ${authToken},`] : []),
-    `    url: ${url},`,
-    "  },",
-  ]
+  return []
 }
 
 function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig, databaseNames = config.databaseNames) {
@@ -169,14 +161,25 @@ function renderGeneratedDrizzleConfig(file: string, config: ResolvedDBViteConfig
   }
   const database = config.databases[databaseNames[0]!]!
   const definition = config.definitions.find(item => item.name === database.name)!
+  const sqlite = database.dialect === "sqlite" && !(database.cloudflare?.http && database.cloudflare.databaseId)
+  const defaultUrl = database.name === "default" ? "file:.vitehub/data/database/sqlite.db" : `file:.vitehub/data/database/${database.name}.sqlite.db`
   // Read Drizzle options from the Definition so migrations and queries use the same casing.
   return [
     `import databaseDefinition from ${JSON.stringify(createImportPath(file, definition.handler))}`,
+    ...(sqlite ? [
+      "",
+      "const dbCredentials = {",
+      `  authToken: ${renderConfigValueExpression(database.connection?.authToken) ?? "undefined"} || undefined,`,
+      `  url: ${renderConfigValueExpression(database.connection?.url) ?? "undefined"} || ${JSON.stringify(defaultUrl)},`,
+      "}",
+    ] : []),
     "",
     "export default {",
-    `  dialect: ${JSON.stringify(database.dialect)},`,
+    ...(sqlite ? [
+      '  dialect: /^(?:libsql:|https?:\\/\\/|wss?:\\/\\/)/i.test(dbCredentials.url) || dbCredentials.authToken ? "turso" : "sqlite",',
+      "  dbCredentials,",
+    ] : [`  dialect: ${JSON.stringify(database.dialect)},`, ...renderDbCredentials(database)]),
     "  casing: databaseDefinition.drizzle?.casing,",
-    ...renderDbCredentials(database),
     `  schema: ${JSON.stringify([config.generatedSchemaFilesByDatabase[database.name]!])},`,
     `  out: ${JSON.stringify(database.migrationsDir)},`,
     "}",

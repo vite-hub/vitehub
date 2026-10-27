@@ -7,7 +7,7 @@ import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
 const { callConsoleFixture } = await vi.importActual<{
-  callConsoleFixture: (origin: string, payload: unknown) => Promise<unknown>
+  callConsoleFixture: (origin: string, payload: unknown, cookie?: string) => Promise<unknown>
 }>("../../../playground/console/rpc.ts")
 
 afterEach(() => {
@@ -31,6 +31,19 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
     headers: { "content-type": "application/json" },
     method: "GET",
   })
+})
+
+it("serves Auth analytics, cursor filters and explicit disabled-event data", async () => {
+  const { authFixture } = await vi.importActual<{ authFixture: (input: unknown, enabled?: boolean) => unknown }>("../../../playground/console/auth-fixture.ts")
+  expect(authFixture({ operation: "overview" })).toMatchObject({ users: 1048, analytics: { days: expect.any(Array) }, recent: { enabled: true } })
+  const first = authFixture({ operation: "activity", activity: { group: "sign-in", limit: 2 } }) as { events: Array<{ id: string }>; nextCursor: string }
+  const next = authFixture({ operation: "activity", activity: { group: "sign-in", limit: 2, cursor: first.nextCursor } }) as { events: Array<{ id: string }> }
+  expect(first.events).toHaveLength(2)
+  expect(next.events).toHaveLength(2)
+  expect(new Set([...first.events, ...next.events].map(event => event.id)).size).toBe(4)
+  expect(authFixture({ operation: "describe" }, false)).toMatchObject({ events: { enabled: false }, pages: expect.arrayContaining(["overview", "activity"]) })
+  expect(authFixture({ operation: "overview" }, false)).toMatchObject({ users: 1048, analytics: null, recent: { enabled: false, events: [] } })
+  expect(authFixture({ operation: "activity" }, false)).toEqual({ enabled: false, events: [] })
 })
 
 async function playgroundRequest(endpoint: string, input?: unknown, status = 200): Promise<unknown> {
@@ -148,4 +161,21 @@ it("rejects empty and malformed image chats", async () => {
     .resolves.toMatchObject({ error: "A prompt or image is required." })
   await expect(playgroundRequest(endpoint, { files: [{ url: "not-an-image" }] }, 400))
     .resolves.toMatchObject({ error: expect.any(String) })
+})
+
+it("forwards failure cookies while translating write operations to fixture requests", async () => {
+  const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(callConsoleFixture("http://localhost:5173", {
+    operation: "invocations.cancel",
+    input: { id: "run/1" },
+  }, "playground-fail=invocations:503")).resolves.toEqual({
+    code: "CONSOLE_REQUEST_FAILED", message: "Playground failure", ok: false, status: 503,
+  })
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/invocations/run%2F1"), {
+    body: JSON.stringify({ action: "cancel" }),
+    headers: { "content-type": "application/json", cookie: "playground-fail=invocations:503" },
+    method: "POST",
+  })
 })

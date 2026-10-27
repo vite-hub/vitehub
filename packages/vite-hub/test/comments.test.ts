@@ -18,6 +18,7 @@ import { runViteHubCli } from "@vite-hub/cli"
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { operationCell, operationLink } from "../src/console/runtime/client/operation-view.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -78,6 +79,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   await Promise.all(pending.splice(0))
   installConsoleOperations([])
@@ -301,7 +303,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
 
   it("lets a development server without sign-in comment as the local developer", async () => {
     await setup()
-    vi.stubEnv("NODE_ENV", "development")
+    installConsoleDevelopment("/test/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
       const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
@@ -314,7 +316,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       expect(body.value.author).toEqual({ id: "local", name: "You" })
     }
     // Production never invents a user.
-    vi.stubEnv("NODE_ENV", "production")
+    installConsoleDevelopment("/test/app", false)
     installConsoleAccess({ mode: "open" })
     expect(await failure("comments.create", { anchor: { kind: "page" }, body: "x", subject: page })).toMatchObject({ code: "COMMENTS_R0012", status: 401 })
   })
@@ -515,12 +517,13 @@ describe("onMention", () => {
   it("runs for the mentioned people who may read the thread, and the mention stays in the text", async () => {
     const seen: string[][] = []
     const readers = ({ action, user }: { action: string, user: CommentUser | null }) => action !== "read" || user?.id !== "cat"
-    const { store } = await setup(defineComments({ authorize: readers, onMention: event => void seen.push(event.mentioned.map(person => person.id)) }))
+    const { store } = await setup()
     const cat = { id: "cat", name: "Cat" }
     for (const person of [ben, cat]) {
       signedIn = person
       await create(`${person.name} was here`)
     }
+    installComments({ definition: defineComments({ authorize: readers, onMention: event => void seen.push(event.mentioned.map(person => person.id)) }), store })
     signedIn = ana
     const thread = await create("Look @Ben and @Cat", { mentions: ["ben", "cat"] })
     await Promise.all(pending.splice(0))
@@ -696,7 +699,7 @@ describe("the overlay session", () => {
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
     installComments({ definition: defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" }), store })
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
-    // It takes no input, so it cannot be asked about anything else.
+    // The optional subject is the only accepted input.
     expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "INTERNAL_R0022" })
   })
 })

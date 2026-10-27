@@ -1,13 +1,8 @@
 import { defineDiagnostics } from "nostics"
 import { isRuntimeDiagnostic } from "@vite-hub/runtime"
-import * as v from "valibot"
 import { agentDiagnosticOptions, dynamicAgentError as dynamicError } from "./agent-diagnostic-options.ts"
 import { messageDiagnostics } from "./message-diagnostics.ts"
 import { formatUnknownAgentMessage } from "./registry-error.ts"
-
-const providerErrorEnvelopeSchema = v.object({
-  error: v.object({ message: v.string() }),
-})
 
 const agentTypeDiagnosticCodes = new Set([
   "AGENT_R1006",
@@ -444,7 +439,6 @@ const agentTypeDiagnosticCodes = new Set([
   "AGENT_R0927",
   "AGENT_R0970",
   "AGENT_R0971",
-  "AGENT_R0975",
   "AGENT_R0976",
   "AGENT_R0930",
   "AGENT_R0936",
@@ -1161,8 +1155,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: ({ message }: { message?: unknown }) => {
         const reason = String(message ?? "");
         try {
-          const payload = v.safeParse(providerErrorEnvelopeSchema, JSON.parse(reason));
-          if (payload.success) return payload.output.error.message;
+          const payload: unknown = JSON.parse(reason);
+          if (payload !== null && typeof payload === "object" && "error" in payload) {
+            const providerError = payload.error;
+            if (providerError !== null && typeof providerError === "object" && "message" in providerError) {
+              const providerMessage = providerError.message;
+              if (typeof providerMessage === "string") return providerMessage;
+            }
+          }
         } catch {}
         return reason;
       },
@@ -1368,12 +1368,8 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R0972: dynamicError,
     AGENT_R0973: dynamicError,
     AGENT_R0974: dynamicError,
-    AGENT_R0975: dynamicError,
     AGENT_R0976: dynamicError,
-    AGENT_R0977: dynamicError,
-    AGENT_R0978: dynamicError,
     AGENT_R0979: dynamicError,
-    AGENT_R0980: dynamicError,
     AGENT_R0981: dynamicError,
     AGENT_R0982: dynamicError,
     AGENT_R0983: dynamicError,
@@ -1487,16 +1483,9 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1006: dynamicError,
     AGENT_R1007: dynamicError,
     AGENT_R1008: dynamicError,
-    AGENT_R1009: {
-      why: ({ provider, status, env }: { provider: string, status: number, env: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
-      fix: ({ env }: { provider: string, status: number, env: string }) => `Set or rotate ${env} in the Server Env of this deployment.`,
-    },
-    AGENT_R1010: {
-      why: ({ provider, status, attempts }: { provider: string, status?: number, attempts: number }) => `[vitehub] The ${provider} Jev provider failed${status === undefined ? " to respond" : ` with HTTP ${status}`} after ${attempts} attempts.`,
-      fix: "This is usually temporary. Retry the run later. The cause has the provider response.",
-    },
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
+    AGENT_R1013: dynamicError,
     AGENT_R0928: {
       why: "[vitehub] Provider Agent Drivers are not included in Worker builds. They start local Codex or Claude Code processes, which require a Node.js host.",
       fix: "Use a { model } or { run } Driver in Worker builds, or deploy Agents that use provider Drivers to a Node.js host.",
@@ -1521,7 +1510,7 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] operations() requires { include: string[], approve?, user? }.",
       fix: "List the operation names to expose, such as [\"content.*\"], and pass approve as \"destructive\", \"write\", \"all\", \"never\", a list of names, or a function.",
     },
-    AGENT_R1013: {
+    AGENT_R1014: {
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
       fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
     },

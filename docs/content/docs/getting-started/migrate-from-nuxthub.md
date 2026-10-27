@@ -2,13 +2,14 @@
 title: Migrate from NuxtHub
 description: Move a Nuxt application from NuxtHub KV, Blob, and Database to ViteHub, and see which NuxtHub features have no ViteHub equivalent.
 navigation.order: 6
+navigation.group: Develop and deploy
 icon: i-lucide-arrow-right-left
 ---
 
 Use this page to move a Nuxt application from NuxtHub (`@nuxthub/core` v0.10) to
 ViteHub. For KV and Blob, the change is mostly imports and error handling.
-Database needs more care: ViteHub supports SQLite only, and it tracks migrations
-in a different table.
+Database needs more care because ViteHub tracks migrations in a different table.
+The baseline steps below cover SQLite and Cloudflare D1.
 
 After the move, the same KV, Blob, and Database APIs are also available to
 [Agents](/docs/agents) through [Capabilities](/docs/agents/capabilities).
@@ -20,7 +21,8 @@ After the move, the same KV, Blob, and Database APIs are also available to
 | `kv` from `@nuxthub/kv` | `kv` from `vite-hub/kv` | Same method names. Methods return `[error, value]`. |
 | `blob` from `@nuxthub/blob` | `blob` from `vite-hub/blob` | Same core methods. Methods return `[error, value]`. |
 | `db` and `schema` from `@nuxthub/db` | `useDatabase()` from `vite-hub/database/drizzle` | Drizzle in both. ViteHub supports SQLite, libSQL, and Cloudflare D1. |
-| `hub.db: 'postgresql'` or `'mysql'` | Not supported | Keep NuxtHub or Drizzle for these databases. |
+| `hub.db: 'postgresql'` | `dialect: "postgresql"` | See [Postgres configuration](/docs/database/configure#define-a-postgres-database). The baseline steps below cover SQLite and D1. |
+| `hub.db: 'mysql'` | Not supported | Keep NuxtHub or Drizzle for MySQL. |
 | `hub.cache` | `cache` option | Mounts Nitro's `cache` storage on the preset's store. `cachedEventHandler` and `defineCachedFunction` keep working. |
 | `handleUpload`, multipart helpers, `useUpload`, `useMultipartUpload` | Same names on `blob` and in `vite-hub/blob/vue` | Methods return `[error, value]`. Multipart works with `fs`, `cloudflare-r2` (binding), and `vercel-blob`. |
 | `hosting` auto-detection | `preset` | You must select the host. |
@@ -33,13 +35,22 @@ read [Browser](/docs/browser).
 
 ## Replace the module
 
-Remove `@nuxthub/core` and install ViteHub. `vite-hub` includes `drizzle-orm`
-and `drizzle-kit`.
+Use Nuxt 4.5.2 or newer. Remove `@nuxthub/core` and install ViteHub.
 
 ```bash [Terminal]
 pnpm remove @nuxthub/core
 pnpm add vite-hub
 ```
+
+For Database, keep or add `drizzle-orm` as a direct dependency because your
+schema imports it. ViteHub supplies `drizzle-kit` for its migration commands.
+
+```bash [Terminal]
+pnpm add drizzle-orm
+```
+
+Early NuxtHub v0.10 releases use `hub:db`, `hub:kv`, and `hub:blob` imports.
+Replace those imports in the same way as the newer `@nuxthub/*` imports below.
 
 Replace the NuxtHub module with `vite-hub/nuxt`, and rename the `hub` key to
 `vitehub`. Add a [deployment preset](/docs/frameworks-hosts#choose-a-preset).
@@ -50,13 +61,16 @@ Each feature is off until you enable it.
 -  modules: ["@nuxthub/core"],
 -  hub: {
 -    db: "sqlite",
+-    kv: true,
+-    blob: true,
+-  },
 +  modules: ["vite-hub/nuxt"],
 +  vitehub: {
 +    preset: "cloudflare",
 +    database: true,
-     kv: true,
-     blob: true,
-   },
++    kv: true,
++    blob: true,
++  },
  })
 ```
 
@@ -78,7 +92,9 @@ instead of throwing, so check the error.
  })
 ```
 
-`get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. `set` passes
+`get`, `set`, `has`, `del`, `keys`, and `clear` keep their names. NuxtHub also
+exposes unstorage methods outside this list. Check those calls against
+ViteHub's [server API](/docs/kv/server-api) before removing NuxtHub. `set` passes
 its options, such as `ttl`, to the store driver, so TTL support depends on the
 driver. Read [KV](/docs/kv) for named stores and paginated
 `list()`.
@@ -97,6 +113,9 @@ Import `blob` from `vite-hub/blob`. `put`, `get`, `head`, `list`, `del`, and
    const { pathname } = getRouterParams(event)
 -  return blob.serve(event, pathname)
 +  const [error, stream] = await blob.serve(event, pathname)
++  if (error?.code === "BLOB_NOT_FOUND") {
++    throw createError({ statusCode: 404, statusMessage: "File not found" })
++  }
 +  if (error) throw error
 +  return stream
  })
@@ -109,6 +128,12 @@ and the composables send ViteHub's request format. In Nuxt,
 `useUpload()` and `useMultipartUpload()` are auto-imported when `blob` is
 enabled, as in NuxtHub. Read [Upload files](/docs/blob/server-api#upload-files)
 and [Multipart uploads](/docs/blob/server-api#multipart-uploads).
+
+Check the client return values as well as the imports. ViteHub's `useUpload()`
+returns an array by default. Set `{ multiple: false }` when the caller expects
+one uploaded object. Multipart options use `concurrency` instead of NuxtHub's
+`concurrent`. Update the multipart client and server together because their
+request and response formats differ.
 
 Multipart uploads work with the `fs`, `cloudflare-r2` (binding), and
 `vercel-blob` drivers. Direct `PUT` uploads with `blob.sign()` on Cloudflare
@@ -155,11 +180,18 @@ Replace the `@nuxthub/db` import with `useDatabase()`. Queries do not change.
 
 ### Migrations
 
-NuxtHub applies the SQL files in `server/db/migrations/` and records them in the
+NuxtHub generates SQL files in `server/db/migrations/<dialect>/` and records them in the
 `_hub_migrations` table. ViteHub generates migrations next to the Database
 Definition, in `server/databases/migrations/`. It applies them with drizzle-kit
-for SQLite and libSQL, and with Wrangler for Cloudflare D1. Neither reads
-`_hub_migrations`.
+for SQLite and libSQL, and with Wrangler for Cloudflare D1. These runners use
+different history tables by default. Do not set Wrangler's history table to
+`_hub_migrations` to skip the baseline. NuxtHub's runner records normalized
+migration names, while Wrangler records filenames. The same table name does
+not make those records compatible.
+
+Inventory schema files, migration directories, and post-migration queries from
+Nuxt layers and custom NuxtHub configuration too. Moving only the application's
+`server/db/schema.ts` does not include those contributions.
 
 For a new empty SQLite or libSQL database, generate and apply migrations:
 
@@ -172,14 +204,51 @@ Do not run these commands unchanged against an existing database. Back it up
 first and reconcile its schema and migration history with the new migration
 runner. Reading the generated SQL alone does not establish a baseline.
 `vitehub db generate --custom` creates a migration you can write by hand.
-NuxtHub applied migrations during `nuxt dev` and `nuxt build`; ViteHub does not.
+NuxtHub normally applied migrations during `nuxt dev` and `nuxt build`, but
+disabled build-time application for D1 binding deployments. ViteHub does not
+apply application migrations during development or builds.
 `vitehub db migrate` applies SQLite, libSQL, and D1 HTTP migrations.
+
+### Baseline an existing SQLite database
+
+Stop the old application and back up its database before the switch. NuxtHub's
+default local file is `.data/db/sqlite.db`. ViteHub's default is
+`.vitehub/data/database/sqlite.db`. Copy the database to the new location while
+all database connections are closed, or set `connection.url` in the Definition
+to keep the existing location. Preserve SQLite's sidecar files when needed.
+
+Keep the Definition's schema identical to the existing database. Finish pending
+NuxtHub migrations first. Start with a new `server/databases/migrations/`
+directory and generate a baseline:
+
+```bash [Terminal]
+pnpm vitehub db generate --name baseline
+```
+
+Compare the generated SQL with the existing tables, columns, indexes, and
+constraints. Once they match, replace the entire baseline `.sql` file with
+`SELECT 1;`. Keep its filename and the generated `meta/` files unchanged.
+Apply the no-op baseline with `pnpm vitehub db migrate`. This records it in
+Drizzle's `__drizzle_migrations` table without recreating your tables.
+
+Now change the Definition's schema and run `pnpm vitehub db generate` again.
+The next SQL file must contain only the new change. Review it, apply it with
+`pnpm vitehub db migrate`, and check the existing rows. Run the command again
+to confirm that it does not apply the same migration twice. Keep the SQL and
+`meta/` files in version control. The no-op baseline does not create the schema
+for a new empty database.
 
 ### Baseline an existing Cloudflare D1 database
 
 For a Cloudflare binding deployment, Wrangler applies the SQL migrations.
-Its history is separate from NuxtHub's `_hub_migrations`. Before applying any
-new migration to an existing D1 database:
+Install its CLI in the application:
+
+```bash [Terminal]
+pnpm add -D wrangler
+```
+
+Wrangler's history is separate from NuxtHub's `_hub_migrations`. Before applying
+any new migration to an existing D1 database:
 
 1. Back up the existing database. Confirm that `databaseId` and `databaseName`
    in the Definition identify that database.
@@ -259,24 +328,26 @@ its binding: set the D1 `databaseId` and `databaseName`, the KV `namespaceId`
 (or `namespaceName` for provisioning), and the R2 `bucketName`. Binding names
 alone can point at a new empty resource.
 
-```ts [vite.config.ts]
-import { hubBlob } from "@vite-hub/blob/vite"
-import { hubKv } from "@vite-hub/kv/vite"
-import { defineConfig } from "vite"
+Set these options in `nuxt.config.ts`. Nuxt does not load a separate
+`vite.config.ts`.
 
-export default defineConfig({
-  plugins: [
-    hubKv({
+```ts [nuxt.config.ts]
+export default defineNuxtConfig({
+  modules: ["vite-hub/nuxt"],
+  vitehub: {
+    preset: "cloudflare",
+    database: true,
+    kv: {
       driver: "cloudflare-kv-binding",
       binding: "KV",
       namespaceId: process.env.CLOUDFLARE_KV_NAMESPACE_ID,
-    }),
-    hubBlob({
+    },
+    blob: {
       driver: "cloudflare-r2",
       binding: "BLOB",
       bucketName: process.env.CLOUDFLARE_R2_BUCKET_NAME,
-    }),
-  ],
+    },
+  },
 })
 ```
 
@@ -292,9 +363,20 @@ feature.
 
 ## Verify the migration
 
-1. Run `pnpm nuxt dev` and call one route for each feature you moved.
-2. Run `pnpm nuxt build`. A feature that the preset cannot provide fails the build.
-3. Run `pnpm vitehub inspect provider-output` and confirm the bindings and environment variables.
+1. Before the switch, record representative database rows, KV values, and Blob
+   bytes with their content types and custom metadata.
+2. After the switch, call a route for each feature and compare those values.
+   Local data does not move automatically. KV uses `fs-lite` in both systems,
+   but Blob uses different metadata files. Export Blob bytes and metadata
+   through NuxtHub, then write them through ViteHub's `blob.put()`. Re-uploading
+   changes upload timestamps and may change URLs or ETags. Keep application
+   records of those values if your application needs them.
+3. Run `pnpm nuxt build`. A feature that the preset cannot provide fails the build.
+4. Run `pnpm vitehub inspect provider-output --json` and confirm resource IDs and
+   names, as well as bindings and environment variables.
+5. Apply one schema change after the baseline. Confirm that it preserves the
+   old rows and that a second migration run makes no further changes.
+6. Restart the application and read the same data again.
 
 ## Next steps
 

@@ -44,7 +44,7 @@ describe("Database error types", () => {
   })
 
   it("types each error with its code", () => {
-    expectTypeOf(databaseErrorDiagnostics.DATABASE_NOT_FOUND).returns.toEqualTypeOf<ResultError<"DATABASE_NOT_FOUND">>()
+    expectTypeOf(databaseErrorDiagnostics.DATABASE_NOT_FOUND).returns.toEqualTypeOf<ResultError<"DATABASE_NOT_FOUND", undefined>>()
     expectTypeOf(databaseErrorDiagnostics.DATABASE_NOT_FOUND).parameter(0).toMatchTypeOf<{ database: string }>()
   })
 

@@ -8,6 +8,7 @@ export type DocsPage = {
   description: string | null;
   icon: string | null;
   layout?: "article" | "tutorial" | null;
+  tutorial?: "project" | "quickstart";
   /** The page shows its code in a sticky panel beside the prose. */
   codePanel?: boolean;
   kind: string | null;

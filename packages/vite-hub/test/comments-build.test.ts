@@ -26,10 +26,22 @@ describe("Comments in a built Nitro 3 app", () => {
       ].join("\n"),
       // A server-rendered page, which Vite's index.html transform does not see.
       "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
+      // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
+      "server/plugins/test-user.ts": [
+        "import { definePlugin } from 'nitro'",
+        "import { installConsoleAccess } from 'vite-hub/console/sections'",
+        "export default definePlugin(app => {",
+        "  app.hooks.hook('request', event => {",
+        "    installConsoleAccess(event.req.headers.get('x-test-user') === 'ana'",
+        "      ? { mode: 'auth', check: async () => undefined, user: async () => ({ id: 'ana', name: 'Ana' }) }",
+        "      : { mode: 'open' })",
+        "  })",
+        "})",
+      ].join("\n"),
     })
     process.chdir(root)
     process.env.PATH = `${join(import.meta.dirname, "../node_modules/.bin")}${delimiter}${path}`
-    // The Console serves the operation RPC without sign-in. `NODE_ENV=development` below gives it the local identity.
+    // Production output must never invent a local identity, even with NODE_ENV=development.
     const app = () => vitehub({ console: { auth: false }, preset: "node" })
 
     const generate = await runCli(root, app(), ["db", "generate"])
@@ -54,10 +66,17 @@ describe("Comments in a built Nitro 3 app", () => {
 
     const server = await startBuiltServer(root, { NODE_ENV: "development" })
     try {
+      const unsigned = await server.fetch("/_vitehub/rpc/__call", {
+        body: JSON.stringify({ input: { anchor: { kind: "page" }, body: "Unsigned", subject: { kind: "page", id: "/pricing" } }, operation: "comments.create" }),
+        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+        method: "POST",
+      })
+      expect(unsigned.status).toBe(401)
+      expect(await unsigned.json()).toMatchObject({ code: "COMMENTS_R0012" })
       const call = async <T>(operation: string, input: unknown): Promise<T> => {
         const response = await server.fetch("/_vitehub/rpc/__call", {
           body: JSON.stringify({ input, operation }),
-          headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+          headers: { "content-type": "application/json", "x-test-user": "ana", [consoleRpcHeader]: "1" },
           method: "POST",
         })
         const body = await response.json() as { code?: string, message?: string, ok: boolean, value: T }
@@ -74,7 +93,7 @@ describe("Comments in a built Nitro 3 app", () => {
       expect(home.match(/comments\/loader\./g)).toHaveLength(1)
       const rendered = await (await server.fetch("/ssr")).text()
       expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=overlay\.[\w-]+\.js"><\/script><\/body>/)
-      expect(await (await server.fetch("/_vitehub/rpc/__call", { body: JSON.stringify({ input: {}, operation: "comments.session" }), headers: { "content-type": "application/json", [consoleRpcHeader]: "1" }, method: "POST" })).json()).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: "local", name: "You" } } })
+      expect(await call("comments.session", { subject })).toEqual({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
       for (const file of [found![1]!.split("?")[0]!, `/_vitehub/comments/${found![2]!}`]) {
         const asset = await server.fetch(file)
         expect(asset.status, file).toBe(200)
@@ -85,7 +104,7 @@ describe("Comments in a built Nitro 3 app", () => {
       expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.")
 
       const created = await call<CommentThread>("comments.create", { anchor: { kind: "page" }, body: "Too small.", subject })
-      expect(created).toMatchObject({ author: { id: "local", name: "You" }, n: 1, status: "open", subject })
+      expect(created).toMatchObject({ author: { id: "ana", name: "Ana" }, n: 1, status: "open", subject })
       const replied = await call<CommentThread>("comments.reply", { body: "Agreed.", threadId: created.id })
       expect(replied.messages.map(message => message.body)).toEqual(["Too small.", "Agreed."])
       const listed = await call<CommentThread[]>("comments.list", { page: "/pricing" })

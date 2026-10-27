@@ -5,6 +5,7 @@ import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import { collectViteHubCliContribution, getStableStdoutWrite, withStdoutOnStderr } from "@vite-hub/internal/cli"
+import { reservedOperationNamespaces } from "@vite-hub/internal/operations"
 import { formatRuntimeDiagnosticError } from "@vite-hub/runtime"
 import { resolve } from "pathe"
 
@@ -54,7 +55,7 @@ interface ViteHubCliLoadedConfig {
   vitehubConfigResolved?: true
 }
 
-const BUILTIN_NAMESPACE_NAMES = new Set(["inspect", "provision"])
+const BUILTIN_NAMESPACE_NAMES = new Set(reservedOperationNamespaces)
 
 export interface RunViteHubCliOptions {
   args?: string[]

@@ -33,6 +33,8 @@ export const CommentLayer = defineComponent({
     people: { default: () => [], type: Array as PropType<AvatarStackPerson[]> },
     /** The key that toggles comment mode. `false` turns it off. */
     hotkey: { default: "c", type: [String, Boolean] as PropType<string | false> },
+    /** Hide thread mutation controls when the viewer may only read. */
+    readOnly: { default: false, type: Boolean },
     /** The URL of the page that a subject lives on, for the links of threads that are not page threads. */
     subjectUrl: { type: Function as PropType<(subject: CommentSubject) => string | undefined> },
     /** Navigates to the page of a thread from the list. Defaults to `location.assign`. */
@@ -129,6 +131,7 @@ export const CommentLayer = defineComponent({
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
         detached: state.positions.value.get(thread.id)?.detached === true,
+        readOnly: props.readOnly,
         onClose: () => state.close(),
         onDelete: (messageId: string) => state.remove(thread.id, messageId),
         onEdit: (messageId: string, body: string, mentions: string[]) => state.edit(thread.id, messageId, body, mentions),

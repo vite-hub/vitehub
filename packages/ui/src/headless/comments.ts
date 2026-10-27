@@ -331,7 +331,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    return `${url.pathname}${url.search}${url.hash}`;
+    // Normalizing dot segments can turn an app path into a protocol-relative URL when reparsed.
+    const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
+    return `${pathname}${url.search}${url.hash}`;
   }
 
   let deepLinked = false;

@@ -98,6 +98,19 @@ function isBlobLike(value: unknown): value is Blob {
   }
 }
 
+const arrayBufferByteLengthGetter = Object.getOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength")?.get
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  try {
+    if (!arrayBufferByteLengthGetter) return false
+    arrayBufferByteLengthGetter.call(value)
+    return true
+  }
+  catch {
+    return false
+  }
+}
+
 function normalizeForeignBlob(value: Blob): Blob | undefined {
   if (!blobSizeGetter || !blobTypeGetter || !blobSliceMethod) return undefined
   try {
@@ -201,6 +214,10 @@ async function fetchOnce(
           method: definition.method,
           signal: controller.signal,
         })
+        if (controller.signal.aborted) {
+          cancelResponseBody(response)
+          controller.signal.throwIfAborted()
+        }
       }
       catch (cause) {
         return { failure: { cause, retryable: retryFetchError(cause) } }
@@ -251,7 +268,7 @@ function serializeRequestBody(body: unknown, headers: Headers): FetchBody | unde
   if (
     primitiveRuntimeTag(body) === "[object String]"
     || body instanceof Uint8Array
-    || body instanceof ArrayBuffer
+    || isArrayBuffer(body)
     || ArrayBuffer.isView(body)
     || body instanceof Blob
     || body instanceof FormData

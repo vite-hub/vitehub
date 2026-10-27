@@ -16,7 +16,7 @@ export default defineComments({
 
 | Field | Meaning |
 | --- | --- |
-| `user` | The signed-in user, or `null`. |
+| `user` | The signed-in user, including application fields such as `role`, or `null`. Stored authors and mention suggestions contain only `id`, `name`, and `image`. |
 | `actor` | The Agent Actor when an agent acts for `user`. |
 | `action` | `read`, `write`, `resolve`, or `delete`. |
 | `thread` | The thread, when the action is about one. Not set for `create`, `list`, and `users`. |
@@ -25,6 +25,7 @@ export default defineComments({
 Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, and agents.
 
 - Without `authorize`, nobody can read or write. Calls fail with `COMMENTS_R0006`, and the Console list shows that error with its fix.
+- Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, without a thread or subject.
 - Every operation on a thread asks `read` for that thread first. A thread you may not read looks missing: `get` answers `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`, the same as for a thread that does not exist.
 - People edit their own messages and delete their own messages, once they may read the thread. Nobody else edits a message. An Agent has no such right, even when it acts for the author: `edit` needs `write`, and `delete` needs `delete`.
 - `delete` covers the messages of other people. A person deletes a whole thread, or its first message, only when every message in it is theirs; otherwise it needs `delete`.

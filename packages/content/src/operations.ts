@@ -113,7 +113,7 @@ async function contentRuntime(): Promise<ContentOperationsRuntime> {
  * never gets this trust.
  */
 function trusted(context: OperationContext): boolean {
-  return context.surface === "cli" && (context.access.mode === "local" || context.access.mode === "open") && globalThis.process?.env?.NODE_ENV === "development"
+  return context.surface === "cli" && (context.access.mode === "local" || context.access.mode === "open") && context.development === true
 }
 
 interface Guard {
@@ -270,12 +270,15 @@ const list = defineOperation({
     const options: ContentListOptions = { limit: input.limit ?? 50, ref: selectedRef }
     if (input.search !== undefined) options.search = input.search
     if (input.cursor !== undefined) options.cursor = input.cursor
-    const [page, statuses] = await Promise.all([collection.list(options), statusesOf(collection)])
+    const statuses = await statusesOf(collection)
     const byId = new Map(statuses.map(status => [status.id, status]))
-    const readable = await access.readable(collection.name, page.items.map(item => item.id))
+    const readable = await access.readable(collection.name, byId.keys())
+    if (!readable.size) return { collection: collection.name, items: [], ref: selectedRef, total: 0 }
+    options.filter = { id: [...readable] }
+    const page = await collection.list(options)
     const result: ContentDevListResult = {
       collection: collection.name,
-      items: page.items.filter(item => readable.has(item.id)).map((item) => {
+      items: page.items.map((item) => {
         const status = byId.get(item.id)
         const entry: ContentDevListResult["items"][number] = {
           id: item.id,
@@ -654,9 +657,12 @@ const sitemap = defineOperation({
   input: v.strictObject({ site: optionalText }),
   kind: "read",
   name: "content.sitemap",
-  run: async (input): Promise<ContentDevSitemapResult> => attempt(async () => {
+  run: async (input, context): Promise<ContentDevSitemapResult> => attempt(async () => {
     const content = await contentRuntime()
-    return { entries: await content.sitemap(input.site === undefined ? {} : { site: input.site }) }
+    const access = guard(content, context)
+    const entries = await content.sitemap(input.site === undefined ? {} : { site: input.site })
+    const allowed = await Promise.all(entries.map(async entry => await access.can("read", entry.collection) && await access.can("read", entry.collection, entry.id)))
+    return { entries: entries.filter((_entry, index) => allowed[index]) }
   }),
   section: "content",
 })

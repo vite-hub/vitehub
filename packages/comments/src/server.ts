@@ -7,7 +7,7 @@ import type { CommentUser } from "./types.ts"
 export interface CommentsUsers {
   /** People whose name contains `query`. `users()` returns only their `id`, `name`, and `image`. */
   search: (query: string, limit: number) => Promise<CommentUser[]>
-  /** The people with these ids. An id that is not a person is left out. */
+  /** The people with these ids, including fields needed by `authorize`. An id that is not a person is left out. */
   byIds: (ids: readonly string[]) => Promise<CommentUser[]>
 }
 
@@ -61,7 +61,10 @@ export function createAuthUsers(getAuth: () => BetterAuthUsers): CommentsUsers {
     async byIds(ids) {
       if (!ids.length) return []
       const found = await (await adapter()).listUsers(ids.length, 0, undefined, [{ field: "id", operator: "in", value: [...ids] }])
-      return found.map(toUser).filter((person): person is CommentUser => person !== undefined)
+      return found.flatMap(record => {
+        const person = toUser(record)
+        return person ? [{ ...record, ...person }] : []
+      })
     },
     async search(query, limit) {
       const found = await (await adapter()).listUsers(limit, 0, undefined, [{ field: "name", operator: "contains", value: query }])
@@ -70,4 +73,5 @@ export function createAuthUsers(getAuth: () => BetterAuthUsers): CommentsUsers {
   }
 }
 export { createCommentsStore } from "./store.ts"
+export { validateCommentsDefinition } from "./define.ts"
 export type { CommentsDatabase, CommentsStore, CommentsTables } from "./store.ts"

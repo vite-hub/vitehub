@@ -1,4 +1,5 @@
 import type { ConsoleOperationColumn, ConsoleOperationView } from "../definitions"
+import { requestConsoleOperation } from "./request"
 
 /** The value at a dot path, such as `messages.0.body`. Paths joined by `|` fall back in order: `author.name|author.id`. */
 export function operationValue(item: unknown, path: string): unknown {
@@ -64,4 +65,21 @@ export function operationLink(item: unknown, view: ConsoleOperationView): string
 export function operationItems(result: unknown): Array<Record<string, unknown>> {
   if (!Array.isArray(result)) return []
   return result.filter((item): item is Record<string, unknown> => item !== null && typeof item === "object" && !Array.isArray(item))
+}
+
+/** Load a complete list, following the operation's optional `before` cursor contract. */
+export async function loadOperationItems(definitionsBase: string, view: ConsoleOperationView, input: Record<string, unknown>, signal: AbortSignal): Promise<Array<Record<string, unknown>>> {
+  const items: Array<Record<string, unknown>> = []
+  const pagination = view.pagination
+  let next: Record<string, unknown> = { ...input, ...(pagination ? { limit: pagination.limit } : {}) }
+  while (true) {
+    signal.throwIfAborted()
+    const page = operationItems(await requestConsoleOperation(definitionsBase, view.operation, next, { signal }))
+    items.push(...page)
+    if (!pagination || page.length < pagination.limit) return items
+    const last = page.at(-1)!
+    const before = Object.fromEntries(Object.entries(pagination.cursor).map(([key, path]) => [key, operationValue(last, path)]))
+    if (Object.values(before).some(value => value === undefined)) throw new Error("The operation returned an item without a pagination cursor.")
+    next = { ...input, limit: pagination.limit, before }
+  }
 }
