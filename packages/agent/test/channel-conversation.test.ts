@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineChatCapability } from "../src/chat-trigger.ts"
 import { defineAgent } from "../src/index.ts"
+import { channelConversationArchive } from "../src/internal/channel-conversation.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -17,8 +18,9 @@ import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-n
 
 import { parseOperationInput } from "@vite-hub/internal/operations"
 
+import type { AgentChatOptions } from "../src/types.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { Adapter, ChatInstance, WebhookOptions } from "chat"
+import type { Adapter, ChatInstance, StateAdapter, WebhookOptions } from "chat"
 
 vi.mock("cloudflare:workers", () => ({ DurableObject: class {} }))
 
@@ -27,6 +29,16 @@ const webhookUrl = "https://example.com/api/_vitehub/agents/support/webhooks/tel
 // Every message runs the chat route with a libSQL State, which takes a moment.
 vi.setConfig({ testTimeout: 30_000 })
 const photo = Buffer.from([1, 2, 3])
+
+interface TelegramMessage {
+  chat: { id: number, type: "private" | "supergroup" }
+  date: number
+  document?: { file_name: string, file_size: number, mime_type: string, url: string }
+  from: { id: number, username: string }
+  message_id: number
+  photo?: { file_id: string, file_name: string, file_size: number }[]
+  text: string
+}
 
 /** A Telegram-shaped adapter. `window` is how many of the newest messages the provider still returns. */
 function telegramAdapter(options: { cache?: boolean, name?: string, window?: number } = {}) {
@@ -41,7 +53,7 @@ function telegramAdapter(options: { cache?: boolean, name?: string, window?: num
     })),
     handleWebhook: vi.fn(async (request: Request, webhookOptions?: WebhookOptions) => {
       // SAFETY: The test sends the Telegram update shape that this fake reads.
-      const body = await request.json() as { message?: Record<string, any> }
+      const body = await request.json() as { message?: TelegramMessage }
       const raw = body.message
       if (!raw || !chat) return Response.json({ ok: true })
       const message = new Message({
@@ -53,6 +65,7 @@ function telegramAdapter(options: { cache?: boolean, name?: string, window?: num
         author: { fullName: "Maxi", isBot: false, isMe: false, userId: String(raw.from.id), userName: "maxi" },
         formatted: { children: [], type: "root" },
         id: String(raw.message_id),
+        isMention: raw.chat.type === "supergroup",
         metadata: { dateSent: new Date(raw.date * 1000), edited: false },
         raw: body,
         text: raw.text ?? "",
@@ -66,7 +79,7 @@ function telegramAdapter(options: { cache?: boolean, name?: string, window?: num
     initialize: vi.fn(async (instance: ChatInstance) => {
       chat = instance
     }),
-    isDM: vi.fn(() => true),
+    isDM: vi.fn((threadId: string) => Number(threadId.split(":")[1]) > 0),
     name: options.name ?? "telegram",
     persistThreadHistory: options.cache ?? true,
     postMessage: vi.fn(async (threadId: string, message: unknown) => {
@@ -96,8 +109,8 @@ interface Fixture {
   adapter: ReturnType<typeof telegramAdapter>
   /** The route handler that the generated webhook route calls, asked for the signed history. */
   history: (threadId: string) => Promise<Response>
-  state: ReturnType<typeof createLibsqlAgentState>
-  say: (id: number, text: string, extra?: Record<string, unknown>, chat?: number) => Promise<void>
+  state: StateAdapter
+  say: (id: number, text: string, extra?: Partial<TelegramMessage>, chat?: number) => Promise<void>
 }
 
 const cleanups: Array<() => Promise<void>> = []
@@ -113,6 +126,7 @@ interface FixtureOptions {
   adapterName?: string
   cache?: boolean
   content?: boolean
+  identity?: AgentChatOptions["identity"]
   /** `libsql` (the default) and `cloudflare` are durable. `memory` uses the in-process State of the route. */
   state?: "cloudflare" | "libsql" | "memory"
   /** Sets `channels.telegram.transcripts`. */
@@ -139,7 +153,8 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         // SAFETY: The fake implements the Adapter methods that the chat route calls.
         platforms: { telegram: () => adapter as unknown as Adapter },
         stream: false,
-        ...(options.transcripts !== undefined ? { transcripts: options.transcripts as never } : {}),
+        ...(options.identity ? { identity: options.identity } : {}),
+        ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
         webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
       }),
     ],
@@ -169,14 +184,15 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
     },
     async say(id, text, extra = {}, chat = 456) {
       vi.setSystemTime(new Date(Date.parse("2026-06-10T12:00:00.000Z") + id * 60_000))
+      const message: TelegramMessage = { chat: { id: chat, type: "private" }, date: Math.floor(Date.now() / 1000), from: { id: chat, username: "maxi" }, message_id: id + idOffset, text, ...extra }
       const response = await handler(new Request(webhookUrl, {
-        body: JSON.stringify({ message: { chat: { id: chat, type: "private" }, date: Math.floor(Date.now() / 1000), from: { id: chat, username: "maxi" }, message_id: id + idOffset, text, ...extra }, update_id: id + idOffset }),
+        body: JSON.stringify({ message, update_id: id + idOffset }),
         headers: { "x-test-secret": "history-secret" },
         method: "POST",
       }), "telegram", routeOptions)
       expect(response.status).toBe(200)
     },
-    state: libsql,
+    state: state ?? libsql,
   }
 }
 
@@ -188,14 +204,28 @@ const adminContext = (overrides: Partial<OperationContext> = {}): OperationConte
   ...overrides,
 })
 
-function operation(name: string, overrides: Partial<OperationContext> = {}) {
-  const found = agentChannelOperations.find(candidate => candidate.name === name)
-  if (!found) throw new Error(`No operation ${name}`)
-  return async (input: unknown) => {
-    // SAFETY: Each test reads fields of the result that the operation documents.
-    return await (found.run as (input: unknown, context: OperationContext) => Promise<any>)(await parseOperationInput(found, input), adminContext(overrides))
+const operations = {
+  "channels.list": agentChannelOperations[0],
+  "channels.threads": agentChannelOperations[1],
+  "channels.conversation": agentChannelOperations[2],
+  "conversations.export": agentChannelOperations[3],
+}
+type Operations = typeof operations
+type OperationInput<Name extends keyof Operations> = Parameters<Operations[Name]["run"]>[0]
+// The export schema supplies format and media defaults, so callers may omit them.
+type OperationRequest<Name extends keyof Operations> = Omit<OperationInput<Name>, "format" | "media"> & Partial<Pick<OperationInput<Name>, Extract<keyof OperationInput<Name>, "format" | "media">>>
+
+function operation<Name extends keyof Operations>(name: Name, overrides: Partial<OperationContext> = {}) {
+  const found = operations[name]
+  return async (input: OperationRequest<Name>): Promise<Awaited<ReturnType<Operations[Name]["run"]>>> => {
+    const parsed = await parseOperationInput(found, input)
+    // SAFETY: The matching operation schema validates input; the named operation owns its result type.
+    return await found.run(parsed as never, adminContext(overrides)) as Awaited<ReturnType<Operations[Name]["run"]>>
   }
 }
+
+// SAFETY: The operation and signed history route return this archive; tests assert its fields below.
+const parseArchive = (text: string) => JSON.parse(text) as ReturnType<typeof channelConversationArchive>
 
 const conversation = (thread = "telegram:456", overrides: Partial<OperationContext> = {}) => operation("channels.conversation", overrides)({ agent: "support", channel: "telegram", thread })
 const lines = (messages: Array<{ role: string, text: string }>) => messages.map(message => `${message.role}: ${message.text}`)
@@ -227,7 +257,7 @@ describe("Channel conversation operations", () => {
     await chat.say(1, "hello")
     await chat.say(3, "other chat", {}, 789)
     const threads = await operation("channels.threads")({ agent: "support", channel: "telegram" })
-    expect(threads.threads.map((thread: { thread: string }) => thread.thread).sort()).toEqual(["telegram:456", "telegram:789"])
+    expect(threads.threads.map(thread => thread.thread).sort()).toEqual(["telegram:456", "telegram:789"])
     expect(threads.threads[0]).toMatchObject({ invocationCount: 1, participants: ["Maxi"] })
     // The list reads no conversation, so it has no message count.
     expect(threads.threads[0]).not.toHaveProperty("messageCount")
@@ -240,7 +270,7 @@ describe("Channel conversation operations", () => {
     expect(second.threads).toHaveLength(1)
     expect(second.threads[0].thread).not.toBe(first.threads[0].thread)
     const all = await operation("channels.threads")({ agent: "support", channel: "telegram" })
-    expect(all.threads.map((thread: { thread: string }) => thread.thread)).toContain(second.threads[0].thread)
+    expect(all.threads.map(thread => thread.thread)).toContain(second.threads[0].thread)
     await expect(operation("channels.threads")({ agent: "support", channel: "telegram", cursor: "nope" })).rejects.toMatchObject({ code: "CHANNELS_CURSOR_INVALID", status: 400 })
   })
 
@@ -260,15 +290,15 @@ describe("Channel conversation operations", () => {
       "user: third question",
       "assistant: reply 3",
     ])
-    expect(new Set(read.messages.map((message: { id: string }) => message.id)).size).toBe(read.messages.length)
+    expect(new Set(read.messages.map(message => message.id)).size).toBe(read.messages.length)
     for (const message of read.messages) expect(message.invocationId, message.text).toEqual(expect.any(String))
     expect(read.messages[1].invocationId).toBe(read.messages[0].invocationId)
     expect(read.messages[1].invocationId).not.toBe(read.messages[3].invocationId)
-    expect(read.messages.map((message: { source: string }) => message.source)).toContain("transcript")
+    expect(read.messages.map(message => message.source)).toContain("transcript")
     // The oldest messages come from the transcript, which keeps no names. The newest come from the provider.
     expect(read.messages[0].author).toMatchObject({ id: "456" })
     expect(read.messages[4].author).toMatchObject({ name: "Maxi" })
-    const times = read.messages.map((message: { at: string }) => message.at)
+    const times = read.messages.map(message => message.at)
     expect([...times].sort()).toEqual(times)
   })
 
@@ -296,7 +326,7 @@ describe("Channel conversation operations", () => {
     const chat = await fixture({ cache: false, content: true, transcripts: false, window: 0 })
     await chat.say(1, "question")
     const read = await conversation()
-    expect(read.messages.map((message: { role: string, source: string, text: string }) => `${message.role}/${message.source}: ${message.text}`)).toEqual([
+    expect(read.messages.map(message => `${message.role}/${message.source}: ${message.text}`)).toEqual([
       "user/invocation: question",
       "assistant/invocation: reply 1",
     ])
@@ -304,7 +334,7 @@ describe("Channel conversation operations", () => {
     const again = await fixture({ content: true })
     await again.say(1, "question")
     const full = await conversation()
-    expect(full.messages.map((message: { source: string }) => message.source)).toEqual(["provider", "provider"])
+    expect(full.messages.map(message => message.source)).toEqual(["provider", "provider"])
   })
 
   it("pages a conversation with a cursor that survives new messages", async () => {
@@ -359,10 +389,60 @@ describe("conversation privacy", () => {
     await expect(conversation("telegram:456", { conversations: "participant", surface: "agent", user: null })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", message: expect.stringContaining("no identity") })
     // The thread list shows an Actor only its own threads.
     const own = await operation("channels.threads", agentSurface({ conversations: "participant" }))({ agent: "support", channel: "telegram" })
-    expect(own.threads.map((thread: { thread: string }) => thread.thread)).toEqual(["telegram:456"])
+    expect(own.threads.map(thread => thread.thread)).toEqual(["telegram:456"])
     const everything = await operation("channels.threads", agentSurface({ conversations: "all" }))({ agent: "support", channel: "telegram" })
     expect(everything.threads).toHaveLength(2)
     await expect(conversation("telegram:789", agentSurface({ conversations: "all" }))).resolves.toMatchObject({ messageCount: 2 })
+  })
+
+  it("preserves custom transcript identity namespaces in participant authorization", async () => {
+    const chat = await fixture({ cache: false, identity: () => "account:verified", window: 2 })
+    await chat.say(1, "private question")
+    await chat.say(3, "another private question")
+    const participant = { conversations: "participant", surface: "agent", user: null } as const
+    await expect(conversation("telegram:456", { ...participant, actor: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:456", { ...participant, user: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:456", { ...participant, actor: { id: "account:verified" } })).resolves.toMatchObject({ messageCount: 4 })
+  })
+
+  it.each(["libsql", "cloudflare"] as const)("recovers all group participants from %s after provider history and the thread cache expire", async (state) => {
+    // The default Invocation journal retains metadata, not message content.
+    const chat = await fixture({ journalFails: true, state, window: 1 })
+    const group = { id: -100, type: "supergroup" } as const
+    await chat.say(1, "first participant", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    await chat.say(3, "second participant", { chat: group, from: { id: 789, username: "second" } }, group.id)
+    const expected = ["user: first participant", "assistant: reply 1", "user: second participant", "assistant: reply 2"]
+    const partial = await conversation("telegram:-100")
+    // Only durable transcripts can supply the conversation after both windows expire.
+    chat.adapter.fetchMessages.mockResolvedValue({ messages: [] })
+    vi.setSystemTime(Date.now() + 8 * 86_400_000)
+    // The fake Durable Object namespace has no TTL implementation; evict its expired cache explicitly.
+    if (state === "cloudflare") await chat.state.delete("chat:support:telegram:msg-history:telegram:-100")
+    const recovered = await conversation("telegram:-100")
+    expect(recovered.retention.mode).toBe("durable-transcripts")
+    expect(lines(recovered.messages)).toEqual(expected)
+    expect(recovered.messages.every(message => message.source === "transcript")).toBe(true)
+    expect(lines(partial.messages)).toEqual(expected)
+    // The durable lookup also proves a group is known if the journal becomes unavailable.
+    await chat.history("telegram:-100")
+    expect(lines((await conversation("telegram:-100")).messages)).toEqual(expected)
+  })
+
+  it("finds group participants who are absent from a partial provider window", async () => {
+    const chat = await fixture({ cache: false, window: 2 })
+    const group = { id: -100, type: "supergroup" } as const
+    await chat.say(1, "old participant", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    await chat.say(3, "recent participant", { chat: group, from: { id: 789, username: "second" } }, group.id)
+    expect(lines((await conversation("telegram:-100")).messages)).toEqual(["user: old participant", "assistant: reply 1", "user: recent participant", "assistant: reply 2"])
+  })
+
+  it("keeps default Telegram direct-message access with only durable transcripts", async () => {
+    const chat = await fixture({ cache: false, journalFails: true, window: 0 })
+    await chat.say(1, "hello")
+    await chat.history("telegram:456") // Make the journal unavailable, leaving transcripts as the only source.
+    const participant = { conversations: "participant", surface: "agent", user: null } as const
+    await expect(conversation("telegram:456", { ...participant, actor: { id: "telegram:456" } })).resolves.toMatchObject({ messageCount: 2 })
+    await expect(conversation("telegram:456", { ...participant, actor: { id: "agent", meta: { authUserId: "456" } } })).resolves.toMatchObject({ messageCount: 2 })
   })
 
   it("never gives an Agent the media of an export", async () => {
@@ -371,7 +451,7 @@ describe("conversation privacy", () => {
     const asAgent = operation("conversations.export", { actor: { id: "telegram:456" }, conversations: "participant", surface: "agent", user: null })
     const exported = await asAgent({ agent: "support", channel: "telegram", format: "json", media: true, thread: "telegram:456" })
     expect(exported.media).toEqual([])
-    expect(JSON.parse(exported.text).messages[0].attachments[0]).toMatchObject({ name: "meal.jpg", unavailable: true })
+    expect(parseArchive(exported.text).messages[0].attachments[0]).toMatchObject({ name: "meal.jpg", unavailable: true })
   })
 })
 
@@ -401,7 +481,7 @@ describe("conversations.export", () => {
     // The text sits in a fence of five backticks, since the text holds a run of four.
     expect(exported.text).toContain(`\`\`\`\`\`text\n${text}\n\`\`\`\`\``)
     const outsideTheFence = exported.text.replace(`\`\`\`\`\`text\n${text}\n\`\`\`\`\``, "")
-    expect(outsideTheFence.split("\n").filter((line: string) => line.startsWith("#"))).toEqual(["# Conversation telegram:456", "### Maxi · 2026-06-10 12:01:00 UTC", "### Agent · 2026-06-10 12:01:01 UTC"])
+    expect(outsideTheFence.split("\n").filter(line => line.startsWith("#"))).toEqual(["# Conversation telegram:456", "### Maxi · 2026-06-10 12:01:00 UTC", "### Agent · 2026-06-10 12:01:01 UTC"])
     // The name is escaped, and a javascript: URL is not a link.
     expect(exported.text).toContain("- Attachment: evil\\]\\(https://evil.example\\).pdf (not included)")
     expect(outsideTheFence).not.toContain("javascript:")
@@ -412,7 +492,7 @@ describe("conversations.export", () => {
     await chat.say(1, "photo", { photo: [{ file_id: "photo-1", file_name: "meal.jpg", file_size: 3 }] })
     const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", media: true, thread: "telegram:456" })
     expect(exported).toMatchObject({ filename: "history.json", format: "json", mimeType: "application/json" })
-    const archive = JSON.parse(exported.text)
+    const archive = parseArchive(exported.text)
     expect(archive).toMatchObject({
       agent: "support",
       channel: "telegram",
@@ -426,7 +506,7 @@ describe("conversations.export", () => {
     expect(first).toMatchObject({ id: "1", role: "user", source: "provider", text: "photo", threadId: "telegram:456" })
     expect(first.attachments[0]).toMatchObject({ file: "media/0001-meal.jpg", name: "meal.jpg", type: "image" })
     expect(first.attachments[0]).not.toHaveProperty("data")
-    expect(exported.media.map((file: { path: string }) => file.path)).toEqual(["media/0001-meal.jpg"])
+    expect(exported.media.map(file => file.path)).toEqual(["media/0001-meal.jpg"])
   })
 
   it("says so when the transcript limit cut the oldest messages", async () => {
@@ -440,7 +520,7 @@ describe("conversations.export", () => {
     expect(read.truncated).toBe(true)
     const json = await operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:456" })
     expect(json.truncated).toBe(true)
-    expect(JSON.parse(json.text).truncated).toBe(true)
+    expect(parseArchive(json.text).truncated).toBe(true)
     const markdown = await operation("conversations.export")({ agent: "support", channel: "telegram", format: "markdown", thread: "telegram:456" })
     expect(markdown.text).toContain("Warning: the transcript was cut at its read limit")
   })
@@ -451,7 +531,7 @@ describe("conversations.export", () => {
     const response = await chat.history("telegram:456")
     expect(response.status).toBe(200)
     // SAFETY: The route answers with the archive that the test reads below.
-    const signed = await response.json() as Record<string, any>
+    const signed = parseArchive(await response.text())
     // `channels history` keeps the attachment data in the answer, and the CLI moves it into files.
     expect(signed.messages[0].attachments[0]).toMatchObject({ data: photo.toString("base64"), name: "meal.jpg" })
     expect(signed).toMatchObject({ agent: "support", channel: "telegram", provider: "telegram", schemaVersion: 1, threadId: "telegram:456" })

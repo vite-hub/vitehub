@@ -339,4 +339,4 @@ const conversationsExport = defineOperation({
 })
 
 /** The Channel operations of `@vite-hub/agent`. The section is `channels`. */
-export const agentChannelOperations: AnyOperation[] = [channelsList, channelsThreads, channelsConversation, conversationsExport] as unknown as AnyOperation[]
+export const agentChannelOperations = [channelsList, channelsThreads, channelsConversation, conversationsExport] as const satisfies readonly AnyOperation[]

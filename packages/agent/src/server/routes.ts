@@ -7588,7 +7588,11 @@ interface TranscriptRecorder {
   outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string): Promise<void>
 }
 
-function createTranscriptRecorder(): TranscriptRecorder {
+function channelTranscriptParticipantsKey(prefix: string, threadId: string): string {
+  return `${prefix}transcripts:thread:${threadId}`
+}
+
+function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): TranscriptRecorder {
   const recorder: TranscriptRecorder = {
     async inbound(thread, message, context) {
       const history = recorder.chat?.history.user
@@ -7596,8 +7600,14 @@ function createTranscriptRecorder(): TranscriptRecorder {
       for (const entry of [...(context?.skipped ?? []), message]) {
         // A transcript failure never stops a delivery.
         try {
-          await history.append(thread, entry)
-          if (entry.userKey) recorder.keys.set(thread.id, entry.userKey)
+          const saved = await history.append(thread, entry)
+          if (saved?.userKey) {
+            recorder.keys.set(thread.id, saved.userKey)
+            // Keep the lookup as long as the transcripts. Atomic appends may race into duplicates, never lost keys.
+            const index = channelTranscriptParticipantsKey(keyPrefix, thread.id)
+            const participants = await state.getList<string>(index)
+            if (!participants.includes(saved.userKey)) await state.appendToList(index, saved.userKey)
+          }
         }
         catch {}
       }
@@ -7735,7 +7745,7 @@ async function createChannelChat(
   const transcripts = effectiveTranscripts(options, resolvedState.state)
   if (options && options.transcripts !== transcripts) options = { ...options, transcripts }
   else if (!options && transcripts) options = { transcripts }
-  const recorder = transcripts ? createTranscriptRecorder() : undefined
+  const recorder = transcripts ? createTranscriptRecorder(resolvedState.state, resolvedState.titleKeyPrefix) : undefined
   const chat = new Chat(createChatSdkConfig(adapterName, adapter, lockTracker.state, options))
   if (recorder) {
     recorder.chat = chat
@@ -8466,6 +8476,16 @@ async function readChannelConversation(
     const chatPart = input.threadId.split(":")[1]
     return !identity && telegram && chatPart && adapter.isDM?.(input.threadId) !== false ? [`${adapterName}:${chatPart}`] : []
   }
+  const keys = new Set<string>(directKeys())
+  if (retention.transcripts) {
+    try {
+      const participants = await state.state.getList<unknown>(channelTranscriptParticipantsKey(state.titleKeyPrefix, input.threadId))
+      for (const key of participants) if (isRuntimeString(key) && key) keys.add(key)
+    }
+    catch (error) {
+      throw new ChannelStateUnavailableError(`The transcript participants could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
   const readTranscripts = async (keys: Iterable<string>, limit: number) => {
     const entries: ChannelTranscriptEntry[] = []
     let truncated = false
@@ -8482,7 +8502,12 @@ async function readChannelConversation(
       if (listed.length >= limit) truncated = true
       for (const entry of listed) {
         const parsed = channelTranscriptEntry(entry)
-        if (parsed) entries.push({ ...parsed, userKey: parsed.userKey ?? userKey })
+        if (parsed) {
+          const key = parsed.userKey ?? userKey
+          // The default identity is `${adapterName}:${author.userId}`. Custom resolvers establish no such equivalence.
+          const userId = !identity && key.startsWith(`${adapterName}:`) ? key.slice(adapterName!.length + 1) : undefined
+          entries.push({ ...parsed, ...(userId ? { userId } : {}), userKey: key })
+        }
       }
     }
     return { entries, truncated }
@@ -8490,7 +8515,7 @@ async function readChannelConversation(
   const origin = adapterName!
   const journal = await channelConversationInvocations(agent, context, origin, input.threadId)
   if (input.requireKnown && !journal.invocations.length) {
-    const known = (await readTranscripts(directKeys(), 1)).entries.length > 0
+    const known = (await readTranscripts(keys, 1)).entries.length > 0
     if (!known) throw new ChannelThreadUnknownError(`The Channel has no Invocation and no transcript for the thread ${JSON.stringify(input.threadId)}.`)
   }
   const messages: Record<string, unknown>[] = []
@@ -8527,7 +8552,6 @@ async function readChannelConversation(
       } catch {}
     }
   }
-  const keys = new Set<string>(directKeys())
   if (retention.transcripts) {
     for (const message of chatMessages) {
       const author: unknown = message.author

@@ -33,6 +33,8 @@ export interface ChannelTranscriptEntry {
   text: string
   threadId: string
   timestamp: number
+  /** A provider id established by the configured identity contract, never an arbitrary userKey suffix. */
+  userId?: string
   userKey?: string
 }
 
@@ -173,7 +175,7 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
   const transcriptEntry = (entry: ChannelTranscriptEntry, id: string): Entry => {
     const author = entry.role === "assistant"
       ? { isBot: true, isMe: true }
-      : entry.userKey ? { userId: entry.userKey.replace(/^[^:]+:/, ""), userKey: entry.userKey } : {}
+      : entry.userKey ? { userId: entry.userId ?? entry.userKey, userKey: entry.userKey } : {}
     return {
       message: withTime({ attachments: [], author, id, role: entry.role, source: "transcript", text: entry.text, threadId: entry.threadId || input.threadId }, entry.timestamp),
       order: order++,
