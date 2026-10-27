@@ -11,7 +11,7 @@ import type { ConsoleAccess } from "./access.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /** Document actions that only read. A read-only section grant keeps them. */
-const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "revisions", "search", "session", "sessions"])
+const consoleDocumentReadActions: ReadonlySet<string> = new Set(["get", "list", "overview", "raw", "references", "revisions", "search", "sessions"])
 /** Media actions that only read. */
 const consoleMediaReadActions: ReadonlySet<string> = new Set(["get", "info", "list", "usage"])
 
@@ -159,7 +159,9 @@ const documentsAction = defineConsoleOperation({
   kind: "write",
   maxRequestBytes: consoleOperationRequestBytes["documents.action"],
   // A read-only grant still opens, lists, and searches documents.
-  readOnlyWhen: ({ action }) => consoleDocumentReadActions.has(action),
+  readOnlyWhen: ({ action, body }) => action === "session"
+    ? typeof body === "object" && body !== null && "action" in body && (body.action === "report" || body.action === "release")
+    : consoleDocumentReadActions.has(action),
   name: "documents.action",
   run: async ({ action, body, section }, context) => {
     const result = actionResult(await (await import("./documents.ts")).default(legacyEvent("documents", "POST", { body, query: { action, section } }, context))) as { value: unknown }
