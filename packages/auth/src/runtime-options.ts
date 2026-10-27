@@ -5,7 +5,6 @@ import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
-import { createSessionMarkerPlugin } from "./session-marker.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -64,7 +63,7 @@ function stripViteHubOptions(
   }
   validateAuthEvents(events)
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
-  const plugins = [...sessionRefresh.plugins ?? rest.plugins ?? [], createSessionMarkerPlugin()]
+  const plugins = sessionRefresh.plugins ?? rest.plugins ?? []
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})

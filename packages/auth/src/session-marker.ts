@@ -1,4 +1,7 @@
-import type { BetterAuthPlugin } from "better-auth"
+import { resolveBaseURL } from "better-auth"
+import { getCookies } from "better-auth/cookies"
+
+import type { Auth } from "better-auth"
 
 /**
  * Name of the cookie that tells browser code a session exists. It holds `1`, never a secret, and it is not HttpOnly,
@@ -28,24 +31,33 @@ function readSetCookie(cookie: string): { attributes: string[], cleared: boolean
  * Sets `vitehub_session` next to the session cookie with the same lifetime, path, domain, and SameSite, and clears it
  * when Better Auth clears the session cookie, such as on sign-out.
  */
-export function createSessionMarkerPlugin(): BetterAuthPlugin {
-  return {
-    id: "vitehub-session-marker",
-    async onResponse(response, context) {
-      const sessionCookie = context.authCookies.sessionToken.name
-      const setCookies = response.headers.getSetCookie()
-      const session = setCookies.map(readSetCookie).findLast(cookie => cookie.name === sessionCookie)
-      if (!session) return
-      const marker = [
-        `${authSessionMarkerCookie}=${session.cleared ? "" : "1"}`,
-        ...session.attributes,
-        ...(session.cleared ? ["Max-Age=0"] : []),
-      ].join("; ")
-      const headers = new Headers(response.headers)
-      headers.delete("set-cookie")
-      for (const cookie of setCookies) if (!cookie.startsWith(`${authSessionMarkerCookie}=`)) headers.append("set-cookie", cookie)
-      headers.append("set-cookie", marker)
-      return { response: new Response(response.body, { headers, status: response.status, statusText: response.statusText }) }
-    },
+export function withSessionMarker(auth: Auth): Auth {
+  const handler = auth.handler
+  const markedHandler: Auth["handler"] = async (request) => {
+    // Better Auth stops its response hooks at the first returned response. Process the final result instead.
+    const response = await handler(request)
+    const setCookies = response.headers.getSetCookie()
+    if (setCookies.length === 0) return response
+    const context = await auth.$context
+    const options = context.options
+    let sessionCookie = context.authCookies.sessionToken.name
+    if (typeof options.baseURL === "object" && options.advanced?.crossSubDomainCookies?.enabled) {
+      // Better Auth rehydrates cookies for each host in this configuration, including the Secure prefix.
+      const baseURL = resolveBaseURL(options.baseURL, options.basePath || "/api/auth", request, undefined, options.advanced.trustedProxyHeaders ?? false)
+      sessionCookie = getCookies({ ...options, baseURL }).sessionToken.name
+    }
+    const session = setCookies.map(readSetCookie).findLast(cookie => cookie.name === sessionCookie)
+    if (!session) return response
+    const marker = [
+      `${authSessionMarkerCookie}=${session.cleared ? "" : "1"}`,
+      ...session.attributes,
+      ...(session.cleared ? ["Max-Age=0"] : []),
+    ].join("; ")
+    const headers = new Headers(response.headers)
+    headers.delete("set-cookie")
+    for (const cookie of setCookies) if (!cookie.startsWith(`${authSessionMarkerCookie}=`)) headers.append("set-cookie", cookie)
+    headers.append("set-cookie", marker)
+    return new Response(response.body, { headers, status: response.status, statusText: response.statusText })
   }
+  return Object.assign(auth, { handler: markedHandler, fetch: markedHandler })
 }
