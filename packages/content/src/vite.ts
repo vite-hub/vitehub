@@ -390,7 +390,8 @@ export async function findContentPublishRunner(schedules: readonly string[]): Pr
  * What the Content editor lacks, read without running the app. Scheduled publishes need a Schedule Definition that calls
  * `content.publishDue()`; without one, schedules never publish and only turn overdue.
  */
-async function inspectContentSetup(options: ContentConsoleOptions): Promise<ViteHubConsoleDocumentSetup> {
+async function inspectContentSetup(options: ContentConsoleOptions, file: string): Promise<ViteHubConsoleDocumentSetup> {
+  if ((await readCmsPresetUsageFile(file, options.projectRoot, parseAst))?.options.store === "github") return {}
   if (options.schedules && await findContentPublishRunner(options.schedules)) return {}
   return {
     schedule: {
@@ -422,7 +423,7 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
-  inspect: options => inspectContentSetup(options),
+  inspect: (options, file) => inspectContentSetup(options, file),
   icon: "i-lucide-file-pen-line",
   id: "content",
   label: "Content",

@@ -507,6 +507,7 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   readonly collections: ReadonlyMap<string, AnyContentCollection>
   collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
+  supportsScheduling(): Promise<boolean>
   /** Revisions of one document. `id` may be omitted for a singleton. */
   revisions(collection: string, id: string | undefined, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Content revisions of every collection on one ref, newest first. */
@@ -634,10 +635,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   /** Schedules are files on a `schedules` ref of the Workspace, which the GitHub Store does not keep. */
-  async function requireScheduleStore(): Promise<void> {
+  async function supportsScheduling(): Promise<boolean> {
     // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
     const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
-    if (target?.provider === "github") {
+    return target?.provider !== "github"
+  }
+
+  async function requireScheduleStore(): Promise<void> {
+    if (!await supportsScheduling()) {
       throw contentErrorDiagnostics.CONTENT_R0016({
         message: `[vitehub] schedule() needs the Blob + Database store, but Workspace ${JSON.stringify(workspaceName)} uses the GitHub store, which keeps no schedules. Publish with content.publish() instead.`,
       })
@@ -1625,6 +1630,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
+    supportsScheduling,
     schedule: async (scheduleOptions) => {
       await requireScheduleStore()
       return await schedules.schedule(scheduleOptions)
