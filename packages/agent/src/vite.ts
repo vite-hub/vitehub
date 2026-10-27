@@ -129,6 +129,8 @@ const netlifyAgentFunctionName = "vitehub-agent"
 const workspacePackageName = "@vite-hub/workspace"
 const optionalAskDriverPeer = "advocaat"
 const agentPackageRoot = fileURLToPath(new URL("../", import.meta.url)).replace(/\\/g, "/")
+// AI gateways import advocaat for ask(); in this workspace the package is a sibling of the Agent package.
+const gatewaysPackageRoot = fileURLToPath(new URL("../../gateways/", import.meta.url)).replace(/\\/g, "/")
 const optionalAgentRuntimeExternals = [
   "@anthropic-ai/claude-agent-sdk",
   "bufferutil",
@@ -139,8 +141,8 @@ const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
-  "@vite-hub/sandbox-task",
-  "@vite-hub/sandbox-task/*",
+  "@vite-hub/sandbox/task",
+  "@vite-hub/sandbox/task/*",
   "@vite-hub/shell",
   "@vite-hub/shell/*",
   "@vite-hub/workflow",
@@ -155,7 +157,9 @@ function isAgentPackageImporter(importer: string | undefined): boolean {
   if (!importer) return false
   const normalized = importer.replace(/\\/g, "/")
   return normalized.includes("/node_modules/@vite-hub/agent/")
+    || normalized.includes("/node_modules/@vite-hub/gateways/")
     || normalized.startsWith(agentPackageRoot)
+    || normalized.startsWith(gatewaysPackageRoot)
 }
 
 function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions): string[] {
@@ -165,8 +169,8 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
     bundled.add("@vite-hub/workflow/*")
   }
   if (options.workspaceDependencyRuntimeImports?.sandboxTask || options.workspaceDependencyRuntimeImports?.sandboxTaskRuntimeState) {
-    bundled.add("@vite-hub/sandbox-task")
-    bundled.add("@vite-hub/sandbox-task/*")
+    bundled.add("@vite-hub/sandbox/task")
+    bundled.add("@vite-hub/sandbox/task/*")
   }
   if (options.workspaceDependencyRuntimeImports?.shellWorkspace) {
     bundled.add("@vite-hub/shell")

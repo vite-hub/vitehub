@@ -14,15 +14,15 @@ You need Node.js 24.15 or newer, pnpm, a Vite application, and a Vercel project 
 ::tutorial-step{title="Install and choose a provider"}
 ## Install and choose a provider
 
-Install the Vercel Sandbox SDK with the Vite integration and Nitro. Add these plugins to your existing Vite config and keep its other plugins.
+Install Sandbox, TypeScript, the Vercel Sandbox SDK, and Nitro. Sandbox Tasks read their Definitions with TypeScript at build time. Add these plugins to your existing Vite config and keep its other plugins.
 
 ```bash [commands/install]
-pnpm add @vite-hub/sandbox-task @vercel/sandbox nitro h3
+pnpm add @vite-hub/sandbox typescript @vercel/sandbox nitro h3
 pnpm add -D @vite-hub/cli vite
 ```
 
 ```ts [vite.config.ts]
-import { hubSandboxTask } from '@vite-hub/sandbox-task/vite'
+import { hubSandboxTask } from '@vite-hub/sandbox/task/vite'
 import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
@@ -91,7 +91,7 @@ The route runs the named package and checks the returned HTTP status. It then re
 
 ```ts [server/api/image-optimizer.post.ts]
 import { createError, defineEventHandler, readBody } from 'h3'
-import { runSandboxTask } from '@vite-hub/sandbox-task'
+import { runSandboxTask } from '@vite-hub/sandbox/task'
 
 export default defineEventHandler(async (event) => {
   const input = await readBody<{ width: number, height: number }>(event)

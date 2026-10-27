@@ -22,7 +22,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
-import { hubSandboxTask } from "@vite-hub/sandbox-task/vite"
+import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -66,7 +66,7 @@ import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
-import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
+import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
@@ -111,6 +111,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -118,7 +119,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
-  "@vite-hub/sandbox-task": true,
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
@@ -181,8 +181,8 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
   return {
     ...(sandboxTask
       ? {
-          sandboxTask: "vite-hub/sandbox-task",
-          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox-task/runtime/state`,
+          sandboxTask: "vite-hub/sandbox/task",
+          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox/task/runtime/state`,
         }
       : {}),
     shellWorkspace: "vite-hub/shell/workspace",
@@ -1099,7 +1099,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubSandboxTask({
       ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox-task",
+      providerImportSpecifier: "vite-hub/sandbox/task",
     } as SandboxTaskPublicOptions))
   }
   if (options.agent) {

@@ -34,7 +34,7 @@ icon: i-lucide-terminal-square
 
   ```ts [server/api/pixels.post.ts]
   import { defineEventHandler, readBody } from 'h3'
-  import { runSandboxTask } from 'vite-hub/sandbox-task'
+  import { runSandboxTask } from 'vite-hub/sandbox/task'
 
   type ImageSize = { width: number, height: number }
 
