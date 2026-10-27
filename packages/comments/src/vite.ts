@@ -442,7 +442,10 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const runner = nitro.options.devServer.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
         const standalone = await standaloneDatabase(projectRoot, options.standalone, nitro.options.dev ? "serve" : "build", runner === "miniflare")
         // Production variables may name files, so the resolved runtime selects the connector.
-        if (!nitro.options.dev) standalone.node = nitro.options.node
+        if (!nitro.options.dev) {
+          parseDatabaseLocation(standalone.where, "comments", { node: nitro.options.node })
+          standalone.node = nitro.options.node
+        }
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
         const definition = discover() ?? join(directory, "definition.mjs")
         await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, imports, standalone, development }))

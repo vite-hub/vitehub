@@ -180,7 +180,7 @@ describe("comments() without vite-hub", () => {
     expect(source).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
   }, 30_000)
 
-  it.each([undefined, "env:COMMENTS_DATABASE_URL", "d1:COMMENTS", "file:./data/comments.sqlite"])("keeps the Node connector out of generated Worker output (%s)", async (database) => {
+  it.each([undefined, "env:COMMENTS_DATABASE_URL", "d1:COMMENTS"])("keeps the Node connector out of generated Worker output (%s)", async (database) => {
     const root = await project({ "package.json": "{}" })
     const nitro = await configure(comments({ database })[0] as Plugin, root, "build", { preset: "cloudflare-module", compatibilityDate: "2026-10-27" })
     expect(nitro?.node).toBe(false)
@@ -189,6 +189,19 @@ describe("comments() without vite-hub", () => {
     expect(source).not.toContain("runtime/connect/node")
     expect(source).not.toContain("node:sqlite")
     expect(source).toContain("development: false")
+  }, 30_000)
+
+  it.each(["file:./data/comments.sqlite", ":memory:"])("rejects static SQLite locations on Workers (%s)", async (database) => {
+    const root = await project({ "package.json": "{}" })
+    await expect(configure(comments({ database })[0] as Plugin, root, "build", { preset: "cloudflare-module", compatibilityDate: "2026-10-27" })).rejects.toMatchObject({ code: "DATABASE_UNSUPPORTED_URL" })
+  }, 30_000)
+
+  it.each(["file:./data/comments.sqlite", ":memory:"])("keeps static SQLite locations buildable on Node (%s)", async (database) => {
+    const root = await project({ "package.json": "{}" })
+    await configure(comments({ database })[0] as Plugin, root, "build", { preset: "node-server", compatibilityDate: "2026-10-27" })
+    const source = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(source).toContain('from "@vite-hub/comments/runtime/connect/node"')
+    expect(source).toContain(`connectDatabase(${JSON.stringify(database)}`)
   }, 30_000)
 
   it("adds the D1 binding to the Wrangler config, unless the app's wrangler.jsonc has it", async () => {

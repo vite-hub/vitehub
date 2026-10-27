@@ -5,7 +5,7 @@ import { stateless } from "@vite-hub/auth/presets"
 import { createAuthForRequest } from "@vite-hub/auth/server"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
-import { readViteHubSecret, viteHubSecretSalt } from "@vite-hub/internal/secret"
+import { readViteHubSecret, viteHubSecretMinimumLength, viteHubSecretSalt } from "@vite-hub/internal/secret"
 import * as v from "valibot"
 
 import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
@@ -53,6 +53,9 @@ function serverEnv(name: string): string | undefined {
 function sessionSecret(): string | undefined {
   const root = readViteHubSecret({ VITEHUB_SECRET: serverEnv("VITEHUB_SECRET"), NUXT_APP_SECRET: serverEnv("NUXT_APP_SECRET") })
   if (!root) return
+  if (root.length < viteHubSecretMinimumLength) {
+    throw new TypeError(`[vitehub] VITEHUB_SECRET must be at least ${viteHubSecretMinimumLength} characters. Generate one with \`openssl rand -base64 32\`.`)
+  }
   const bytes = new Uint8Array(hkdfSync("sha256", root, viteHubSecretSalt, "vitehub:comments:auth", 32))
   return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("")
 }

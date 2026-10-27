@@ -23,7 +23,7 @@ export function openSqliteFile(path: string): SqlDriver {
   const sqlite = new DatabaseSync(file)
   sqlite.exec("PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000; PRAGMA foreign_keys = ON;")
 
-  function run({ sql, params, method }: SqlQuery): unknown[] {
+  function run({ sql, params, method }: SqlQuery): unknown[] | undefined {
     const statement = sqlite.prepare(sql)
     // SAFETY: Drizzle binds only SQLite values: text, numbers, blobs, and null.
     const values = params as SQLInputValue[]
@@ -34,7 +34,7 @@ export function openSqliteFile(path: string): SqlDriver {
     statement.setReturnArrays(true)
     if (method !== "get") return statement.all(...values)
     const row: unknown = statement.get(...values)
-    return Array.isArray(row) ? row : []
+    return Array.isArray(row) ? row : undefined
   }
 
   return {

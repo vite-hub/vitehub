@@ -143,6 +143,16 @@ describe("createCommentsGitHubLogin", () => {
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
   })
 
+  it.each(["VITEHUB_SECRET", "NUXT_APP_SECRET"])("rejects a short %s before starting GitHub sign-in", async (name) => {
+    vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "client-id")
+    vi.stubEnv("VITEHUB_GITHUB_CLIENT_SECRET", "client-secret")
+    vi.stubEnv("VITEHUB_SECRET", "")
+    vi.stubEnv("NUXT_APP_SECRET", "")
+    vi.stubEnv(name, "a".repeat(31))
+    const login = createCommentsGitHubLogin({ repository: "acme/app" })
+    await expect(login.handle(event("/api/_vitehub/comments/auth/github"), "/auth/github")).rejects.toThrow("VITEHUB_SECRET must be at least 32 characters")
+  })
+
   it("never sends people back to another site", () => {
     expect(safeReturn("/pricing?comments#comment-1")).toBe("/pricing?comments#comment-1")
     for (const value of ["//evil.test", "/\\evil.test", "https://evil.test", null]) expect(safeReturn(value)).toBe("/?comments")

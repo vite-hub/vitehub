@@ -199,7 +199,7 @@ export default defineEventHandler(async (event) => {
 ```
 
 - `metadata` keeps what your UI needs, such as where the comment sits in the document: at most 50 keys with string, number, boolean, or `null` values.
-- Threads are numbered 1, 2, 3, … in their scope. `getByNumber('doc:42', 3)` finds "#3".
+- Threads are numbered 1, 2, 3, … in their scope. Deleting threads or a whole scope never reuses those numbers. `getByNumber('doc:42', 3)` finds "#3".
 - `removeScope('doc:42')` deletes every thread of the document, for example when the document goes away.
 - The runtime methods are trusted server API, so check access in your route. When you call `comments.can()`, `authorize` gets the `scope` too.
 
@@ -217,7 +217,7 @@ Give `database` a string that says where the database is. The string names a var
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the directory that the server starts in. |
 | `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` for one with a token. |
 
-On Node, the runtime variables can also contain a `file:` location. Comments chooses the connector for the server's runtime, so the file path stays out of the build. Workers support D1 and remote libSQL databases.
+On Node, the runtime variables can also contain a `file:` location. Comments chooses the connector for the server's runtime, so the file path stays out of the build. Workers support D1 and remote libSQL databases. A static `file:` or `:memory:` location fails the Worker build with `DATABASE_UNSUPPORTED_URL`.
 
 On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
 
@@ -270,7 +270,7 @@ Comments opens the file with Node's built-in `node:sqlite`, so there is no drive
 
 ### A ViteHub Database
 
-In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds two tables, `vitehub_comment_threads` and `vitehub_comments`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
 
 To use another Database, give its name:
 
@@ -283,6 +283,39 @@ export const comments = defineComments({
 ViteHub reads the name from the file without running it, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when the app has several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
 Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts` or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+
+## Upgrade existing Comments
+
+Fresh databases can apply the generated Comments schema directly. Existing databases need a data migration before the new unique index is created. Schema generation cannot infer this backfill.
+
+1. Stop Comments writes while you migrate, including writes from older app instances. Back up the database.
+2. Run `vitehub db generate --name comments_scopes`. Edit the new SQL migration in the Database's migrations directory before applying it. Keep the generated snapshot and journal.
+3. If the migration adds `scope` and `number`, place this backfill **after both `ALTER TABLE` statements and before `CREATE UNIQUE INDEX vitehub_comment_threads_number`**. Keep Drizzle's `--> statement-breakpoint` separators. Skip this backfill if the database already has numbered threads; those numbers must not change.
+
+```sql [scope-number-backfill.sql]
+UPDATE `vitehub_comment_threads`
+SET `number` = (
+  SELECT count(*) FROM `vitehub_comment_threads` AS `earlier`
+  WHERE `earlier`.`scope` = `vitehub_comment_threads`.`scope`
+    AND (`earlier`.`created_at` < `vitehub_comment_threads`.`created_at`
+      OR (`earlier`.`created_at` = `vitehub_comment_threads`.`created_at`
+        AND `earlier`.`id` <= `vitehub_comment_threads`.`id`))
+);
+--> statement-breakpoint
+```
+
+4. The generated migration also creates `vitehub_comment_scope_counters`. After that table exists and thread numbers are filled, append this statement. This step also applies to apps that already have scoped, numbered threads and are adding the counter table.
+
+```sql [scope-counter-backfill.sql]
+INSERT INTO `vitehub_comment_scope_counters` (`scope`, `last_number`)
+SELECT `scope`, max(`number`) FROM `vitehub_comment_threads` GROUP BY `scope`
+ON CONFLICT (`scope`) DO UPDATE SET `last_number` = max(`last_number`, excluded.`last_number`);
+--> statement-breakpoint
+```
+
+5. Run `vitehub db migrate --dry-run` to check the order, then `vitehub db migrate` against the app's Database before starting the new app version. Verify that every existing thread has a positive number and that `(scope, number)` is unique.
+
+The counter survives thread deletion and `removeScope()`. Do not delete its rows when deleting application records. If an older scoped version already deleted its highest-numbered threads, their numbers cannot be recovered from the remaining rows. Before reopening writes, restore each affected counter to at least the highest number ever issued from your backup or audit history.
 
 ## Mention people
 
