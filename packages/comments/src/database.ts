@@ -58,6 +58,17 @@ export type CommentThreadsTable = SQLiteTableWithColumns<{
   schema: undefined
 }>
 
+/** Allocation history survives thread and scope deletion. */
+export type CommentScopeCountersTable = SQLiteTableWithColumns<{
+  columns: {
+    scope: Column<"vitehub_comment_scope_counters", string, true, true>
+    lastNumber: Column<"vitehub_comment_scope_counters", number, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_comment_scope_counters"
+  schema: undefined
+}>
+
 /** The `vitehub_comments` table, typed explicitly so its declaration can be emitted. */
 export type CommentsTable = SQLiteTableWithColumns<{
   columns: {
@@ -147,9 +158,18 @@ const commentForge = sqliteTable("vitehub_comment_forge", {
   index("vitehub_comment_forge_pull_request").on(table.repository, table.pullRequest),
 ]) as unknown as CommentForgeTable
 
+// SAFETY: CommentScopeCountersTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations.
+const scopeCounters = sqliteTable("vitehub_comment_scope_counters", {
+  scope: text("scope").primaryKey(),
+  lastNumber: integer("last_number").notNull(),
+}) as unknown as CommentScopeCountersTable
+
 /**
- * The tables behind Comments. `vitehub_comment_forge` holds the pull request comments of `defineComments({ forge })`. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
- * yourself only to a Database that you configure without ViteHub. Apply the migration that `vitehub db generate` writes.
+ * The tables behind Comments, including forge links and scope numbering. ViteHub adds them to the Database of
+ * `defineComments({ database })` for you; add them yourself only to a Database configured without ViteHub.
+ * For existing tables, follow https://vitehub.dev/docs/comments/configure#upgrade-existing-comments before
+ * applying the migration that `vitehub db generate` writes.
  */
 // The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
-export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentForge: CommentForgeTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentForge: commentForge }
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentForge: CommentForgeTable, vitehubCommentScopeCounters: CommentScopeCountersTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentForge: commentForge, vitehubCommentScopeCounters: scopeCounters }

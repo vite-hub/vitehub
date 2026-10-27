@@ -23,8 +23,10 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
   const calls: string[] = []
   let nextId = 100
   let failNext = 0
+  let rejectedCreate: "summary" | "comment" | undefined
   let lostResponse: "summary" | "comment" | undefined
-  let heldCreate: { kind: "summary" | "comment", started: () => void, released: Promise<void> } | undefined
+  let heldCreate: { kind: "summary" | "comment", visible: boolean, started: () => void, released: Promise<void> } | undefined
+  let heldUpdate: { kind: "summary" | "comment", started: () => void, released: Promise<void> } | undefined
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const method = init?.method ?? "GET"
@@ -54,12 +56,18 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
       const id = nextId++
       const text = (body as { body: string }).body
       const kind = text.endsWith("<!-- vitehub-comments summary -->") ? "summary" : "comment"
-      comments.set(id, { id, body: text, token, minimized: false, pullRequest: Number(match[1]) })
+      if (rejectedCreate === kind) {
+        rejectedCreate = undefined
+        return json({ message: "Resource not accessible by integration" }, 403)
+      }
+      const comment = { id, body: text, token, minimized: false, pullRequest: Number(match[1]) }
+      if (heldCreate?.kind !== kind || heldCreate.visible) comments.set(id, comment)
       if (heldCreate?.kind === kind) {
         const held = heldCreate
         heldCreate = undefined
         held.started()
         await held.released
+        comments.set(id, comment)
       }
       if (lostResponse === kind) {
         lostResponse = undefined
@@ -71,7 +79,16 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     if (match) {
       const comment = comments.get(Number(match[1]))
       if (!comment) return json({ message: "Not Found" }, 404)
-      if (method === "PATCH") comment.body = (body as { body: string }).body
+      if (method === "PATCH") {
+        const kind = comment.body.endsWith("<!-- vitehub-comments summary -->") ? "summary" : "comment"
+        if (heldUpdate?.kind === kind) {
+          const held = heldUpdate
+          heldUpdate = undefined
+          held.started()
+          await held.released
+        }
+        comment.body = (body as { body: string }).body
+      }
       if (method === "DELETE") comments.delete(comment.id)
       return method === "DELETE" ? json(null, 204) : json({ id: comment.id })
     }
@@ -88,15 +105,26 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     failNextRequests(count: number) {
       failNext = count
     },
+    rejectNextCreate(kind: "summary" | "comment") {
+      rejectedCreate = kind
+    },
     loseNextCreateResponse(kind: "summary" | "comment") {
       lostResponse = kind
     },
-    holdNextCreate(kind: "summary" | "comment") {
+    holdNextUpdate(kind: "summary" | "comment") {
       let start!: () => void
       let release!: () => void
       const started = new Promise<void>((resolve) => { start = resolve })
       const released = new Promise<void>((resolve) => { release = resolve })
-      heldCreate = { kind, started: start, released }
+      heldUpdate = { kind, started: start, released }
+      return { started, release }
+    },
+    holdNextCreate(kind: "summary" | "comment", visible = true) {
+      let start!: () => void
+      let release!: () => void
+      const started = new Promise<void>((resolve) => { start = resolve })
+      const released = new Promise<void>((resolve) => { release = resolve })
+      heldCreate = { kind, visible, started: start, released }
       return { started, release }
     },
     bodies: () => [...comments.values()].map(comment => comment.body),
@@ -123,6 +151,7 @@ describe("forge sync", () => {
   })
   afterEach(() => {
     vi.unstubAllEnvs()
+    vi.restoreAllMocks()
   })
 
   it("posts the summary first, then the thread for its author, and links them", async () => {
@@ -215,7 +244,7 @@ describe("forge sync", () => {
   it("shows a refused thread as failed, and posts it on the next sync", async () => {
     const github = fakeGitHub()
     const comments = await forgeComments(github)
-    github.failNextRequests(2)
+    github.rejectNextCreate("comment")
     const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Cut off.", author: ada })
     await comments.flush()
 
@@ -284,6 +313,143 @@ describe("forge sync", () => {
     await comments.flush()
     expect(github.comments.size).toBe(0)
     expect(await database.select().from(commentsSchema.vitehubCommentForge)).toEqual([])
+  })
+
+  it.each([
+    { kind: "summary", remove: false },
+    { kind: "comment", remove: false },
+    { kind: "summary", remove: true },
+    { kind: "comment", remove: true },
+  ] as const)("reconciles an expired $kind create (delete: $remove)", async ({ kind, remove }) => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const options = { forge: { provider: "github", fetch: github.fetch } } satisfies { forge: CommentsForgeOptions }
+    const first = defineComments(options)
+    const second = defineComments(options)
+    installComments(first, { database })
+    installComments(second, { database })
+    const held = github.holdNextCreate(kind, false)
+    const [, thread] = await first.create({ page: "/forecast", anchor, context: context(), body: "Late create.", author: ada })
+    await held.started
+    const now = Date.now()
+    const clock = vi.spyOn(Date, "now").mockReturnValue(now + 61_000)
+    if (remove) {
+      await second.remove(thread!.id)
+      // A summary has no thread row yet, so explicitly finish its expired cleanup too.
+      await second.flush()
+    }
+    else {
+      await second.sync(thread!.id)
+    }
+    const before = await database.select().from(commentsSchema.vitehubCommentForge)
+    held.release()
+    await first.flush()
+    clock.mockRestore()
+    const rows = await database.select().from(commentsSchema.vitehubCommentForge)
+    expect(github.comments.size).toBe(remove ? 0 : 2)
+    expect(rows).toHaveLength(remove ? 0 : 2)
+    expect(rows.every(row => github.comments.has(Number(row.remoteId)))).toBe(true)
+    if (!remove) expect(rows.map(row => row.remoteId)).toEqual(before.map(row => row.remoteId))
+  })
+
+  it.each(["summary", "comment"] as const)("keeps the latest edit when an older %s PATCH finishes last in another isolate", async (kind) => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const options = { forge: { provider: "github", fetch: github.fetch } } satisfies { forge: CommentsForgeOptions }
+    const first = defineComments(options)
+    const second = defineComments(options)
+    installComments(first, { database })
+    installComments(second, { database })
+    const [, thread] = await first.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    await first.flush()
+    const held = github.holdNextUpdate(kind)
+    await first.edit(thread!.comments[0]!.id, { body: "Older edit." })
+    await held.started
+    await second.edit(thread!.comments[0]!.id, { body: "Newest edit." })
+    await second.flush()
+    held.release()
+    await first.flush()
+    expect(github.bodies().every(body => body.includes("Newest edit.") && !body.includes("Older edit."))).toBe(true)
+    github.calls.length = 0
+    await second.sync(thread!.id)
+    expect(github.calls).toEqual([])
+  })
+
+  it("exposes a rejected PATCH and clears the failure after retry", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    await comments.flush()
+    github.failNextRequests(1)
+    await comments.edit(thread!.comments[0]!.id, { body: "Edited." })
+    await comments.flush()
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403"), url: expect.any(String) })
+    await comments.sync(thread!.id)
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "posted" })
+    expect((await comments.get(thread!.id))[1]!.forge).not.toHaveProperty("error")
+    expect(github.bodies().every(body => body.includes("Edited."))).toBe(true)
+  })
+
+  it("does not post threads before a failed initial summary is retried", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    github.failNextRequests(1)
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Wait for summary.", author: ada })
+    await comments.flush()
+    expect(github.comments.size).toBe(0)
+    await comments.sync(thread!.id)
+    expect(github.bodies()).toHaveLength(2)
+    expect(github.bodies()[0]).toContain("### Preview comments")
+  })
+
+  it("waits for another isolate's initial summary before posting its thread", async () => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const options = { forge: { provider: "github", fetch: github.fetch } } satisfies { forge: CommentsForgeOptions }
+    const first = defineComments(options)
+    const second = defineComments(options)
+    installComments(first, { database })
+    installComments(second, { database })
+    const held = github.holdNextCreate("summary", false)
+    await first.create({ page: "/forecast", anchor, context: context(), body: "First.", author: ada })
+    await held.started
+    const [, thread] = await second.create({ page: "/forecast", anchor, context: context(), body: "Second.", author: ada })
+    // Explicit sync also waits behind the automatic sync of this thread.
+    let finished = false
+    const syncing = second.sync(thread!.id).then(() => { finished = true })
+    await new Promise(resolve => setTimeout(resolve, 50))
+    const early = github.bodies()
+    held.release()
+    await Promise.all([first.flush(), second.flush(), syncing])
+    expect(early).toEqual([])
+    expect(finished).toBe(true)
+    expect(github.bodies()).toHaveLength(3)
+    expect(github.bodies()[0]).toContain("### Preview comments")
+  })
+
+  it("cleans threads inserted immediately before the scope deletion transaction", async () => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const store = createCommentsStore(database)
+    const comments = defineComments({ forge: { provider: "github", fetch: github.fetch } })
+    installComments(comments, { database })
+    await comments.create({ scope: "doc:1", page: "/forecast", context: context(), body: "Original.", author: ada })
+    await comments.flush()
+    const batch = database.batch.bind(database)
+    const spy = vi.spyOn(database, "batch").mockImplementationOnce(async (queries) => {
+      // The other writer commits before deletion takes SQLite's transaction lock.
+      spy.mockRestore()
+      const thread = await store.create({ scope: "doc:1", page: "/forecast", context: context(), body: "Concurrent.", author: ada, mentions: [] })
+      github.comments.set(1000, { id: 1000, body: "Concurrent.", token: "app-token", minimized: false, pullRequest: 7 })
+      await database.insert(commentsSchema.vitehubCommentForge).values({ id: thread.comments[0]!.id, threadId: thread.id, repository: "acme/app", pullRequest: 7, remoteId: "1000", updatedAt: Date.now() })
+      return await batch(queries)
+    })
+    const [, result] = await comments.removeScope("doc:1")
+    await comments.flush()
+    expect(result).toEqual({ removed: 2 })
+    expect(await database.select().from(commentsSchema.vitehubCommentForge)).toEqual([])
+    expect(await database.select().from(commentsSchema.vitehubComments)).toEqual([])
+    expect(github.comments.size).toBe(0)
   })
 
   it("finds marked comments beyond the first GitHub page", async () => {
