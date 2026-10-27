@@ -4,7 +4,7 @@ import { join } from "node:path"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
-import { createOperationRegistry, defineOperation, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
 
@@ -149,6 +149,7 @@ describe("generated operation commands", () => {
     const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       expect(String(url)).toBe("https://app.example.com/_vitehub/rpc/__call")
       expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
+      expect(new Headers(init?.headers).has(operationExpectedRootsHeader)).toBe(false)
       return Response.json({ ok: true, value: { deployed: true } })
     })
     const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [list], module: "fixture/operations" }] } }
@@ -172,6 +173,7 @@ describe("generated operation commands", () => {
     const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000" }, fetch, root })
     expect(result.code).toBe(0)
     expect(fetch).toHaveBeenCalledOnce()
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(root))
   })
 
   it("refuses a dev server that runs another project", async () => {

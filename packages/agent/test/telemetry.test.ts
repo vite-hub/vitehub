@@ -1,3 +1,4 @@
+import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createTraceEventLog } from "@vite-hub/runtime"
@@ -33,6 +34,49 @@ describe("Agent telemetry", () => {
     ])
     await updateAgentTelemetryConfiguration(context, { tools: [{ name: "search", capabilityId: "other" }] })
     expect(getAgentTelemetryConfiguration(context)?.value.tools).toEqual([{ name: "search", capabilityId: "other" }])
+  })
+
+  it.each([
+    [`Object(false)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "Boolean" } }, { key: "value", value: { boolValue: false } }] } }],
+    [`Object(5)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "Number" } }, { key: "value", value: { intValue: "5" } }] } }],
+    [`Object("one")`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "String" } }, { key: "value", value: { stringValue: "one" } }] } }],
+    [`Object(9n)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "BigInt" } }, { key: "value", value: { intValue: "9" } }] } }],
+    [`Object(2n ** 63n)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "BigInt" } }, { key: "value", value: { stringValue: "9223372036854775808" } }] } }],
+    [`Object(NaN)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "Number" } }, { key: "value", value: { stringValue: "NaN" } }] } }],
+    [`Object(Infinity)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "Number" } }, { key: "value", value: { stringValue: "Infinity" } }] } }],
+    [`Object(-0)`, { kvlistValue: { values: [{ key: "type", value: { stringValue: "Number" } }, { key: "value", value: { stringValue: "-0" } }] } }],
+    [`new Proxy(Object(false), {})`, { stringValue: "[object Object]" }],
+    [`new Proxy(Object(5), {})`, { stringValue: "[object Object]" }],
+    [`new Proxy(Object("one"), {})`, { stringValue: "[object Object]" }],
+    [`new Proxy(Object(9n), {})`, { stringValue: "[object BigInt]" }],
+    [`Object(Symbol("excluded"))`, { stringValue: "[object Symbol]" }],
+    [`({ [Symbol.toStringTag]: "Boolean" })`, { stringValue: "[object Boolean]" }],
+    [`({ [Symbol.toStringTag]: "Number" })`, { stringValue: "[object Number]" }],
+    [`({ [Symbol.toStringTag]: "String" })`, { stringValue: "[object String]" }],
+    [`({ [Symbol.toStringTag]: "BigInt" })`, { stringValue: "[object BigInt]" }],
+  ])("preserves boxed primitive recognition for foreign %s without calling valueOf", async (expression, expected) => {
+    const value: object = runInNewContext(expression)
+    const valueOf = vi.fn(() => { throw new Error("Custom valueOf must not run") })
+    Object.defineProperty(value, "valueOf", { value: valueOf })
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => new Response(null, { status: 200 }))
+    vi.stubGlobal("fetch", fetch)
+    await otlpHttpJson({ endpoint: "https://telemetry.example/otlp" })({
+      agent: {},
+      records: [{
+        attributes: { "vitehub.payload.value": value },
+        eventName: "workspace.materialized",
+        spanId: "0123456789abcdef",
+        time: "2026-01-01T00:00:00.001Z",
+        traceId: "0123456789abcdef0123456789abcdef",
+      }],
+      runtime: { capabilities: {}, memo: vi.fn(), runtime: "unknown", runtimeConfig: {}, waitUntil: vi.fn() },
+      signal: "logs",
+    })
+    const body = JSON.parse(String(fetch.mock.calls[0]![1]?.body))
+    expect(body.resourceLogs[0].scopeLogs[0].logRecords[0].attributes).toContainEqual({
+      key: "vitehub.payload.value", value: expected,
+    })
+    expect(valueOf).not.toHaveBeenCalled()
   })
 
   it("fingerprints semantic Agent configuration independently of object key order", async () => {

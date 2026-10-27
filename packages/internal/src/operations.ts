@@ -12,6 +12,7 @@ export const operationRpcPath = "/_vitehub/rpc/__call"
 export const operationRpcHeader = "x-vitehub-console"
 /** Response header of the local dev RPC. Its value is {@link projectRootHash} of the project that the server runs. */
 export const operationRootHeader = "x-vitehub-root"
+export const operationExpectedRootsHeader = "x-vitehub-expected-roots"
 /** A short stable hash of a project root. The CLI uses it to see that the dev server runs its own project. */
 export function projectRootHash(root: string): string {
   const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "")
@@ -68,6 +69,8 @@ export interface OperationContext {
   /** The Agent Actor when an agent calls on behalf of `user`. */
   actor?: OperationActor
   surface: "console" | "cli" | "mcp" | "agent"
+  /** Set by the host from generated build identity, never from request input or runtime NODE_ENV. */
+  development?: boolean
   env?: Record<string, unknown>
   waitUntil?: (task: Promise<unknown>) => void
   request?: Request
@@ -369,7 +372,7 @@ export async function parseOperationInput(operation: AnyOperation, input: unknow
 }
 
 /** The section that grants a call, or `false` for any Console user. `undefined` means the input names no valid section. */
-export function operationSection(operation: AnyOperation, input: unknown): string | false | undefined {
+export function operationSection(operation: Pick<AnyOperation, "section">, input: unknown): string | false | undefined {
   const section = operation.section
   // SAFETY: Callers pass input that the operation schema accepted.
   return section instanceof Function ? (section as (value: unknown) => string | undefined)(input) : section
@@ -470,8 +473,8 @@ export interface OperationTarget {
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
   /**
-   * Project roots that the caller accepts. A local dev server names its project in a response header, and the call fails
-   * with `INTERNAL_R0025` when that project is none of these.
+   * Project roots that the caller accepts. The server checks their hashes before dispatch and rejects a mismatch
+   * with `INTERNAL_R0025`. The response identity is also checked.
    */
   roots?: readonly string[]
 }
@@ -497,17 +500,27 @@ function hasCredentials(env: Record<string, string | undefined>): boolean {
   return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
 }
 
+/** Refuse a stale local discovery target before dispatching any operation. */
+export function assertOperationProject(request: Request, root: string | undefined): void {
+  const expected = request.headers.get(operationExpectedRootsHeader)
+  if (expected === null) return
+  if (root && expected.split(",").includes(projectRootHash(root))) return
+  throw Object.assign(internalErrorDiagnostics.INTERNAL_R0025({ message: "The server runs another project than the command expects." }), { status: 409 })
+}
+
 /** Call one operation over the RPC of a dev server or a deployed app. Never throws. */
 export async function callOperation(target: OperationTarget, name: string, input: unknown): Promise<OperationResult> {
   const base = new URL(target.url)
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
   const url = new URL(operationRpcPath.slice(1), base)
+  const headers = operationHeaders(target.env)
+  if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
   let response: Response
   try {
     response = await (target.fetch ?? fetch)(url.href, {
       // The operation comes first so the server can find large calls within the first bytes.
       body: JSON.stringify({ operation: name, input: input ?? {} }),
-      headers: operationHeaders(target.env),
+      headers,
       method: "POST",
       redirect: "manual",
       signal: AbortSignal.timeout(target.timeout ?? 30_000),

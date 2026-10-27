@@ -1,5 +1,10 @@
 # @vite-hub/rate-limit
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Frate-limit&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Frate-limit&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/rate-limit` gives server code one atomic consume-and-decide operation for fixed-window request budgets. It keeps policy separate from the driver that stores and updates each counter.
 
 Install this owner package when you need a direct Rate Limiter, a custom driver, or the Vite integration without the full framework. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/rate-limit) for that application setup.

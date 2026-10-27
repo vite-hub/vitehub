@@ -55,7 +55,7 @@ const folder = computed({
   set: (value: string) => setQuery({ file: undefined, folder: value || undefined }),
 });
 
-// A new client per store and per ViteHub file switch remounts the browser, so it lists from the start.
+// Changes to the store, ViteHub file switch, or grant remount the browser, so it lists from the start.
 const readOnly = ref(false);
 // The client changes with the grant, so the browser remounts without upload and delete.
 const client = computed(() => createConsoleBlobMediaClient(props.blobBase, {
@@ -109,7 +109,7 @@ onMounted(async () => {
       </ConsolePageHeader>
       <div class="relative flex min-h-0 flex-1">
         <ConsoleMediaBrowser
-          :key="`${store}:${showVitehub}`"
+          :key="`${store}:${showVitehub}:${readOnly}`"
           v-model:folder="folder"
           mode="page"
           root-label="Blob"

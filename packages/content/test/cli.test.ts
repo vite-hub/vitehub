@@ -6,9 +6,10 @@ import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+import * as v from "valibot"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
-import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
+import { createOperationRegistry, operationExpectedRootsHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
@@ -96,7 +97,7 @@ function devServer(content: unknown) {
   cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
   return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
     const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
-    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
     return Response.json(result, { status: result.ok ? 200 : result.status })
   })
 }
@@ -115,6 +116,15 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it("checks discovered roots but leaves explicit deployed URLs independent of the local path", async () => {
+    const { content } = await setup()
+    const { fetch, run } = cli(content)
+    expect((await run("collections", "--url", "https://app.example.com")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).has(operationExpectedRootsHeader)).toBe(false)
+    expect((await run("collections")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(rootDir))
+  })
+
   it("lists collections with fields and document states", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)
@@ -612,10 +622,46 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 })
 
 describe("Content operations", () => {
+  it("filters document policy before pagination and sitemap output", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined || id.startsWith("visible"),
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      seo: { site: "https://example.com" },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const id of ["hidden", "visible-a", "visible-b"]) await content.collection("posts").save(id, { data: { title: id } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const first = await runOperation(registry, "content.list", { collection: "posts", limit: 1 }, context)
+    expect(first).toMatchObject({ ok: true, value: { items: [{ id: "visible-a" }], total: 2, cursor: expect.any(String) } })
+    if (!first.ok) throw new Error(first.message)
+    const page = v.parse(v.object({ cursor: v.string() }), first.value)
+    expect(await runOperation(registry, "content.list", { collection: "posts", limit: 1, cursor: page.cursor }, context))
+      .toMatchObject({ ok: true, value: { items: [{ id: "visible-b" }], total: 2 } })
+    const sitemap = await runOperation(registry, "content.sitemap", {}, context)
+    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }] } })
+  })
+
+  it("does not trust runtime NODE_ENV as production Content authorization", async () => {
+    const content = contentOn(await historyWorkspace())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    vi.stubEnv("NODE_ENV", "development")
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, {
+      access: { mode: "open", sections: "all" }, surface: "cli", user: null,
+    })).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN" })
+  })
+
   it("rejects a publish that does not pin the digests of a dry run", async () => {
     const { content } = await setup()
     const registry = createOperationRegistry([{ operations: contentOperations }])
-    const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, surface: "cli", user: null })
+    const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
     for (const input of [
@@ -734,21 +780,21 @@ describe("Content operations in a development server and for Agents", () => {
   }
 
   const text = "---\ntitle: Hello\n---\n\nHi\n"
-  const cli = (mode: string) => ({ access: { mode, sections: "all" as const }, surface: "cli" as const, user: null })
+  const cli = (mode: string, development = false) => ({ access: { mode, sections: "all" as const }, development, surface: "cli" as const, user: null })
 
   it("trusts the CLI without a user only in a development server, with local or open access", async () => {
     const run = await operationsOn(await policed())
     const list = { collection: "posts" }
     for (const mode of ["local", "open"]) {
       vi.stubEnv("NODE_ENV", "development")
-      expect(await run("content.list", list, cli(mode)), mode).toMatchObject({ ok: true })
+      expect(await run("content.list", list, cli(mode, true)), mode).toMatchObject({ ok: true })
       vi.stubEnv("NODE_ENV", "production")
       expect(await run("content.list", list, cli(mode)), mode).toMatchObject({ code: "CONTENT_FORBIDDEN", ok: false, status: 403 })
     }
     vi.stubEnv("NODE_ENV", "development")
     // A Console that signs people in is never trusted this way.
-    expect(await run("content.list", list, cli("auth"))).toMatchObject({ code: "CONTENT_FORBIDDEN" })
-    expect(await run("content.list", list, { access: { mode: "local", sections: "all" }, surface: "console", user: null })).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+    expect(await run("content.list", list, cli("auth", true))).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+    expect(await run("content.list", list, { access: { mode: "local", sections: "all" }, development: true, surface: "console", user: null })).toMatchObject({ code: "CONTENT_FORBIDDEN" })
   })
 
   it("rejects lease override from an Agent unless the developer allowed it", async () => {

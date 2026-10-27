@@ -12,6 +12,16 @@ export default function createFsLiteKVDriver(options: ResolvedFsLiteKVStoreConfi
   const root = resolve(options.base)
   // SAFETY: The unstorage fs-lite driver satisfies KVRuntimeDriver and this adapter installs listKeys before returning.
   const driver = createDriver(options) as KVRuntimeDriver
+  const getItem = driver.getItem
+  driver.getItem = async (key, operationOptions) => {
+    const value = await getItem(key, operationOptions)
+    // unstorage returns filesystem read errors as values rather than rejecting.
+    if (value instanceof Error) {
+      if ("code" in value && value.code === "ENOTDIR") return null
+      throw value
+    }
+    return value
+  }
   const hasItem = driver.hasItem
   driver.hasItem = async (key, operationOptions) => {
     // Keep the underlying driver's key validation before resolving its file path.

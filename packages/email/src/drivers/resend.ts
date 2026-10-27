@@ -75,6 +75,7 @@ async function readResponseText(
   if (signal.aborted) {
     signal.removeEventListener("abort", abortRead);
     void reader.cancel().catch(() => {});
+    reader.releaseLock();
     throw signal.reason ?? new DOMException("aborted", "AbortError");
   }
   const timeout = setTimeout(() => {
@@ -82,9 +83,9 @@ async function readResponseText(
       emailProviderError("resend", "TIMEOUT", "Resend response timed out.", { retryable }),
     );
   }, RESPONSE_READ_TIMEOUT_MS);
-  try {
+  const read = async () => {
     while (true) {
-      const { done, value } = await Promise.race([reader.read(), deadline]);
+      const { done, value } = await reader.read();
       if (done) return text + decoder.decode();
       bytes += value.byteLength;
       if (bytes > MAX_RESPONSE_BYTES) {
@@ -97,12 +98,16 @@ async function readResponseText(
       }
       text += decoder.decode(value, { stream: true });
     }
+  };
+  try {
+    return await Promise.race([read(), deadline]);
   } catch (cause) {
     void reader.cancel().catch(() => {});
     throw cause;
   } finally {
     clearTimeout(timeout);
     signal.removeEventListener("abort", abortRead);
+    reader.releaseLock();
   }
 }
 

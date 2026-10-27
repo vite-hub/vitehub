@@ -138,7 +138,7 @@ function pricedTokens(usage: AgentUsage, price: StaticModelPrice): string | unde
     .filter((item): item is { scale: bigint, units: bigint } => Boolean(item)))
 }
 
-function decimalStringFromNumber(value: number): string {
+export function decimalStringFromNumber(value: number): string {
   const [coefficient, rawExponent] = value.toString().split("e")
   if (rawExponent === undefined) return coefficient
   const digits = coefficient.replace(".", "")

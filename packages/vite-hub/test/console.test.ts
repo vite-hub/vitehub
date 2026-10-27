@@ -674,7 +674,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -688,6 +688,8 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/_vitehub/**",
+        "/portal/_vitehub",
         "/portal/api/_vitehub/console/status",
         "/portal/api/_vitehub/console/usage",
         "/portal/_vitehub",
@@ -4918,7 +4920,7 @@ describe("Agent invocation console", () => {
   })
 
   it("serves the standalone shell with build-replaceable assets and a restrictive non-cacheable policy", async () => {
-    const response = consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler(event("127.0.0.1"))
     const page = await response.text()
 
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
@@ -4933,34 +4935,34 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("x-frame-options")).toBe("DENY")
   })
 
-  it("denies framing without development output even with NODE_ENV=development", () => {
+  it("denies framing without development output even with NODE_ENV=development", async () => {
     vi.stubEnv("NODE_ENV", "development")
-    const response = consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler(event("127.0.0.1"))
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("x-frame-options")).toBe("DENY")
   })
 
-  it("lets same-origin DevTools frame the shell on a development server", () => {
+  it("lets same-origin DevTools frame the shell on a development server", async () => {
     installConsoleDevelopment("/tmp/vitehub-console", true)
-    const response = consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler(event("127.0.0.1"))
 
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
     expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
   })
 
-  it.each([false, true])("denies framing when production and development share a scope (development first: %s)", (developmentFirst) => {
+  it.each([false, true])("denies framing when production and development share a scope (development first: %s)", async (developmentFirst) => {
     installConsoleDevelopment("/first", developmentFirst)
     installConsoleDevelopment("/second", !developmentFirst)
 
     for (const root of ["/first", "/second"]) {
-      const response = consolePageHandler(event("127.0.0.1"))
+      const response = await consolePageHandler(event("127.0.0.1"))
       expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
       expect(response.headers.get("x-frame-options")).toBe("DENY")
       // Refreshing a project cannot disambiguate the scope of the serving handler.
       installConsoleDevelopment(root, true)
     }
-    expect(consolePageHandler(event("127.0.0.1")).headers.get("x-frame-options")).toBe("DENY")
+    expect((await consolePageHandler(event("127.0.0.1"))).headers.get("x-frame-options")).toBe("DENY")
   })
 
   it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {
@@ -4981,7 +4983,7 @@ describe("Agent invocation console", () => {
         const installation = generated.split("\n").find(line => line.startsWith("installConsoleDevelopment("))
         if (!installation) throw new TypeError("Expected generated development state.")
         runInNewContext(installation, { installConsoleDevelopment })
-        const response = consolePageHandler(event("127.0.0.1"))
+        const response = await consolePageHandler(event("127.0.0.1"))
         expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
         expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
       }
@@ -5002,7 +5004,7 @@ describe("Agent invocation console", () => {
     const request = event("127.0.0.1")
     request.req = { url: "http://localhost/portal/_vitehub" }
     request.node!.req!.url = "http://localhost/portal/_vitehub"
-    const page = await consolePageHandler(request).text()
+    const page = await (await consolePageHandler(request)).text()
 
     expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
     expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')

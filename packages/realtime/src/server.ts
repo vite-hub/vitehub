@@ -8,6 +8,7 @@ import * as syncProtocol from "y-protocols/sync"
 import * as Y from "yjs"
 
 import type { WebSocketHooks, WebSocketMessage, WebSocketPeer } from "h3"
+import type { RealtimeRoomSql } from "./cloudflare-sql.ts"
 import type { RealtimeIdentity } from "./presence.ts"
 import type {
   RealtimeAuthorizeContext,
@@ -375,10 +376,6 @@ async function verifyDocument(editor: RealtimeEditor, loaded: RealtimeLoadedDocu
 
 function guardStatus(guard: DocumentGuard): { error: string | null, issues: RealtimeIssue[] } {
   return { error: guard.readOnly ? readOnlyDocumentMessage : null, issues: guard.issues }
-}
-
-interface RealtimeRoomSql {
-  exec(query: string, ...bindings: unknown[]): { toArray(): Array<Record<string, unknown>> }
 }
 
 function documentTables(sql: RealtimeRoomSql): boolean {

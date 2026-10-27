@@ -89,6 +89,8 @@ export interface ConsoleAccessBuild {
   mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+  /** Path of the sign-in page under the application mount, such as `/sign-in`. */
+  signInPage?: string
 }
 
 interface ConsoleRuntimeCapabilityImport {
@@ -151,6 +153,7 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
   }
+  if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   return {
     imports,
     install: [
