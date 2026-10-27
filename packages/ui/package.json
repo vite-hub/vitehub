@@ -189,6 +189,7 @@
   },
   "dependencies": {
     "@comark/vue": "0.7.0",
+    "comark-chat": "catalog:",
     "@nuxt/kit": "4.6.2",
     "@shikijs/langs": "4.5.0",
     "@types/node": "catalog:tooling",
