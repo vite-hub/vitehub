@@ -10,9 +10,8 @@ import type { ConsoleScheduleRunView } from "../src/console/runtime/client/sched
 
 const source = readFileSync(new URL("../src/console/runtime/components/console-definitions.vue", import.meta.url), "utf8")
 // Render the actual record detail template without the page's navigation and network lifecycle.
-const start = source.indexOf('<main v-else-if="selectedRecord"')
-const template = source.slice(start, source.indexOf("</main>", start) + "</main>".length)
-  .replace('v-else-if="selectedRecord"', 'v-if="selectedRecord"')
+const start = source.indexOf('<article v-if="selectedRecord"')
+const template = source.slice(start, source.indexOf("</article>", start) + "</article>".length)
 
 async function renderResult(selectedRun?: ConsoleScheduleRunView) {
   const app = createSSRApp({
@@ -24,9 +23,9 @@ async function renderResult(selectedRun?: ConsoleScheduleRunView) {
         label: run.status === "unavailable" ? "Could not run this Schedule" : `Run ${run.status}`,
         tone: consoleStatusValue(run.status)?.tone ?? "neutral",
       }),
-      recordColumns: [],
-      records: [],
-      sectionDetails: { view: { notice: "Schedule metadata" } },
+      canRunSelected: false,
+      runningSchedule: undefined,
+      runSelectedSchedule: () => {},
       selectedName: "definition:nightly-digest",
       selectedRecord: { fields: [], id: "definition:nightly-digest" },
       selectedRun,
@@ -36,7 +35,7 @@ async function renderResult(selectedRun?: ConsoleScheduleRunView) {
     props: { label: String, pending: Boolean, tone: String },
     setup: props => () => h("span", { "data-tone": props.tone }, props.label),
   }))
-  for (const name of ["ConsolePropertyList", "ConsoleSetupHint", "ConsoleValue", "UIcon"]) {
+  for (const name of ["ConsolePropertyList", "UButton"]) {
     app.component(name, defineComponent({ props: { hint: Object }, setup: props => () => h("span", props.hint ? String(Reflect.get(props.hint, "message")) : "") }))
   }
   return renderToString(app)
@@ -51,12 +50,12 @@ it.each([
   expect(html).toContain(`data-tone="${tone}"`)
   expect(html).toContain(title)
   expect(html).toContain(description)
-  // The notice stays, and no colored alert replaces it.
-  expect(html).toContain("Schedule metadata")
+  // A status dot reports the result, and no colored alert replaces it.
+  expect(html).not.toMatch(/alert/i)
 })
 
 it("shows no result before a record runs", async () => {
   const html = await renderResult()
   expect(html).not.toContain("data-tone")
-  expect(html).toContain("Schedule metadata")
+  expect(html).toContain("<article")
 })

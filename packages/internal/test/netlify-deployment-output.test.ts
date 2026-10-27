@@ -57,7 +57,7 @@ describe("Netlify provider deployment output", () => {
 
     const loaded = await import(`${pathToFileURL(outfile).href}?t=${Date.now()}`) as {
       config: { name: string, nodeBundler: string, path: string }
-      default: unknown
+      default: () => Promise<Response>
     }
     expect(loaded.config).toEqual({
       name: "vitehub-agent",
@@ -65,5 +65,7 @@ describe("Netlify provider deployment output", () => {
       path: "/api/test",
     })
     expect(typeof loaded.default).toBe("function")
+    expect(loaded.default.name).toBe("handler")
+    await expect((await loaded.default()).text()).resolves.toBe("ok")
   })
 })

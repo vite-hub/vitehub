@@ -1,4 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { runInNewContext } from "node:vm"
+import { executeHttpRequest as executePackagedHttpRequest } from "../dist/http-request.js"
 
 import {
   defaultHttpMaxResponseBytes,
@@ -14,6 +16,20 @@ afterEach(() => {
 })
 
 describe("HTTP request", () => {
+  it("keeps records with a forged ArrayBuffer tag as JSON", async () => {
+    const body = { byteLength: 4, [Symbol.toStringTag]: "ArrayBuffer" }
+    let captured: RequestInit | undefined
+    await executeHttpRequest({ body, method: "POST", url: "https://example.com/upload" }, {
+      fetch: async (_url, init) => {
+        captured = init
+        return new Response("ok")
+      },
+      responseType: "text",
+    })
+    expect(captured?.body).toBe('{"byteLength":4}')
+    expect(new Headers(captured?.headers).get("content-type")).toBe("application/json")
+  })
+
   it("normalizes native Blob bodies without reading bytes or shadowed properties", async () => {
     const body = new Blob(["test"], { type: "text/plain" })
     // Simulate a Blob crossing a realm boundary: its internal slots remain
@@ -415,4 +431,60 @@ describe("HTTP request", () => {
     await expect(executeHttpRequest({ maxResponseBytes, url: "https://example.com" })).rejects.toThrow("positive safe integer")
     expect(fetch).not.toHaveBeenCalled()
   })
+})
+
+
+it.each([
+  ["source", executeHttpRequest],
+  ["packaged", executePackagedHttpRequest],
+] as const)("sends foreign ArrayBuffer bytes through native fetch from %s", async (_entry, execute) => {
+  const { createServer } = await import("node:http")
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    response.setHeader("content-type", "application/json")
+    response.end(JSON.stringify({ bytes: Array.from(Buffer.concat(chunks)), contentType: request.headers["content-type"] ?? null }))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Missing server address")
+    const body: unknown = runInNewContext("new Uint8Array([0, 128, 255, 42]).buffer")
+    expect(body).not.toBeInstanceOf(ArrayBuffer)
+    const result = await execute({ body, method: "POST", url: `http://127.0.0.1:${address.port}/upload` })
+    expect(result.data).toEqual({ bytes: [0, 128, 255, 42], contentType: null })
+  }
+  finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
+})
+
+it("sends a streamed POST body through native Node fetch", async () => {
+  const { createServer } = await import("node:http")
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of request) chunks.push(Buffer.from(chunk))
+    response.end(Buffer.concat(chunks))
+  })
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+  try {
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Missing server address")
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("streamed upload"))
+        controller.close()
+      },
+    })
+    const result = await executeHttpRequest({
+      body,
+      method: "POST",
+      url: `http://127.0.0.1:${address.port}/upload`,
+    }, { responseType: "text" })
+    expect(result.data).toBe("streamed upload")
+  } finally {
+    server.closeAllConnections()
+    await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()))
+  }
 })

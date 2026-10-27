@@ -17,7 +17,7 @@ icon: i-lucide-database-zap
     plugins: [
       // On Node, values are saved in .vitehub/data/kv
       vitehub({ preset: 'node', kv: true }),
-      nitro() as never,
+      nitro(),
     ],
   })
   ```

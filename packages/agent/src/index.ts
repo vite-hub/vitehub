@@ -43,6 +43,7 @@ import {
 export { defineFinishEffect } from "./delivery-effects.ts"
 import { createExecutionBudget, createExecutionContext, createRuntimeContext, createTraceEventLog, deriveTraceRuns, getViteHubErrorShape, isTraceContentAttributeKey, normalizeRuntimeDiagnosticError, traceEventsToOpenTelemetryLogRecords, traceEventsToOpenTelemetrySpans } from "@vite-hub/runtime"
 import { isAmbiguousAgentWorkflowStartFailure } from "./internal/workflow-start.ts"
+import { withAgentRuntimeMemo } from "./runtime/context.ts"
 import { agentTelemetryWorkspaceSources, getAgentTelemetryConfiguration, safeAgentTelemetryMetadata, setAgentTelemetryConfiguration } from "./internal/agent-telemetry.ts"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { getAgentInvocationRecoveryWorkflowName } from "@vite-hub/internal/agent-workflow"
@@ -222,6 +223,7 @@ import type {
   AgentRunResult,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentRuntimeContextInput,
   AgentSettings,
   WorkspaceAgentWorkspaceConfig,
   AgentStaticCapabilitiesList,
@@ -511,6 +513,7 @@ export type {
   AgentRuntimeBinding,
   AgentRuntimeConfig,
   AgentRuntimeContext,
+  AgentRuntimeContextInput,
   AgentRuntimeHooks,
   AgentRuntimeName,
   AgentUsage,
@@ -2069,27 +2072,6 @@ export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
-export { ask } from "./ask.ts"
-export type {
-  AskAnswer,
-  AskAnswers,
-  AskChanceAnswer,
-  AskChanceCriteria,
-  AskChanceQuestion,
-  AskChoiceAnswer,
-  AskChoiceCriteria,
-  AskChoiceLabels,
-  AskChoiceQuestion,
-  AskEntry,
-  AskIfQuestion,
-  AskJson,
-  AskQuestion,
-  AskQuestions,
-  AskScoreAnswer,
-  AskScoreCriteria,
-  AskScoreQuestion,
-  AskSwitchQuestion,
-} from "./ask.ts"
 export {
   agentInvocationStreamRoute,
   createAgentInvocationStreamResponse,
@@ -8888,7 +8870,7 @@ export function runAgent<
   const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { output: "drained", tools: SchemaOwnedInvocationTools<TSchemas> },
 ): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8900,7 +8882,7 @@ export function runAgent<
   const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<TTools> & { output: "drained", tools?: TTools & CheckedInvocationTools<TTools> },
 ): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8912,7 +8894,7 @@ export function runAgent<
   const TSchemas extends Record<string, AgentToolSchema> = Record<string, AgentToolSchema>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<SchemaOwnedInvocationTools<TSchemas>> & { tools: SchemaOwnedInvocationTools<TSchemas> },
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8924,7 +8906,7 @@ export function runAgent<
   const TTools extends Record<string, AgentToolDefinition<any, any>> = Record<string, AgentToolDefinition<any, any>>,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: RunAgentOptions<TTools> & { tools?: TTools & CheckedInvocationTools<TTools> },
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8935,7 +8917,7 @@ export function runAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: Omit<RunAgentOptions, "tools"> & { output: "drained", tools?: Record<string, never> },
 ): Promise<AgentDrainedOutput<TOutput> | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8946,7 +8928,7 @@ export function runAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  context: AgentRuntimeContext<TRuntimeConfig>,
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options?: Omit<RunAgentOptions, "tools"> & { tools?: Record<string, never> },
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>>
@@ -8957,7 +8939,7 @@ export async function runAgent<
   TData = unknown,
 >(
   agent: AgentInput<AgentRuntimeContext<TRuntimeConfig>, TOutput> & AgentDataCarrier<TData>,
-  contextOrInput: AgentRuntimeContext<TRuntimeConfig> | AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
+  contextOrInput: AgentRuntimeContextInput<TRuntimeConfig> | AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   inputOrOptions?: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>> | RunAgentOptions,
   options: RunAgentOptions = {},
 ): Promise<TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>> | [Error, null] | [null, string | TOutput | Response | AgentWorkflowRun<AgentWorkflowOutput<TOutput>>]> {
@@ -8965,6 +8947,8 @@ export async function runAgent<
     && hasRuntimeType(inputOrOptions, "object")
     && "output" in inputOrOptions
     && inputOrOptions.output === "drained"
+  // Preserve standalone precedence for ambiguous drained options. A memo-less context
+  // with option-like input can use the explicit four-argument form.
   const runtimeContextShape = hasRuntimeType(contextOrInput, "object")
     && "runtime" in contextOrInput
     && "memo" in contextOrInput
@@ -8976,7 +8960,8 @@ export async function runAgent<
     ))
   if (hasContext) {
     // SAFETY: The three-argument overload requires a Runtime Context as its second argument.
-    return runAgentWithContext(agent, contextOrInput as AgentRuntimeContext<TRuntimeConfig>, inputOrOptions as AgentRunInput<CALL_OPTIONS>, options)
+    const context = withAgentRuntimeMemo(contextOrInput as AgentRuntimeContextInput<TRuntimeConfig>)
+    return runAgentWithContext(agent, context, inputOrOptions as AgentRunInput<CALL_OPTIONS>, options)
   }
   // SAFETY: The Runtime Context overload returned above; the remaining third argument contains invocation options.
   const standaloneOptions = inputOrOptions as RunAgentOptions | undefined
@@ -9126,6 +9111,7 @@ export async function streamAgentInline<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  context = withAgentIdentityOwner(agent, context)
   return await executeAgentInvocation(agent, context, input, {
     kind: "stream",
     output: options.output || "events",

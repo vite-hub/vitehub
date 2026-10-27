@@ -33,6 +33,19 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
   })
 })
 
+it("serves Auth analytics, cursor filters and explicit disabled-event data", async () => {
+  const { authFixture } = await vi.importActual<{ authFixture: (input: unknown, enabled?: boolean) => unknown }>("../../../playground/console/auth-fixture.ts")
+  expect(authFixture({ operation: "overview" })).toMatchObject({ users: 1048, analytics: { days: expect.any(Array) }, recent: { enabled: true } })
+  const first = authFixture({ operation: "activity", activity: { group: "sign-in", limit: 2 } }) as { events: Array<{ id: string }>; nextCursor: string }
+  const next = authFixture({ operation: "activity", activity: { group: "sign-in", limit: 2, cursor: first.nextCursor } }) as { events: Array<{ id: string }> }
+  expect(first.events).toHaveLength(2)
+  expect(next.events).toHaveLength(2)
+  expect(new Set([...first.events, ...next.events].map(event => event.id)).size).toBe(4)
+  expect(authFixture({ operation: "describe" }, false)).toMatchObject({ events: { enabled: false }, pages: expect.arrayContaining(["overview", "activity"]) })
+  expect(authFixture({ operation: "overview" }, false)).toMatchObject({ users: 1048, analytics: null, recent: { enabled: false, events: [] } })
+  expect(authFixture({ operation: "activity" }, false)).toEqual({ enabled: false, events: [] })
+})
+
 async function playgroundRequest(endpoint: string, input?: unknown, status = 200): Promise<unknown> {
   const { consoleMockAPI } = await vi.importActual<{ consoleMockAPI: () => Plugin }>("../../../playground/console/mock-api.ts")
   type Middleware = (request: IncomingMessage, response: ServerResponse, next: () => void) => Promise<void>

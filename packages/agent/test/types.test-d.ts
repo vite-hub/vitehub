@@ -544,6 +544,20 @@ describe("agent public types", () => {
     expectTypeOf<Extract<Awaited<ReturnType<Awaited<typeof controlled>["inspect"]>>, { outcome: "available" }>["invocation"]["output"]>().toEqualTypeOf<AgentRunResult | Response | { summary: string, title: string } | undefined>()
   })
 
+  it("accepts a caller Runtime Context without a memo cache", () => {
+    const agent = defineAgent({ driver: { run: () => "done" }, runtime: false })
+    const result = runAgent(agent, {
+      runtime: "vite",
+      waitUntil: task => { void task.catch(() => {}) },
+    }, { prompt: "friend" })
+    // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
+    const hostResult = runAgent(agent, {} as AgentRuntimeContext, { prompt: "friend" })
+
+    expectTypeOf(result).toEqualTypeOf<typeof hostResult>()
+    // @ts-expect-error The caller still owns the background-work lifetime.
+    void runAgent(agent, { runtime: "vite" }, { prompt: "friend" })
+  })
+
   it("types Agent data and unions intercepted output with Driver output", () => {
     interface Email { from: string, subject: string }
     interface JevDecision { label: string, probability: number }
@@ -2070,11 +2084,7 @@ describe("agent public types", () => {
     })
 
     // @ts-expect-error Workspace Sources do not own access scopes.
-    githubSource({
-      repo: "acme/docs",
-      // SAFETY: This compile-time fixture intentionally supplies the exact asserted public contract.
-      scopes: ["customer"] as const,
-    })
+    githubSource({ repo: "acme/docs", scopes: ["customer"] })
 
     // @ts-expect-error GitHub Channel PR comments are configured through pullRequest, not legacy events.
     github({ events: { pullRequestComments: true } })

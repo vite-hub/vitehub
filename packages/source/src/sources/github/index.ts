@@ -46,8 +46,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   const configuredRef = options.ref
   const root = normalizeGitHubRoot(options.root || "")
   const sparsePatterns = getGitSparsePatterns(root, options.include)
-  let auth: string | undefined
-  const authByContext = new WeakMap<SourceContext, string | undefined>()
+  const authByContext = new WeakMap<SourceContext, Promise<string | undefined>>()
   const providerCache = normalizeGitHubCache(options)
   const client = createGitHubClient(options.repo)
 
@@ -57,16 +56,13 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return typeof token === "string" && token.length > 0 ? token : undefined
   }
 
-  async function refreshAuth(): Promise<string | undefined> {
-    const nextAuth = await resolveAuth()
-    if (nextAuth !== auth) {
-      auth = nextAuth
-    }
-    return auth
-  }
-
   async function contextAuth(ctx: SourceContext) {
-    return authByContext.has(ctx) ? authByContext.get(ctx) : await refreshAuth()
+    let auth = authByContext.get(ctx)
+    if (!auth) {
+      auth = resolveAuth()
+      authByContext.set(ctx, auth)
+    }
+    return await auth
   }
 
   function keyForRepoPath(path: string) {
@@ -95,12 +91,12 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return true
   }
 
-  async function resolveRef(token = auth, signal?: AbortSignal) {
+  async function resolveRef(token: string | undefined) {
     if (configuredRef) return configuredRef
-    return (await resolveSourceRevision(token, signal)).id
+    return (await resolveSourceRevision(token)).id
   }
 
-  async function resolveSourceRevision(token = auth, signal?: AbortSignal): Promise<SourceRevision> {
+  async function resolveSourceRevision(token: string | undefined, signal?: AbortSignal): Promise<SourceRevision> {
     if (!configuredRef) {
       try {
         const ref = await client.defaultBranch(token, signal)
@@ -147,14 +143,14 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return await waitForCachedGitHubResult(() => cachedResolveRef(token), signal)
   }
 
-  async function validateConfiguredRef(token = auth, signal?: AbortSignal): Promise<void> {
+  async function validateConfiguredRef(token: string | undefined): Promise<void> {
     if (!configuredRef) return
-    await client.resolveCommit(configuredRef, token, signal)
+    await client.resolveCommit(configuredRef, token)
   }
 
-  async function loadArchiveFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
-    const ref = resolvedRef ?? await getRef(token, signal)
-    return parseGitHubArchive(await client.archive(ref, token, signal))
+  async function loadArchiveFiles(token: string | undefined, resolvedRef?: string) {
+    const ref = resolvedRef ?? await getRef(token)
+    return parseGitHubArchive(await client.archive(ref, token))
       .map((entry): GitHubFile<string> | undefined => {
         const key = keyForRepoPath(entry.path)
         if (!key || !shouldInclude(key)) return undefined
@@ -169,8 +165,8 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       .filter((file): file is GitHubFile<string> => Boolean(file))
   }
 
-  async function loadFiles(token = auth, signal?: AbortSignal, resolvedRef?: string) {
-    const ref = resolvedRef ?? await getRef(token, signal)
+  async function loadFiles(token: string | undefined, resolvedRef?: string) {
+    const ref = resolvedRef ?? await getRef(token)
     if (sparsePatterns) {
       try {
         return await loadGitArchiveFiles({
@@ -178,21 +174,19 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
           keyForRepoPath,
           ref,
           shouldInclude,
-          signal,
+          signal: undefined,
           sparsePatterns,
         })
       }
-      catch (error) {
-        if (signal?.aborted) throw error
-      }
+      catch {}
     }
-    return await loadArchiveFiles(token, signal, ref)
+    return await loadArchiveFiles(token, ref)
   }
 
   const loadedFiles = new Map<string, Promise<GitHubFile<string>[]>>()
   const cachedLoadFiles = providerCache
     ? defineCachedFunction(
-        async (resolvedRef: string | undefined, token: string | undefined) => await loadFiles(token, undefined, resolvedRef),
+        async (resolvedRef: string | undefined, token: string | undefined) => await loadFiles(token, resolvedRef),
         {
           ...providerCache,
           getKey: (resolvedRef, token) => cacheKey("archive", token, "", resolvedRef),
@@ -202,14 +196,14 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     : (resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
         loadedFiles,
         cacheKey("archive", token, "", resolvedRef),
-        () => loadFiles(token, undefined, resolvedRef),
+        () => loadFiles(token, resolvedRef),
       )
 
   function getFiles(token: string | undefined, signal?: AbortSignal, resolvedRef?: string) {
     return waitForCachedGitHubResult(() => cachedLoadFiles(resolvedRef, token), signal)
   }
 
-  async function loadFileMetadata(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
+  async function loadFileMetadata(key: string, token: string | undefined, resolvedRef?: string): Promise<GitHubFile<string> | undefined> {
     let normalizedKey: string
     try {
       normalizedKey = normalizeSafeSourcePath(key)
@@ -218,19 +212,19 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       return
     }
     if (!normalizedKey || !shouldInclude(normalizedKey)) return
-    const ref = resolvedRef ?? await getRef(token, signal)
+    const ref = resolvedRef ?? await getRef(token)
     const repoPath = repoPathForKey(normalizedKey)
     let file: Awaited<ReturnType<typeof client.metadata>>
     try {
-      file = await client.metadata(repoPath, ref, token, signal)
+      file = await client.metadata(repoPath, ref, token)
     }
     catch (error) {
       if (isGitHubAccessError(error)) {
-        await validateConfiguredRef(token, signal)
+        await validateConfiguredRef(token)
         return
       }
       if (shouldResolveMainFallback(error)) {
-        const files = signal ? await loadArchiveFiles(token, signal, ref) : await getFiles(token, undefined, ref)
+        const files = await getFiles(token, undefined, ref)
         return files.find(file => file.key === normalizedKey)
       }
       throw error
@@ -247,7 +241,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   const loadedFileMetadata = new Map<string, Promise<GitHubFile<string> | undefined>>()
   const cachedLoadFileMetadata = providerCache
     ? defineCachedFunction(
-        async (key: string, resolvedRef: string | undefined, token: string | undefined) => await loadFileMetadata(key, token, undefined, resolvedRef),
+        async (key: string, resolvedRef: string | undefined, token: string | undefined) => await loadFileMetadata(key, token, resolvedRef),
         {
           ...providerCache,
           getKey: (key, resolvedRef, token) => cacheKey("metadata", token, key, resolvedRef),
@@ -257,7 +251,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     : (key: string, resolvedRef: string | undefined, token: string | undefined) => dedupeProviderPromise(
         loadedFileMetadata,
         cacheKey("metadata", token, key, resolvedRef),
-        () => loadFileMetadata(key, token, undefined, resolvedRef),
+        () => loadFileMetadata(key, token, resolvedRef),
       )
 
   // A missing path and a missing ref both answer 404.
@@ -265,7 +259,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     return githubErrorStatus(error) === 404
   }
 
-  async function loadFile(key: string, token = auth, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string>> {
+  async function loadFile(key: string, token: string | undefined, signal?: AbortSignal, resolvedRef?: string): Promise<GitHubFile<string>> {
     let normalizedKey: string
     try {
       normalizedKey = normalizeSafeSourcePath(key)
@@ -298,7 +292,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   function fetchContent(key: string, file: GitHubFile<string>) {
-    if (file.content) return Promise.resolve(file.content)
+    if (file.content) return file.content
     throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
@@ -326,8 +320,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     },
     name: "github",
     async resolveRevision(ctx) {
-      const token = await refreshAuth()
-      authByContext.set(ctx, token)
+      const token = await contextAuth(ctx)
       return await resolveSourceRevision(token, ctx.abortSignal)
     },
     async getKeys(ctx) {
@@ -335,15 +328,15 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     },
     async getItems(ctx) {
       const token = await contextAuth(ctx)
-      return await Promise.all((await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(async file => ({
+      return (await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(file => ({
         key: file.key,
         path: file.path,
-        content: await fetchContent(file.key, file),
+        content: fetchContent(file.key, file),
         metadata: {
           ref: file.ref,
           sha: file.sha,
         },
-      })))
+      }))
     },
     async getMeta(key, ctx) {
       const token = await contextAuth(ctx)
@@ -360,7 +353,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       return {
         key: file.key,
         path: file.path,
-        content: await fetchContent(key, file),
+        content: fetchContent(key, file),
         metadata: {
           ref: file.ref,
           sha: file.sha,

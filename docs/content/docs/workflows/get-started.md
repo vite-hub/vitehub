@@ -28,7 +28,7 @@ import { defineConfig } from 'vite'
 import { nitro } from 'nitro/vite'
 
 export default defineConfig({
-  plugins: [hubWorkflow(), nitro() as never],
+  plugins: [hubWorkflow(), nitro()],
 })
 ```
 
@@ -46,8 +46,8 @@ order. Files with a numeric prefix become step names (`01.create-user` and
 import { defineWorkflow } from '@vite-hub/workflow'
 
 export default defineWorkflow<{ email: string }>(async ({ payload, steps }) => {
-  const user = await steps!.createUser(payload)
-  return await steps!.sendWelcome(user)
+  const user = await steps.createUser(payload)
+  return await steps.sendWelcome(user)
 })
 ```
 

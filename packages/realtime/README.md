@@ -1,10 +1,10 @@
 # @vite-hub/realtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Yjs" src="https://img.shields.io/badge/Yjs-collaboration-f7df1e?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Yjs" src="https://comark-ui.onmax.me/badge.svg?label=Yjs&amp;value=collaboration">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/realtime` synchronizes TipTap editors through Yjs while a ViteHub Workspace owns the canonical Markdown files. Use the package directly when you compose ViteHub's modular Vite integrations. Use [`vite-hub`](https://www.npmjs.com/package/vite-hub) when you want the combined distribution.
@@ -86,6 +86,16 @@ const connection = computed(() =>
 ```
 
 Open the page in two tabs. Each tab first reports `Realtime: connecting`, then `Document synced`. Edits sync between them, and `realtime.people.value` reports the connected people.
+
+`realtime.extensions` also draws other people's carets and selections with TipTap's CollaborationCaret classes. Pass `carets: { render, selectionRender }` to change their markup, or `carets: false` to leave them out:
+
+```ts
+const realtime = useRealtimeTiptap("docs", "guides/welcome.md", {
+  carets: {
+    selectionRender: user => ({ class: "ProseMirror-yjs-selection", style: `background-color: ${user.color}33` }),
+  },
+})
+```
 
 Room updates do not write the Workspace document. Save the current Markdown and create a Workspace snapshot explicitly:
 

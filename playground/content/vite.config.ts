@@ -21,8 +21,7 @@ export default defineConfig({
       schedule: { runtime: { driver: "process" } },
       workspace: true,
     }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
   nitro: { serverDir: "./server" },
 })

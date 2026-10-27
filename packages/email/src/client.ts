@@ -1,4 +1,4 @@
-import { Diagnostic } from "nostics"
+import { isRuntimeDiagnostic } from "@vite-hub/runtime"
 
 import { isEmailProviderError } from "./provider.ts"
 import { createEmailDriverResolver } from "./driver.ts"
@@ -23,7 +23,7 @@ const configErrorCodes = new Set(["EMAIL_INVALID_DRIVER", "EMAIL_NOT_CONFIGURED"
 
 /** Maps a driver failure to the error that `send()` returns. Invalid driver options throw `EMAIL_NOT_CONFIGURED`. */
 function sendError(error: unknown, driver: string): ResultError<EmailErrorCode> {
-  if (error instanceof Diagnostic && configErrorCodes.has(error.code)) throw error
+  if (isRuntimeDiagnostic(error) && configErrorCodes.has(error.code)) throw error
   if (!isEmailProviderError(error)) return emailErrorDiagnostics.EMAIL_PROVIDER_FAILED({ cause: error, driver })
   if (error.code === "NOT_CONFIGURED") throw emailErrorDiagnostics.EMAIL_NOT_CONFIGURED({ cause: error, driver: error.driver })
   return emailErrorDiagnostics[errorCodes[error.code]]({ cause: error, driver: error.driver })

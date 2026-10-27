@@ -69,6 +69,16 @@ describe("Console section contributions", () => {
     })
   })
 
+  it("describes an Auth management section without reading app data at build time", async () => {
+    const auth: ViteHubConsoleSectionContribution = {
+      id: "auth", label: "Auth", icon: "i-lucide-users-round", description: "Manage Auth.",
+      view: { kind: "auth-management", notice: "The owner checks app policy." },
+    }
+    expect(describeViteHubConsoleSection(auth).view.kind).toBe("auth-management")
+    await expect(readViteHubConsoleSection(auth, undefined)).resolves.toEqual({ kind: "auth-management" })
+    expect(describeViteHubConsoleRuntimeReader(auth)).toBeUndefined()
+  })
+
   it("rejects ids that are not route segments", () => {
     expect(() => describeViteHubConsoleSection({ ...table, id: "Widget Runs" })).toThrow(TypeError)
   })

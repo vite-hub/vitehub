@@ -411,6 +411,46 @@ The detail of a line that expands. It mutes its text. A `class` goes to its inne
 | `title` | `{ run }`  | Replaces the default `Trace <id>` title.                                |
 | `step`  | `{ step }` | Replaces the default step line: name, status, duration, and attributes. |
 
+#### Types
+
+`@vite-hub/ui` exports `TraceRunView`, `TraceStepView`, and `TraceEventLogEntry` from ViteHub Runtime, so you can type a run without a second import.
+
+```ts
+import type { TraceRunView, TraceStepView } from "@vite-hub/ui";
+
+function failedSteps(run: TraceRunView): TraceStepView[] {
+  return run.steps.filter(step => step.status === "failed");
+}
+```
+
+The two types have these shapes:
+
+```ts
+import type { TraceEventLogEntry } from "@vite-hub/ui";
+
+interface TraceRunView {
+  id: string;
+  status: "cancelled" | "completed" | "failed" | "running";
+  startTime: string;
+  endTime?: string;
+  durationMs?: number;
+  events: TraceEventLogEntry[];
+  steps: TraceStepView[];
+}
+
+interface TraceStepView {
+  id: string;
+  name: string;
+  type: "approval" | "capability" | "error" | "lifecycle" | "policy" | "run";
+  status: "completed" | "failed" | "running";
+  startTime: string;
+  endTime?: string;
+  durationMs?: number;
+  attributes?: Record<string, unknown>;
+  events: TraceEventLogEntry[];
+}
+```
+
 ## Related
 
 - [Console](/docs/development/console) shows the activities of a whole Agent Invocation.

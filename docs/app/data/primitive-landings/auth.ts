@@ -54,8 +54,7 @@ import { vitehub } from "vite-hub"
 export default defineConfig({
   plugins: [
     vitehub({ preset: "node", auth: true }),
-    // Nitro's prerelease plugin has a separate Vite type identity.
-    nitro() as never,
+    nitro(),
   ],
 })`,
         },

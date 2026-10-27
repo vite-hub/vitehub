@@ -434,7 +434,15 @@ async function writeCloudflareDeploymentOutput(options: CloudflareDeploymentOutp
       writes.push((async () => {
         try {
           await rm(stagedWorkerOutfile, { force: true, recursive: true })
-          await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, { ...options.bundleOptions, define: { ...options.bundleDefines, ...options.bundleOptions?.define }, rootDir: options.sourceRootDir ?? options.rootDir, signal })
+          await bundleEsmEntry(options.bundleEntry!, stagedWorkerOutfile, {
+            ...options.bundleOptions,
+            define: { ...options.bundleDefines, ...options.bundleOptions?.define },
+            minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
+            minifySyntax: options.bundleOptions?.minifySyntax ?? true,
+            minifyWhitespace: options.bundleOptions?.minifyWhitespace ?? true,
+            rootDir: options.sourceRootDir ?? options.rootDir,
+            signal,
+          })
           signal?.throwIfAborted()
           await rename(stagedWorkerOutfile, workerOutfile)
         }
@@ -543,7 +551,15 @@ async function writeVercelDeploymentOutput(options: VercelDeploymentOutputOption
     catch (error) {
       if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error
     }
-    await bundleEsmEntry(options.bundleEntry, serverEntry, { ...options.bundleOptions, define: { ...options.bundleDefines, ...options.bundleOptions?.define }, rootDir: options.sourceRootDir ?? options.rootDir, signal })
+    await bundleEsmEntry(options.bundleEntry, serverEntry, {
+      ...options.bundleOptions,
+      define: { ...options.bundleDefines, ...options.bundleOptions?.define },
+      minifyIdentifiers: options.bundleOptions?.minifyIdentifiers ?? true,
+      minifySyntax: options.bundleOptions?.minifySyntax ?? true,
+      minifyWhitespace: options.bundleOptions?.minifyWhitespace ?? true,
+      rootDir: options.sourceRootDir ?? options.rootDir,
+      signal,
+    })
     await writeFile(
       resolve(serverDir, ".vc-config.json"),
       `${stringifyProviderOutputConfig(options.functionConfig ?? createNodeFunctionConfig())}\n`,
@@ -642,7 +658,9 @@ async function writeNetlifyDeploymentOutput(options: NetlifyDeploymentOutputOpti
     await bundleEsmEntry(func.bundleEntry, outfile, {
       ...func.bundleOptions,
       define: { ...options.bundleDefines, ...func.bundleOptions.define },
-      minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers,
+      minifyIdentifiers: func.config ? true : func.bundleOptions.minifyIdentifiers ?? true,
+      minifySyntax: func.bundleOptions.minifySyntax ?? true,
+      minifyWhitespace: func.bundleOptions.minifyWhitespace ?? true,
       rootDir: options.sourceRootDir ?? options.rootDir,
       signal,
     })

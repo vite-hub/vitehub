@@ -1,64 +1,44 @@
 ---
 title: First Agent
 navigation.title: First Agent
-description: Create a project, define a server-side greeting Agent, call it from an H3 route, and see the Agent response.
+description: Add an offline greeting Agent to your app, call it from a server route, and check its response.
 layout: tutorial
+codePanel: true
 navigation.order: 4
+navigation.group: Get started
 icon: i-lucide-bot
 ---
 
-Build a small server that greets a name through an Agent. You will create an
-Agent Definition, call it from an HTTP route, and check the returned JSON.
+Add an Agent that greets a name and returns JSON. An Agent Definition declares
+the work; its Driver runs it. This first Driver is a function, so it runs
+offline after installation and needs no model account or credentials.
 
-An Agent Definition declares the work to run. Its Driver performs that work.
-This tutorial uses a function Driver, so you can learn the invocation path
-without setting up a model or a provider account. You need Node.js 24.15 or
-newer and `pnpm`. After you install the dependencies, the server runs offline.
+## Before you start
 
-::tutorial-step{title="Create the project"}
-## Create the project
+Complete [Installation](/docs/getting-started/installation) and check
+`/api/health` in your app. You need Node.js 24.15 or newer and pnpm.
+Continue in that project directory. The configuration below uses the Vite
+and Nitro path. In Nuxt, put the same ViteHub options in your module config;
+the Agent Definition and server route stay the same.
 
-Create a folder for the app and install ViteHub, Vite, and H3. Vite builds the
-server. H3 handles the HTTP request. Setting `type=module` lets Node.js use
-the `import` syntax in the generated server.
+::tutorial-step{title="Enable Agents"}
+## Enable Agents
 
-```bash [commands/setup]
-mkdir vitehub-agent-start
-cd vitehub-agent-start
-pnpm init
-pnpm pkg set type=module
-pnpm add vite-hub h3 vite
-```
-
-::
-
-::tutorial-step{title="Configure the server build"}
-## Configure the server build
-
-Add the standalone `hubAgent()` plugin. Vite builds `src/server.ts` into
-`dist/server.js`, and the plugin discovers Agent Definitions under `server/agents`.
+Add `agent: true` to the ViteHub options. Set `workflow: false` because this
+Agent finishes inside the HTTP request. Keep other features you already use.
 
 ```ts [vite.config.ts]
-import { resolve } from "node:path"
-
 import { defineConfig } from "vite"
-import { hubAgent } from "vite-hub/agent/vite"
+import { vitehub } from "vite-hub"
 
 export default defineConfig({
-  root: import.meta.dirname,
-  appType: "custom",
-  build: {
-    outDir: "dist",
-    rolldownOptions: {
-      input: resolve(import.meta.dirname, "src/server.ts"),
-      output: { entryFileNames: "server.js" },
-    },
-    ssr: true,
-  },
-  plugins: [hubAgent()],
-  ssr: {
-    external: ["vite-hub/agent"],
-  },
+  plugins: [
+    vitehub({
+      preset: "node",
+      agent: true,
+      workflow: false,
+    }),
+  ],
 })
 ```
 
@@ -67,10 +47,9 @@ export default defineConfig({
 ::tutorial-step{title="Define the greeting Agent"}
 ## Define the greeting Agent
 
-Create `server/agents/greeting.ts`. The file location gives this Agent the name
-`greeting`. Its `driver.run` function receives the input prompt and returns a
-JSON object. Here, the prompt contains the name to greet. Set `runtime: false`
-on this Agent Definition to run the function Driver inline without a generated runtime.
+Create `server/agents/greeting.ts`. ViteHub discovers the name `greeting` from
+its file path. `runtime: false` makes the Agent run inline. The function
+Driver receives the name as its prompt and returns a text result.
 
 ```ts [server/agents/greeting.ts]
 import { defineAgent } from "vite-hub/agent"
@@ -91,91 +70,92 @@ export default defineAgent({
 
 ::
 
-::tutorial-step{title="Call the Agent from H3"}
-## Call the Agent from H3
+::tutorial-step{title="Call the Agent from a route"}
+## Call the Agent from a route
 
-Create `src/server.ts`. The `/greet` route reads a name from the request and
-passes it as the Agent's prompt. `runAgent()` returns the Driver's result,
-which H3 sends as JSON.
+Create `server/api/greet.post.ts`. Nitro and Nuxt serve this file at
+`POST /api/greet`. Import the H3 helpers explicitly so the code does not
+depend on framework auto-imports.
 
-The second argument supplies resources for this request. `memo` lets ViteHub
-reuse a value during one invocation. `waitUntil` handles background tasks.
-This small server creates them explicitly. A framework integration can provide
-these resources for you.
-
-```ts [src/server.ts]
-import { createServer } from "node:http"
-
-import { H3, readBody } from "h3"
-import { toNodeHandler } from "h3/node"
+```ts [server/api/greet.post.ts]
+import { defineEventHandler, readBody } from "h3"
 import { runAgent } from "vite-hub/agent"
-import greeting from "../server/agents/greeting"
+import greeting from "../agents/greeting"
 
-function createMemo() {
-  const values = new Map<string, unknown>()
-
-  return <T>(key: string, create: () => T): T => {
-    if (!values.has(key)) values.set(key, create())
-    return values.get(key) as T
-  }
-}
-
-const app = new H3().post("/greet", async (event) => {
-  const body = await readBody<{ name?: string }>(event) || {}
-
-  return await runAgent(greeting, {
-    memo: createMemo(),
-    runtime: "vite",
-    waitUntil: task => { void task.catch(error => console.error(error)) },
-  }, {
-    prompt: body.name?.trim() || "friend",
+export default defineEventHandler(async (event) => {
+  const body = await readBody<{ name?: string }>(event)
+  const [error, result] = await runAgent(greeting, {
+    prompt: body?.name?.trim() || "friend",
   })
-})
 
-const port = Number(process.env.PORT || 5173)
-
-createServer(toNodeHandler(app)).listen(port, () => {
-  console.log(`ViteHub Agents tutorial listening on http://localhost:${port}`)
+  if (error) throw error
+  return result
 })
 ```
 
-The route imports the Definition directly, so the greeting returns in the same
-request.
+This `runAgent(agent, input)` form creates a memo cache and waits for its
+background work. It returns `[null, result]` on success or `[Error, null]` on
+failure. Check the error before returning the result.
+
+For request metadata or host bindings, use the public
+[`getRuntimeContext(event)` adapter](/docs/reference/runtime-context) with
+`runAgent(agent, runtime, input)`. That form returns the result directly and
+throws failures. The greeting needs only its prompt.
 
 ::
 
-::tutorial-step{title="Run the Agent and see the response"}
-## Run the Agent and see the response
+::tutorial-step{title="Run the Agent"}
+## Run the Agent
 
-Build the project and start the generated Node.js server. The server listens on
-port `5173` unless you set `PORT`.
+Restart the app after changing its configuration:
 
-```bash [commands/build]
-pnpm vite build
-node dist/server.js
+```bash [commands/dev]
+pnpm dev
 ```
 
-From another terminal, send a name to the H3 route.
+In another terminal, send a name:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/greet \
+curl -X POST http://localhost:3000/api/greet \
   -H 'content-type: application/json' \
   -d '{"name":"Ada"}'
 ```
 
-You should receive this JSON. The name in your request passed through the
-route and the Agent Driver:
+You should receive this JSON. It proves that the route called the function
+Driver and returned its result without a model request.
 
 ```json [output/response.json]
 {"text":"Hello, Ada. This result came from an Agent Invocation."}
 ```
 
+Change the name and repeat the request. Sending `{}` returns a greeting for
+`friend`.
+
+To check the Vite app's production server, stop development first, then run
+the scripts from Installation and repeat the same request:
+
+```bash [commands/build]
+pnpm build
+pnpm start
+```
+
+In Nuxt, run `pnpm build` and `node .output/server/index.mjs` instead.
+
 ::
 
-## Next steps
+## Continue with a model
 
-Add only what your Agent needs:
+A model Driver needs network access and a billed provider account. Install
+`ai` and set `AI_GATEWAY_API_KEY` in your server environment before using a
+model string through Vercel AI Gateway. Keep the key out of client code and
+version control. Each request can incur provider charges.
 
-- Read [Agent Definitions](/docs/agents/agent-definitions) to choose another Driver or add Channels, Workspace context, trusted caller settings, or hooks.
-- Read [Capabilities](/docs/agents/capabilities) before you give a model tools, triggers, policy, metadata, or context values.
-- Read [Invocations](/docs/agents/invocations) when the route needs streaming or failure handling.
+Replace `driver.run` with a `driver.model` and `driver.instructions` when
+you are ready for model output. [Agent Drivers](/docs/agents/agent-drivers#use-a-model-backed-driver)
+shows the supported forms. Model responses vary, so the exact greeting above
+is only the offline check.
+
+Continue with [Build a chat app](/docs/agents/build-a-chat-app) for a complete
+chat UI with streaming, an offline Driver, and an optional model Driver. Read
+[Capabilities](/docs/agents/capabilities) when the Agent needs a tool or
+access to stored data.

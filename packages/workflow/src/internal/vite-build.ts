@@ -1050,7 +1050,7 @@ function renderProviderEntry(
         "}",
         "",
         "export async function runViteHubWorkflowDefinition(name, env, event, step) {",
-        "  return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => new NonRetryableError(error.message, error.name), env: env || {}, event, name, registry: workflowRegistry, step })",
+        "  return await runCloudflareWorkflow({ config: workflowConfig, createNonRetryableError: error => Object.defineProperty(new NonRetryableError(error.message, error.name), \"cause\", { value: error, configurable: true, writable: true }), env: env || {}, event, name, registry: workflowRegistry, step })",
         "}",
       ]
     : []

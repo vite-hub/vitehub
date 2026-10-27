@@ -39,7 +39,7 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
 ): SplitSource<TSource, TPart> {
   const parent: Source = options.source
   type Item = SplitSourceItem<TSource, TPart>
-  const splitCache = new Map<string, Promise<Item[]>>()
+  const splitCaches = new WeakMap<SourceContext, Map<string, Promise<Item[]>>>()
 
   async function partsOf(item: SourceItem): Promise<Item[]> {
     // SAFETY: The parent Source returned this item, so it is an entry of TSource.
@@ -74,7 +74,12 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
     })
   }
 
-  function cachedPartsOf(item: SourceItem): Promise<Item[]> {
+  function cachedPartsOf(item: SourceItem, ctx: SourceContext): Promise<Item[]> {
+    let splitCache = splitCaches.get(ctx)
+    if (!splitCache) {
+      splitCache = new Map()
+      splitCaches.set(ctx, splitCache)
+    }
     const cached = splitCache.get(item.key)
     if (cached) return cached
     const result = partsOf(item)
@@ -89,7 +94,7 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
   }
 
   async function getItems(ctx: SourceContext): Promise<Item[]> {
-    return (await Promise.all((await parentItems(ctx)).map(cachedPartsOf))).flat()
+    return (await Promise.all((await parentItems(ctx)).map(item => cachedPartsOf(item, ctx)))).flat()
   }
 
   return {
@@ -105,7 +110,7 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
       const id = String(key)
       const at = id.lastIndexOf("#")
       if (at < 1) throw sourceError(`[vitehub] splitSource() key ${JSON.stringify(id)} has no "#" between the item and the part.`)
-      const parts = await cachedPartsOf(await parent.getItem(id.slice(0, at), ctx))
+      const parts = await cachedPartsOf(await parent.getItem(id.slice(0, at), ctx), ctx)
       const part = parts.find(candidate => candidate.key === key)
       if (!part) throw sourceError(`[vitehub] splitSource() could not find ${JSON.stringify(key)}.`)
       return part
@@ -116,7 +121,7 @@ export function splitSource<const TSource extends Source, TPart extends SplitSou
         const at = id.lastIndexOf("#")
         if (at < 1) return undefined
         const parentKey = id.slice(0, at)
-        const cached = splitCache.get(parentKey)
+        const cached = splitCaches.get(ctx)?.get(parentKey)
         if (!cached) return await parent.getMeta?.(parentKey, ctx)
         const parts = await cached
         if (!parts.some(part => part.key === key)) {

@@ -65,6 +65,27 @@ export class CollectionAccessError extends Diagnostic {
     this.name = "CollectionAccessError"
     this.status = status
   }
+
+  override toJSON(): {
+    code: string
+    data: undefined
+    docs: string | undefined
+    fix: string | undefined
+    name: string
+    status: 401 | 403
+    why: string
+  } {
+    return {
+      code: this.code,
+      // Nostics requires this key; undefined keeps diagnostic data out of public JSON.
+      data: undefined,
+      docs: this.docs,
+      fix: this.fix,
+      name: this.name,
+      status: this.status,
+      why: this.why,
+    }
+  }
 }
 
 function accessError(error: unknown): CollectionAccessError | undefined {
@@ -165,7 +186,7 @@ export function useCollection<TName extends CollectionName>(
     try {
       const filter = options.filter ? toValue(options.filter) : {}
       let cursor = reset ? undefined : nextCursor.value || undefined
-      let loadedItems = reset ? [] : [...items.value]
+      const loadedItems = reset ? [] : [...items.value]
       let loadedTotal = reset ? undefined : total.value
       let loadedFacets = reset ? undefined : facets.value
       let response: TPage
@@ -187,7 +208,7 @@ export function useCollection<TName extends CollectionName>(
         if (active !== controller) return
         if (response.total !== undefined) loadedTotal = response.total
         if (response.facets !== undefined) loadedFacets = response.facets
-        loadedItems = [...loadedItems, ...response.items]
+        for (const item of response.items) loadedItems.push(item)
         cursor = response.nextCursor || undefined
         if (cursor && seenCursors.has(cursor)) {
           throw sourceErrorDiagnostics.SOURCE_R0003({ message: "[vitehub] Collection returned the same cursor twice." })

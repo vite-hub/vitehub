@@ -5,6 +5,7 @@ import { dirname, resolve } from "pathe"
 
 import { isPlainObject } from "./object.ts"
 import { redactInspectionValue } from "./inspect.ts"
+import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ProvisionState } from "./provision.ts"
 
@@ -15,18 +16,22 @@ export function getProvisionStatePath(rootDir: string): string {
 }
 
 export async function readProvisionState(rootDir: string): Promise<ProvisionState> {
+  const path = getProvisionStatePath(rootDir)
   try {
-    return parseProvisionState(await readFile(getProvisionStatePath(rootDir), "utf8"))
-  } catch {
-    return {}
+    return parseProvisionState(await readFile(path, "utf8"))
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return {}
+    throw internalErrorDiagnostics.INTERNAL_R0014({ path, cause })
   }
 }
 
 export function readProvisionStateSync(rootDir: string): ProvisionState {
+  const path = getProvisionStatePath(rootDir)
   try {
-    return parseProvisionState(readFileSync(getProvisionStatePath(rootDir), "utf8"))
-  } catch {
-    return {}
+    return parseProvisionState(readFileSync(path, "utf8"))
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return {}
+    throw internalErrorDiagnostics.INTERNAL_R0014({ path, cause })
   }
 }
 

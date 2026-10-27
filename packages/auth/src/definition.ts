@@ -1,3 +1,4 @@
+import { validateAuthEvents } from "./events-config.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
 
 import type {
@@ -191,6 +192,7 @@ function defineAuthOptions(
     throw authErrorDiagnostics.AUTH_C0041({ message: "`defineAuth()` session.onRefresh must be a function." })
   }
 
+  validateAuthEvents(options.events)
   validateAuthDatabase(viteHubOptions.database as AuthDatabaseConfiguration | undefined)
   validateAuthSecondaryStorage(viteHubOptions.secondaryStorage as AuthSecondaryStorageConfiguration | undefined)
   validateAuthAccess(viteHubOptions.access as AuthAccessConfiguration | undefined)

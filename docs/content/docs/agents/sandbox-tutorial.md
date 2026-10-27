@@ -3,9 +3,10 @@ title: Run your first Sandbox
 description: Install the Sandbox package, open a trusted-host Sandbox session, run one command, and inspect the result.
 layout: tutorial
 navigation.title: Sandbox tutorial
-navigation.order: 49
-navigation.group: Advanced execution
+navigation.order: 76
+navigation.group: Advanced
 icon: i-lucide-rocket
+navigation.kind: Tutorial
 ---
 
 Open a Sandbox on your own Node host, write a text file, and run Node to read it. The response will contain `Sandbox is ready`. A Sandbox prepares an execution session with a private Home, declared environment, and boot checks.
@@ -30,7 +31,7 @@ import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [nitro() as never],
+  plugins: [nitro()],
 })
 ```
 ::

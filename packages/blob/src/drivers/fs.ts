@@ -1,4 +1,4 @@
-import type { BigIntStats } from "node:fs"
+import type { BigIntStats, Dirent } from "node:fs"
 import { createHash, randomUUID } from "node:crypto"
 import { lstat, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, sep } from "node:path"
@@ -64,7 +64,10 @@ function decodeCursor(cursor: string | undefined) {
 }
 
 function encodeMetaKey(pathname: string) {
-  return Buffer.from(pathname).toString("base64url")
+  const encoded = Buffer.from(pathname).toString("base64url")
+  // Reserve five bytes for .json within the usual 255-byte filename limit.
+  // The dot keeps hashed keys distinct from legacy Base64url keys.
+  return encoded.length <= 250 ? encoded : `sha256.${createHash("sha256").update(pathname).digest("hex")}`
 }
 
 function isInside(root: string, path: string) {
@@ -277,8 +280,21 @@ async function readEntry(root: string, pathname: string): Promise<FsBlobEntry | 
 }
 
 async function walkFiles(root: string, dir = root): Promise<string[]> {
-  await assertNoSymlinkPath(root, dir)
-  const entries = await readdir(dir, { withFileTypes: true })
+  let entries: Dirent[]
+  try {
+    await assertNoSymlinkPath(root, dir)
+    entries = await readdir(dir, { withFileTypes: true })
+  }
+  catch (error) {
+    // A child directory can disappear or become a file after its parent was read.
+    if (dir !== root && (isNotFound(error) || isDirectoryError(error))) {
+      // Only recover if the store root is still safe and readable as a directory.
+      await assertNoSymlinkPath(root, root)
+      await readdir(root)
+      return []
+    }
+    throw error
+  }
   const files = await Promise.all(entries.map(async (entry) => {
     const path = resolve(dir, entry.name)
     const pathname = relative(root, path).split(sep).join("/")
@@ -289,56 +305,57 @@ async function walkFiles(root: string, dir = root): Promise<string[]> {
   return files.flat().sort((left, right) => left.localeCompare(right))
 }
 
-async function listEntries(root: string, prefix?: string) {
-  const files = await walkFiles(root)
-  const filtered = prefix ? files.filter(path => path.startsWith(prefix)) : files
-  const entries = await Promise.all(filtered.map(path => readEntry(root, path)))
+async function listEntries(root: string, paths: string[]) {
+  const entries = await Promise.all(paths.map(path => readEntry(root, path)))
   return entries.filter((entry): entry is FsBlobEntry => Boolean(entry))
 }
 
-function foldedList(entries: FsBlobEntry[], options: BlobListOptions, start: number): BlobListResult {
+async function foldedList(root: string, paths: string[], options: BlobListOptions, start: number): Promise<BlobListResult> {
   const prefix = options.prefix || ""
   const limit = options.limit ?? 1000
   const folders = new Set<string>()
-  const blobs: BlobObject[] = []
+  const selected: string[] = []
 
   // A zero limit is an empty page. Keep folder discovery consistent with the
   // existing folded listing behavior, but never emit a blob when callers ask
   // for no blobs.
   if (limit <= 0) {
-    for (const entry of entries.slice(start)) {
-      const remainder = entry.path.slice(prefix.length)
+    for (const pathname of paths.slice(start)) {
+      const remainder = pathname.slice(prefix.length)
       const firstSlash = remainder.indexOf("/")
-      if (firstSlash !== -1) folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+      if (firstSlash !== -1) folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
     }
     return {
-      blobs,
-      cursor: start < entries.length ? encodeCursor(start) : undefined,
+      blobs: [],
+      cursor: start < paths.length ? encodeCursor(start) : undefined,
       folders: [...folders].sort((left, right) => left.localeCompare(right)),
-      hasMore: start < entries.length,
+      hasMore: start < paths.length,
     }
   }
 
   let consumed = start
 
-  for (const entry of entries.slice(start)) {
+  for (const pathname of paths.slice(start)) {
     consumed += 1
-    const remainder = entry.path.slice(prefix.length)
+    const remainder = pathname.slice(prefix.length)
     const firstSlash = remainder.indexOf("/")
     if (firstSlash !== -1) {
-      folders.add(entry.path.slice(0, prefix.length + firstSlash + 1))
+      folders.add(pathname.slice(0, prefix.length + firstSlash + 1))
       continue
     }
 
-    blobs.push(toBlobObject(entry))
-    if (blobs.length >= limit) break
+    selected.push(pathname)
+    if (selected.length >= limit) break
   }
 
+  const entries = await listEntries(root, selected)
+  // Selected files removed during metadata reads must not shift the next live key past the cursor.
+  const next = consumed - selected.length + entries.length
   return {
-    blobs,
-    cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
+    blobs: entries.map(toBlobObject),
+    cursor: consumed < paths.length ? encodeCursor(next) : undefined,
     folders: [...folders].sort((left, right) => left.localeCompare(right)),
-    hasMore: consumed < entries.length,
+    hasMore: consumed < paths.length,
   }
 }
 
@@ -498,6 +515,7 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
       try {
         const path = resolveBlobPath(root, pathname)
         await assertNoSymlinkPath(root, path)
+        if (!(await stat(path)).isFile()) return null
         const bytes = await readFile(path)
         return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)
       }
@@ -513,18 +531,22 @@ export function createDriver(options: ResolvedFsBlobStoreConfig): BlobDriverAdap
     async list(options: BlobListOptions = {}): Promise<BlobListResult> {
       const start = decodeCursor(options.cursor)
       try {
-        const entries = await listEntries(root, options.prefix)
+        const files = await walkFiles(root)
+        const paths = options.prefix ? files.filter(path => path.startsWith(options.prefix!)) : files
         if (options.folded) {
-          return foldedList(entries, options, start)
+          return await foldedList(root, paths, options, start)
         }
 
         const limit = options.limit ?? 1000
-        const page = entries.slice(start, start + limit)
-        const consumed = start + page.length
+        const page = paths.slice(start, start + limit)
+        const entries = await listEntries(root, page)
+        // Files removed while reading this page must not shift the next live key past the cursor.
+        const consumed = start + entries.length
+        const hasMore = start + page.length < paths.length
         return {
-          blobs: page.map(toBlobObject),
-          cursor: consumed < entries.length ? encodeCursor(consumed) : undefined,
-          hasMore: consumed < entries.length,
+          blobs: entries.map(toBlobObject),
+          cursor: hasMore ? encodeCursor(consumed) : undefined,
+          hasMore,
         }
       }
       catch (error) {

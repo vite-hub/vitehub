@@ -9,7 +9,7 @@ import { getActiveCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/in
 import { isSerializedResponse, serializeResponse, toResponse, ViteHubError } from "@vite-hub/runtime"
 import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest"
 
-import type { WorkflowProviderStep } from "../src/types.ts"
+import type { WorkflowExecutionContext, WorkflowProviderStep } from "../src/types.ts"
 import { normalizeWorkflowOptions } from "../src/config.ts"
 import { getCloudflareWorkflowBindingName } from "../src/integrations/cloudflare.ts"
 import { getOpenWorkflowRuntime, resetOpenWorkflowRuntime, setOpenWorkflowImporter } from "../src/runtime/openworkflow.ts"
@@ -17,7 +17,7 @@ import { createOpenWorkflowWorker, startOpenWorkflowWorker } from "../src/runtim
 import { runCloudflareWorkflow } from "../src/runtime/cloudflare-runner.ts"
 import { createWorkflowCloudflareWorker } from "../src/runtime/cloudflare-vite.ts"
 import { cancelWorkflow, createWorkflow, deferWorkflow, getWorkflowRun, resumeWorkflowSignal, runWorkflow } from "../src/runtime/client.ts"
-import { createWorkflowSteps } from "../src/runtime/execute.ts"
+import { createWorkflowSteps, runWorkflowHandler } from "../src/runtime/execute.ts"
 
 it("rejects workflow step files that normalize to an empty property name", () => {
   expect(() => createWorkflowSteps({ name: "demo", payload: undefined, provider: "cloudflare" }, [{ name: "01-.ts", run: async () => "ok" }]))
@@ -221,6 +221,77 @@ afterEach(() => {
 })
 
 describe("workflow runtime", () => {
+  it.each([
+    ["runWorkflow", (name: string) => runWorkflow(name, {})],
+    ["getWorkflowRun", (name: string) => getWorkflowRun(name, "run-1")],
+    ["cancelWorkflow", (name: string) => cancelWorkflow(name, "run-1")],
+  ])("rejects disabled %s before loading known or missing definitions", async (_operation, call) => {
+    const load = vi.fn(async () => ({ default: { handler: async () => "done" } }))
+    setWorkflowRuntimeRegistry({ known: load })
+    setWorkflowRuntimeConfig(false)
+
+    for (const name of ["known", "missing"]) {
+      const error = await call(name).catch(error => error)
+      expect(error).toBeInstanceOf(ViteHubError)
+      expect(error.toJSON()).toEqual({
+        code: "WORKFLOW_DISABLED",
+        message: "Workflow is disabled.",
+        name: "ViteHubError",
+      })
+    }
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it("rejects disabled signals before loading the provider", async () => {
+    const load = vi.fn()
+    setVercelWorkflowRuntimeLoader(load)
+    setWorkflowRuntimeConfig(false)
+
+    const error = await resumeWorkflowSignal("opaque-token", {}).catch(error => error)
+    expect(error).toBeInstanceOf(ViteHubError)
+    expect(error.toJSON()).toEqual({
+      code: "WORKFLOW_DISABLED",
+      message: "Workflow is disabled.",
+      name: "ViteHubError",
+    })
+    expect(load).not.toHaveBeenCalled()
+  })
+
+  it.each([false, undefined, { provider: "vercel" }] satisfies Parameters<typeof setWorkflowRuntimeConfig>[0][])("validates signal tokens before configuration %j", async (config) => {
+    setWorkflowRuntimeConfig(config)
+
+    await expect(resumeWorkflowSignal("", {})).rejects.toMatchObject({
+      code: "WORKFLOW_R0014",
+      message: "`resumeWorkflowSignal()` requires an opaque signal token.",
+    })
+  })
+
+  it.each([
+    ["runWorkflow", () => runWorkflow("missing", {})],
+    ["cancelWorkflow", () => cancelWorkflow("missing", "run-1")],
+  ])("rejects missing definitions before %s provider dispatch", async (_operation, call) => {
+    setWorkflowRuntimeConfig({ provider: "cloudflare" })
+    setWorkflowRuntimeRegistry({})
+
+    await expect(call()).rejects.toMatchObject({
+      code: "WORKFLOW_DEFINITION_NOT_FOUND",
+      details: { name: "missing" },
+      message: "Workflow definition was not found.",
+    })
+  })
+
+  it("defaults unset configuration to Vercel and permits inspection of missing definitions", async () => {
+    setWorkflowRuntimeConfig(undefined)
+    const workflow = createWorkflow("default-provider", async () => "done")
+
+    await expect(workflow.run()).resolves.toMatchObject({ provider: "vercel", status: "queued" })
+    await expect(getWorkflowRun("missing", "run-1")).resolves.toEqual({
+      id: "run-1",
+      provider: "vercel",
+      status: "unknown",
+    })
+  })
+
   async function expectProviderFailure(
     request: Promise<unknown>,
     cause: unknown,
@@ -905,6 +976,25 @@ describe("workflow runtime", () => {
     expect(stepDo).not.toHaveBeenCalled()
   })
 
+  it("gives workflows without step files an empty step runner", async () => {
+    const seen: unknown[] = []
+    const handler = (context: WorkflowExecutionContext) => {
+      seen.push(context.steps)
+      return "done"
+    }
+
+    await expect(runCloudflareWorkflow({
+      config: { provider: "cloudflare" },
+      env: {},
+      event: { id: "run-1", payload: "start" },
+      name: "flat",
+      registry: { flat: async () => ({ handler }) },
+    })).resolves.toEqual(await serializeResponse(toResponse("done")))
+    await expect(runWorkflowHandler({ name: "flat", payload: undefined, provider: "openworkflow" }, { handler })).resolves.toBeInstanceOf(Response)
+
+    expect(seen).toEqual([{}, {}])
+  })
+
   it("runs inline folder workflows through generated step wrappers", async () => {
     const stepDo = vi.fn(async (_name: string, _options: unknown, run: () => unknown) => await run())
     // SAFETY: This test fixture intentionally constructs the exact asserted runtime contract.
@@ -917,7 +1007,7 @@ describe("workflow runtime", () => {
       name: "pipeline",
       registry: {
         pipeline: async () => {
-          createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+          createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
           const definition = takeInlineWorkflowDefinition("pipeline")!
           const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
           return {
@@ -1058,6 +1148,93 @@ describe("workflow runtime", () => {
       namespaceId: "production",
       schema: "openworkflow",
     })
+  })
+
+  it("uses one resolved storage snapshot for the OpenWorkflow cache and backend", async () => {
+    const firstStorage = { namespaceId: "first", runMigrations: false, schema: "first_schema", url: "postgres://localhost/first" }
+    const nextStorage = { namespaceId: "next", runMigrations: true, schema: "next_schema", url: "postgres://localhost/next" }
+    let storage = firstStorage
+    const config = {
+      get postgres() {
+        const current = storage
+        storage = nextStorage
+        return current
+      },
+      provider: "openworkflow",
+    } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+
+    const first = await getOpenWorkflowRuntime(config)
+    expect(openWorkflowMock.connect).toHaveBeenCalledExactlyOnceWith(firstStorage.url, {
+      namespaceId: "first",
+      runMigrations: false,
+      schema: "first_schema",
+    })
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: firstStorage })).resolves.toBe(first)
+
+    const next = await getOpenWorkflowRuntime(config)
+    expect(next).not.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+    expect(openWorkflowMock.connect).toHaveBeenLastCalledWith(nextStorage.url, {
+      namespaceId: "next",
+      runMigrations: true,
+      schema: "next_schema",
+    })
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: nextStorage })).resolves.toBe(next)
+  })
+
+  it("resolves the current OpenWorkflow environment on each acquisition", async () => {
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
+    const first = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/next"
+    const next = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    expect(next).not.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenNthCalledWith(1, "postgres://localhost/first", {
+      namespaceId: "production", schema: "openworkflow",
+    })
+    expect(openWorkflowMock.connect).toHaveBeenNthCalledWith(2, "postgres://localhost/next", {
+      namespaceId: "production", schema: "openworkflow",
+    })
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow" })).resolves.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it("validates OpenWorkflow configuration even when its runtime is cached", async () => {
+    const sqlite: { path?: string } = {}
+    const config = {
+      postgres: { url: "postgres://localhost/cached" },
+      provider: "openworkflow",
+      sqlite,
+    } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const runtime = await getOpenWorkflowRuntime(config)
+    config.sqlite.path = ":memory:"
+    await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ code: "WORKFLOW_R0030" })
+    config.sqlite.path = undefined
+    await expect(getOpenWorkflowRuntime(config)).resolves.toBe(runtime)
+    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+  })
+
+  it("keeps a new OpenWorkflow acquisition when an acquisition from before reset rejects", async () => {
+    let rejectBackend: ((reason: Error) => void) | undefined
+    openWorkflowMock.connect.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectBackend = reject
+    }))
+    const config = { provider: "openworkflow", postgres: { url: "postgres://localhost/reset-rejection" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const failure = new Error("database unavailable")
+    const rejected = expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ cause: failure })
+    await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledOnce())
+    const resetting = resetOpenWorkflowRuntime()
+    setOpenWorkflowMockImporter()
+    const next = await getOpenWorkflowRuntime(config)
+    rejectBackend?.(failure)
+    await rejected
+    await expect(resetting).resolves.toBeUndefined()
+    await expect(getOpenWorkflowRuntime(config)).resolves.toBe(next)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+    expect(next.backend.stop).not.toHaveBeenCalled()
+    await resetOpenWorkflowRuntime()
+    expect(next.backend.stop).toHaveBeenCalledOnce()
   })
 
   it("evicts a rejected OpenWorkflow acquisition", async () => {
@@ -2033,7 +2210,7 @@ describe("workflow runtime", () => {
     })
     setWorkflowRuntimeRegistry({
       pipeline: async () => {
-        createWorkflow("pipeline", async ({ payload, steps }) => await steps!.first(payload))
+        createWorkflow("pipeline", async ({ payload, steps }) => await steps.first(payload))
         const definition = takeInlineWorkflowDefinition("pipeline")!
         const steps = [{ name: "01.first.ts", run: async (input: unknown) => `${input}-step` }]
         return {

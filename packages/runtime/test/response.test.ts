@@ -1,8 +1,32 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
+import { Buffer as NodeBuffer } from "node:buffer"
 import { runInNewContext } from "node:vm"
 import { deserializeResponse, isSerializedResponse, serializeResponse, toResponse } from "../src/response.ts"
 
+afterEach(() => vi.unstubAllGlobals())
+
 describe("durable Response representation", () => {
+  it.each([false, true])("preserves binary bodies and padding with Buffer disabled: %s", async (disableBuffer) => {
+    for (const length of [0, 1, 2, 3, 32_767, 32_768, 32_769, 65_537]) {
+      const source = Uint8Array.from({ length: length + 13 }, (_, index) => index % 256)
+      const bytes = source.subarray(7, 7 + length)
+      const response = new Response(bytes)
+      if (disableBuffer) {
+        // Node's Response reader needs Buffer; disable it only after reading the body.
+        const read = response.arrayBuffer.bind(response)
+        vi.spyOn(response, "arrayBuffer").mockImplementation(async () => {
+          const body = await read()
+          vi.stubGlobal("Buffer", undefined)
+          return body
+        })
+      }
+      const serialized = await serializeResponse(response)
+      vi.unstubAllGlobals()
+      expect(serialized.body.data).toBe(NodeBuffer.from(bytes).toString("base64"))
+      expect(new Uint8Array(await deserializeResponse(serialized).arrayBuffer())).toEqual(bytes)
+    }
+  })
+
   it("accepts ArrayBuffer values created in another realm", async () => {
     const value = runInNewContext("new ArrayBuffer(3)")
     new Uint8Array(value)[0] = 0x41
@@ -90,6 +114,33 @@ describe("durable Response representation", () => {
     expect(restored.status).toBe(201)
     expect(restored.statusText).toBe("Created")
     expect(new Uint8Array(await restored.arrayBuffer())).toEqual(new Uint8Array([0, 127, 255]))
+  })
+
+  it("round trips a multi-megabyte body without overflowing Base64 validation", async () => {
+    const body = new Uint8Array(4 * 1024 * 1024).fill(255)
+    const serialized = await serializeResponse(new Response(body))
+
+    expect(isSerializedResponse(serialized)).toBe(true)
+    const restored = new Uint8Array(await deserializeResponse(serialized).arrayBuffer())
+    expect(restored.byteLength).toBe(body.byteLength)
+    expect(restored.every(byte => byte === 255)).toBe(true)
+    expect(isSerializedResponse({ ...serialized, body: { ...serialized.body, data: `${serialized.body.data}!` } })).toBe(false)
+  })
+
+  it.each(["", "YQ", "YQ==", "YWI", "YWI=", "YWJj", " Y\tQ\n=\r=\f"])("accepts native Base64 representation %j", async (data) => {
+    const serialized = await serializeResponse(new Response(""))
+    const record = { ...serialized, body: { ...serialized.body, data } }
+
+    expect(isSerializedResponse(record)).toBe(true)
+    expect(await deserializeResponse(record).text()).toBe(atob(data))
+  })
+
+  it.each(["Y", "YQ=", "YWI==", "YWJj=", "=YQ=", "YQ===", "====", "YQ-_", "YQ\u00a0=="])("rejects malformed Base64 representation %j", async (data) => {
+    const serialized = await serializeResponse(new Response(""))
+    const record = { ...serialized, body: { ...serialized.body, data } }
+
+    expect(isSerializedResponse(record)).toBe(false)
+    expect(() => deserializeResponse(record)).toThrow(TypeError)
   })
 
   it.each([null, new Uint8Array()])("preserves body presence for %s", async (body) => {

@@ -1,9 +1,9 @@
 # @vite-hub/source
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Sources" src="https://img.shields.io/badge/Source-typed%20retrieval-0f766e?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Sources" src="https://comark-ui.onmax.me/badge.svg?label=Source&amp;value=typed+retrieval">
 </p>
 
 `@vite-hub/source` loads files, globs, markdown, GitHub content, or custom data before something else places it in a workspace.
@@ -293,7 +293,8 @@ with no value, and `?search=` matches the `search` fields. Any other key returns
 `400`. Cursors are bound to the data and the query. A cursor from changed data or
 another query returns `409`. `load` runs on every request; return
 `{ items, digest }` when the origin already has a content digest, or ViteHub
-hashes the items. `useCollection()` exposes `total` and `facets` from the latest
+hashes the items for pagination. Keyed lookups do not compute a digest.
+`useCollection()` exposes `total` and `facets` from the latest
 page. `key` adds `collection.get(key)` for server code, and `schema` validates
 every item and types it from the schema output. Use a database `table()`
 from `@vite-hub/source/drizzle` when the data set should not be loaded per
@@ -302,6 +303,10 @@ exports `table()` too.
 
 `workspaceFile()` from `@vite-hub/workspace` is the same source over a JSON array
 in a Workspace file.
+
+Pass `{ signal }` to `collection.get(key, { signal })` to cancel a direct read.
+Cancelled reads reject with the signal's reason, including when a loader or
+transform returns after cancellation.
 
 Keep binary assets behind the Blob boundary and store a serializable reference in
 the record. This keeps ordinary record reads lazy while treating the structured

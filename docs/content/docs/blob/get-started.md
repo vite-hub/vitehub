@@ -1,95 +1,134 @@
 ---
-title: Store your first Blob object
-description: Install Blob, write a text file to a local object store from a server route, and check its path, content type, and size.
+title: Upload your first Blob object
+description: Upload a text file to local Blob storage, then retrieve its contents through an API route.
 navigation.title: Get started
 layout: tutorial
+codePanel: true
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Save `hello.txt` in a local object store and check that the response reports its path, content type, and size. Use Blob for file bodies such as uploads and generated documents. Use [KV](/docs/kv) when you only need a small JSON value.
+Upload `hello.txt`, then fetch its contents in a separate request. The upload returns object metadata. The read returns `Hello from ViteHub` from storage.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The local store writes to `.vitehub/data/blob` and needs no provider account. Choose a [hosted store](/docs/blob/hosts) when files must remain available across app instances.
+Start with the working app from [Installation](/docs/getting-started/installation). Use its Node.js, pnpm, Vite, Nitro, and H3 setup, and run commands from the app root. The Node preset uses the local `fs` driver under `.vitehub/data/blob`. No provider account is required.
 
-::tutorial-step{title="Install and configure"}
-## Install and configure
+::tutorial-step{title="Enable Blob"}
+## Enable Blob
 
-Install Blob and the CLI. Nitro serves the route used in the next step. Keep existing plugins when you add the configuration.
-
-```bash [commands/install]
-pnpm add @vite-hub/blob nitro h3
-pnpm add -D @vite-hub/cli vite
-```
-
-Register Blob and select the local store:
+Add `blob: true` to the existing `vitehub()` options in `vite.config.ts`. Keep any other enabled features and plugins.
 
 ```ts [vite.config.ts]
-import { hubBlob } from '@vite-hub/blob/vite'
 import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
+import { vitehub } from 'vite-hub'
 
 export default defineConfig({
-  blob: {
-    driver: 'fs',
-    base: '.vitehub/data/blob',
-  },
-  plugins: [hubBlob(), nitro() as never],
+  server: { port: 3000, strictPort: true },
+  plugins: [vitehub({ preset: 'node', blob: true })],
 })
 ```
+
+If you chose Nuxt in Installation, add `blob: true` to the options of the existing `vite-hub/nuxt` module. The routes below also work there. They use explicit H3 imports and upload a plain text request body.
 
 ::
 
-::tutorial-step{title="Write one object"}
-## Write one object
+::tutorial-step{title="Accept a text upload"}
+## Accept a text upload
 
-Every request writes the same text to `hello.txt`. `contentType` tells a reader how to interpret the stored bytes. The route returns metadata rather than the file body.
+Create `server/api/files.post.ts`. Nitro maps it to `POST /api/files`. This tutorial stores a UTF-8 text body at the fixed pathname `hello.txt`; another upload replaces it.
 
 ```ts [server/api/files.post.ts]
-import { defineEventHandler } from 'h3'
-import { blob } from '@vite-hub/blob'
+import { createError, defineEventHandler, readRawBody } from 'h3'
+import { blob } from 'vite-hub/blob'
 
-export default defineEventHandler(async () => {
-  const [error, object] = await blob.put('hello.txt', 'Hello from ViteHub', {
+export default defineEventHandler(async (event) => {
+  const text = await readRawBody(event)
+  if (!text) {
+    throw createError({ statusCode: 400, message: 'Send a text file in the request body.' })
+  }
+
+  const [error, object] = await blob.put('hello.txt', text, {
     contentType: 'text/plain',
   })
   if (error) throw error
-  return object
+  return {
+    pathname: object.pathname,
+    contentType: object.contentType,
+    size: object.size,
+  }
 })
 ```
 
-`blob.put()` returns `[error, object]`. The object includes its pathname,
-content type, size, and upload timestamp.
+`blob.put()` returns `[error, object]`. The object describes the stored bytes. This route returns just the fields used in the check below.
+
+::
+
+::tutorial-step{title="Retrieve the file"}
+## Retrieve the file
+
+Create `server/api/files.get.ts` to read `hello.txt` without writing it again.
+
+```ts [server/api/files.get.ts]
+import { createError, defineEventHandler, setResponseHeader } from 'h3'
+import { blob } from 'vite-hub/blob'
+
+export default defineEventHandler(async (event) => {
+  const [error, file] = await blob.get('hello.txt')
+  if (error) throw error
+  if (file === null) {
+    throw createError({ statusCode: 404, message: 'Upload hello.txt first.' })
+  }
+
+  setResponseHeader(event, 'content-type', 'text/plain; charset=utf-8')
+  return file.text()
+})
+```
+
+`blob.get()` returns `[error, Blob | null]`. The `Blob` holds the file body, and `.text()` reads it as UTF-8. A missing object returns `null`; the route turns it into a `404` response.
 
 ::
 
 ::tutorial-step{title="Run and check the result"}
 ## Run and check the result
 
-Start Vite and send one request:
+Start or restart the app after the config change:
 
 ```bash [commands/start]
-pnpm vite dev
+pnpm dev
 ```
 
-Keep the server running. In another terminal, run:
+In another terminal, create a file without a trailing newline:
+
+```bash [commands/file]
+printf 'Hello from ViteHub' > hello.txt
+```
+
+Upload it as the request body:
 
 ```bash [commands/request]
-curl -X POST http://localhost:5173/api/files
+curl -X POST http://localhost:3000/api/files \
+  -H 'content-type: text/plain' \
+  --data-binary @hello.txt
 ```
 
-The example text is 18 bytes. The actual `httpEtag` depends on the stored object; the ellipsis below stands for that value.
+The response reports the stored pathname, content type, and 18-byte size:
 
 ```json [output/response.json]
-{
-  "pathname": "hello.txt",
-  "contentType": "text/plain",
-  "size": 18,
-  "httpEtag": "..."
-}
+{ "pathname": "hello.txt", "contentType": "text/plain", "size": 18 }
 ```
 
-Use `pnpm vitehub blob head hello.txt --json` to inspect the same object from
-the development server. Continue with [Server API](/docs/blob/server-api) for
-uploads and reads, then [Hosts](/docs/blob/hosts) before choosing a hosted
-store.
+Retrieve the bytes through the GET route:
+
+```bash [commands/read]
+curl http://localhost:3000/api/files
+```
+
+The response body is:
+
+```text [output/file.txt]
+Hello from ViteHub
+```
+
+The local store keeps the object after a restart. Repeat only the GET request after restarting `pnpm dev` to check it.
+
+These routes are open local examples. Before exposing uploads to users, add access checks and upload limits. Continue with [Server API](/docs/blob/server-api#upload-files) for form uploads and [Hosts](/docs/blob/hosts) for storage shared across app instances.
 ::

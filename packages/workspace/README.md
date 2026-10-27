@@ -1,9 +1,9 @@
 # @vite-hub/workspace
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/workspace` gives agents and server code a file-system context they can read, diff, and, when opened in write mode, update.
@@ -417,6 +417,8 @@ The optional `prefix`, or `VITEHUB_WORKSPACE_BLOB_PREFIX`, nests below
 `_vitehub/workspaces/`, so ViteHub owns every Workspace object. A prefix accepts
 letters, numbers, underscores, dashes, and single slashes.
 
+Vercel Blob writes preserve file bytes and JSON attributes in separate objects. Same-path writes and removals are serialized across Store instances in one process, including failed-write recovery. Readers are not isolated from in-progress writes. Coordinate access across processes or hosts when they share a Workspace; this adapter does not provide distributed transactions. Use the Blob + Database Store when you need atomic publication across replicas.
+
 ## GitHub-backed persistence
 
 Use the GitHub Workspace Store when a hosted runtime needs durable Workspace file-tree state without a provider-specific artifact store:
@@ -433,6 +435,8 @@ export default defineWorkspace({
 ```
 
 Set `VITEHUB_GITHUB_TOKEN` or `FORGES_GITHUB_TOKEN` in the process environment or as a runtime binding with permission to read and write the repository contents. Set `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`, `VITEHUB_WORKSPACE_GITHUB_BRANCH`, and `VITEHUB_WORKSPACE_GITHUB_ROOT` to configure the Store location when you omit those options. Reads and snapshots call the GitHub API, so this Store trades provider independence for GitHub API latency and rate limits. `workspace.snapshot()` writes changed Workspace Store files as one GitHub commit. If the target branch moves after the Workspace Store loaded local changes, including during the final branch update, snapshot fails with a structured conflict so the caller can rebase from the current head and retry.
+
+GitHub file reads share a blob cache across Store instances and history views in one isolate. Immutable blob shas identify the bytes, including across repositories. Concurrent reads of the same blob share one request when the repository and credentials match, and failed reads can be retried. A failed request does not affect readers using another repository or token. The cache retains up to 32 MiB of bytes, evicts the oldest entries first, and skips blobs larger than 4 MiB. A cold isolate or an evicted blob still needs a GitHub request.
 
 GitHub-backed Stores also expose the retained history reader. Repository branches are
 history refs, and GitHub commits are immutable Workspace revisions. Revision metadata

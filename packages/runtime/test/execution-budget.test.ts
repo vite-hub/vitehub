@@ -3,6 +3,100 @@ import { describe, expect, it, vi } from "vitest"
 import { createExecutionBudget, ExecutionBudgetExceededError } from "../src/index.ts"
 
 describe("ExecutionBudget", () => {
+  describe.each(["root", "child"] as const)("%s deadline before timer delivery", (kind) => {
+    it.each(["consume", "recordInputBytes", "recordOutputBytes", "recordRetry", "recordToolCall"] as const)("rejects %s without charging usage", (operation) => {
+      vi.useFakeTimers()
+      const deadlineAt = Date.now() + 1_000
+      const root = createExecutionBudget({ deadlineAt: kind === "root" ? deadlineAt : deadlineAt + 1_000 })
+      const budget = kind === "root" ? root : root.child({ deadlineAt })
+      const descendant = budget.child()
+      try {
+        // Moving the clock does not deliver the pending deadline timer.
+        vi.setSystemTime(deadlineAt)
+        expect(budget.signal.aborted).toBe(false)
+        const charge = () => {
+          if (operation === "consume") budget.consume("toolCalls")
+          else budget[operation](1)
+        }
+
+        expect(charge).toThrow("deadline exceeded")
+        expect(budget.signal.reason).toMatchObject({ name: "TimeoutError" })
+        expect(descendant.signal.reason).toBe(budget.signal.reason)
+        expect(root.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
+        if (kind === "child") expect(() => root.recordToolCall()).not.toThrow()
+      }
+      finally {
+        root.dispose()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  describe.each(["root", "parent"] as const)("inherited %s deadline before timer delivery", (kind) => {
+    it.each(["consume", "recordInputBytes", "recordOutputBytes", "recordRetry", "recordToolCall"] as const)("cancels the deadline owner's subtree before %s", (operation) => {
+      vi.useFakeTimers()
+      const deadlineAt = Date.now() + 1_000
+      const root = createExecutionBudget({ deadlineAt: kind === "root" ? deadlineAt : deadlineAt + 1_000 })
+      const owner = kind === "root" ? root : root.child({ deadlineAt })
+      const rootSibling = root.child()
+      const child = owner.child()
+      const budget = child.child()
+      const sibling = owner.child()
+      const descendant = budget.child()
+      try {
+        root.recordToolCall(3)
+        const usage = root.snapshot().usage
+        // Expire the inherited deadline without delivering any deadline timer.
+        vi.setSystemTime(deadlineAt)
+        expect(owner.signal.aborted).toBe(false)
+        const charge = () => {
+          if (operation === "consume") budget.consume("toolCalls")
+          else budget[operation](1)
+        }
+
+        expect(charge).toThrow("deadline exceeded")
+        expect(owner.signal.reason).toMatchObject({ name: "TimeoutError" })
+        for (const cancelled of [owner, child, budget, sibling, descendant]) {
+          expect(cancelled.signal.aborted).toBe(true)
+          expect(cancelled.signal.reason).toBe(owner.signal.reason)
+          expect(cancelled.snapshot().usage).toEqual(usage)
+        }
+        expect(root.snapshot().usage).toEqual(usage)
+        if (kind === "root") expect(rootSibling.signal.reason).toBe(owner.signal.reason)
+        else {
+          for (const active of [root, rootSibling]) {
+            expect(active.signal.aborted).toBe(false)
+            expect(() => active.recordToolCall()).not.toThrow()
+          }
+        }
+      }
+      finally {
+        root.dispose()
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  it.each([0, 1_000])("preserves ancestor deadline ownership when a child deadline is %s ms later", (offset) => {
+    vi.useFakeTimers()
+    const deadlineAt = Date.now() + 1_000
+    const root = createExecutionBudget({ deadlineAt })
+    const child = root.child({ deadlineAt: deadlineAt + offset })
+    const sibling = root.child()
+    try {
+      vi.setSystemTime(deadlineAt)
+      expect(() => child.recordToolCall()).toThrow("deadline exceeded")
+      expect(root.signal.reason).toMatchObject({ name: "TimeoutError" })
+      expect(child.signal.reason).toBe(root.signal.reason)
+      expect(sibling.signal.reason).toBe(root.signal.reason)
+      expect(root.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
+    }
+    finally {
+      root.dispose()
+      vi.useRealTimers()
+    }
+  })
+
   it("chains long root and child deadlines without timer overflow", () => {
     vi.useFakeTimers()
     try {
@@ -37,6 +131,35 @@ describe("ExecutionBudget", () => {
     expect(budget.signal.aborted).toBe(true)
     const inputBudget = createExecutionBudget({ maxInputBytes: 6 })
     expect(() => inputBudget.recordToolCall(7)).toThrow("inputBytes")
+  })
+
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1])("rejects invalid tool input bytes %s without charging or cancelling", (inputBytes) => {
+    const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 1 })
+    try {
+      expect(() => budget.recordToolCall(inputBytes)).toThrow(RangeError)
+      expect(budget.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
+      expect(budget.signal.aborted).toBe(false)
+
+      budget.recordToolCall(3)
+      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 3, toolCalls: 1 })
+    }
+    finally {
+      budget.dispose()
+    }
+  })
+
+  it.each([undefined, 0])("allows a tool call with %s input bytes after the parent's byte usage exceeds the child's limit", (inputBytes) => {
+    const budget = createExecutionBudget({ maxInputBytes: 3 })
+    try {
+      budget.recordInputBytes(3)
+      const child = budget.child({ maxInputBytes: 0 })
+      child.recordToolCall(inputBytes)
+      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 3, toolCalls: 1 })
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      budget.dispose()
+    }
   })
 
   it("aborts on byte exhaustion and detaches external cancellation listeners", () => {
@@ -88,6 +211,37 @@ describe("ExecutionBudget", () => {
     expect(() => budget.recordToolCall()).toThrow("cancelled")
   })
 
+  it.each(["cancel", "external signal"])("propagates parent %s to existing and new descendants only", source => {
+    const external = new AbortController()
+    const root = createExecutionBudget()
+    const parent = root.child({ signal: external.signal })
+    const sibling = root.child()
+    const grandchild = parent.child()
+    const descendant = grandchild.child()
+    const reason = new Error("stop this subtree")
+
+    try {
+      if (source === "cancel") parent.cancel(reason)
+      else external.abort(reason)
+
+      for (const budget of [parent, grandchild, descendant, parent.child(), grandchild.child()]) {
+        expect(budget.signal.aborted).toBe(true)
+        expect(budget.signal.reason).toBe(reason)
+        expect(budget.snapshot().cancelled).toBe(true)
+        expect(() => budget.recordToolCall()).toThrow(reason)
+      }
+      expect(root.snapshot().usage.toolCalls).toBe(0)
+      for (const budget of [root, sibling]) {
+        expect(budget.signal.aborted).toBe(false)
+        expect(() => budget.recordToolCall()).not.toThrow()
+      }
+      expect(root.snapshot().usage.toolCalls).toBe(2)
+    }
+    finally {
+      root.dispose()
+    }
+  })
+
   it("keeps failed compound usage atomic and honors child signals and deadlines", async () => {
     const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 2 })
     expect(() => budget.recordToolCall(4)).toThrow(ExecutionBudgetExceededError)
@@ -119,8 +273,11 @@ describe("ExecutionBudget", () => {
       expect(vi.getTimerCount()).toBe(0)
 
       external.abort(new Error("late cancellation"))
+      vi.setSystemTime(Date.now() + 3_000)
       expect(budget.signal.aborted).toBe(false)
       expect(child.signal.aborted).toBe(false)
+      expect(() => budget.recordToolCall()).not.toThrow()
+      expect(() => child.recordToolCall()).not.toThrow()
     }
     finally {
       vi.useRealTimers()

@@ -87,15 +87,12 @@ export default defineConfig(async () => {
       import("@vite-hub/kv/vite"),
       import("@vite-hub/queue/vite"),
       import("@vite-hub/schedule/vite"),
-      import("@vite-hub/sandbox-task/vite"),
+      import("@vite-hub/sandbox/task/vite"),
       import("@vite-hub/workspace/vite"),
       import("@vite-hub/workflow/vite"),
     ])
     const { createViteE2EComposer, resolveViteE2EOptions } = await import("./build/vite-e2e")
     const composerOptions = resolveViteE2EOptions(import.meta.dirname, hosting)
-    const providerImportAliases: Record<string, string> = {}
-    // SAFETY: This private option only shares generated string aliases between the playground's Queue and compatibility plugins.
-    const queuePlugin = hubQueue({ providerImportAliases } as never)
 
     return {
       ...baseConfig,
@@ -119,7 +116,7 @@ export default defineConfig(async () => {
         : {},
       kv: {},
       plugins: [
-        queuePlugin,
+        hubQueue(),
         hubSchedule(),
         hubKv(),
         hubWorkflow(),
@@ -130,7 +127,6 @@ export default defineConfig(async () => {
         createViteE2EComposer({
           ...composerOptions,
           clientOutDir: "dist/client",
-          providerImportAliases,
           rootDir: import.meta.dirname,
           workspace: composerOptions.workspace,
         }),
@@ -219,7 +215,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.sandbox) {
-    const { hubSandboxTask } = await import("@vite-hub/sandbox-task/vite")
+    const { hubSandboxTask } = await import("@vite-hub/sandbox/task/vite")
     return {
       ...baseConfig,
       plugins: [hubSandboxTask()],

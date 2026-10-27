@@ -1,7 +1,7 @@
 import { useIntervalFn, useMounted, useNow } from "@vueuse/core";
 import { channelIcon } from "./internal/channel-icon.ts";
 import { invocationBrand, invocationBrandMark, invocationModelMaker } from "./internal/invocation-brand.ts";
-import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
+import { computed, defineAsyncComponent, defineComponent, getCurrentInstance, h, nextTick, onBeforeUnmount, ref, useId, type PropType, type DefineComponent, type ComponentOptionsMixin, Suspense, watch } from "vue";
 import type { AgentInvocationConfiguration, AgentInvocationView } from "./types.ts";
 import {
   agentInvocationContext,
@@ -27,6 +27,7 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
+import { isSafeExternalUrl } from "./internal/url.ts";
 import { Markdown } from "@vite-hub/ui/markdown";
 import { ToolList } from "@vite-hub/ui/tool-list";
 
@@ -138,19 +139,93 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
-function invocationError(error: NonNullable<AgentInvocationView["error"]>) {
-  const description = () => [
-    h("p", { class: "vh-invocation-error__message", title: error.message }, error.message),
-    error.fix ? h("p", { class: "vh-invocation-error__recovery" }, error.fix) : null,
-    diagnosticDetails(error),
-  ];
-  const title = error.name && error.name !== "Error" ? error.name : "Run failed";
-  const Alert = getCurrentInstance()?.appContext.components.UAlert;
-  return Alert ? h(Alert, {
-    class: "vh-invocation-error", color: "error", variant: "subtle", icon: "i-lucide-circle-alert", title,
-    ui: { title: "text-xs", description: "text-xs", root: "p-3" },
-  }, { description }) : h("div", { class: "vh-invocation-error", role: "alert" }, [h("strong", title), ...description()]);
-}
+type InvocationErrorValue = NonNullable<AgentInvocationView["error"]>;
+
+/**
+ * A failed run, at the end of the thread where the run stopped (Vercel's failed build, Railway's diagnosis): what
+ * failed, how to fix it, and the full diagnostic to copy. A plain element, not UAlert, so it looks the same in the
+ * standalone Console and in hosts that register Nuxt UI. It is a record, not a live alert, so opening an old session
+ * does not interrupt a screen reader.
+ */
+const InvocationError = defineComponent({
+  name: "InvocationError",
+  props: {
+    error: { required: true, type: Object as PropType<InvocationErrorValue> },
+  },
+  setup(props) {
+    const titleId = useId();
+    const detailsId = useId();
+    const detailsOpen = ref(false);
+    const copyStatus = ref<"copied" | "failed">();
+    let copyTimer: ReturnType<typeof setTimeout> | undefined;
+    onBeforeUnmount(() => {
+      if (copyTimer) clearTimeout(copyTimer);
+    });
+
+    async function copyError() {
+      try {
+        if (!("navigator" in globalThis) || !navigator.clipboard) throw new Error("Clipboard unavailable");
+        await navigator.clipboard.writeText(payloadText(diagnosticPayload(props.error)));
+        copyStatus.value = "copied";
+      } catch {
+        copyStatus.value = "failed";
+      }
+      if (copyTimer) clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => copyStatus.value = undefined, 2_000);
+    }
+
+    return () => {
+      const error = props.error;
+      const payload = diagnosticPayload(error);
+      // Match Console request errors' HTTPS-only policy; keep the original URL in the diagnostic.
+      const docs = error.docs?.startsWith("https://") && isSafeExternalUrl(error.docs) ? error.docs : undefined;
+      // The message alone repeats the card; any other field is worth a details view.
+      const hasDetails = Object.keys(payload).length > 1;
+      // The name and status qualify the code; a plain "Error" name says nothing.
+      const meta = [error.name && error.name !== "Error" ? error.name : undefined, error.code === undefined ? undefined : String(error.code), error.status ?? error.statusCode]
+        .filter(value => value !== undefined && value !== "")
+        .join(" · ");
+      return h("section", { class: "vh-invocation-error", "aria-labelledby": titleId, "data-slot": "invocation-error" }, [
+        h("header", { class: "vh-invocation-error__header" }, [
+          h("svg", { class: "vh-invocation-error__icon", "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
+            h("circle", { cx: "12", cy: "12", r: "9" }),
+            h("path", { d: "m15 9-6 6m0-6 6 6", "stroke-linecap": "round" }),
+          ]),
+          h("h3", { class: "vh-invocation-error__title", id: titleId }, "Run failed"),
+          meta ? h("code", { class: "vh-invocation-error__code", title: meta }, meta) : null,
+        ]),
+        // A leading namespace such as "[vitehub]" repeats the source; the copied diagnostic keeps the full message.
+        h("p", { class: "vh-invocation-error__message" }, error.message.replace(/^\[[\w./-]+\]\s*/, "")),
+        error.fix ? h("div", { class: "vh-invocation-error__fix" }, [
+          h("p", { class: "vh-invocation-error__label" }, "How to fix"),
+          h("p", error.fix),
+        ]) : null,
+        h("div", { class: "vh-invocation-error__actions" }, [
+          docs ? h("a", { class: "vh-invocation-error__action", href: docs, rel: "noreferrer", target: "_blank" }, [
+            "Read the docs",
+            h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [h("path", { d: "M7 17 17 7M8 7h9v9", "stroke-linecap": "round", "stroke-linejoin": "round" })]),
+          ]) : null,
+          h("button", { class: "vh-invocation-error__action", type: "button", onClick: copyError }, [
+            copyIcon(copyStatus.value === "copied"),
+            copyStatus.value === "copied" ? "Copied" : copyStatus.value === "failed" ? "Copy failed" : "Copy error",
+          ]),
+          hasDetails ? h("button", {
+            "aria-controls": detailsId,
+            "aria-expanded": detailsOpen.value ? "true" : "false",
+            class: "vh-invocation-error__action",
+            type: "button",
+            onClick: () => detailsOpen.value = !detailsOpen.value,
+          }, [
+            h("svg", { class: "vh-invocation-error__chevron", "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [h("path", { d: "m9 6 6 6-6 6", "stroke-linecap": "round", "stroke-linejoin": "round" })]),
+            "Details",
+          ]) : null,
+          h("span", { "aria-live": "polite", class: "vh-visually-hidden", role: "status" }, copyStatus.value === "copied" ? "Error copied" : copyStatus.value === "failed" ? "Could not copy the error" : ""),
+        ]),
+        hasDetails ? h("pre", { class: "vh-invocation-error__details", hidden: !detailsOpen.value, id: detailsId }, payloadText(payload)) : null,
+      ]);
+    };
+  },
+});
 
 function invocationTimestamp(invocation: AgentInvocationView) {
   const value = [invocation.startedAt, invocation.createdAt].find(value => value && Number.isFinite(Date.parse(value)));
@@ -159,14 +234,16 @@ function invocationTimestamp(invocation: AgentInvocationView) {
   return h("time", {
     class: "vh-invocation-session__timestamp",
     datetime: date.toISOString(),
-    title: date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }),
-  }, date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+    title: date.toLocaleString("en", { dateStyle: "full", timeStyle: "long" }),
+  }, date.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }));
 }
 
-function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
+/** Every diagnostic field of a failed run, for the details view and the copied error. */
+function diagnosticPayload(error: InvocationErrorValue): Record<string, unknown> {
   const details: Record<string, unknown> = { message: error.message };
   if (error.fix) details.fix = error.fix;
   if (error.docs) details.docs = error.docs;
+  if (error.sources?.length) details.sources = error.sources;
   if (error.code !== undefined) details.code = error.code;
   if (error.requestId) details.requestId = error.requestId;
   if (error.status !== undefined) details.status = error.status;
@@ -174,11 +251,7 @@ function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
   if (error.details) details.details = error.details;
   if (error.cause) details.cause = error.cause;
   if (error.errors?.length) details.errors = error.errors;
-  if (Object.keys(details).length === 1) return null;
-  return h("details", { class: "vh-invocation-error__details" }, [
-    h("summary", "Diagnostic details"),
-    h("pre", payloadText(details)),
-  ]);
+  return details;
 }
 
 function jsonValueLabel(value: unknown): string {
@@ -453,7 +526,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
   if (!value || !Number.isFinite(Date.parse(value))) return;
   const date = new Date(value);
   if (!mounted) return { short: date.toISOString(), title: date.toISOString(), value };
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const dayDifference = Math.round((startOfToday - startOfMessageDay) / 86_400_000);
@@ -463,7 +536,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
     ? time
     : dayDifference === 1
       ? `Yesterday at ${time}`
-      : `${new Intl.DateTimeFormat(undefined, dateOptions).format(date)} ${time}`;
+      : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
     title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
@@ -1622,7 +1695,6 @@ const agentInvocation = defineComponent({
         ]) : null,
         h("div", { class: "vh-invocation-thread" }, [
           h("div", { class: "vh-invocation-thread__content" }, [
-            props.invocation.error ? invocationError(props.invocation.error) : null,
             invocationTimestamp(props.invocation),
             h("div", {
               "aria-label": "Session thread",
@@ -1650,9 +1722,10 @@ const agentInvocation = defineComponent({
               openActivities.value,
               setActivityOpen,
             ))]),
-            activities.value.length
+            activities.value.length || props.invocation.error
               ? null
               : h("div", { class: "vh-invocation-empty", role: "status" }, [h("p", "Waiting for the first update…")]),
+            props.invocation.error ? h(InvocationError, { error: props.invocation.error }) : null,
             slots.footer?.({ invocation: props.invocation }),
           ]),
         ]),
@@ -1832,7 +1905,7 @@ const agentInvocationInspector = defineComponent({
                       : null,
                   ])
                 : null,
-              props.showError && props.invocation.error ? invocationError(props.invocation.error) : null,
+              props.showError && props.invocation.error ? h(InvocationError, { error: props.invocation.error }) : null,
             ]),
             inspectorSection(
               "Run summary",

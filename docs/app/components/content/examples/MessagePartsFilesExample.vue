@@ -7,8 +7,7 @@ const chart =
     '<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="#fafafa"/><path d="M20 150 L90 110 L160 120 L230 60 L300 40" stroke="#18181b" stroke-width="4" fill="none"/></svg>',
   );
 
-// SAFETY: Every fixture entry below is a concrete AI SDK file or source part.
-const parts = [
+const parts: UIMessage["parts"] = [
   { type: "file", filename: "latency.svg", mediaType: "image/svg+xml", url: chart },
   { type: "file", filename: "report.txt", mediaType: "text/plain", url: "data:text/plain,p95%3D180ms" },
   {
@@ -23,7 +22,7 @@ const parts = [
     mediaType: "application/pdf",
     title: "Incident review 2026-08",
   },
-] as UIMessage["parts"];
+];
 </script>
 
 <template>

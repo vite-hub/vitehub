@@ -61,8 +61,8 @@ function resolveDriverCapabilities(options: CreateRateLimiterOptions, capabiliti
 function hasInvalidSupportedWindows(value: unknown): boolean {
   if (!Array.isArray(value)) return true
   for (let index = 0; index < value.length; index++) {
-    const window: unknown = value[index]
-    if (typeof window !== "number" || !Number.isInteger(window) || window <= 0 || window > 8.64e15) return true
+    const windowMs: unknown = value[index]
+    if (typeof windowMs !== "number" || !Number.isInteger(windowMs) || windowMs <= 0 || windowMs > 8.64e15) return true
   }
   return false
 }
@@ -112,8 +112,13 @@ function assertDriverSupportsPolicy(options: CreateRateLimiterOptions, capabilit
   }
 }
 
+const driverPeekResultSchema = v.object({
+  resetAt: v.optional(v.unknown()),
+  used: v.pipe(v.number(), v.integer(), v.minValue(0)),
+})
+
 function normalizePeekResult(result: unknown, policy: ResolvedRateLimitPolicy): RateLimitPeekResult {
-  if (!v.is(v.object({ resetAt: v.optional(v.unknown()), used: v.pipe(v.number(), v.integer(), v.minValue(0)) }), result)) {
+  if (!v.is(driverPeekResultSchema, result)) {
     throw rateLimitErrorDiagnostics.RATE_LIMIT_R0037({ message: "[vitehub] Rate Limit driver peek() must return an object with a non-negative integer used count." })
   }
   const resetAt = result.resetAt

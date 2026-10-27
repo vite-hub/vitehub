@@ -1,10 +1,10 @@
 # @vite-hub/workflow
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
-  <img alt="Workflow" src="https://img.shields.io/badge/Workflow-durable%20steps-7c3aed?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
+  <img alt="Workflow" src="https://comark-ui.onmax.me/badge.svg?label=Workflow&amp;value=durable+steps">
 </p>
 
 `@vite-hub/workflow` discovers named long-running work and exposes one provider-neutral API for starting and inspecting runs.
@@ -56,7 +56,6 @@ ViteHub discovers `server/workflows/<name>.ts`, folder workflows such as `server
 // server/workflow-runtime.ts
 import type {
   ResolvedWorkflowOptions,
-  WorkflowDefinition,
   WorkflowDefinitionRegistry,
 } from "@vite-hub/workflow";
 import {
@@ -74,9 +73,7 @@ export const workflowConfig = {
 } satisfies ResolvedWorkflowOptions;
 
 const workflowRegistry = {
-  "onboard-user": async () => ({
-    default: (await import("./workflows/onboard-user.ts")).default as WorkflowDefinition,
-  }),
+  "onboard-user": () => import("./workflows/onboard-user.ts"),
 } satisfies WorkflowDefinitionRegistry;
 
 export function installWorkflowRuntime() {
@@ -151,6 +148,8 @@ The other runtime helpers are:
 
 Unsupported provider operations fail with `WORKFLOW_OPERATION_UNSUPPORTED`; ViteHub does not pretend that an inline run was cancelled or resumed.
 
+Inline runs buffer the response body before completion. Each inspection and duplicate start returns a fresh response, so reading or cancelling one result does not consume later results. A body read failure marks the run as failed.
+
 Inline run inspection uses weak references while execution is active. A reachable execution remains inspectable; an abandoned execution with no remaining owner can be garbage-collected and then reports `unknown`. Completed inline runs are retained for five minutes, up to 1,024 entries per runtime. Completed history does not evict active executions. If either `WeakRef` or `FinalizationRegistry` is unavailable, active inspection uses strong references capped at 1,024 entries. Starting another run evicts the oldest active inspection entry, even if execution is still reachable; it reports `unknown` and completion does not restore it. Use a durable provider when inspection must survive abandonment or a process restart.
 
 ## Make a Vercel workflow durable
@@ -162,7 +161,7 @@ pnpm add workflow @workflow/builders
 ```
 
 ```ts
-import { defineWorkflow, type WorkflowExecutionContext } from "@vite-hub/workflow";
+import { defineWorkflow, type WorkflowExecutionContext, type WorkflowProviderContext } from "@vite-hub/workflow";
 
 interface OnboardPayload {
   email: string;
@@ -174,7 +173,7 @@ async function upsertUserStep(email: string) {
   return await upsertUser(email, { idempotencyKey: `onboard-user:${email}` });
 }
 
-async function durableOnboard({ payload }: WorkflowExecutionContext<OnboardPayload>) {
+async function durableOnboard({ payload }: WorkflowProviderContext<OnboardPayload>) {
   "use workflow";
 
   const user = await upsertUserStep(payload.email);
@@ -189,7 +188,7 @@ async function inlineOnboard({ payload }: WorkflowExecutionContext<OnboardPayloa
 export default defineWorkflow(inlineOnboard, { native: durableOnboard });
 ```
 
-ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Put external side effects in idempotent `use step` functions because a durable step may be retried.
+ViteHub transforms `native` when it generates Vercel output. Other providers keep using the normal handler. Vercel calls `native` with a `WorkflowProviderContext`, which has no `steps` runner. Put external side effects in idempotent `use step` functions because a durable step may be retried.
 
 ## Handle stable failures
 

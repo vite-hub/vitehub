@@ -22,7 +22,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
-import { hubSandboxTask } from "@vite-hub/sandbox-task/vite"
+import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -32,6 +32,7 @@ import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutpu
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
+import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -41,6 +42,7 @@ import { consoleConnectionsActorId } from "./console/auth-build.ts"
 import { agentChannelEnvPlugin } from "./agent-channel-env.ts"
 import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
+import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
@@ -62,10 +64,9 @@ import type { EnvVitePlugin } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/build/esbuild"
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
-import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
-import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
+import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
@@ -110,6 +111,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -117,7 +119,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
-  "@vite-hub/sandbox-task": true,
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
@@ -180,8 +181,8 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
   return {
     ...(sandboxTask
       ? {
-          sandboxTask: "vite-hub/sandbox-task",
-          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox-task/runtime/state`,
+          sandboxTask: "vite-hub/sandbox/task",
+          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox/task/runtime/state`,
         }
       : {}),
     shellWorkspace: "vite-hub/shell/workspace",
@@ -591,6 +592,26 @@ function deploymentPlugins(
     {
       name: "vite-hub/deployment-preset",
       enforce: "pre",
+      nitro: {
+        async setup(nitro) {
+          // Keep Nitro's single config load (including dotenv) authoritative.
+          const configured = nitro.options._c12.layers?.some(layer =>
+            layer.config?.serverDir !== undefined || layer.config?.srcDir !== undefined)
+          if (configured) return
+          const serverDir = resolve(nitro.options.rootDir, "server") + "/"
+          nitro.options.serverDir = serverDir
+          if (!nitro.options.scanDirs.includes(serverDir)) nitro.options.scanDirs.unshift(serverDir)
+          // Nitro has already scanned plugins, tasks and modules at this point.
+          // Reuse the pinned Nitro version's scanners to preserve its ignore rules,
+          // task precedence and module loading/deduplication semantics.
+          const builderUrl = import.meta.resolve("nitro/builder")
+          const { scanAndSyncOptions } = await import(new URL("./_chunks/nitro2.mjs", builderUrl).href)
+          const { installModules } = await import(new URL("./_chunks/nitro.mjs", builderUrl).href)
+          const existingModules = new Set(nitro.options.modules)
+          await scanAndSyncOptions(nitro)
+          await installModules(nitro, (nitro.options.modules ?? []).filter(module => !existingModules.has(module)))
+        },
+      },
       resolveId(source) {
         if (!blobEnabled && (source === "vite-hub/blob" || source === frameworkProviderImportAliases["vite-hub/blob"])) {
           if (!plan.services.blob.supported) assertDeploymentService(plan, "blob")
@@ -971,6 +992,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(...deploymentPlugins(plan, requestedServices, blobEnabled, manifestServices, options, envPlugin))
   plugins.push(publicUrlPlugin(options.publicUrl))
+  plugins.push(standardContextVitePlugin())
   const providerImportAliases: Record<string, string> = {}
   const configuredKV = options.kv && options.kv !== true ? options.kv : undefined
   const presetKV = options.kv ? resolveKVViteConfig(configuredKV, { hosting: plan.nitroPreset }).kv : false
@@ -1077,7 +1099,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubSandboxTask({
       ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox-task",
+      providerImportSpecifier: "vite-hub/sandbox/task",
     } as SandboxTaskPublicOptions))
   }
   if (options.agent) {
@@ -1138,11 +1160,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(hubQueue({
-      importBase: "vite-hub/queue",
-      provider: plan.services.queue.adapter,
-      providerImportAliases,
-    } as QueueModuleOptions))
+    plugins.push(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" }))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
@@ -1227,6 +1245,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
+  // Lets CommonJS dependencies run in the workerd dev server of the Cloudflare presets.
+  plugins.push(nitroWorkerdDependencies())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,

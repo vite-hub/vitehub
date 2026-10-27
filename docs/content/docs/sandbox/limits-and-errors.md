@@ -13,6 +13,12 @@ icon: i-lucide-circle-alert
 - Vercel closes each Sandbox session after success or failure. Cloudflare creates and closes a unique Sandbox for each run unless you set `sandboxId`.
 - A Cloudflare `sandboxId` shares one Sandbox. ViteHub deletes invocation-local files after each attempt, caches prepared projects by digest, and serializes runs with the same ID in one isolate. Separate Worker isolates can still enter the Sandbox at the same time.
 
+## Cleanup failures
+
+`runSandboxTask()` returns a non-2xx response if Cloudflare cannot remove invocation-local files, even when the handler succeeds. A failed cleanup can leave those files in a shared Sandbox. Session cleanup failures also return a non-2xx response.
+
+If execution and cleanup both fail, the response keeps the primary error code and message. Timeouts keep `SANDBOX_TASK_TIMEOUT` and HTTP 504. When you call `resolveSandboxTaskRunner().run()` directly, the thrown error retains both failures in an `AggregateError` in its cause chain. Provider diagnostics remain available through causes. JSON responses omit causes.
+
 ## Production checks
 
 A Definition name and its payload select work. They are not a permission boundary. Code inside the Sandbox can use the filesystem, environment, network, credentials, and child processes that the provider exposes.
@@ -20,7 +26,7 @@ A Definition name and its payload select work. They are not a permission boundar
 Inspect that authority before execution when your policy depends on it:
 
 ```ts [server/sandbox-authority.ts]
-import { resolveSandboxTaskRunner } from '@vite-hub/sandbox-task'
+import { resolveSandboxTaskRunner } from '@vite-hub/sandbox/task'
 
 const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)

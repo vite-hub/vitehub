@@ -161,7 +161,7 @@ function scheduleDeadline(controller: AbortController, deadlineAt: number, node:
   schedule()
 }
 
-function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode, externalSignal?: AbortSignal): ExecutionBudget {
+function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, controller: AbortController, node: BudgetNode, externalSignal?: AbortSignal, deadlineController = controller): ExecutionBudget {
   function assertAvailable(counter: ExecutionBudgetCounter, amount: number) {
     const stateReason = state.controller.signal.reason
     const controllerReason = controller.signal.reason
@@ -174,6 +174,10 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     if (state.sharedController.signal.aborted) {
       if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
       state.sharedController.signal.throwIfAborted()
+    }
+    if (!node.disposed && limits.deadlineAt !== undefined && Date.now() >= limits.deadlineAt) {
+      deadlineController.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
+      deadlineController.signal.throwIfAborted()
     }
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
@@ -207,9 +211,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       const abortChild = (reason?: unknown) => childController.abort(reason)
       const releaseSignals = [childController.signal, state.sharedController.signal]
       if (state.sharedController.signal.aborted) abortChild(state.sharedController.signal.reason)
-      else if (state.controller.signal.aborted) abortChild(state.controller.signal.reason)
+      else if (controller.signal.aborted) abortChild(controller.signal.reason)
       else {
-        listenUntilReleased(state.controller.signal, () => abortChild(state.controller.signal.reason), childNode, releaseSignals)
+        listenUntilReleased(controller.signal, () => abortChild(controller.signal.reason), childNode, releaseSignals)
         listenUntilReleased(state.sharedController.signal, () => abortChild(state.sharedController.signal.reason), childNode, releaseSignals)
       }
       if (options.signal) {
@@ -217,6 +221,8 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         else if (!childController.signal.aborted) listenUntilReleased(options.signal, () => abortChild(options.signal?.reason), childNode, releaseSignals)
       }
       const deadlineAt = minDefined(limits.deadlineAt, childLimits.deadlineAt)
+      // An inherited deadline (including a tie) still cancels its owner's subtree.
+      const childDeadlineController = deadlineAt === limits.deadlineAt ? deadlineController : childController
       if (deadlineAt !== undefined) scheduleDeadline(childController, deadlineAt, childNode, state.sharedController.signal)
       return createBudget(state, {
         deadlineAt,
@@ -224,7 +230,7 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
         maxOutputBytes: minDefined(limits.maxOutputBytes, childLimits.maxOutputBytes),
         maxRetries: minDefined(limits.maxRetries, childLimits.maxRetries),
         maxToolCalls: minDefined(limits.maxToolCalls, childLimits.maxToolCalls),
-      }, childController, childNode, options.signal)
+      }, childController, childNode, options.signal, childDeadlineController)
     },
     consume(counter, amount = 1) {
       consume(counter, amount)
@@ -243,9 +249,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     },
     recordToolCall(inputBytes = 0) {
       assertAvailable("toolCalls", 1)
-      if (inputBytes) assertAvailable("inputBytes", inputBytes)
+      if (inputBytes !== 0) assertAvailable("inputBytes", inputBytes)
       state.usage.toolCalls += 1
-      if (inputBytes) state.usage.inputBytes += inputBytes
+      if (inputBytes !== 0) state.usage.inputBytes += inputBytes
     },
     snapshot() {
       const remainingTime = limits.deadlineAt === undefined ? undefined : Math.max(0, limits.deadlineAt - Date.now())

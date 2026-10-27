@@ -3,8 +3,9 @@ title: Agent Channels
 navigation.title: Channels
 description: Connect an Agent to web chat and messaging platforms without mixing transport with identity.
 navigation.order: 40
-navigation.group: Connect
+navigation.group: Channels
 icon: i-lucide-radio
+navigation.kind: Guides
 ---
 
 A Channel describes where an Agent Invocation came from and how replies return there. It carries transport, event, thread, message, and delivery facts. It does not prove who the caller is.
@@ -460,8 +461,9 @@ webhook: defineChannelTrigger({
 A trigger often reads a saved value, decides, and writes a new value, such as the last version of a record. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` holds a lock on the key while `run` reads `value` and stages `set()` or `delete()`. `key` is relative to `channelState.keyPrefix`. The type argument types the saved value. A second delivery for the same key waits for the lock, up to `waitMs` (10 seconds by default), then throws so that the delivery retries.
 
 ```ts
+durableState: true,
 invoke: (context, change: { id: string, version: number, text: string }) =>
-  context.channelState!.transaction<{ version: number }>(`record:${change.id}`, (record) => {
+  context.channelState.transaction<{ version: number }>(`record:${change.id}`, (record) => {
     if (record.value && record.value.version >= change.version) return ignored('stale_update')
     record.set({ version: change.version })
     return { input: { prompt: change.text }, webhook: { deliveryId: `${change.id}:${change.version}`, serialize: change.id } }
@@ -509,7 +511,6 @@ Select the Channel and its destination when the application starts the invocatio
 import { runAgent } from 'vite-hub/agent'
 
 await runAgent(agent, {
-  memo: (_key, create) => create(),
   runtime: 'vite',
   waitUntil: schedule.waitUntil ?? (() => {}),
   run: {
@@ -882,3 +883,7 @@ A Channel and an Agent Invocation are separate records. One Agent Definition can
 Use verified Channel metadata to identify the Agent Actor, choose a Capability, or select a Workspace Scope. When a message reaches the wrong Agent, carries the wrong identity, or loses delivery data, inspect the Channel and the [Invocation](/docs/agents/invocations) together.
 
 To send an application message without an Agent, use the [Channels Server Primitive](/docs/channels).
+
+## Next steps
+
+Follow [Build a chat app](/docs/agents/build-a-chat-app) for a complete web client, and [Chat History and sessions](/docs/agents/chat-history-sessions) to choose which prior messages reach the model. Inspect results with [Observability](/docs/agents/observability) and [Test an Agent](/docs/agents/testing).

@@ -22,6 +22,166 @@ afterEach(async () => {
 })
 
 describe("bundleEsmEntry", () => {
+  it.each(["cloudflare", "vercel", "vercel-isolated", "netlify", "netlify-config"] as const)("minifies final %s output with independent opt-outs and preserved runtime behavior", async (provider) => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const runtime = resolve(import.meta.dirname, "../../runtime/src/index.ts")
+    await writeFile(entry, `
+import { basename } from "node:path"
+import { createRuntimeContext, defineCapability, getCapability, ViteHubError, getViteHubErrorShape } from ${JSON.stringify(runtime)}
+const config = { errorType: "ViteHubError" }
+export const environment = () => process.env.NODE_ENV
+export const fileName = () => basename("/provider/entry.mjs")
+export function branch() {
+  const enabled = false
+  if (enabled) return "unreachable-provider-branch"
+  return "ready"
+}
+export function names() {
+  function declaredFunction() {}
+  class DeclaredClass {}
+  const retainedFunction = function() {}
+  const RetainedClass = class {}
+  return [declaredFunction, DeclaredClass, retainedFunction, RetainedClass, ViteHubError].map(value => value.name)
+}
+export default async function handleRequest(request) {
+  const context = createRuntimeContext({ runtime: "node", capabilities: { health: defineCapability("health", { status: "ready" }) } })
+  let drained = false
+  context.waitUntil(Promise.resolve().then(() => { drained = true }))
+  await context.flushWaitUntil()
+  try {
+    const ErrorType = new Map([[ViteHubError.name, ViteHubError]]).get(config.errorType)
+    if (new URL(request.url).pathname === "/error") throw new ErrorType("PROVIDER_DENIED", "Access denied", { details: { reason: "test" } })
+    return Response.json({ runtime: context.runtime, health: getCapability(context, "health").value.status, drained })
+  } catch (error) {
+    return Response.json(getViteHubErrorShape(error), { status: 403 })
+  }
+}
+`)
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    const outputs = new Map<string, string>()
+    for (const [mode, minification] of Object.entries({
+      compact: {},
+      explicit: { minifyIdentifiers: true, minifySyntax: true, minifyWhitespace: true },
+      noIdentifiers: { minifyIdentifiers: false },
+      noSyntax: { minifySyntax: false },
+      noWhitespace: { minifyWhitespace: false },
+      readable: { minifyIdentifiers: false, minifySyntax: false, minifyWhitespace: false },
+      identifiers: { minifySyntax: false, minifyWhitespace: false },
+      syntax: { minifyIdentifiers: false, minifyWhitespace: false },
+      whitespace: { minifyIdentifiers: false, minifySyntax: false },
+    })) {
+      const outputRoot = resolve(rootDir, mode)
+      const bundleOptions: NonNullable<Parameters<typeof bundleEsmEntry>[2]> = { ...minification, external: ["node:*"], platform: provider === "cloudflare" ? "neutral" : "node" }
+      await writeProviderDeploymentOutputs({
+        clientOutDir: "dist",
+        rootDir,
+        ...(provider === "cloudflare" ? {
+          cloudflare: { bundleEntry: entry, bundleOptions, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+        } : provider.startsWith("vercel") ? {
+          vercel: { bundleEntry: entry, bundleOptions, function: provider === "vercel-isolated" ? { kind: "isolated", name: "handler.func" } : { kind: "root" }, outputRoot },
+        } : {
+          netlify: { functions: [{ bundleEntry: entry, bundleOptions, config: provider === "netlify-config" ? { path: "/health" } : undefined, functionName: "handler" }], outputRoot },
+        }),
+      })
+      const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : provider === "vercel-isolated" ? "functions/handler.func/index.mjs" : "functions/handler.mjs")
+      const code = await readFile(outfile, "utf8")
+      outputs.set(mode, code)
+      expect(code).toContain('"node:path"')
+      expect(code).toContain("process.env.NODE_ENV")
+      // SAFETY: The entry above defines these exports and each output is imported from its own path.
+      const loaded = await import(pathToFileURL(outfile).href) as {
+        default: (request: Request) => Promise<Response>
+        branch: () => string
+        config?: { path: string }
+        environment: () => string | undefined
+        fileName: () => string
+        names: () => string[]
+      }
+      expect(loaded.default.name).toBe("handleRequest")
+      expect(loaded.branch()).toBe("ready")
+      expect(loaded.names()).toEqual(["declaredFunction", "DeclaredClass", "retainedFunction", "RetainedClass", "ViteHubError"])
+      expect(loaded.config).toEqual(provider === "netlify-config" ? { path: "/health" } : undefined)
+      expect(loaded.environment()).toBe(process.env.NODE_ENV)
+      expect(loaded.fileName()).toBe("entry.mjs")
+      await expect((await loaded.default(new Request("https://provider.test/"))).json()).resolves.toEqual({ runtime: "node", health: "ready", drained: true })
+      const denied = await loaded.default(new Request("https://provider.test/error"))
+      expect(denied.status).toBe(403)
+      await expect(denied.json()).resolves.toEqual({ name: "ViteHubError", code: "PROVIDER_DENIED", message: "Access denied", details: { reason: "test" } })
+      const identifiersMinified = provider === "netlify-config" || bundleOptions.minifyIdentifiers !== false
+      expect(/function handleRequest\(/.test(code)).toBe(!identifiersMinified)
+    }
+    const compact = outputs.get("compact")!
+    const readable = outputs.get("readable")!
+    expect(outputs.get("explicit")).toBe(compact)
+    if (provider === "netlify-config") expect(outputs.get("noIdentifiers")).toBe(compact)
+    else expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(outputs.get("noIdentifiers")!))
+    expect(Buffer.byteLength(compact)).toBeLessThan(Buffer.byteLength(readable) * 0.9)
+    expect(compact.split("\n").length).toBeLessThan(outputs.get("syntax")!.split("\n").length)
+    expect(compact).not.toContain("unreachable-provider-branch")
+    expect(outputs.get("syntax")).not.toContain("unreachable-provider-branch")
+    expect(outputs.get("whitespace")).toContain("unreachable-provider-branch")
+    expect(outputs.get("identifiers")).toContain("unreachable-provider-branch")
+    expect(outputs.get("noSyntax")).toContain("unreachable-provider-branch")
+    expect(outputs.get("noWhitespace")).not.toContain("unreachable-provider-branch")
+    expect(readable).toContain("unreachable-provider-branch")
+    const intermediate = resolve(rootDir, "intermediate.mjs")
+    await bundleEsmEntry(entry, intermediate, { external: ["node:*"], platform: provider === "cloudflare" ? "neutral" : "node" })
+    const intermediateCode = await readFile(intermediate, "utf8")
+    expect(intermediateCode).toContain("function handleRequest(")
+    expect(intermediateCode).toContain("unreachable-provider-branch")
+    if (provider !== "netlify-config") expect(intermediateCode).toBe(readable)
+  })
+
+  it.each(["cloudflare", "vercel", "netlify"] as const)("minifies final %s output without bundle option overrides", async (provider) => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const outputRoot = resolve(rootDir, "output")
+    await writeFile(entry, 'export default function handleRequest(request) { return request.url }\n')
+    const { writeProviderDeploymentOutputs } = await import("../src/build/deployment-output.ts")
+    await writeProviderDeploymentOutputs({
+      clientOutDir: "dist",
+      rootDir,
+      ...(provider === "cloudflare" ? {
+        cloudflare: { bundleEntry: entry, bundleOutfileName: "index.mjs", outputRoot, wranglerConfig: { main: "index.mjs" } },
+      } : provider === "vercel" ? {
+        vercel: { bundleEntry: entry, bundleOptions: {}, outputRoot },
+      } : {
+        netlify: { functions: [{ bundleEntry: entry, bundleOptions: {}, functionName: "handler" }], outputRoot },
+      }),
+    })
+    const outfile = resolve(outputRoot, provider === "cloudflare" ? "index.mjs" : provider === "vercel" ? "functions/__server.func/index.mjs" : "functions/handler.mjs")
+    expect(await readFile(outfile, "utf8")).not.toContain("function handleRequest(")
+    const loaded = await import(pathToFileURL(outfile).href)
+    expect(loaded.default.name).toBe("handleRequest")
+    expect(loaded.default(new Request("https://provider.test/"))).toBe("https://provider.test/")
+  })
+
+  it.each([
+    { minifySyntax: true },
+    { minifyIdentifiers: true },
+    { minifyIdentifiers: true, minifySyntax: false },
+  ])("preserves names for direct bundle minification with %j", async (minification) => {
+    const rootDir = await createTempDir()
+    const entry = resolve(rootDir, "entry.mjs")
+    const outfile = resolve(rootDir, "bundle.mjs")
+    await writeFile(entry, `
+export default function handleRequest() {
+  function declaredFunction() {}
+  class DeclaredClass {}
+  const inferredFunction = function() {}
+  const InferredClass = class {}
+  return [declaredFunction, DeclaredClass, inferredFunction, InferredClass].map(value => value.name)
+}
+`)
+    const { bundleEsmEntry } = await import("../src/build/esbuild.ts")
+    await bundleEsmEntry(entry, outfile, minification)
+    const loaded = await import(pathToFileURL(outfile).href)
+    expect(loaded.default.name).toBe("handleRequest")
+    expect(loaded.default()).toEqual(["declaredFunction", "DeclaredClass", "inferredFunction", "InferredClass"])
+  })
+
   it("keeps mounted Console links isolated across concurrent provider builds", async () => {
     const { contributeProviderDeploymentOutput, finalizeProviderDeploymentOutputs, useProviderOutputCatalog } = await import("../src/build/deployment-output.ts")
     const runtime = resolve(import.meta.dirname, "../../runtime/src/public-url.ts")

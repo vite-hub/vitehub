@@ -74,7 +74,7 @@ describe("landing page", () => {
     const closing = await readFile(new URL("../app/components/landing/Closing.vue", import.meta.url), "utf8");
 
     expect(closingFacts.map((fact) => fact.id)).toEqual(["local", "license", "nuxthub", "hosts"]);
-    expect(tutorial).toContain("needs no provider account or credentials");
+    expect(tutorial).toMatch(/needs no provider\s+account or credentials/);
     expect(license).toContain("Apache License");
     expect(closingHosts.map((host) => host.name)).toEqual(["Cloudflare", "Vercel", "Netlify", "Deno", "Node"]);
     // The button opens the first primitive tutorial. No fact may be a second door to the same page.

@@ -171,6 +171,27 @@ describe("cloudflare queue runtime", () => {
     expect(sendBatch).toHaveBeenCalledWith([{ body: { id: 4 }, contentType: "json", delaySeconds: 2 }])
   })
 
+  it.each(["clear", "append"])("keeps batch receipts tied to sent messages when callers %s the input", async (mutation) => {
+    let acceptBatch = () => {}
+    const sendBatch = vi.fn(() => new Promise<void>((resolve) => { acceptBatch = resolve }))
+    const client = createCloudflareQueueClient({
+      binding: { send: vi.fn(async () => {}), sendBatch },
+      provider: "cloudflare",
+    })
+    const items = [{ body: "one" }, { body: "two" }]
+    const result = client.sendBatch(items)
+    expect(sendBatch).toHaveBeenCalledWith([
+      expect.objectContaining({ body: "one" }),
+      expect.objectContaining({ body: "two" }),
+    ])
+
+    if (mutation === "clear") items.length = 0
+    else items.push({ body: "three" })
+    acceptBatch()
+
+    await expect(result).resolves.toEqual([undefined, [{ status: "queued" }, { status: "queued" }]])
+  })
+
   it("sets the Cloudflare environment when enterWith is unavailable", () => {
     const env = { QUEUE_WELCOME: {} }
     vi.spyOn(AsyncLocalStorage.prototype, "enterWith").mockImplementation(() => {
@@ -216,6 +237,28 @@ describe("cloudflare queue runtime", () => {
     expect(report).toHaveBeenCalledTimes(1)
   })
 
+  it.each([
+    [200, false], [200, true], [503, false], [503, true],
+  ] as const)("releases a Cloudflare handler's HTTP %s body when cancellation rejects=%s", async (status, rejects) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const cancel = vi.fn(() => rejects ? Promise.reject(new Error("cleanup failed")) : Promise.resolve())
+    const response = new Response(new ReadableStream({ cancel }), { status })
+    const ack = vi.fn()
+    const retry = vi.fn()
+    const handler = createCloudflareQueueBatchHandler({ onMessage: async () => response })
+
+    await handler({
+      ackAll: vi.fn(),
+      messages: [{ ack, attempts: 1, body: "payload", id: "1", retry }],
+      queue: "queue--666f6f",
+      retryAll: vi.fn(),
+    })
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(ack).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(status === 503 ? 1 : 0)
+  })
+
   it("honors explicit Cloudflare delivery directives", async () => {
     const report = vi.spyOn(console, "error").mockImplementation(() => {})
     const first = { ack: vi.fn(), retry: vi.fn() }
@@ -245,6 +288,40 @@ describe("cloudflare queue runtime", () => {
     expect(onError).toHaveBeenCalledTimes(2)
     expect(report).toHaveBeenCalledTimes(2)
     expect(report.mock.calls[0]?.[1]).toMatchObject({ queue: "image-expiry", retryable: true })
+  })
+
+  it.each([
+    [undefined, false, "retry"],
+    [undefined, true, "ack"],
+    ["ack", false, "ack"],
+    ["ack", true, "ack"],
+    ["retry", false, "retry"],
+    ["retry", true, "retry"],
+    [{ retry: { delaySeconds: 30 } }, false, "retry"],
+    [{ retry: { delaySeconds: 30 } }, true, "retry"],
+  ] as const)("preserves the message receiver for action %j with non-retryable error %s", async (action, nonRetryable, expected) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const message = { ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry: vi.fn() }
+    const batchHandler = createCloudflareQueueBatchHandler({
+      onError: () => action,
+      onMessage: async () => {
+        throw nonRetryable
+          ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`region`", provider: "cloudflare" })
+          : new Error("handler failed")
+      },
+    })
+
+    await batchHandler({ ackAll: vi.fn(), messages: [message], queue: "queue--666f6f", retryAll: vi.fn() })
+
+    expect(message.ack).toHaveBeenCalledTimes(expected === "ack" ? 1 : 0)
+    expect(message.retry).toHaveBeenCalledTimes(expected === "retry" ? 1 : 0)
+    expect(message[expected].mock.contexts).toEqual([message])
+    if (typeof action === "object") {
+      expect(message.retry).toHaveBeenCalledWith(action.retry)
+      expect(message.retry.mock.calls[0]![0]).toBe(action.retry)
+    } else {
+      expect(message[expected]).toHaveBeenCalledWith()
+    }
   })
 
   it("falls back to retry when the Cloudflare onError hook throws", async () => {
@@ -297,22 +374,29 @@ describe("cloudflare queue runtime", () => {
     ["inherited", Object.create({ retry: { delaySeconds: 30 } })],
     ["callable", Object.assign(() => undefined, { retry: { delaySeconds: 30 } })],
     ["array", Object.assign([], { retry: { delaySeconds: 30 } })],
-  ])("ignores %s Cloudflare retry directives", async (_kind, action) => {
+  ].flatMap(([kind, action]) => [false, true].map(nonRetryable => ({ kind, action, nonRetryable }))))("ignores $kind Cloudflare retry directives with non-retryable error $nonRetryable", async ({ action, nonRetryable }) => {
+    const ack = vi.fn()
     const retry = vi.fn()
     const onError = vi.fn(() => action)
     const batchHandler = createCloudflareQueueBatchHandler({
       onError,
-      onMessage: async () => { throw new Error("boom") },
+      onMessage: async () => {
+        throw nonRetryable
+          ? queueErrorDiagnostics.QUEUE_UNSUPPORTED_OPTION({ options: "`region`", provider: "cloudflare" })
+          : new Error("boom")
+      },
     })
 
     await batchHandler({
       ackAll: vi.fn(),
-      messages: [{ ack: vi.fn(), attempts: 1, body: "fail", id: "1", retry }],
+      messages: [{ ack, attempts: 1, body: "fail", id: "1", retry }],
       queue: "queue--666f6f",
       retryAll: vi.fn(),
     })
 
-    expect(retry).toHaveBeenCalledWith()
+    expect(ack).toHaveBeenCalledTimes(nonRetryable ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(nonRetryable ? 0 : 1)
+    expect(nonRetryable ? ack : retry).toHaveBeenCalledWith()
   })
 
   it("maps Cloudflare send failures without exposing provider payloads", async () => {
@@ -1042,6 +1126,74 @@ describe("vercel provider", () => {
       code: "QUEUE_VERCEL_SDK_UNAVAILABLE",
     })
     expect(JSON.stringify(error)).not.toMatch(/secret-token|queue\.example|private/)
+  })
+
+  it.each([302, 400, 500])("retries a Vercel handler that returns HTTP %s", async (status) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const retry = vi.fn(() => ({ afterSeconds: 30 }))
+    const acknowledge = vi.fn()
+    const definition = {
+      handler: async () => new Response("failed", { status }),
+      options: { callbackOptions: { retry } },
+    }
+    const metadata = { deliveryCount: 1, messageId: "message-1" }
+    // The Vercel SDK acknowledges resolved handlers and retries only rejections.
+    vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
+      try {
+        await (handler as (payload: unknown, metadata: unknown) => Promise<unknown>)({}, metadata)
+        acknowledge()
+      } catch (error) {
+        return (options as VercelQueueCallbackOptions).retry?.(error, metadata)
+      }
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    const result = await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+
+    expect(acknowledge).not.toHaveBeenCalled()
+    expect(retry).toHaveBeenCalledWith(expect.objectContaining({ message: `Queue handler returned HTTP ${status}`, status }), metadata)
+    expect(result).toEqual({ afterSeconds: 30 })
+  })
+
+  it.each([undefined, 200, 204])("accepts a successful Vercel handler with status %s", async (status) => {
+    const definition = { handler: async () => status === undefined ? undefined : new Response(null, { status }) }
+    vercelQueueMock.handleCallback.mockImplementationOnce(handler => async () => {
+      await (handler as (payload: unknown) => Promise<unknown>)({})
+      return "acknowledged"
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await expect(handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)).resolves.toBe("acknowledged")
+  })
+
+  it.each([
+    [200, false], [200, true], [503, false], [503, true],
+  ] as const)("releases a Vercel handler's HTTP %s body when cancellation rejects=%s", async (status, rejects) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const cancel = vi.fn(() => rejects ? Promise.reject(new Error("cleanup failed")) : Promise.resolve())
+    const response = new Response(new ReadableStream({ cancel }), { status })
+    const retry = vi.fn(() => ({ afterSeconds: 30 }))
+    const acknowledge = vi.fn()
+    const definition = { handler: async () => response, options: { callbackOptions: { retry } } }
+    vercelQueueMock.handleCallback.mockImplementationOnce((handler, options) => async () => {
+      try {
+        await (handler as (payload: unknown) => Promise<unknown>)({})
+        acknowledge()
+      } catch (error) {
+        return (options as VercelQueueCallbackOptions).retry?.(error, {})
+      }
+    })
+    setQueueRuntimeConfig({ provider: "vercel", region: "iad1" }, createVercelQueueRuntimeClient)
+    setQueueRuntimeRegistry({ welcome: async () => ({ default: definition }) })
+
+    await handleHostedVercelQueueCallback({ request: new Request("https://example.com") }, "welcome", definition)
+
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(acknowledge).toHaveBeenCalledTimes(status === 200 ? 1 : 0)
+    expect(retry).toHaveBeenCalledTimes(status === 503 ? 1 : 0)
+    if (status === 503) expect(retry).toHaveBeenCalledWith(expect.objectContaining({ status: 503 }), expect.anything())
   })
 
   it("preserves Vercel behavior when the retry callback returns undefined", async () => {

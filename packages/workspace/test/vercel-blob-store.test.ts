@@ -158,6 +158,198 @@ describe("Vercel Blob workspace store", () => {
     })
   })
 
+  it("round trips file attributes through reads, listings, and stats", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const file = { content: "before", mediaType: "text/markdown", metadata: { source: "docs", order: 2 }, path: "readme.md" }
+
+    await store.writeFile(file.path, file)
+
+    await expect(store.readFile(file.path)).resolves.toEqual({ ...file, content: new TextEncoder().encode(file.content) })
+    await expect(store.list()).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" }),
+    ]))
+    await expect(store.stat(file.path)).resolves.toMatchObject({ mediaType: file.mediaType, metadata: file.metadata, path: file.path, type: "file" })
+  })
+
+  it.each([false, true])("serializes writes across Store instances including failed recovery (failure: %s)", async (fail) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const options = { provider: "vercel-blob" as const, token: "token" }
+    const first = createVercelBlobWorkspaceStore(options, "docs")
+    const second = createVercelBlobWorkspaceStore(options, "docs")
+    const path = "readme.md"
+    await first.writeFile(path, { path, content: "original", metadata: { owner: "original" } })
+    const put = blobMock.put.getMockImplementation()!
+    let enter!: () => void
+    let release!: () => void
+    const entered = new Promise<void>((resolve) => { enter = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let paused = false
+    blobMock.put.mockImplementation(async (...args) => {
+      if (args[0].includes("file-attributes") && !paused) {
+        paused = true
+        enter()
+        await released
+        if (fail) throw new Error("sidecar unavailable")
+      }
+      return put(...args)
+    })
+    try {
+      const a = first.writeFile(path, { path, content: "A", metadata: { owner: "A" } })
+      const resultA = a.catch(error => error)
+      await entered
+      let completed = false
+      const b = second.writeFile(path, { path, content: "B", metadata: { owner: "B" } }).then(() => { completed = true })
+      // Give the second writer a full event-loop turn while A is paused.
+      await new Promise(resolve => setTimeout(resolve, 0))
+      const completedWhilePaused = completed
+      release()
+      const result = await resultA
+      await b
+      await expect(second.readFile(path)).resolves.toEqual({ path, content: new TextEncoder().encode("B"), metadata: { owner: "B" } })
+      expect(completedWhilePaused).toBe(false)
+      if (fail) expect(result).toBeInstanceOf(Error)
+      else expect(result).toBeUndefined()
+    }
+    finally {
+      release()
+      blobMock.put.mockImplementation(put)
+    }
+  })
+
+  it.each([false, true])("retries orphaned sidecar removal (recursive: %s)", async (recursive) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const path = "dir/readme.md"
+    await store.writeFile(path, { path, content: "bytes", metadata: { owner: "docs" } })
+    const del = blobMock.del.getMockImplementation()!
+    blobMock.del.mockImplementationOnce(del).mockRejectedValueOnce(new Error("sidecar unavailable"))
+    await expect(store.rm(recursive ? "dir" : path, { recursive })).rejects.toThrow("sidecar unavailable")
+    await expect(store.readFile(path)).resolves.toBeUndefined()
+    await store.rm(recursive ? "dir" : path, { recursive, force: true })
+    expect((await blobMock.list({ prefix: "_vitehub/workspaces/docs/" })).blobs).toEqual([])
+  })
+
+  it.each(["current", "legacy", "missing", "clear"])("restores %s state when updating attributes fails", async (state) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const original = { path: "readme.md", content: "original", mediaType: "text/markdown", metadata: { owner: "original" } }
+    if (state === "legacy") {
+      await blobMock.put(".vitehub/workspaces/docs/files/readme.md", original.content)
+      await blobMock.put(".vitehub/workspaces/docs/.vitehub/file-attributes/readme.md.json", JSON.stringify(original))
+    }
+    else if (state !== "missing") await store.writeFile(original.path, original)
+    const before = await store.readFile(original.path)
+    const failure = new Error("sidecar unavailable")
+    if (state === "clear") blobMock.del.mockRejectedValueOnce(failure)
+    else {
+      const put = blobMock.put.getMockImplementation()!
+      blobMock.put.mockImplementationOnce(put).mockRejectedValueOnce(failure)
+    }
+
+    await expect(store.writeFile(original.path, {
+      path: original.path,
+      content: "replacement",
+      ...(state === "clear" ? {} : { metadata: { owner: "replacement" } }),
+    })).rejects.toThrow("sidecar unavailable")
+    await expect(store.readFile(original.path)).resolves.toEqual(before)
+  })
+
+  it.each([false, true])("retains attributes when byte deletion fails (recursive: %s)", async (recursive) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const file = { path: "dir/readme.md", content: "original", mediaType: "text/markdown", metadata: { owner: "original" } }
+    await store.writeFile(file.path, file)
+    blobMock.del.mockRejectedValueOnce(new Error("byte deletion failed"))
+
+    await expect(store.rm(recursive ? "dir" : file.path, { recursive })).rejects.toThrow("byte deletion failed")
+    await expect(store.readFile(file.path)).resolves.toMatchObject({ mediaType: file.mediaType, metadata: file.metadata })
+    await store.rm(recursive ? "dir" : file.path, { recursive })
+    await expect(store.readFile(file.path)).resolves.toBeUndefined()
+  })
+
+  it("scopes current and legacy attribute listings to the requested subtree", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    await store.writeFile("dir/current.md", { path: "dir/current.md", content: "current", metadata: { root: "current" } })
+    await blobMock.put(".vitehub/workspaces/docs/files/dir/legacy.md", "legacy")
+    await blobMock.put(".vitehub/workspaces/docs/.vitehub/file-attributes/dir/legacy.md.json", JSON.stringify({ metadata: { root: "legacy" } }))
+
+    expect(await store.list("dir")).toEqual(expect.arrayContaining([
+      expect.objectContaining({ path: "dir/current.md", metadata: { root: "current" } }),
+      expect.objectContaining({ path: "dir/legacy.md", metadata: { root: "legacy" } }),
+    ]))
+    const attributePrefixes = blobMock.list.mock.calls.map(([options]) => options.prefix).filter(prefix => prefix?.includes("file-attributes"))
+    expect(attributePrefixes).toEqual([
+      "_vitehub/workspaces/docs/.vitehub/file-attributes/dir/",
+      ".vitehub/workspaces/docs/.vitehub/file-attributes/dir/",
+    ])
+  })
+
+  it.each(["current", "legacy"])("keeps %s bytes paired with attributes from the same root", async (root) => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    const selectedRoot = root === "current" ? "_vitehub/workspaces/docs" : ".vitehub/workspaces/docs"
+    const otherRoot = root === "current" ? ".vitehub/workspaces/docs" : "_vitehub/workspaces/docs"
+    await blobMock.put(`${selectedRoot}/files/readme.md`, root)
+    await blobMock.put(`${otherRoot}/.vitehub/file-attributes/readme.md.json`, JSON.stringify({ mediaType: "text/stale", metadata: { stale: true } }))
+
+    await expect(store.readFile("readme.md")).resolves.toEqual({ path: "readme.md", content: new TextEncoder().encode(root) })
+    expect(await store.stat("readme.md")).not.toHaveProperty("metadata")
+    expect(await store.stat("readme.md")).not.toHaveProperty("mediaType")
+    expect((await store.list())[0]).not.toHaveProperty("metadata")
+
+    const attributes = { mediaType: "text/markdown", metadata: { root } }
+    await blobMock.put(`${selectedRoot}/.vitehub/file-attributes/readme.md.json`, JSON.stringify(attributes))
+    await expect(store.readFile("readme.md")).resolves.toMatchObject(attributes)
+    await expect(store.stat("readme.md")).resolves.toMatchObject(attributes)
+    await expect(store.list()).resolves.toEqual([expect.objectContaining(attributes)])
+  })
+
+  it("downloads listing attributes concurrently with a bounded limit and current-root precedence", async () => {
+    process.env.BLOB_READ_WRITE_TOKEN = "token"
+    const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")
+    const store = createVercelBlobWorkspaceStore({ provider: "vercel-blob", token: "token" }, "docs")
+    for (let index = 0; index < 20; index++) {
+      await blobMock.put(`.vitehub/workspaces/docs/files/${index}.md`, "legacy")
+      await blobMock.put(`.vitehub/workspaces/docs/.vitehub/file-attributes/${index}.md.json`, JSON.stringify({ metadata: { root: "legacy" } }))
+      await store.writeFile(`${index}.md`, { path: `${index}.md`, content: "current", metadata: { index } })
+    }
+    const get = blobMock.get.getMockImplementation()!
+    let active = 0
+    let maximum = 0
+    blobMock.get.mockImplementation(async (...args) => {
+      active++
+      maximum = Math.max(maximum, active)
+      try {
+        await new Promise(resolve => setTimeout(resolve, 0))
+        return await get(...args)
+      }
+      finally {
+        active--
+      }
+    })
+    try {
+      const entries = await store.list()
+      expect(entries).toHaveLength(20)
+      for (let index = 0; index < 20; index++) {
+        expect(entries).toContainEqual(expect.objectContaining({ path: `${index}.md`, size: 7, metadata: { index } }))
+      }
+      expect(maximum).toBeGreaterThan(1)
+      expect(maximum).toBeLessThanOrEqual(8)
+    }
+    finally {
+      blobMock.get.mockImplementation(get)
+    }
+  })
+
   it("requests uncached reads for public blobs", async () => {
     process.env.BLOB_READ_WRITE_TOKEN = "token"
     const { createVercelBlobWorkspaceStore } = await import("../src/providers/vercel/blob-store.ts")

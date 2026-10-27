@@ -1,7 +1,7 @@
-import type { AgentRuntimeConfig, AgentRuntimeContext } from "../types.ts"
+import type { AgentRuntimeConfig, AgentRuntimeContext, AgentRuntimeContextInput } from "../types.ts"
 
 export function createAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig>(
-  input: Omit<AgentRuntimeContext<TRuntimeConfig>, "memo"> & { memo?: AgentRuntimeContext<TRuntimeConfig>["memo"] },
+  input: AgentRuntimeContextInput<TRuntimeConfig>,
 ): AgentRuntimeContext<TRuntimeConfig> {
   const values = new Map<string, unknown>()
   const memo: AgentRuntimeContext["memo"] = input.memo || ((key, create) => {
@@ -15,4 +15,17 @@ export function createAgentRuntimeContext<TRuntimeConfig extends AgentRuntimeCon
     ...input,
     memo,
   }
+}
+
+/** Keep a host context that has a memo cache. Give a caller context without one a fresh cache. */
+export function withAgentRuntimeMemo<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
+): AgentRuntimeContext<TRuntimeConfig> {
+  return hasAgentRuntimeMemo(context) ? context : createAgentRuntimeContext(context)
+}
+
+function hasAgentRuntimeMemo<TRuntimeConfig extends AgentRuntimeConfig>(
+  context: AgentRuntimeContextInput<TRuntimeConfig>,
+): context is AgentRuntimeContext<TRuntimeConfig> {
+  return typeof context.memo === "function"
 }

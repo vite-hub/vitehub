@@ -1,7 +1,9 @@
 ---
 title: Observability
 description: Export Agent lifecycle events, request failures and durable papercut reports through evlog.
-navigation.group: Core
+navigation.group: Inspect and evaluate
+navigation.order: 50
+navigation.kind: Guides
 ---
 
 Configure observability once in `vitehub()`. Install `evlog` in the host. Add `posthog-node` to export to PostHog.
@@ -78,3 +80,7 @@ Delivery is at least once. A crash between destination acceptance and the persis
 `eventPrefix` and `uuidNamespace` let existing consumers retain their stored event names and report identities. Keep these stable across deployments. On shutdown the reporter waits up to ten seconds for active work. A timed-out report is not marked as delivered. `status().papercuts` counts deliveries in flight, delivered and failed since start; undelivered reports stay in the journal for replay.
 
 Invocation links in events and reports use `vitehub({ publicUrl })`. Without it, events have no `session_url`. Quota checks, application routing and deployment revision labels remain application configuration.
+
+## Check behavior
+
+Observability records what happened. Use [Test an Agent](/docs/agents/testing) for deterministic contracts and [Evals](/docs/agents/evals) for model behavior. Configure [Invocation storage](/docs/agents/invocation-storage) when the Console or an exporter needs retained evidence.

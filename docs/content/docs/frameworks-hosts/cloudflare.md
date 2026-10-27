@@ -90,6 +90,10 @@ CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... pnpm vitehub provision run --
 
 Cloudflare output can include worker bundles, `wrangler.json`, D1 bindings, queue consumers, Rate Limiting bindings, cron triggers, and package-specific runtime imports. The Cloudflare preset materialises its deployment artifact under `.output/server`.
 
+In Nuxt, the preset enables Nitro's `cloudflare.deployConfig` by default so a
+local production build emits `.output/server/wrangler.json`. An explicit
+`nitro.cloudflare.deployConfig: false` disables that file.
+
 ```bash [Terminal]
 pnpm build
 test -f .output/server/wrangler.json
@@ -125,8 +129,7 @@ export default defineConfig({
   nitro: { preset: 'cloudflare-module' },
   plugins: [
     hubRateLimit({ namespace: 'acme-image-service-production' }),
-    // SAFETY: Nitro's Vite plugin is runtime-compatible with this Vite version despite its prerelease type identity.
-    nitro() as never,
+    nitro(),
   ],
 })
 ```
