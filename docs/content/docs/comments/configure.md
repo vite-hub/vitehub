@@ -212,15 +212,25 @@ A prerendered site can keep its files and still show the overlay. Run the server
 
 ```ts [server/middleware/pages.ts]
 import { defineEventHandler } from 'h3'
+import { wantsCommentMode } from 'vite-hub/comments/runtime'
 
 export default defineEventHandler(async (event) => {
   const { request, env } = event.context.cloudflare
   if (request.method !== 'GET') return
-  const file = await env.ASSETS.fetch(request)
+  let assetRequest = request
+  if (wantsCommentMode(request)) {
+    const headers = new Headers(request.headers)
+    headers.delete('if-none-match')
+    headers.delete('if-modified-since')
+    assetRequest = new Request(request, { headers })
+  }
+  const file = await env.ASSETS.fetch(assetRequest)
   // The overlay goes into this response for people in comment mode. Everyone else gets the file unchanged.
   if (file.status !== 404) return file
 })
 ```
+
+Comment-mode requests remove cache validators before fetching the asset. Otherwise the binding can return a bodyless `304`, and the browser reuses a cached page without the overlay. Requests without the comment hint retain their validators.
 
 The overlay is a custom element with its own shadow root. Your CSS does not change it, and its CSS does not change your page.
 

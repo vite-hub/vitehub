@@ -51,10 +51,10 @@ export function scriptNonce(headers: Headers): string | undefined {
 }
 
 /** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
-export function injectOverlay(response: Response, src: string): Response {
+export function injectOverlay(response: Response, src: string, policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src, scriptNonce(response.headers))
+  const tag = scriptTag(src, scriptNonce(policyHeaders))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -144,7 +144,13 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
       if (!(response.body instanceof Response)) return
       const request = nitro2Request(event)
-      if (request && wantsCommentMode(request)) response.body = injectOverlay(response.body, options.overlay)
+      if (request && wantsCommentMode(request)) {
+        // H3 preserves Node response headers unless the returned Response replaces them.
+        const headers = new Headers(response.body.headers)
+        const policy = event.node?.res?.getHeader?.("content-security-policy")
+        if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+        response.body = injectOverlay(response.body, options.overlay, headers)
+      }
     }])
   }
 }
