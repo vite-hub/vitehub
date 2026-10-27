@@ -126,6 +126,30 @@ describe("Comments API", () => {
     expect(nameless.body.error?.code).toBe("COMMENTS_FORBIDDEN")
   })
 
+  it("rejects guest deletion even when a visible author ID is copied", async () => {
+    const { comments, call } = await setup({ user: null, options: { authorize: () => true } })
+    const headers = { "x-vitehub-comments-guest-id": "victim", "x-vitehub-comments-guest-name": "Visitor" }
+    const created = await call("/threads", { method: "POST", headers, json: { page: "/", anchor, body: "Root" } })
+    const id = created.body.data.id
+    const reply = await call(`/threads/${id}/comments`, { method: "POST", headers, json: { body: "Reply" } })
+    const exposed = (await call("/threads?page=/")).body.data[0].createdBy.id
+    const copied = { ...headers, "x-vitehub-comments-guest-id": exposed.slice("guest:".length) }
+    for (const path of [`/threads/${id}/comments/${reply.body.data.id}`, `/threads/${id}/comments/${created.body.data.comments[0].id}`, `/threads/${id}`]) {
+      expect((await call(path, { method: "DELETE", headers: copied })).response.status).toBe(403)
+    }
+    const [error, saved] = await comments.get(id)
+    expect(error).toBeUndefined()
+    expect(saved?.comments.map(comment => comment.body)).toEqual(["Root", "Reply"])
+  })
+
+  it("lets a resolve-only moderator delete comments and threads", async () => {
+    const { comments, call } = await setup({ user: { id: "moderator", name: "Moderator" }, options: { authorize: ({ action }) => action !== "comment" } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
+    const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
+    expect((await call(`/threads/${thread!.id}/comments/${reply!.id}`, { method: "DELETE" })).response.status).toBe(200)
+    expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(200)
+  })
+
   it("lets authors delete their own reply, and only resolvers delete others'", async () => {
     let user: CommentsUser = { id: "ada", name: "Ada", role: "editor" }
     const comments = await createComments({ identify: () => user, authorize: ({ user, action }) => action !== "resolve" || user?.role === "editor" })

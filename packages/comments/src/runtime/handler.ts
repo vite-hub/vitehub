@@ -367,16 +367,17 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const comment = current.comments.find(candidate => candidate.id === commentId)
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
-        if (denied) return failure(denied)
-        if (comment.author.id === allowed.author?.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
-        // Someone else's comment: only people who may resolve delete it.
+        if (!denied && allowed.user && !comment.author.guest && comment.author.id === allowed.user.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Resolve-only moderators may delete too. Guest IDs never prove ownership.
         const [cannot, resolver] = await access(event, "resolve", current)
         if (cannot) return failure(cannot)
+        if (!resolver.user) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.removeComment(resolver.grant, id, commentId))
       }
       if (method === "DELETE" && !action) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
+        if (!allowed.user) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.remove(allowed.grant, id))
       }
     }
