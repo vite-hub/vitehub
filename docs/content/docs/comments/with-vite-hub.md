@@ -61,7 +61,7 @@ export const comments = defineComments({
 })
 ```
 
-Comments adds the tables `vitehub_comment_threads` and `vitehub_comments` to the `default` Database. Generate the migration and apply it:
+Comments adds the tables `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` to the `default` Database. Generate the migration and apply it:
 
 ```bash [commands/migrate]
 pnpm vitehub db generate

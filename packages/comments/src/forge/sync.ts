@@ -7,7 +7,7 @@ import { recentGitHubToken } from "./tokens.ts"
 
 import type { CommentsDatabase, CommentsStore } from "../store.ts"
 import type { Comment, CommentForgeLink, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
-import type { GitHubClient } from "./github.ts"
+import type { GitHubClient, GitHubComment } from "./github.ts"
 
 const { vitehubCommentForge: links } = commentsSchema
 
@@ -43,9 +43,9 @@ function linkOf(row: LinkRow): CommentForgeLink {
   return {
     repository: row.repository,
     pullRequest: row.pullRequest,
-    state: row.remoteId ? "posted" : row.error ? "failed" : "pending",
+    state: row.error ? "failed" : row.remoteId ? "posted" : "pending",
     ...(row.url ? { url: row.url } : {}),
-    ...(row.error && !row.remoteId ? { error: row.error } : {}),
+    ...(row.error ? { error: row.error } : {}),
     ...(row.postedAs ? { postedAs: row.postedAs } : {}),
   }
 }
@@ -82,47 +82,71 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     await database.update(links).set({ ...values, updatedAt: Date.now() }).where(eq(links.id, id))
   }
 
-  /**
-   * Claims a row before posting its comment, so a second sync does not post it twice. A new row is inserted; a row
-   * that failed, or whose claim timed out, is claimed again.
-   */
-  async function claim(id: string, existing: LinkRow | undefined, values: { threadId: string | null } & CommentsForgeTarget): Promise<boolean> {
-    const now = Date.now()
+  /** Pending writes are fenced by the claim's timestamp, including retries within the same millisecond. */
+  async function savePending(id: string, claimedAt: number, values: Partial<Omit<LinkRow, "id">>): Promise<void> {
+    await database.update(links).set(values)
+      .where(and(eq(links.id, id), isNull(links.remoteId), eq(links.updatedAt, claimedAt)))
+  }
+
+  /** Claims a create. An expired owner may still finish; recordPosted reconciles its response. */
+  async function claim(id: string, existing: LinkRow | undefined, values: { threadId: string | null } & CommentsForgeTarget): Promise<number | undefined> {
+    const now = Math.max(Date.now(), (existing?.updatedAt ?? 0) + 1)
     if (!existing) {
       const inserted = await database.insert(links).values({ id, ...values, minimized: false, updatedAt: now }).onConflictDoNothing().returning({ id: links.id })
-      return inserted.length > 0
+      return inserted.length ? now : undefined
     }
-    if (!existing.error && existing.updatedAt > now - claimTimeout) return false
+    if (existing.remoteId || (!existing.error && existing.updatedAt > Date.now() - claimTimeout)) return
     const claimed = await database.update(links).set({ error: null, updatedAt: now })
       .where(and(eq(links.id, id), isNull(links.remoteId), eq(links.updatedAt, existing.updatedAt))).returning({ id: links.id })
-    return claimed.length > 0
+    return claimed.length ? now : undefined
+  }
+
+  /**
+   * The first saved remote identity wins, even if its POST outlived its lease. A late creator cannot overwrite
+   * the winner, and deletes its own extra comment. If deletion already removed the row, it cleans up its POST.
+   */
+  async function recordPosted(id: string, at: CommentsForgeTarget, posted: GitHubComment, body: string, token: () => Promise<string>, postedAs?: "author" | "app"): Promise<LinkRow | undefined> {
+    const [saved] = await database.update(links).set({
+      remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: digest(body), error: null, updatedAt: Date.now(),
+      ...(postedAs ? { postedAs } : {}),
+    }).where(and(eq(links.id, id), isNull(links.remoteId))).returning()
+    if (saved) return saved
+    const current = await row(id)
+    if (current?.remoteId !== posted.id) await github.deleteComment(await token(), at.repository, posted.id)
+    return current
   }
 
   /** A claimed row may have reached GitHub before its creator died or lost the response. Never blindly repost it. */
-  async function recover(existing: LinkRow, token: () => Promise<string>): Promise<(LinkRow & { remoteId: string }) | undefined> {
+  async function recover(existing: LinkRow, token: () => Promise<string>): Promise<LinkRow | undefined> {
     const marker = existing.threadId === null ? summaryMarker : commentMarker(existing.threadId, existing.id)
     const posted = await github.findComment(await token(), existing.repository, existing.pullRequest, marker)
     if (!posted) return
-    const values = { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: digest(posted.body), error: null }
-    await save(existing.id, values)
-    return { ...existing, ...values }
+    return await recordPosted(existing.id, existing, posted, posted.body, token)
   }
 
   async function removeLink(existing: LinkRow, token: () => Promise<string>): Promise<void> {
-    let current = existing
+    let current = await row(existing.id)
+    if (!current) return
     if (!current.remoteId) {
-      // Keep an active creator's row until it can save the remote identity and observe the deletion itself.
-      if (!await claim(current.id, current, current)) return
+      // Keep an active creator's row until it can observe deletion itself.
+      const claimedAt = await claim(current.id, current, current)
+      if (claimedAt === undefined) return
       try {
-        current = await recover(current, token) ?? current
+        await recover(current, token)
       }
       catch (error) {
-        await save(current.id, { error: message(error) })
+        await savePending(current.id, claimedAt, { error: message(error) })
         throw error
       }
+      // Either delete an empty row atomically, or consume the identity a late creator just saved.
+      const removed = await database.delete(links).where(and(eq(links.id, current.id), isNull(links.remoteId))).returning({ id: links.id })
+      if (removed.length) return
+      current = await row(current.id)
     }
-    if (current.remoteId) await github.deleteComment(await token(), current.repository, current.remoteId)
-    await database.delete(links).where(eq(links.id, current.id))
+    if (current?.remoteId) {
+      await github.deleteComment(await token(), current.repository, current.remoteId)
+      await database.delete(links).where(and(eq(links.id, current.id), eq(links.remoteId, current.remoteId)))
+    }
   }
 
   async function target(thread: CommentThread): Promise<CommentsForgeTarget | undefined> {
@@ -151,87 +175,117 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     if (existing?.remoteId) {
       const body = renderComment(thread, comment, existing.postedAs ?? "app")
       const hash = digest(body)
-      if (existing.digest === hash) return
-      const token = existing.postedAs === "author" ? await authorToken(comment) ?? await appToken() : await appToken()
-      await github.updateComment(token, at.repository, existing.remoteId, body)
-      await save(comment.id, { digest: hash, error: null })
+      try {
+        if (existing.digest !== hash) {
+          const token = existing.postedAs === "author" ? await authorToken(comment) ?? await appToken() : await appToken()
+          await github.updateComment(token, at.repository, existing.remoteId, body)
+          await save(comment.id, { digest: hash, error: null })
+        }
+        else if (existing.error) await save(comment.id, { error: null })
+      }
+      catch (error) {
+        await save(comment.id, { error: message(error) })
+        return
+      }
+      // A PATCH from an older isolate may finish last. Repair from the database before finishing this sync.
+      const latest = await store.get(thread.id)
+      const edited = latest?.comments.find(item => item.id === comment.id)
+      if (latest && edited && renderComment(latest, edited, existing.postedAs ?? "app") !== body) {
+        await syncComment(latest, edited, await row(comment.id), at, appToken)
+      }
       return
     }
-    if (!await claim(comment.id, existing, { threadId: thread.id, ...at })) return
+    const claimedAt = await claim(comment.id, existing, { threadId: thread.id, ...at })
+    if (claimedAt === undefined) return
     try {
       const recovered = existing ? await recover(existing, appToken) : undefined
-      if (recovered) {
+      if (recovered?.remoteId) {
         await syncComment(thread, comment, recovered, at, appToken)
         return
       }
       const own = await authorToken(comment)
       let postedAs: "author" | "app" = own ? "author" : "app"
       let body = renderComment(thread, comment, postedAs)
+      let token = own ?? await appToken()
       let posted
       try {
-        await save(comment.id, { postedAs })
-        posted = await github.createComment(own ?? await appToken(), at.repository, at.pullRequest, body)
+        await savePending(comment.id, claimedAt, { postedAs })
+        posted = await github.createComment(token, at.repository, at.pullRequest, body)
       }
       catch (error) {
         // A revoked or narrow user token: post for them instead.
         if (!own || !(error instanceof GitHubRequestError && (error.status === 401 || error.status === 403 || error.status === 404))) throw error
         postedAs = "app"
         body = renderComment(thread, comment, postedAs)
-        await save(comment.id, { postedAs })
-        posted = await github.createComment(await appToken(), at.repository, at.pullRequest, body)
+        token = await appToken()
+        await savePending(comment.id, claimedAt, { postedAs })
+        posted = await github.createComment(token, at.repository, at.pullRequest, body)
       }
-      await save(comment.id, { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: digest(body), postedAs, error: null })
+      const saved = await recordPosted(comment.id, at, posted, body, async () => token, postedAs)
+      const latest = await store.get(thread.id)
+      const edited = latest?.comments.find(item => item.id === comment.id)
+      if (saved?.remoteId && latest && edited) await syncComment(latest, edited, saved, at, appToken)
     }
     catch (error) {
-      await save(comment.id, { error: message(error) })
+      await savePending(comment.id, claimedAt, { error: message(error) })
     }
+  }
+
+  async function summaryBody(at: CommentsForgeTarget, extraId?: string): Promise<string | undefined> {
+    const rows = await database.select().from(links)
+      .where(and(eq(links.repository, at.repository), eq(links.pullRequest, at.pullRequest), isNotNull(links.threadId)))
+    const ids = new Set(rows.map(item => item.threadId!))
+    if (extraId) ids.add(extraId)
+    const threads = (await Promise.all([...ids].map(threadId => store.get(threadId)))).filter(thread => thread !== undefined)
+    if (!threads.length) return
+    return renderSummary({
+      title,
+      threads: threads.map((thread) => {
+        const first = rows.find(item => item.id === thread.comments[0]?.id)
+        return { thread, ...(first?.url ? { url: first.url } : {}), failed: Boolean(first?.error) }
+      }),
+    })
   }
 
   async function syncSummary(at: CommentsForgeTarget, extra?: CommentThread): Promise<void> {
     await inOrder(`summary:${at.repository}#${at.pullRequest}`, async () => {
       const id = `summary:${at.repository}#${at.pullRequest}`
-      const rows = await database.select().from(links)
-        .where(and(eq(links.repository, at.repository), eq(links.pullRequest, at.pullRequest), isNotNull(links.threadId)))
-      const ids = [...new Set(rows.map(item => item.threadId!))]
-      const threads = (await Promise.all(ids.map(threadId => store.get(threadId)))).filter(thread => thread !== undefined)
-      if (extra && !ids.includes(extra.id)) threads.push(extra)
-      const existing = await row(id)
       let appToken: string | undefined
       const token = async () => appToken ??= await github.appToken(at.repository)
-      if (!threads.length) {
-        if (existing) await removeLink(existing, token)
-        return
-      }
-      const body = renderSummary({
-        title,
-        threads: threads.map((thread) => {
-          const first = rows.find(item => item.id === thread.comments[0]?.id)
-          return { thread, ...(first?.url ? { url: first.url } : {}), failed: Boolean(first?.error && !first.remoteId) }
-        }),
-      })
-      const hash = digest(body)
-      if (existing?.remoteId) {
-        if (existing.digest === hash) return
-        await github.updateComment(await token(), at.repository, existing.remoteId, body)
-        await save(id, { digest: hash, error: null })
-        return
-      }
-      if (!await claim(id, existing, { threadId: null, ...at })) return
-      try {
-        const recovered = existing ? await recover(existing, token) : undefined
-        if (recovered) {
-          if (recovered.digest !== hash) {
-            await github.updateComment(await token(), at.repository, recovered.remoteId, body)
-            await save(id, { digest: hash, error: null })
-          }
+      // Recompute after each request so an overlapping, older PATCH cannot leave a stale summary either.
+      while (true) {
+        const existing = await row(id)
+        const body = await summaryBody(at, extra?.id)
+        if (body === undefined) {
+          if (existing) await removeLink(existing, token)
           return
         }
-        const posted = await github.createComment(await token(), at.repository, at.pullRequest, body)
-        await save(id, { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: hash, postedAs: "app", error: null })
-      }
-      catch (error) {
-        await save(id, { error: message(error) })
-        throw error
+        const hash = digest(body)
+        if (existing?.remoteId) {
+          if (existing.digest === hash) return
+          try {
+            await github.updateComment(await token(), at.repository, existing.remoteId, body)
+            await save(id, { digest: hash, error: null })
+          }
+          catch (error) {
+            await save(id, { error: message(error) })
+            throw error
+          }
+          continue
+        }
+        const claimedAt = await claim(id, existing, { threadId: null, ...at })
+        if (claimedAt === undefined) return
+        try {
+          const recovered = existing ? await recover(existing, token) : undefined
+          if (recovered?.remoteId) continue
+          const posted = await github.createComment(await token(), at.repository, at.pullRequest, body)
+          const saved = await recordPosted(id, at, posted, body, token, "app")
+          if (!saved) return
+        }
+        catch (error) {
+          await savePending(id, claimedAt, { error: message(error) })
+          throw error
+        }
       }
     })
   }
@@ -244,9 +298,25 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     let appToken: string | undefined
     const token = async () => appToken ??= await github.appToken(at.repository)
 
-    // The summary goes first on a new pull request, so it sits above the threads.
-    if (thread && !(await row(`summary:${at.repository}#${at.pullRequest}`))?.remoteId) {
-      await syncSummary(at, thread).catch(error => console.warn("[vitehub] Comments could not post the pull request summary:", error))
+    // A failed or in-flight initial summary must never let a thread take its place above it.
+    let delay = 10
+    try {
+      while (thread && !(await row(`summary:${at.repository}#${at.pullRequest}`))?.remoteId) {
+        await syncSummary(at, thread)
+        if ((await row(`summary:${at.repository}#${at.pullRequest}`))?.remoteId) break
+        thread = await store.get(threadId)
+        if (!thread) break
+        await new Promise(resolve => setTimeout(resolve, delay))
+        delay = Math.min(delay * 2, 1000)
+      }
+    }
+    catch (error) {
+      const first = (await store.get(threadId))?.comments[0]
+      if (first) {
+        await database.insert(links).values({ id: first.id, threadId, ...at, error: message(error), updatedAt: Date.now() }).onConflictDoNothing()
+      }
+      console.warn("[vitehub] Comments could not post the pull request summary:", error)
+      return
     }
 
     // Another isolate may have removed the thread while the summary was being posted.
