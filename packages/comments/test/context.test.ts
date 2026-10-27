@@ -79,4 +79,30 @@ describe("page context", () => {
     ])
     expect(describeCommentContext(null)).toEqual([])
   })
+
+  it.each([
+    ['<input type="checkbox">', "checkbox"],
+    ['<input type="radio">', "radio"],
+    ['<input type="submit">', "button"],
+    ['<input type="reset">', "button"],
+    ['<input type="image">', "button"],
+    ['<input type="range">', "slider"],
+    ['<input type="number">', "spinbutton"],
+    ['<input type="search">', "searchbox"],
+    ['<input list="suggestions"><datalist id="suggestions"></datalist>', "combobox"],
+    ['<input list="missing">', "textbox"],
+    ['<input type="email">', "textbox"],
+    ['<input type="password">', undefined],
+    ['<input type="hidden">', undefined],
+    ['<input type="file">', undefined],
+    ['<a href="/pricing">Pricing</a>', "link"],
+    ["<a>Placeholder</a>", undefined],
+    ["<select><option>One</option></select>", "combobox"],
+    ["<select multiple><option>One</option></select>", "listbox"],
+    ['<select size="3"><option>One</option></select>', "listbox"],
+    ['<input type="checkbox" role="switch">', "switch"],
+  ])("captures the role of %s", (html, role) => {
+    document.body.innerHTML = html
+    expect(captureContext(document.body.firstElementChild!).element?.role).toBe(role)
+  })
 })

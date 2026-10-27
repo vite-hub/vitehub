@@ -68,7 +68,40 @@ function routeOf(): string | undefined {
   }
 }
 
-const implicitRoles: Record<string, string> = { a: "link", button: "button", h1: "heading", h2: "heading", h3: "heading", h4: "heading", img: "img", input: "textbox", nav: "navigation", select: "combobox", textarea: "textbox" }
+const implicitRoles: Record<string, string> = { button: "button", h1: "heading", h2: "heading", h3: "heading", h4: "heading", h5: "heading", h6: "heading", img: "img", nav: "navigation", textarea: "textbox" }
+
+function implicitRole(element: Element, tag: string): string | undefined {
+  if (tag === "a") return element.hasAttribute("href") ? "link" : undefined
+  if (tag === "select") return element.hasAttribute("multiple") || Number(element.getAttribute("size")) > 1 ? "listbox" : "combobox"
+  if (tag === "input") {
+    const type = element.getAttribute("type")?.toLowerCase() ?? "text"
+    switch (type) {
+      case "checkbox": return "checkbox"
+      case "radio": return "radio"
+      case "button":
+      case "submit":
+      case "reset":
+      case "image": return "button"
+      case "range": return "slider"
+      case "number": return "spinbutton"
+      case "hidden":
+      case "password":
+      case "file":
+      case "color":
+      case "date":
+      case "datetime-local":
+      case "month":
+      case "time":
+      case "week": return undefined
+      default: {
+        const list = element.getAttribute("list")
+        if (list && element.ownerDocument.getElementById(list)?.localName === "datalist") return "combobox"
+        return type === "search" ? "searchbox" : "textbox"
+      }
+    }
+  }
+  return Object.hasOwn(implicitRoles, tag) ? implicitRoles[tag] : undefined
+}
 
 function elementOf(element: Element): NonNullable<CommentContext["element"]> {
   const tag = element.tagName.toLowerCase()
@@ -77,7 +110,7 @@ function elementOf(element: Element): NonNullable<CommentContext["element"]> {
   const testId = element.closest("[data-testid], [data-test], [data-cy]")
   const testValue = testId?.getAttribute("data-testid") ?? testId?.getAttribute("data-test") ?? testId?.getAttribute("data-cy")
   if (testValue) result.testId = testValue.slice(0, 128)
-  const role = element.getAttribute("role") ?? implicitRoles[tag]
+  const role = element.getAttribute("role") ?? implicitRole(element, tag)
   if (role) result.role = role.slice(0, 64)
   const name = element.getAttribute("aria-label") ?? element.getAttribute("alt") ?? element.getAttribute("title") ?? element.textContent?.replace(/\s+/g, " ").trim()
   if (name) result.name = name.slice(0, 120)

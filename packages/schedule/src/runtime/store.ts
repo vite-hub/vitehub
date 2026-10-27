@@ -94,20 +94,20 @@ async function withKVKeyLock<T>(key: string, operation: () => Promise<T>): Promi
   }
 }
 
-function cloneScheduleRun(record: ScheduleRunRecord): ScheduleRunRecord {
+function cloneScheduleRun(record: ScheduleRunRecord | StoredScheduleRunRecord): ScheduleRunRecord {
   return {
     ...record,
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
     createdAt: new Date(record.createdAt),
-    scheduledAt: new Date(record.scheduledAt),
     error: record.error ? { ...record.error } : undefined,
     response: record.response ? structuredClone(record.response) : undefined,
+    scheduledAt: new Date(record.scheduledAt),
     startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
     updatedAt: new Date(record.updatedAt),
   }
 }
 
-function cloneScheduleRunAttempt(record: ScheduleRunAttemptRecord): ScheduleRunAttemptRecord {
+function cloneScheduleRunAttempt(record: ScheduleRunAttemptRecord | StoredScheduleRunAttemptRecord): ScheduleRunAttemptRecord {
   return {
     ...record,
     completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
@@ -131,19 +131,6 @@ function serializeScheduleRun(record: ScheduleRunRecord): StoredScheduleRunRecor
   }
 }
 
-function deserializeScheduleRun(record: StoredScheduleRunRecord): ScheduleRunRecord {
-  return {
-    ...record,
-    completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
-    createdAt: new Date(record.createdAt),
-    error: record.error ? { ...record.error } : undefined,
-    response: record.response ? structuredClone(record.response) : undefined,
-    scheduledAt: new Date(record.scheduledAt),
-    startedAt: record.startedAt ? new Date(record.startedAt) : undefined,
-    updatedAt: new Date(record.updatedAt),
-  }
-}
-
 function serializeScheduleRunAttempt(record: ScheduleRunAttemptRecord): StoredScheduleRunAttemptRecord {
   return {
     ...record,
@@ -152,17 +139,6 @@ function serializeScheduleRunAttempt(record: ScheduleRunAttemptRecord): StoredSc
     error: record.error ? { ...record.error } : undefined,
     startedAt: record.startedAt.toISOString(),
     updatedAt: record.updatedAt.toISOString(),
-  }
-}
-
-function deserializeScheduleRunAttempt(record: StoredScheduleRunAttemptRecord): ScheduleRunAttemptRecord {
-  return {
-    ...record,
-    completedAt: record.completedAt ? new Date(record.completedAt) : undefined,
-    createdAt: new Date(record.createdAt),
-    error: record.error ? { ...record.error } : undefined,
-    startedAt: new Date(record.startedAt),
-    updatedAt: new Date(record.updatedAt),
   }
 }
 
@@ -319,7 +295,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     for (let offset = 0; offset < legacyKeys.length; offset += 16) {
       const batch = await Promise.all(legacyKeys.slice(offset, offset + 16).map(async key => {
         const stored = await store.get<StoredScheduleRunRecord>(key)
-        const run = stored ? deserializeScheduleRun(stored) : undefined
+        const run = stored ? cloneScheduleRun(stored) : undefined
         recordsByKey.set(key, run)
         if (run) await indexRun(run)
         return { key, run }
@@ -354,7 +330,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
       const batch = await Promise.all(selectedKeys.slice(index, index + 16).map(async (key) => {
         if (recordsByKey.has(key)) return recordsByKey.get(key)
         const stored = await store.get<StoredScheduleRunRecord>(key)
-        const run = stored ? deserializeScheduleRun(stored) : undefined
+        const run = stored ? cloneScheduleRun(stored) : undefined
         recordsByKey.set(key, run)
         return run
       }))
@@ -388,11 +364,11 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
     },
     async getAttempt(id) {
       const attempt = await store.get<StoredScheduleRunAttemptRecord>(scheduleRunAttemptKey(prefix, id))
-      return attempt ? deserializeScheduleRunAttempt(attempt) : undefined
+      return attempt ? cloneScheduleRunAttempt(attempt) : undefined
     },
     async getRun(id) {
       const run = await store.get<StoredScheduleRunRecord>(scheduleRunKey(prefix, id))
-      return run ? deserializeScheduleRun(run) : undefined
+      return run ? cloneScheduleRun(run) : undefined
     },
     async listAttempts(runId) {
       const [keys, indexKeys] = await Promise.all([
@@ -423,7 +399,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
         const batch = await Promise.all(selectedKeys.slice(offset, offset + 16).map(async (key) => {
           const stored = await store.get<StoredScheduleRunAttemptRecord>(key)
           if (!stored) return
-          const attempt = deserializeScheduleRunAttempt(stored)
+          const attempt = cloneScheduleRunAttempt(stored)
           if (!runByAttemptId.has(attempt.id)) await indexAttempt(attempt)
           return attempt.runId === runId ? attempt : undefined
         }))
@@ -449,7 +425,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
           return undefined
         }
         const next = cloneScheduleRunAttempt({
-          ...deserializeScheduleRunAttempt(existing),
+          ...cloneScheduleRunAttempt(existing),
           ...patch,
           updatedAt: patch.updatedAt,
         })
@@ -465,7 +441,7 @@ export function createKVScheduleRunStore(options: KVScheduleStoreOptions): Sched
           return undefined
         }
         const next = cloneScheduleRun({
-          ...deserializeScheduleRun(existing),
+          ...cloneScheduleRun(existing),
           ...patch,
           updatedAt: patch.updatedAt,
         })

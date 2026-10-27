@@ -213,7 +213,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     // Keep the app's own components: names without a project file, such as RouterView or a UI library's, are noise.
     // Without a file map, or when none matches, keep the three innermost names.
     const named = context.components?.map((component) => {
-      const files = options.components?.[component.name]
+      const files = options.components && Object.hasOwn(options.components, component.name) ? options.components[component.name] : undefined
       return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
     })
     const own = named?.filter(component => component.files)

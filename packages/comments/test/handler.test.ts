@@ -143,6 +143,17 @@ describe("Comments API", () => {
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
   })
 
+  it("treats inherited component-map keys as unknown names", async () => {
+    const { call } = await setup()
+    const components = ["constructor", "toString", "__proto__"].map(name => ({ name }))
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data.context.components).toEqual(components)
+  })
+
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {
     const { call } = await setup()
     const foreign = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "Hi" }, headers: { origin: "https://evil.test" } })
