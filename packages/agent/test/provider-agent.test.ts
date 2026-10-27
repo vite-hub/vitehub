@@ -5059,6 +5059,56 @@ cli_auth_credentials_store = "keyring"
     } finally { await rm(root, { recursive: true, force: true }) }
   })
 
+  it.each(["AGENTS.md", "AGENTS.override.md"])("invalidates a conflicted Codex session when preserved %s changes", async (file) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-resume-"))
+    const threadId = `thread-conflicted-resume-${crypto.randomUUID()}`
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    try {
+      git("init", "-q", "-b", "target")
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@localhost")
+      await writeFile(join(root, "AGENTS.md"), "original\n")
+      await writeFile(join(root, "AGENTS.override.md"), "native override\n")
+      git("add", "-A"); git("commit", "-qm", "initial")
+      git("branch", "feature")
+      await writeFile(join(root, "AGENTS.md"), "target instructions\n")
+      git("commit", "-qam", "target")
+      const base = git("rev-parse", "HEAD").trim()
+      git("checkout", "-q", "feature")
+      await writeFile(join(root, "AGENTS.md"), "feature instructions\n")
+      git("commit", "-qam", "feature")
+      await prepareGitHubRepairBase(root, { expectedHead: git("rev-parse", "HEAD").trim(), base })
+      const messages = [
+        { parts: [{ text: "previous question", type: "text" }], role: "user" },
+        { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ]
+      const generate = () => createProviderAgentAdapter({
+        cwd: root,
+        instructions: "generated repair instructions".repeat(1400),
+        provider: "codex",
+        sessionStorePath: `.vitehub/${threadId}.sqlite`,
+      }).generate(context(threadId, { messages, prompt: "continue" }) as never)
+      const turn = (cursor: string) => runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: cursor })
+      turn("cursor-1")
+      await generate()
+      const unchanged = turn("cursor-2")
+      await generate()
+      expect(unchanged.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "cursor-1" }))
+
+      await writeFile(join(root, file), "updated native instructions\n")
+      const changed = turn("cursor-3")
+      await generate()
+      expect(changed.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+      expect(changed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining("previous answer") }))
+      expect(await readFile(join(root, file), "utf8")).toBe("updated native instructions\n")
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
   it.each(["codex", "claude-code"] as const)("keeps %s generated root checkout files out of Agent commits", async (provider) => {
     const threadId = `thread-root-generated-git-${provider}`
     let root = ""

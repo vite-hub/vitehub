@@ -3385,6 +3385,9 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
+    const unmergedInstructions = instructions && materializeInstructions && !options.sandbox && (pullRequestRoot || preparedWorkspace?.projectRoot)
+      ? await unmergedProviderGitFiles(providerCwd)
+      : new Set<string>()
     // Codex renders AGENTS.md under a header that contains the absolute cwd, and
     // an owned root is new for each invocation. Driver instructions go to Codex
     // developer instructions instead, which come before every cwd-dependent
@@ -3412,9 +3415,16 @@ async function* runProvider<
       // AGENTS.md. Fingerprint that source and the launch configuration so a
       // resumed thread never silently keeps stale instruction state.
       const fallbackInstructions = effectiveCodexInstructions ?? await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => "")
-      const digestInput = codexDeveloperInstructions === undefined
+      let digestInput = codexDeveloperInstructions === undefined
         ? JSON.stringify([fallbackInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
         : codexDeveloperInstructions
+      if (unmergedInstructions.has("AGENTS.md")) {
+        // Conflict repair leaves native instructions active alongside the Driver
+        // instructions. Their current contents must also match before resuming.
+        const nativeInstructions = await Promise.all(["AGENTS.md", "AGENTS.override.md"].map(name =>
+          readFile(join(providerCwd, name), "utf8").catch(() => null)))
+        digestInput = JSON.stringify([digestInput, nativeInstructions])
+      }
       developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
     }
     // Codex renders developer instructions only when a thread starts. Resume a
@@ -3448,9 +3458,6 @@ async function* runProvider<
       else providerSandboxHomeFiles[".codex/AGENTS.md"] = instructions
     }
     else if (instructions && materializeInstructions) {
-      const unmergedInstructions = pullRequestRoot || preparedWorkspace?.projectRoot
-        ? await unmergedProviderGitFiles(providerCwd)
-        : new Set<string>()
       const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
         ? provenanceInstructions
         : instructions
