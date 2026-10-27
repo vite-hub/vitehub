@@ -9,6 +9,7 @@ import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
+import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
@@ -289,10 +290,11 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, standalone?: StandaloneDatabase }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean }): string {
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
     const options = [`name: "comments"`, "setup: commentsTables", ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
+
     return [
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
       // A Worker build imports no node:sqlite.
@@ -302,7 +304,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
-      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+      `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
       "",
     ].join("\n")
   }
@@ -325,7 +327,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -373,7 +375,11 @@ async function addD1Binding(projectRoot: string, nitro: Record<string, unknown>,
   const binding = where.slice(3)
   for (const file of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
     const source = await readFile(join(projectRoot, file), "utf8").catch(() => "")
-    if (new RegExp(`["']?binding["']?\\s*[:=]\\s*["']${binding}["']`).test(source)) return
+    if (!source) continue
+    const config = file.endsWith(".toml") ? parseTOML(source) : parseJSONC(source, { allowTrailingComma: true })
+    if (config === null || typeof config !== "object") continue
+    const entries: unknown = Reflect.get(config, "d1_databases")
+    if (Array.isArray(entries) && entries.some(entry => entry !== null && typeof entry === "object" && Reflect.get(entry, "binding") === binding)) return
   }
   const cloudflare: Record<string, unknown> = Object(nitro.cloudflare ?? {})
   const wrangler: Record<string, unknown> = Object(cloudflare.wrangler ?? {})
@@ -492,7 +498,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
-        const pluginInput = { definition, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) }
+        const pluginInput = { definition, development: env.command === "serve" && !env.isPreview, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) }
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),

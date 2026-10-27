@@ -22,6 +22,8 @@ export interface GitHubClient {
   appToken(repository: string): Promise<string>
   /** The open pull request whose head is `branch` in the repository itself. */
   findPullRequest(repository: string, branch: string): Promise<number | undefined>
+  /** Finds an earlier create whose response or local save was lost, across all issue-comment pages. */
+  findComment(token: string, repository: string, pullRequest: number, marker: string): Promise<(GitHubComment & { body: string }) | undefined>
   createComment(token: string, repository: string, pullRequest: number, body: string): Promise<GitHubComment>
   updateComment(token: string, repository: string, id: string, body: string): Promise<void>
   /** Deletes a comment. A comment that is already gone counts as deleted. */
@@ -31,6 +33,7 @@ export interface GitHubClient {
 }
 
 const commentResponse = v.object({ id: v.number(), node_id: v.string(), html_url: v.string() })
+const commentListResponse = v.array(v.object({ ...commentResponse.entries, body: v.string() }))
 const pullsResponse = v.array(v.object({ number: v.number() }))
 
 /** A Server Env value from the active Cloudflare bindings, else from `process.env`. */
@@ -65,7 +68,7 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
   }
 
   async function graphql(token: string, query: string, variables: Record<string, unknown>): Promise<void> {
-    const graphqlUrl = apiUrl.endsWith("/api/v3") ? `${apiUrl.slice(0, -3)}graphql` : `${apiUrl}/graphql`
+    const graphqlUrl = apiUrl.endsWith("/api/v3") ? `${apiUrl.slice(0, -2)}graphql` : `${apiUrl}/graphql`
     const response = await fetcher(graphqlUrl, {
       method: "POST",
       headers: { "authorization": `Bearer ${token}`, "content-type": "application/json", "user-agent": "vitehub-comments" },
@@ -103,6 +106,14 @@ export function createGitHubClient(options: { apiUrl?: string, fetch?: typeof fe
       const number = pulls[0]?.number
       pullRequests.set(key, { number, until: Date.now() + (number ? 5 : 1) * 60_000 })
       return number
+    },
+    async findComment(token, repository, pullRequest, marker) {
+      for (let page = 1; ; page++) {
+        const comments = v.parse(commentListResponse, await request(token, "GET", `/repos/${repository}/issues/${pullRequest}/comments?per_page=100&page=${page}`))
+        const found = comments.find(comment => comment.body.trimEnd().endsWith(marker))
+        if (found) return { id: String(found.id), nodeId: found.node_id, url: found.html_url, body: found.body }
+        if (comments.length < 100) return
+      }
     },
     async createComment(token, repository, pullRequest, body) {
       const comment = v.parse(commentResponse, await request(token, "POST", `/repos/${repository}/issues/${pullRequest}/comments`, { body }))

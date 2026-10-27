@@ -5,6 +5,12 @@ import type { Comment, CommentThread } from "../types.ts"
 /** The `<!-- -->` marker that ends every comment the sync posts, so people and tools can tell them apart. */
 export const forgeMarker = "vitehub-comments"
 
+export const summaryMarker = `<!-- ${forgeMarker} summary -->`
+
+export function commentMarker(threadId: string, commentId: string): string {
+  return `<!-- ${forgeMarker} thread=${threadId} comment=${commentId} -->`
+}
+
 /**
  * Text that GitHub must not link: `@name` notifies a GitHub user, and `#3` links issue 3. Comment mentions and thread
  * numbers belong to the app, so a word joiner breaks both without changing how they read.
@@ -39,7 +45,7 @@ function headline(body: string): string {
 }
 
 function authorName(comment: Comment): string {
-  return `${comment.author.name}${comment.author.guest ? " (guest)" : ""}`
+  return unlinked(`${comment.author.name}${comment.author.guest ? " (guest)" : ""}`)
 }
 
 /** The page of a thread in comment mode, with its thread open: the Console's **Open on page** link. */
@@ -95,7 +101,7 @@ export function renderComment(thread: CommentThread, comment: Comment, postedAs:
   else {
     lines.push(`<sub>Reply on ${number(thread)} · ${pageLink(thread)}</sub>`)
   }
-  lines.push("", `<!-- ${forgeMarker} thread=${thread.id} comment=${comment.id} -->`)
+  lines.push("", commentMarker(thread.id, comment.id))
   return lines.join("\n")
 }
 
@@ -117,7 +123,7 @@ export function renderSummary(input: { title: string, threads: ReadonlyArray<{ t
     const preview = previewUrl(thread)
     const label = preview ? `[${number(thread)}](${preview})` : number(thread)
     const state = thread.status === "resolved" ? "Resolved" : failed ? "Open, not posted yet" : "Open"
-    return `| ${label} | ${shown}<br><sub>${code(thread.page)} · ${cell(first ? authorName(first) : thread.createdBy.name)}</sub> | ${state} |`
+    return `| ${label} | ${shown}<br><sub>${code(thread.page)} · ${cell(first ? authorName(first) : unlinked(thread.createdBy.name))}</sub> | ${state} |`
   })
   return [
     `### ${input.title}`,
@@ -130,6 +136,6 @@ export function renderSummary(input: { title: string, threads: ReadonlyArray<{ t
     "",
     "<sub>ViteHub Comments keeps this comment up to date. Each thread is also its own comment below; reply on the page to keep the thread together.</sub>",
     "",
-    `<!-- ${forgeMarker} summary -->`,
+    summaryMarker,
   ].join("\n")
 }

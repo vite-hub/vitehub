@@ -1,10 +1,11 @@
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { defaultPolicy } from "../src/index.ts"
+import { defaultPolicy, defineComments } from "../src/index.ts"
 import { createCommentsGitHubLogin, safeReturn } from "../src/runtime/github-login.ts"
 import { createCommentsHandler } from "../src/runtime/handler.ts"
-import { createComments } from "./harness.ts"
+import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
+import { anchor, createDatabase } from "./harness.ts"
 
 import type { H3Event } from "h3"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
@@ -26,8 +27,10 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
   }
 }
 
-async function setup(githubLogin: CommentsGitHubLogin) {
-  const comments = await createComments()
+async function setup(githubLogin: CommentsGitHubLogin, development = false) {
+  const comments = defineComments()
+  const database = await createDatabase()
+  defineCommentsPlugin({ comments, database: () => database, overlay: "/overlay.js", development })({})
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, githubLogin }))
   const call = async (path: string, init: RequestInit = {}) => {
     const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, init))
@@ -52,11 +55,28 @@ describe("default policy", () => {
     expect(defaultPolicy({ id: "u1", name: "Grace" })).toBe(true)
   })
 
-  it("lets anonymous guests in on the development server only", () => {
-    vi.stubEnv("NODE_ENV", "development")
-    expect(defaultPolicy(null)).toBe(true)
-    vi.stubEnv("NODE_ENV", "production")
+  it.each(["development", "production"])("denies anonymous guests without dev-server identity when NODE_ENV=%s", (environment) => {
+    vi.stubEnv("NODE_ENV", environment)
     expect(defaultPolicy(null)).toBe(false)
+  })
+
+  it.each([
+    { development: false, environment: "development" },
+    { development: false, environment: "production" },
+    { development: true, environment: "development" },
+    { development: true, environment: "production" },
+  ])("uses generated development=$development for guest access when NODE_ENV=$environment", async ({ development, environment }) => {
+    vi.stubEnv("NODE_ENV", environment)
+    const call = await setup(fakeLogin(null), development)
+    const { body } = await call("/session")
+    expect(body!.data.can).toEqual({ read: development, comment: development, resolve: development })
+    expect((await call("/threads")).response.status).toBe(development ? 200 : 403)
+    const created = await call("/threads", {
+      method: "POST",
+      headers: { "content-type": "application/json", "origin": origin, "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Lin" },
+      body: JSON.stringify({ page: "/", anchor, body: "Hello" }),
+    })
+    expect(created.response.status).toBe(development ? 200 : 403)
   })
 })
 

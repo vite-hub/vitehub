@@ -52,6 +52,8 @@ Without `authorize`, the person decides:
 | Not signed in, on the dev server | May do everything, as a guest under a name they type. |
 | Not signed in, in a production build | Nothing. |
 
+The default guest policy follows Vite's serve/build command. Production builds deny anonymous access regardless of the server's `NODE_ENV`.
+
 The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth), else from [Sign in with GitHub](#sign-in-with-github).
 
 Every route of the Comments API checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and the overlay does not open. Write requests must also come from a page of the same origin.
