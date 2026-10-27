@@ -113,6 +113,7 @@ import viteHubNuxtModule from "../src/nuxt.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
+  const componentsExtendHooks: Array<(components: Array<{ pascalName: string, filePath: string }>) => Promise<void>> = []
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
   const viteServerCreatedHooks: Array<(server: { watcher: { add: (paths: string[]) => void; on: (event: string, callback: (path: string) => void) => void } }, context: { isClient: boolean }) => void> = []
   const closeHooks: Array<() => Promise<void>> = []
@@ -120,8 +121,9 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "doctor:extendExtensions" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void)) {
-      if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
+    hook(name: "components:extend" | "builder:watch" | "close" | "doctor:extendExtensions" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void)) {
+      if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
+      else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
       else if (name === "vite:serverCreated") viteServerCreatedHooks.push(callback as (typeof viteServerCreatedHooks)[number])
@@ -155,6 +157,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     closeHooks,
+    componentsExtendHooks,
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
@@ -317,6 +320,20 @@ describe("ViteHub Nuxt integration", () => {
         config: mocks.envHook,
       },
     ])
+  })
+
+  it("passes Nuxt's resolved component registry to the retained Comments plugin", async () => {
+    const setComponents = vi.fn(async (_components: Array<{ pascalName: string, filePath: string }>) => {})
+    const retained = { name: "@vite-hub/comments/vite", api: { setComponents } }
+    const unused = vi.fn()
+    mocks.vitehub.mockReturnValue([{ name: retained.name, api: { setComponents: unused } }])
+    const { nuxt, componentsExtendHooks } = createNuxt(false, [retained])
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    expect(setComponents).toHaveBeenCalledWith([])
+    const components = [{ pascalName: "CustomCard", filePath: "/tmp/vitehub-nuxt/widgets/Card.client.vue" }]
+    for (const hook of componentsExtendHooks) await hook(components)
+    expect(setComponents).toHaveBeenLastCalledWith(components)
+    expect(unused).not.toHaveBeenCalled()
   })
 
   it.each(["cloudflare", "vercel"] as const)("retains %s deployment inspection metadata without installing the writer", async (preset) => {

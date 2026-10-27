@@ -44,11 +44,11 @@ describe("page context", () => {
     expect(vueComponentsOf(document.querySelector("p")!)).toEqual([])
   })
 
-  it("reads the page, route, element, and browser, without the comment mode query", () => {
+  it("reads the page, route, element, and browser, without query parameters or the hash", () => {
     const { button } = mountFakeVue()
-    history.replaceState(null, "", "/pricing?plan=pro&comments#comment-1")
+    history.replaceState(null, "", "/pricing?plan=pro&comments&code=oauth-code&token=reset-token&X-Amz-Signature=secret#comment-1")
     document.title = "Pricing"
-    const context = captureContext(button, "comments")
+    const context = captureContext(button)
     expect(context).toMatchObject({
       title: "Pricing",
       route: "/pricing",
@@ -56,7 +56,7 @@ describe("page context", () => {
       components: [{ name: "App" }, { name: "PricingCard" }],
       environment: { viewport: { width: innerWidth, height: innerHeight } },
     })
-    expect(context.url).toMatch(/\/pricing\?plan=pro$/)
+    expect(context.url).toBe(`${location.origin}/pricing`)
   })
 
   it("describes a context for the Console and Agents", () => {

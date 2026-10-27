@@ -54,7 +54,7 @@ describe("hubComments", () => {
 
   it("names a Vue file the way production builds and Nuxt name its component", () => {
     expect(componentNames("app/components/PricingCard.vue")).toEqual(["PricingCard"])
-    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread", "ViewerThread"])
+    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread"])
     expect(componentNames("app/components/viewer/ViewerCommentThread.vue")).toEqual(["ViewerCommentThread"])
     expect(componentNames("app/pages/drops/index.vue")).toEqual(["index", "drops"])
     expect(componentNames("app/pages/blog/[id].vue")).toEqual(["[id]", "blog-id"])
@@ -80,6 +80,38 @@ describe("hubComments", () => {
     await configure(hubComments(), root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"PricingCard\":[\"app/components/PricingCard.vue\"]")
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
+  })
+
+  it("uses resolved Nuxt names, including configured directories and mode suffixes, before and after configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/cards/index.vue": "<template />",
+      "app/components/(group)/Buy.client.vue": "<template />",
+      "app/components/Account.server.vue": "<template />",
+      "widgets/Thing.vue": "<template />",
+    })
+    const plugin = hubComments()
+    const entries = [
+      { pascalName: "Cards", filePath: join(root, "app/components/cards/index.vue") },
+      { pascalName: "Buy", filePath: join(root, "app/components/(group)/Buy.client.vue") },
+      { pascalName: "Account", filePath: join(root, "app/components/Account.server.vue") },
+      { pascalName: "CustomThing", filePath: join(root, "widgets/Thing.vue") },
+      { pascalName: "Primitive", filePath: join(root, "node_modules/lib/Primitive.vue") },
+    ]
+    await plugin.api.setComponents(entries)
+    await configure(plugin, root)
+    const readMap = async () => JSON.parse((await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).replace(/^export default /, ""))
+    expect(await readMap()).toMatchObject({
+      Cards: ["app/components/cards/index.vue"],
+      Buy: ["app/components/(group)/Buy.client.vue"],
+      Account: ["app/components/Account.server.vue"],
+      CustomThing: ["widgets/Thing.vue"],
+    })
+    expect(await readMap()).not.toHaveProperty("Primitive")
+    expect(await readMap()).not.toHaveProperty("CardsIndex")
+    await plugin.api.setComponents([{ pascalName: "Thing", filePath: join(root, "widgets/Thing.vue") }])
+    expect(await readMap()).toMatchObject({ Thing: ["widgets/Thing.vue"] })
+    expect(await readMap()).not.toHaveProperty("CustomThing")
   })
 
   it("reads the people from the Console access rules when the app has the Console", async () => {

@@ -53,8 +53,16 @@ export interface CommentsRealtimeContributionContext {
   serverDirs?: string[]
 }
 
+/** The names and source files resolved by Nuxt's component scanner. */
+export interface CommentsComponent {
+  pascalName: string
+  filePath: string
+}
+
 export type CommentsVitePlugin = Plugin & {
   api: {
+    /** Supplies Nuxt's effective component names, and refreshes the generated map after a rescan. */
+    setComponents(components: readonly CommentsComponent[]): Promise<void>
     /**
      * The `comments` Realtime Definition of the page presence rooms, for `hubRealtime({ contribute })`. Realtime calls
      * it only when the host has a room authority; without one, pages show comments without presence.
@@ -122,12 +130,10 @@ export async function readCommentsBuild(root: string, env: Record<string, string
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
 
-const pascal = (segment: string): string => segment.replace(/(?:^|[-_.\s]+)(\w)/g, (_, letter: string) => letter.toUpperCase())
-
 /**
  * The names that a production build may give the component of a `.vue` file: its file name, which `<script setup>`
- * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`; under `components/`, the
- * Nuxt name, such as `ViewerThread` for `components/viewer/Thread.vue`.
+ * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`.
+ * Nuxt component names come from its resolved registry rather than a path heuristic.
  */
 export function componentNames(file: string): string[] {
   const names = new Set([basename(file, ".vue")])
@@ -137,13 +143,6 @@ export function componentNames(file: string): string[] {
     const route = parts.slice(pages + 1).filter(part => part !== "index" && !/^\(.*\)$/.test(part)).map(part => part.replace(/[[\].]/g, "")).join("-")
     names.add(route || "index")
   }
-  const directory = parts.lastIndexOf("components")
-  if (directory !== -1) {
-    const segments = parts.slice(directory + 1).map(pascal)
-    const last = segments.pop()!
-    const prefix = segments.join("")
-    names.add(last.startsWith(prefix) ? last : `${prefix}${last}`)
-  }
   return [...names]
 }
 
@@ -151,7 +150,7 @@ export function componentNames(file: string): string[] {
  * The Vue files of a project by component name, relative to the project root. `<script setup>` components carry the
  * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
  */
-export async function readCommentsComponents(root: string, limit = 5000): Promise<Record<string, string[]>> {
+export async function readCommentsComponents(root: string, limit = 5000, resolvedComponents: readonly CommentsComponent[] = []): Promise<Record<string, string[]>> {
   const components: Record<string, string[]> = {}
   let count = 0
   async function walk(directory: string, depth: number): Promise<void> {
@@ -172,6 +171,16 @@ export async function readCommentsComponents(root: string, limit = 5000): Promis
     }
   }
   await walk(root, 0)
+  const resolvedNames: Record<string, string[]> = {}
+  for (const component of resolvedComponents) {
+    const file = relative(root, component.filePath).split(sep).join("/")
+    // Nuxt's registry also includes library components and generated placeholders, which are not project sources.
+    if (!file.endsWith(".vue") || file.split("/").some(part => part !== ".." && (part.startsWith(".") || skippedDirectories.has(part)))) continue
+    const files = resolvedNames[component.pascalName] ??= []
+    if (!files.includes(file)) files.push(file)
+  }
+  // A resolved name wins over ambiguous filename fallbacks.
+  Object.assign(components, resolvedNames)
   return components
 }
 
@@ -254,11 +263,22 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let realtime = false
+  let resolvedComponents: readonly CommentsComponent[] = []
+  let componentsFile: string | undefined
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
+  async function writeComponents(): Promise<void> {
+    if (!projectRoot || !componentsFile) return
+    const components = await readCommentsComponents(projectRoot, 5000, resolvedComponents)
+    await writeFile(componentsFile, `export default ${JSON.stringify(components)}\n`)
+  }
 
   return {
     name: "@vite-hub/comments/vite",
     api: {
+      async setComponents(components) {
+        resolvedComponents = components
+        await writeComponents()
+      },
       async contributeRealtime(context) {
         const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
         if (!definition) return
@@ -323,16 +343,18 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
         const definition = discover()
         if (!definition) {
+          componentsFile = undefined
           await rm(directory, { force: true, recursive: true })
           return
         }
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         await mkdir(directory, { recursive: true })
-        const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
+        componentsFile = join(directory, "components.mjs")
+        const build = await readCommentsBuild(projectRoot)
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
-          writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
+          writeComponents(),
           writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))

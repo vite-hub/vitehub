@@ -359,6 +359,22 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
         const { context, ...input } = parsed.output
+        if (context) {
+          const origin = forwardedRequestOrigin(request)
+          const page = normalizeCommentPage(input.page)
+          let submitted: URL
+          try {
+            submitted = new URL(context.url)
+          }
+          catch {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }))
+          }
+          if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== page) {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }))
+          }
+          // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
+          context.url = `${origin}${page}`
+        }
         return respond(await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }

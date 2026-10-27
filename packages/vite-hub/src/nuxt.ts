@@ -39,6 +39,7 @@ import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocat
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -1000,6 +1001,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
+  // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
+  const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
+  if (commentsPlugin) {
+    await commentsPlugin.api.setComponents([])
+    if (nuxt.hook) {
+      Reflect.apply(nuxt.hook, nuxt, ["components:extend", (components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0]) => commentsPlugin.api.setComponents(components)])
+    }
+  }
   const retainedKVPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/kv/vite")
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
     api?: {

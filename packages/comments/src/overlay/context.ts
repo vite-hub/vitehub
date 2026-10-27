@@ -87,12 +87,10 @@ function elementOf(element: Element): NonNullable<CommentContext["element"]> {
 }
 
 /** The page, element, components, and browser of a new thread. The server adds the build. */
-export function captureContext(element: Element | undefined, hint: string): CommentContext {
+export function captureContext(element: Element | undefined): CommentContext {
   const url = new URL(location.href)
-  url.searchParams.delete(hint)
-  url.hash = ""
   const context: CommentContext = {
-    url: url.href.slice(0, 2048),
+    url: `${url.origin}${url.pathname}`.slice(0, 2048),
     environment: {
       viewport: { width: innerWidth, height: innerHeight },
       devicePixelRatio: devicePixelRatio,

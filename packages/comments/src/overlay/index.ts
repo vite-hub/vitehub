@@ -260,7 +260,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, commentsHintQuery), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target), x: event.clientX, y: event.clientY }
     this.render()
   }
 
