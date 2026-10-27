@@ -108,10 +108,29 @@ describe("Comments API", () => {
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
   })
 
+  it.each(["https://other.test/pricing", "http://site.test/other", "/pricing", "not a URL"])("rejects a context URL outside the request origin and thread page: %s", async (url) => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url }, body: "Hi" } })
+    expect(response.status).toBe(400)
+    expect(body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+    expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it("uses the forwarded origin and normalized thread page for context URLs", async () => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      headers: { origin: "https://public.test", "x-forwarded-host": "public.test", "x-forwarded-proto": "https" },
+      json: { page: "/pricing/?comments", anchor, context: { url: "https://public.test/pricing/?token=secret#token" }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({ page: "/pricing", context: { url: "https://public.test/pricing" } })
+  })
+
   it("keeps the page context, and adds the build and the component files that only the server knows", async () => {
     const { call } = await setup()
     const context = {
-      url: "http://site.test/pricing?plan=pro",
+      url: "http://site.test/pricing?code=oauth-code&token=reset-token&X-Amz-Signature=secret#token",
       title: "Pricing",
       route: "/pricing",
       element: { tag: "button", role: "button", name: "Buy" },
@@ -122,16 +141,28 @@ describe("Comments API", () => {
     const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context, body: "Buy is hidden" } })
     expect(created.body.data.context).toEqual({
       ...context,
+      url: "http://site.test/pricing",
       components: [
         { name: "index", files: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
         { name: "PricingCard", files: ["app/components/PricingCard.vue"] },
       ],
       build: { commit: "abc123", branch: "main" },
     })
-    const library = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "http://site.test/", components: ["A", "B", "C", "D"].map(name => ({ name })) }, body: "Hi" } })
+    const library = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components: ["A", "B", "C", "D"].map(name => ({ name })) }, body: "Hi" } })
     expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
     const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
     expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+  })
+
+  it("treats inherited component-map keys as unknown names", async () => {
+    const { call } = await setup()
+    const components = ["constructor", "toString", "__proto__"].map(name => ({ name }))
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data.context.components).toEqual(components)
   })
 
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {

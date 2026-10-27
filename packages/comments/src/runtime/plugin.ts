@@ -6,8 +6,9 @@ import { commentsMcpTools } from "./mcp.ts"
 
 import type { Comments } from "../index.ts"
 import type { CommentsDatabase } from "../store.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
-export interface CommentsPluginOptions {
+export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
@@ -102,7 +103,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
+    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session }))
 
     if (nitroApp === null || typeof nitroApp !== "object") return
     // Nitro 3: the Web fetch entry that every preset calls.

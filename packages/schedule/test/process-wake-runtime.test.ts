@@ -95,7 +95,13 @@ it("starts polling after an initial scan failure is retried", async () => {
   expect(wakes.some(wake => wake.scheduledAt.getTime() === 60_000)).toBe(true)
 })
 
-it("checks every minute since the previous scan when a timer fires late", async () => {
+it.each([
+  { catchUpMs: 60 * 60_000, expected: [0, 60_000, 120_000, 180_000] },
+  { catchUpMs: 90_000, expected: [0, 120_000, 180_000] },
+  { catchUpMs: 90_000.5, expected: [0, 120_000, 180_000] },
+  { catchUpMs: 30_000, expected: [0, 180_000] },
+  { catchUpMs: 0, expected: [0, 180_000] },
+])("checks due minutes within catchUpMs=$catchUpMs when a timer fires late", async ({ catchUpMs, expected }) => {
   const wakes: ProcessScheduleWake[] = []
   let now = new Date(59_900)
   await Effect.runPromise(
@@ -103,7 +109,7 @@ it("checks every minute since the previous scan when a timer fires late", async 
       Effect.gen(function* () {
         const testClock = yield* TestClock.make()
         const runtime = yield* makeProcessWakeRuntime({
-          catchUpMs: 60 * 60_000,
+          catchUpMs,
           concurrency: 1,
           context: {
             reportError: vi.fn(),
@@ -126,7 +132,7 @@ it("checks every minute since the previous scan when a timer fires late", async 
     ),
   )
 
-  expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual([0, 60_000, 120_000, 180_000])
+  expect(wakes.map(wake => wake.scheduledAt.getTime())).toEqual(expected)
 })
 
 it("does not replay a minute after the wall clock moves backward", async () => {

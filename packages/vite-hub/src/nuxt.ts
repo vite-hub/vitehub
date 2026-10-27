@@ -2,6 +2,7 @@ import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDi
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { transform } from "esbuild"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
@@ -32,6 +33,7 @@ import { installConsoleProjectName, installConsoleSections } from "./console/run
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
 import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
 import { serializeConsoleRefresh } from "./console/refresh.ts"
@@ -39,6 +41,7 @@ import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocat
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -78,10 +81,10 @@ function configuredScanDirs(value: unknown): string[] | undefined {
 
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: (
-    name: "close" | "nitro:config",
-    callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
-  ) => void
+  hook?: {
+    (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
+    (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
+  }
   options: {
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
@@ -196,7 +199,7 @@ const nitroRuntimeResolverNames = new Set([
 
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
-  "@vite-hub/sandbox-task/vite",
+  "@vite-hub/sandbox/task/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {
@@ -269,6 +272,37 @@ function installNitroRuntimeResolvers(config: Record<string, unknown>, plugins: 
   for (const resolver of resolvers) {
     if (!nitroPlugins.some(candidate => pluginOptionHasName(candidate, resolver.name))) nitroPlugins.push(resolver)
   }
+}
+
+const generatedTypeScriptPluginName = "vitehub:nuxt-generated-typescript"
+
+/**
+ * `nuxt build` moves `buildDir` to `node_modules/.cache/nuxt/.nuxt` when `.nuxt` already exists.
+ * nitropack 2 does not compile TypeScript under `node_modules`, so compile the generated files in
+ * `<buildDir>/vitehub` before Nitro reads them.
+ */
+function installGeneratedTypeScriptCompiler(config: Record<string, unknown>, generatedRoot: string): void {
+  const root = `${generatedRoot.replace(/\\/g, "/")}/`
+  if (!root.split("/").includes("node_modules")) return
+
+  const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
+  const configuredPlugins = rollupConfig.plugins as PluginOption | undefined
+  const nitroPlugins = Array.isArray(configuredPlugins)
+    ? configuredPlugins
+    : configuredPlugins
+      ? [configuredPlugins]
+      : []
+  rollupConfig.plugins = nitroPlugins
+  if (nitroPlugins.some(candidate => pluginOptionHasName(candidate, generatedTypeScriptPluginName))) return
+  nitroPlugins.push({
+    name: generatedTypeScriptPluginName,
+    async transform(code, id) {
+      const file = id.split("?", 1)[0]!.replace(/\\/g, "/")
+      if (!file.startsWith(root) || !file.endsWith(".ts")) return
+      const result = await transform(code, { format: "esm", loader: "ts", sourcefile: file, sourcemap: true })
+      return { code: result.code, map: result.map }
+    },
+  } satisfies Plugin)
 }
 
 function addTypeScriptDefaults(options: Record<string, unknown>, includes: string[], excludes: string[], key: "sharedTsConfig" | "tsConfig" = "tsConfig"): void {
@@ -359,6 +393,13 @@ async function installConsole(
     const rule = (routeRules[mountedRoute] ??= {})
     rule.headers = { ...rule.headers, "x-robots-tag": "noindex, nofollow" }
   }
+  if (nuxt.options.dev && nuxt.hook) {
+    const tab = consoleNuxtDevToolsTab(nuxt.options.app?.baseURL)
+    // Nuxt DevTools 3 and 4 read this hook. DevTools 4 shows the tab in its Devframe dock.
+    Reflect.apply(nuxt.hook, nuxt, ["devtools:customTabs", (tabs: ConsoleNuxtDevToolsTab[]) => {
+      tabs.push(tab)
+    }])
+  }
   const documentEditorSections = (await Promise.all(consoleDocumentEditorSectionIds.map(async (section) => {
     const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
     return entry ? [section] : []
@@ -370,7 +411,7 @@ async function installConsole(
   addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, [...sections, ...entrySections]);
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
-  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL)
+  addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage)
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
   const clientRoute = mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js")
   if (!nitro.handlers?.some(handler => handler.route === clientRoute)) {
@@ -410,6 +451,7 @@ async function installConsole(
       retention,
       access,
       runtimeCapabilityImports,
+      nuxt.options.dev === true,
     )
     if (invocationRootState) {
       updateConsoleInvocationRootState(invocationRootState, projectRoot, identity)
@@ -797,6 +839,11 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     throw viteHubErrorDiagnostics.VITE_HUB_B0009({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(nitro.preset) + "." })
   }
   nitro.preset = nitroPreset
+  // Realtime turns on Nitro 3's `features.websocket`. Nuxt 4 runs Nitro 2, which reads `experimental.websocket`.
+  if (options.realtime) {
+    const experimental = (nitro.experimental ??= {}) as Record<string, unknown>
+    experimental.websocket = true
+  }
   if (plan.preset === "cloudflare") {
     const cloudflare = (nitro.cloudflare ??= {}) as Record<string, unknown>
     cloudflare.deployConfig ??= true
@@ -1000,6 +1047,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
+  // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
+  const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
+  if (commentsPlugin) {
+    await commentsPlugin.api.setComponents([])
+    // Templates are generated after the entire components:extend chain, including later modules and dev rescans.
+    nuxt.hook?.("app:templatesGenerated", app => commentsPlugin.api.setComponents(app.components))
+  }
   const retainedKVPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/kv/vite")
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
     api?: {
@@ -1270,7 +1325,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       installConsoleSections(projectRoot, consoleSections, Boolean(consoleAuthConfig(options.console)))
       installConsoleProjectName(projectRoot, resolveConsoleProjectNameFromRoot(projectRoot))
       addConsoleRpcHandler(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, consoleSections);
-      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL)
+      addConsolePageHandlers(config, consoleRuntimeRoot, nuxt.options.app?.baseURL, configuredConsoleAuth ? undefined : consoleAccess?.signInPage)
       if (consoleSections.includes("connections")) {
         // The Connections management handler records the signed-in Console user as the actor.
         // SAFETY: Nitro aliases map virtual module names to generated module paths.
@@ -1312,13 +1367,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
         options.console.retention,
         consoleAccess,
         runtimeCapabilityImports,
+        nuxt.options.dev === true,
       )
     }
     Object.assign(config, mergeGeneratedSourceNitroConfig(config, generatedSourceHandlers))
     const externals = isRecord(config.externals) ? config.externals : {}
     const inline = Array.isArray(externals.inline) ? externals.inline : []
-    // Facade exports and owner runtimes must resolve generated aliases and virtual modules inside Nitro.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/"])] }
+    // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
+    // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (emailPlugin && nuxt.options.dev) {
@@ -1329,6 +1386,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     if (options.kv) addNitroImports(config, "vite-hub/kv", ["kv"])
     if (options.blob) addNitroImports(config, "vite-hub/blob", ["blob"])
     if (options.database) addNitroImports(config, "vite-hub/database/drizzle", ["db", "schema"])
+    installGeneratedTypeScriptCompiler(config, join(nuxt.options.buildDir, "vitehub"))
   })
   if (options.agent) {
     addVueImports(nuxt, "vite-hub/agent/vue", agentVueComposables)

@@ -39,4 +39,10 @@ describe("commentsConsoleSession", () => {
     await expect(session(event())).resolves.toEqual({ id: "guest:console", name: "Guest", guest: true })
     await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
   })
+
+  it("reads a chosen guest from the H3 1 event that Nuxt passes to MCP", async () => {
+    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-1234" } }))
+    const nodeEvent = { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" } } } }
+    await expect(Reflect.apply(session, undefined, [nodeEvent])).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
+  })
 })

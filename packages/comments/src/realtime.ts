@@ -18,8 +18,9 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
 
 /**
  * The Realtime Definition of the page presence rooms: who is on a page and where their cursor is. Rooms hold no
- * document; threads stay in the Database. Connections are read-only, and the server binds each person's presence to the
- * user that Comments resolves. ViteHub adds it as the `comments` definition when the host has a room authority.
+ * document; threads stay in the Database. Connections are read-only, and the server binds account presence to the user
+ * that Comments resolves. Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the
+ * host has a room authority.
  */
 export function commentsRealtime(comments: Comments, options: { session?: (event: H3Event) => Promise<CommentsUser | null | undefined> } = {}): RealtimeDefinition {
   // Realtime keeps only the id, name, email, and image of a user. Decide access in `identify`, with the whole user that
@@ -31,7 +32,9 @@ export function commentsRealtime(comments: Comments, options: { session?: (event
         ? await comments.options.identify({ event })
         : await options.session?.(event).catch(() => null)
       readers.set(event, await comments.can({ user: user ?? null, action: "read" }))
-      return user ? toRealtimeUser(user) : null
+      // Browser WebSockets carry no guest headers. Keep the authorized guest's browser identity in awareness instead
+      // of binding every Console guest to the shared session fallback. Account identities remain server-bound.
+      return user && user.guest !== true ? toRealtimeUser(user) : null
     },
     authorize: ({ event, mode }) => mode === "read" && readers.get(event) === true,
     document: {

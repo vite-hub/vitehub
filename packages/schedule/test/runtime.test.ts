@@ -3,7 +3,7 @@ import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { deserializeResponse, serializeResponse } from "@vite-hub/runtime"
-import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage } from "../src/index.ts"
+import { defineSchedule, type ScheduleDefinition, type ScheduleKVStorage, type ScheduleRunAttemptRecord, type ScheduleRunRecord } from "../src/index.ts"
 import { createKVScheduleRunStore, createMemoryScheduleRunStore, createScheduleRun, executeStaticSchedule, runSchedule } from "../src/runtime.ts"
 import { getScheduleRunStore, loadScheduleDefinition, resetScheduleRuntime, setScheduleRunStore, setScheduleRuntimeRegistry } from "../src/runtime/state.ts"
 
@@ -1092,6 +1092,84 @@ describe("KV Schedule Run Store", () => {
   })
 })
 
+describe("Schedule record copies", () => {
+  it.each([false, true])("keeps memory and KV records independent with optional timestamps present: %s", async (completed) => {
+    const stores = [createMemoryScheduleRunStore(), createKVScheduleRunStore({ kvStore: createTestKVStore() })]
+    const date = new Date("2026-05-23T09:00:00.000Z")
+    const run: ScheduleRunRecord = {
+      id: "run", scheduleId: "schedule", target: "report", attemptCount: 1, status: "failed",
+      createdAt: date, scheduledAt: date, updatedAt: date,
+      ...(completed ? { startedAt: date, completedAt: date } : {}),
+      error: { name: "Error", message: "original" },
+    }
+    const attempt: ScheduleRunAttemptRecord = {
+      id: "attempt", runId: run.id, status: "failed", createdAt: date, startedAt: date, updatedAt: date,
+      ...(completed ? { completedAt: date } : {}), error: { message: "original" },
+    }
+    const expectedRun = structuredClone({ ...run, completedAt: run.completedAt, startedAt: run.startedAt, response: undefined })
+    const expectedAttempt = structuredClone({ ...attempt, completedAt: attempt.completedAt })
+    const expected = [expectedRun, expectedAttempt]
+    const created = await Promise.all(stores.map(async store => [await store.createRun(run), await store.createAttempt(attempt)]))
+    for (const records of created) expect(records).toEqual(expected)
+    date.setUTCFullYear(2000)
+    run.error!.message = "source mutation"
+    attempt.error!.message = "source mutation"
+
+    for (const [index, store] of stores.entries()) {
+      const records = [
+        ...created[index]!,
+        (await store.getRun(run.id))!,
+        (await store.getAttempt(attempt.id))!,
+        ...(await store.listRuns()),
+        ...(await store.listAttempts(run.id)),
+        (await store.updateRun(run.id, { updatedAt: new Date("2026-05-23T09:00:00.000Z") }))!,
+        (await store.updateAttempt(attempt.id, { updatedAt: new Date("2026-05-23T09:00:00.000Z") }))!,
+      ]
+      for (const record of records) {
+        expect(record).toEqual("scheduleId" in record ? expectedRun : expectedAttempt)
+        for (const value of Object.values(record)) {
+          if (value instanceof Date) value.setUTCFullYear(1999)
+        }
+        record.error!.message = "output mutation"
+      }
+      expect([await store.getRun(run.id), await store.getAttempt(attempt.id)]).toEqual(expected)
+    }
+  })
+
+  it("preserves invalid stored dates and treats empty optional timestamps as absent", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    await kvStore.set("vitehub:schedule/schedule-runs/run", {
+      id: "run", scheduleId: "schedule", target: "report", attemptCount: 0, status: "pending",
+      createdAt: "invalid", scheduledAt: "invalid", updatedAt: "invalid", startedAt: "", completedAt: "",
+    })
+    await kvStore.set("vitehub:schedule/schedule-run-attempts/attempt", {
+      id: "attempt", runId: "run", status: "running",
+      createdAt: "invalid", startedAt: "invalid", updatedAt: "invalid", completedAt: "",
+    })
+    const run = (await store.getRun("run"))!
+    const attempt = (await store.getAttempt("attempt"))!
+    expect(run.startedAt).toBeUndefined()
+    expect(run.completedAt).toBeUndefined()
+    expect(attempt.completedAt).toBeUndefined()
+    for (const date of [run.createdAt, run.scheduledAt, run.updatedAt, attempt.createdAt, attempt.startedAt, attempt.updatedAt]) {
+      expect(date).toBeInstanceOf(Date)
+      expect(date.getTime()).toBeNaN()
+    }
+    await expect(store.updateRun("run", { updatedAt: new Date() })).rejects.toThrow(RangeError)
+    await expect(store.updateAttempt("attempt", { updatedAt: new Date() })).rejects.toThrow(RangeError)
+  })
+
+  it("reports an uncloneable stored response before an invalid scheduled date", async () => {
+    const kvStore = createTestKVStore()
+    const store = createKVScheduleRunStore({ kvStore })
+    await kvStore.set("vitehub:schedule/schedule-runs/run", {
+      id: "run", createdAt: "2026-05-23T09:00:00.000Z", scheduledAt: Symbol("invalid"), response: () => {},
+    })
+    await expect(store.getRun("run")).rejects.toMatchObject({ name: "DataCloneError" })
+  })
+})
+
 describe("Schedule response persistence", () => {
   it.each(["memory", "kv"])("preserves binary bodies and header tuples in the %s store", async (kind) => {
     const store = kind === "memory" ? createMemoryScheduleRunStore() : createKVScheduleRunStore({ kvStore: createTestKVStore() })
@@ -1110,5 +1188,17 @@ describe("Schedule response persistence", () => {
     Object.assign(run.response!.headers[0]!, { 1: "changed" })
     expect((await store.getRun(run.id))?.response).toEqual(response)
     expect((await store.listRuns())[0]?.response).toEqual(response)
+
+    const expected = structuredClone(response)
+    const updated = await store.updateRun(run.id, { response, updatedAt: now })
+    const listed = (await store.listRuns())[0]!
+    for (const value of [response, stored!.response!, updated!.response!, listed.response!]) {
+      expect(value).toEqual(expected)
+      Object.assign(value.body, { data: "AA==" })
+      Object.assign(value.headers[0]!, { 1: "mutated" })
+    }
+    const fresh = (await store.getRun(run.id))!.response!
+    expect(fresh).toEqual(expected)
+    expect(new Uint8Array(await deserializeResponse(fresh).arrayBuffer())).toEqual(new Uint8Array([0, 128, 255]))
   })
 })

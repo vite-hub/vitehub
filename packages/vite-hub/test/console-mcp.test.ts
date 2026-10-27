@@ -45,6 +45,64 @@ afterEach(() => {
 })
 
 describe("ViteHub MCP", () => {
+  it("negotiates only revisions supported by the transport", async () => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    for (const version of ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]) {
+      const result = await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: version } })
+      expect(result.body.result.protocolVersion).toBe(["2025-11-25", "2025-06-18"].includes(version) ? version : "2025-11-25")
+    }
+  })
+
+  it("rejects unsupported protocol headers before dispatching requests or notifications", async () => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
+    for (const version of ["1999-01-01", "2025-03-26", "2024-11-05", "invalid"]) {
+      for (const message of [
+        { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "comments_list_threads" } },
+        { jsonrpc: "2.0", method: "notifications/initialized" },
+      ]) {
+        expect((await rpc(message, { headers: { "MCP-Protocol-Version": version } })).status).toBe(400)
+      }
+    }
+    expect(calls).toHaveLength(0)
+    for (const version of ["2025-11-25", "2025-06-18"]) {
+      expect((await rpc({ jsonrpc: "2.0", id: 1, method: "ping" }, { headers: { "MCP-Protocol-Version": version } })).status).toBe(200)
+    }
+    expect((await rpc({ jsonrpc: "2.0", id: 1, method: "ping" })).status).toBe(200)
+  })
+
+  it("validates all tool arguments against the advertised schema before execution", async () => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    const checked = tool("comments_checked", "comments")
+    checked.inputSchema = {
+      type: "object",
+      properties: {
+        id: { type: "string", minLength: 1 },
+        limit: { type: "integer", minimum: 1, maximum: 100 },
+        status: { enum: ["open", "resolved"] },
+        resolved: { type: "boolean" },
+        nested: { type: "object", properties: { names: { type: "array", items: { type: "string" } } }, additionalProperties: false },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    }
+    registerViteHubMcpTools("comments", [checked])
+    for (const input of [undefined, null, "bad", [], 1, true, {}, { id: 1 }, { id: "" }, { id: "t1", extra: true }, { id: "t1", limit: 0 }, { id: "t1", limit: 101 }, { id: "t1", limit: 1.5 }, { id: "t1", status: "all" }, { id: "t1", resolved: "false" }, { id: "t1", nested: { names: [1] } }]) {
+      const result = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: checked.name, arguments: input } })
+      expect(result.body.error).toMatchObject({ code: -32602 })
+    }
+    expect(calls).toHaveLength(0)
+    const input = { id: "t1", limit: 100, status: "resolved", resolved: false, nested: { names: ["Ada"] } }
+    expect((await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: checked.name, arguments: input } })).body.result.isError).toBe(false)
+    expect(calls[0]?.input).toEqual(input)
+    registerViteHubMcpTools("comments", [tool("comments_list_threads", "comments")])
+    expect((await rpc({ jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "comments_list_threads" } })).body.result.isError).toBe(false)
+    expect(calls[1]?.input).toEqual({})
+  })
+
   it("initializes, and lists only the tools of installed sections that the person may use", async () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
     installConsoleSections("/mcp-test", ["comments", "content"])
