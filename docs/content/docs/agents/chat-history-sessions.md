@@ -1,9 +1,10 @@
 ---
 title: Chat History and sessions
 description: Select prior conversation messages without confusing them with durable Agent Memory.
-navigation.order: 43
-navigation.group: Connect
+navigation.order: 30
+navigation.group: History and context
 icon: i-lucide-messages-square
+navigation.kind: Guides
 ---
 
 Chat History is the ordered list of earlier messages that one chat Invocation
@@ -195,3 +196,7 @@ Send two messages through the same thread or session. Then inspect the second
 Invocation with the [CLI](/docs/development/cli). The prepared input contains
 the bounded earlier messages and the current message. A different thread or
 session starts without that history.
+
+## Next steps
+
+Use [Workspace context](/docs/agents/workspace-context) for project files and [Channels](/docs/agents/channels) for message delivery. [Build a chat app](/docs/agents/build-a-chat-app) shows browser conversation state and streaming together. [Invocation storage](/docs/agents/invocation-storage) retains run evidence separately from model history.

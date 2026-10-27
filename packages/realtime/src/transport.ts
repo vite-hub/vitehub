@@ -64,12 +64,12 @@ export async function readRealtimeRequestState(request: Request, maxBytes = maxR
       if (done) break
       const chunk = normalizeRealtimeStateChunk(value)
       if (!chunk) {
-        await reader.cancel()
+        void reader.cancel().catch(() => {})
         throw new HTTPError({ status: 400, message: "Realtime request body contains invalid bytes." })
       }
       byteLength += chunk.byteLength
       if (byteLength > maxBytes) {
-        await reader.cancel()
+        void reader.cancel().catch(() => {})
         throw new HTTPError({ status: 413, message: "Realtime request state exceeds 8 MiB." })
       }
       chunks.push(chunk)

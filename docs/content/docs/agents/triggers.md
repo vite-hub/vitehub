@@ -1,9 +1,10 @@
 ---
 title: Triggers
 description: Translate product events into Agent Invocations while the Driver continues to own execution.
-navigation.order: 41
-navigation.group: Connect
+navigation.order: 43
+navigation.group: Channels
 icon: i-lucide-route
+navigation.kind: Guides
 ---
 
 A Trigger turns a product event into Agent Invocation input. Use it when a Capability owns the event's shape or policy. The Agent Driver still owns execution.

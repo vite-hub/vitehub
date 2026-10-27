@@ -1,3 +1,6 @@
+import { Readable } from "node:stream"
+
+import { defineHandler } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -54,7 +57,7 @@ describe("Console RPC", () => {
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await consoleRpcHandler.fetch(request)
+    const response = await defineHandler(consoleRpcHandler).fetch(request)
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
@@ -68,7 +71,7 @@ describe("Console RPC", () => {
     // A fresh module graph has no state from the first handler, like a second Worker isolate.
     const { default: secondHandler } = await import("../src/console/runtime/server/rpc.ts")
     expect(secondHandler).not.toBe(consoleRpcHandler)
-    const instances = [consoleRpcHandler, secondHandler]
+    const instances = [defineHandler(consoleRpcHandler), defineHandler(secondHandler)]
     let next = 0
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(new URL(input, "http://vitehub.local"), init)
@@ -83,6 +86,21 @@ describe("Console RPC", () => {
     expect(next).toBe(4)
     await expect(requestConsole("/api/_vitehub/console/definitions"))
       .rejects.toMatchObject({ message: "A valid definition section is required.", name: "ConsoleRequestError", status: 400 })
+  })
+
+  it("reads the call from the H3 1 events of Nuxt 4, which carry Node's request", async () => {
+    installConsoleSections("/console-rpc-nuxt4", ["env"])
+    const req = Object.assign(Readable.from([JSON.stringify({ method: consoleRpcMethods.sections, input: {} })]), {
+      method: "POST",
+      url: "/_vitehub/rpc/__call",
+      headers: { host: "vitehub.local", "content-type": "application/json", [consoleRpcHeader]: "1" },
+    })
+    const event = { node: { req, res: { statusCode: 200, getHeader: () => undefined, getHeaders: () => ({}), setHeader() {}, removeHeader() {} } }, context: {}, method: "POST", headers: new Headers(req.headers) }
+    const response: unknown = await Reflect.apply(consoleRpcHandler, undefined, [event])
+    expect(response).toBeInstanceOf(Response)
+    if (!(response instanceof Response)) return
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({ ok: true })
   })
 
   it("returns operation results and errors with no-store headers", async () => {

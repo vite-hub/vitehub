@@ -2,7 +2,7 @@
 title: Chat App
 description: "A complete chat layout with a session list, streamed replies, and a prompt with attachments."
 navigation.order: 10
-navigation.group: Console
+navigation.group: Blocks
 icon: i-ph-chats-teardrop-light
 ---
 

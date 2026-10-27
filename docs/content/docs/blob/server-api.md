@@ -95,7 +95,7 @@ Pass the cursor returned by `blob.list()` unchanged to the next list call on the
 
 ## Serve a transformed object
 
-Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It sets content headers and handles conditional GET and HEAD requests through h3. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
+Use `blob.serve()` in an application route when authorization or a database lookup decides which object to expose. It accepts Nuxt H3 v1 and Nitro H3 v2 events, sets content headers, and handles conditional GET and HEAD requests. Responses default to `private, no-cache`; set `cacheControl` to choose another policy.
 
 `blob.serve()` also answers byte-range requests, so a `<video>` or `<audio>` element can seek, and Safari can play the file. Responses without a `transform` send `Accept-Ranges: bytes`. A GET or HEAD request with one `Range: bytes=start-end`, `bytes=start-`, or `bytes=-length` gets `206` with `Content-Range` and only those bytes. A range that starts past the end gets `416` with `Content-Range: bytes */<size>` and an empty body. Several ranges, a malformed header, or an `If-Range` that is not the current `ETag` get the whole file. Transformed responses ignore `Range`.
 

@@ -2,9 +2,10 @@
 title: Runtime policy, approvals, and traces
 navigation.title: Runtime policy, approvals, and traces
 description: Choose when an Agent tool can run, know who owns each approval, and inspect the policy decision after the Invocation.
-navigation.order: 23
-navigation.group: Core
+navigation.order: 72
+navigation.group: Advanced
 icon: i-lucide-shield-alert
+navigation.kind: Concepts
 ---
 
 Attaching a Capability gives an Agent an operation it can call. Check its

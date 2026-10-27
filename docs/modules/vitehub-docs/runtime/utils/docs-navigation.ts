@@ -3,13 +3,15 @@ import { normalizeDocsPath, type DocsPage, type DocsSection } from "./docs";
 /** Catalog rows on `/docs` and groups in the product select, in display order. */
 export const docsCategoryOrder = [
   "Start",
+  "Agents",
+  "UI",
   "Data",
   "Compute",
   "Access",
   "Delivery",
   "Files",
-  "Agents",
-  "Platform",
+  "Develop and deploy",
+  "Reference",
 ] as const;
 
 export type DocsCategory = (typeof docsCategoryOrder)[number];
@@ -20,6 +22,7 @@ export type DocsCatalogGroup = {
 };
 
 const primitiveCategories = new Set(["Data", "Compute", "Access", "Delivery", "Files"]);
+const sharedCategories = new Set(["Develop and deploy", "Reference"]);
 
 /** The section whose pages fill the Start row of the catalog. */
 export const docsRootSectionId = "getting-started";
@@ -109,14 +112,18 @@ export function getDocsSectionSubpages(section: DocsSection) {
   return section.pages.filter(page => page.navigation !== false && page.id !== "index");
 }
 
-/** Platform topics stay reachable from Get started and the catalog, without product rail entries. */
+/** Shared topics stay reachable from Get started and the catalog, without product rail entries. */
 export function getDocsRailCatalog(sections: DocsSection[]): DocsCatalogGroup[] {
-  return getDocsCatalog(sections).filter(group => group.category !== "Platform");
+  return getDocsCatalog(sections).filter(group => !sharedCategories.has(group.category));
+}
+
+export function isSharedDocsSection(section: DocsSection): boolean {
+  return sharedCategories.has(section.category || "");
 }
 
 export function getDocsSectionKind(section: DocsSection): string {
   if (section.id === docsRootSectionId) return "Get started";
   if (section.id === "ui") return "UI components";
   if (primitiveCategories.has(section.category || "")) return "Server Primitive";
-  return section.category || "Platform";
+  return section.category || "Reference";
 }

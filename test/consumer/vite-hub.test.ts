@@ -114,6 +114,36 @@ async function withNodeServer<T>(entry: string, cwd: string, callback: (origin: 
   }
 }
 
+/** Runs a development server until its log matches `ready`. Nitro 2 answers 500 while it still builds the server. */
+async function withDevServer<T>(command: string, args: string[], cwd: string, ready: RegExp, callback: (origin: string) => Promise<T>) {
+  const port = await availablePort()
+  const child = spawn(command, [...args, "--host", "127.0.0.1", "--port", String(port)], {
+    cwd,
+    detached: true,
+    env: { ...process.env, NUXT_TELEMETRY_DISABLED: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+  })
+  let logs = ""
+  child.stdout.on("data", chunk => { logs += String(chunk) })
+  child.stderr.on("data", chunk => { logs += String(chunk) })
+
+  try {
+    for (let attempt = 0; !ready.test(logs); attempt++) {
+      if (child.exitCode !== null) throw new Error(`Development server exited early.\n${logs}`)
+      if (attempt > 2400) throw new Error(`Development server did not start.\n${logs}`)
+      await new Promise(resolve => setTimeout(resolve, 100))
+    }
+    return { logs: () => logs, value: await callback(`http://127.0.0.1:${port}`) }
+  }
+  finally {
+    if (child.exitCode === null) {
+      // The package manager starts the server in a child process, so stop the whole group.
+      process.kill(-child.pid!, "SIGTERM")
+      await once(child, "exit")
+    }
+  }
+}
+
 function packageTarballName(name: string, version: string) {
   return `${name.replace(/^@/, "").replaceAll("/", "-")}-${version}.tgz`
 }
@@ -914,6 +944,68 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
     }
   }, 600_000)
 
+  it("serves the Console on the Nuxt 4 development server", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-console-dev-consumer-"))
+    const appDir = join(root, "app")
+    const packDir = join(root, "packs")
+
+    try {
+      await Promise.all([
+        mkdir(join(appDir, "app"), { recursive: true }),
+        mkdir(packDir, { recursive: true }),
+      ])
+      const specs = await packWorkspacePackages(packDir)
+      await Promise.all([
+        writeFile(join(appDir, "app/app.vue"), "<template><main>ViteHub</main></template>\n", "utf8"),
+        writeFile(join(appDir, "nuxt.config.ts"), `
+          export default defineNuxtConfig({
+            compatibilityDate: "2026-10-01",
+            modules: ["vite-hub/nuxt"],
+            vitehub: { console: { auth: false }, kv: true, preset: "node" },
+          })
+        `, "utf8"),
+        writeFile(join(appDir, "package.json"), JSON.stringify({
+          dependencies: {
+            nuxt: "4.6.2",
+            unplugin: "3.3.0",
+            vite: "8.0.8",
+            "vite-hub": specs["vite-hub"],
+          },
+          packageManager: "pnpm@10.33.0",
+          private: true,
+          type: "module",
+        }, null, 2), "utf8"),
+        writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
+          "oxc-parser": "0.140.0",
+          rollup: "4.64.0",
+        }), "utf8"),
+      ])
+      await run("pnpm", ["install", "--no-hoist", "--no-strict-peer-dependencies"], appDir)
+
+      // Nuxt 4 runs Nitro 2, which leaves modules outside its inline list to Node in development.
+      const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
+        const page = await fetch(`${origin}/_vitehub`)
+        const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
+          body: JSON.stringify({ method: "vitehub:console:sections" }),
+          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          method: "POST",
+        })
+        return {
+          page: { body: await page.text(), status: page.status },
+          sections: { body: await sections.text(), status: sections.status },
+        }
+      })
+
+      expect(server.value.page.status, `${server.value.page.body}\n${server.logs()}`).toBe(200)
+      expect(server.value.page.body).toContain("<title>ViteHub Console</title>")
+      expect(server.value.sections.status, server.value.sections.body).toBe(200)
+      expect(JSON.parse(server.value.sections.body)).toMatchObject({ ok: true, value: { sections: expect.arrayContaining(["env", "kv"]) } })
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  }, 600_000)
+
   it("builds Nuxt database middleware without exposing owner packages", async () => {
     const root = await mkdtemp(join(tmpdir(), "vite-hub-nuxt-consumer-"))
     const appDir = join(root, "app")
@@ -962,6 +1054,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         }, null, 2), "utf8"),
         writeFile(join(appDir, "pnpm-workspace.yaml"), workspaceConfig(specs, {
           "oxc-parser": "0.140.0",
+          // Keep Nitro's native Rollup package on the workspace-tested release.
+          rollup: "4.64.0",
         }), "utf8"),
       ])
       await run("pnpm", ["install", "--no-hoist", "--strict-peer-dependencies"], appDir)
@@ -1340,8 +1434,9 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       })
       expect(existsSync(join(appDir, "dist", "app", "index.js"))).toBe(true)
 
-      const [authTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
+      const [authTypes, authServerTypes, blobPlugin, envServer, scheduleRegistryTypes] = await Promise.all([
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/types/auth-server.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/schedule/provider-registry.d.ts"), "utf8"),
@@ -1357,7 +1452,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(bareOwnerPackageSpecifiers, "generated app-local code must not expose bare owner-package specifiers").toEqual([])
 
       expect(authTypes).toContain("namespace ViteHub")
-      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(envServer).toContain("vite-hub/env/server")
       expect(scheduleRegistryTypes).toContain("vite-hub/_internal/schedule")
@@ -1394,9 +1489,10 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
         VITEHUB_PRESET: "vercel",
       })
       const [nativeWorkflowFile] = await readdir(join(appDir, ".vitehub/workflow/vercel-native"))
-      const [agentRoute, authTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
+      const [agentRoute, authTypes, authServerTypes, blobPlugin, emailTemplate, envServer, workflowRegistry, workspacePlugin, nativeWorkflow, scheduleFunction, flowBundle, vercelConfig] = await Promise.all([
         readFile(join(appDir, ".vitehub/agent/chat-webhook-route.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/types/auth.d.ts"), "utf8"),
+        readFile(join(appDir, ".vitehub/types/auth-server.d.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/nitro/blob/plugin.ts"), "utf8"),
         readFile(join(appDir, ".vitehub/email/templates/welcome.mjs"), "utf8"),
         readFile(join(appDir, ".vitehub/env/server.mjs"), "utf8"),
@@ -1410,7 +1506,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(agentRoute).toContain("vite-hub/_internal/agent")
       expect(agentRoute).toContain("vite-hub/_internal/workspace/runtime")
       expect(authTypes).toContain("namespace ViteHub")
-      expect(authTypes).toContain("vite-hub/auth/server")
+      expect(authServerTypes).toContain("vite-hub/auth/server")
       expect(blobPlugin).toContain("vite-hub/_internal/blob/runtime/state")
       expect(emailTemplate).toContain("Welcome")
       expect(envServer).toContain("vite-hub/env/server")
@@ -1419,8 +1515,8 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/execute")
       expect(workflowRegistry).toContain("vite-hub/_internal/workflow/runtime/state")
       expect(workflowRegistry).toContain("setWorkspaceDependencyRuntimeLoaders")
-      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox-task/runtime/state")
-      expect(workflowRegistry).not.toContain("vite-hub/sandbox-task")
+      expect(workflowRegistry).not.toContain("vite-hub/_internal/sandbox/task/runtime/state")
+      expect(workflowRegistry).not.toContain("vite-hub/sandbox/task")
       expect(workflowRegistry).toContain("vite-hub/shell/workspace")
       expect(workspacePlugin).toContain("vite-hub/_internal/workspace/runtime")
       expect(nativeWorkflow).toContain('"use workflow"')

@@ -2,6 +2,7 @@
 title: Build and deploy
 description: Find the setup, development tools, and API reference for your application.
 navigation.order: 8
+navigation.group: Develop and deploy
 icon: i-lucide-wrench
 ---
 

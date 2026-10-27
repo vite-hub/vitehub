@@ -1,7 +1,9 @@
 import { Diagnostic, formatDiagnostic } from "nostics"
 import { describe, expect, it } from "vitest"
 
-import { defineErrors, formatRuntimeDiagnosticError, normalizeRuntimeDiagnosticError, type Result } from "../src/index.ts"
+import { defineErrors, type Result } from "@vite-hub/runtime"
+
+import { formatRuntimeDiagnosticError, normalizeRuntimeDiagnosticError } from "../src/index.ts"
 
 const errors = defineErrors({
   docs: "https://vitehub.dev/docs/example",
@@ -60,6 +62,43 @@ describe("defineErrors", () => {
       fix: "Write the key before you read it.",
     })
     expect(formatRuntimeDiagnosticError(error)).toContain("[EXAMPLE_NOT_FOUND]")
+  })
+
+  it("keeps catalog data in memory and omits it from public JSON", () => {
+    const catalog = defineErrors({
+      docs: "https://vitehub.dev/docs/example",
+      codes: {
+        EXAMPLE_RETRY: {
+          why: ({ key }: { key: string }) => `Could not read ${key}.`,
+          fix: ({ delay }: { delay: number }) => `Retry in ${delay} seconds.`,
+          data: ({ attempt }: { attempt: number }) => ({ attempt }),
+        },
+        EXAMPLE_BUSY: { why: "Busy.", docs: false, data: { retryAfter: 10 } },
+      },
+    })
+    const cause = new Error("token=secret")
+    const sources = ["private.ts:1:2"]
+    const error = catalog.EXAMPLE_RETRY({ key: "settings", delay: 10, attempt: 1, cause, sources })
+
+    expect(error).toBeInstanceOf(Diagnostic)
+    expect(error.data.attempt).toBe(1)
+    expect(error.cause).toBe(cause)
+    expect(error.sources).toEqual(sources)
+    expect(error.stack).toContain("EXAMPLE_RETRY")
+    const publicError = {
+      code: "EXAMPLE_RETRY",
+      name: "EXAMPLE_RETRY",
+      why: "Could not read settings.",
+      fix: "Retry in 10 seconds.",
+      docs: "https://vitehub.dev/docs/example#example_retry",
+    }
+    expect(error.toJSON()).toEqual(publicError)
+    expect(JSON.parse(JSON.stringify(error))).toEqual(publicError)
+
+    const busy = catalog.EXAMPLE_BUSY()
+    expect(busy.data.retryAfter).toBe(10)
+    expect(busy.toJSON()).toEqual({ code: "EXAMPLE_BUSY", name: "EXAMPLE_BUSY", why: "Busy.", docs: undefined, fix: undefined })
+    expect(JSON.parse(JSON.stringify(busy))).toEqual({ code: "EXAMPLE_BUSY", name: "EXAMPLE_BUSY", why: "Busy." })
   })
 })
 

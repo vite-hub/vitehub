@@ -21,10 +21,11 @@ function filenameFor(pre: HTMLPreElement): string {
 
 function collectBlocks(body: HTMLElement): Block[] {
   return [...body.querySelectorAll<HTMLPreElement>("pre")].flatMap((pre) => {
-    const wrapper = pre.closest<HTMLElement>(".code-block-wrapper") ?? pre.parentElement;
+    const wrapper = pre.closest<HTMLElement>(".code-block-wrapper");
     const path = filenameFor(pre);
     const isShell = /\blanguage-(bash|sh|shell|zsh)\b/.test(pre.className) || path.startsWith("commands/");
-    return wrapper && path && !isShell ? [{ path, wrapper, pre }] : [];
+    const isOutput = path.startsWith("output/");
+    return wrapper && path && !isShell && !isOutput ? [{ path, wrapper, pre }] : [];
   });
 }
 
@@ -83,12 +84,21 @@ function markSources(list: Block[]) {
     const bar = [...block.wrapper.children].find(
       (child) => child !== block.pre && !child.matches("button"),
     ) as HTMLElement | undefined;
+    // Keep the original filename bar as text. Add a native button so keyboard
+    // and pointer readers use the same action without changing rendered prose.
+    const trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "vh-code-panel-trigger";
+    trigger.textContent = "View file";
+    trigger.setAttribute("aria-label", `View ${block.path} in the file panel`);
     const onClick = () => selectBlock(index);
     block.wrapper.classList.add("vh-code-panel-source");
-    bar?.addEventListener("click", onClick);
+    trigger.addEventListener("click", onClick);
+    bar?.append(trigger);
     releases.push(() => {
       block.wrapper.classList.remove("vh-code-panel-source", "is-active");
-      bar?.removeEventListener("click", onClick);
+      trigger.removeEventListener("click", onClick);
+      trigger.remove();
     });
   });
 }
@@ -106,7 +116,15 @@ watch(() => props.body, (body) => {
   observer?.disconnect();
   scan(body);
   if (!body) return;
-  observer = new MutationObserver(() => {
+  observer = new MutationObserver((records) => {
+    // Our native filename buttons are presentation only. Rescanning for their
+    // insertion/removal would trigger another scan indefinitely.
+    const contentChanged = records.some(record =>
+      [...record.addedNodes, ...record.removedNodes].some(node =>
+        !(node instanceof HTMLElement && node.classList.contains("vh-code-panel-trigger")),
+      ),
+    );
+    if (!contentChanged) return;
     window.clearTimeout(rescanTimer);
     rescanTimer = window.setTimeout(() => scan(body), 0);
   });
@@ -165,7 +183,7 @@ onBeforeUnmount(() => {
   top: var(--ui-header-height);
   display: none;
   height: calc(100dvh - var(--ui-header-height));
-  grid-template-columns: max-content minmax(0, 1fr);
+  grid-template-columns: minmax(8rem, 36%) minmax(0, 1fr);
   border-left: 1px solid var(--ui-border);
   background: var(--ui-bg);
 }
@@ -178,9 +196,10 @@ onBeforeUnmount(() => {
 
 .vh-code-panel-tree {
   display: flex;
-  min-width: 10rem;
+  min-width: 0;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: auto;
   border-right: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
   padding: 0.5rem 0.375rem;
@@ -269,6 +288,10 @@ onBeforeUnmount(() => {
 
 <!-- The source blocks live in the article, outside this component, so these rules are global. They apply only where the panel shows. -->
 <style>
+.vh-code-panel-trigger {
+  display: none;
+}
+
 @media (min-width: 80rem) {
   .vh-code-panel-source > pre,
   .vh-code-panel-source > button {
@@ -277,10 +300,29 @@ onBeforeUnmount(() => {
 
   .vh-code-panel-source > :first-child {
     border-bottom-width: 1px;
-    cursor: pointer;
     transition:
       background-color 150ms ease,
       color 150ms ease;
+  }
+
+  .vh-code-panel-trigger {
+    display: inline-flex;
+    flex: none;
+    margin-inline-start: auto;
+    border-radius: var(--ui-radius);
+    padding: 0.25rem 0.5rem;
+    color: var(--ui-text);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  .vh-code-panel-trigger:hover {
+    background: var(--ui-bg-elevated);
+  }
+
+  .vh-code-panel-trigger:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 2px;
   }
 
   .vh-code-panel-source > :first-child:hover,

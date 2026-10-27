@@ -3,6 +3,7 @@ import type { ButtonProps } from "@nuxt/ui";
 import { computed, onBeforeUnmount, ref } from "vue";
 
 import { consoleProblem } from "../client/problem";
+import { consoleSignInURL } from "../client/sign-in";
 import { consolePrimitives } from "../sections";
 
 /**
@@ -48,7 +49,8 @@ function reload(): void {
 const docsAction = computed<ButtonProps | undefined>(() =>
   docsURL.value
     ? {
-        label: problem.value ? "Read the docs" : "Get started",
+        // A compact state sits in a narrow sidebar, so its docs link stays short enough to share a row.
+        label: problem.value ? (props.compact ? "Docs" : "Read the docs") : "Get started",
         to: docsURL.value,
         target: "_blank",
         trailingIcon: "i-ph-arrow-up-right-light",
@@ -59,15 +61,20 @@ const docsAction = computed<ButtonProps | undefined>(() =>
 const stateActions = computed<ButtonProps[]>(() => {
   const main: ButtonProps[] = [];
   const action = problem.value?.action;
-  if (action === "sign-in") main.push({ label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+  if (action === "sign-in") {
+    // The sign-in page brings the person back to this page. Without one, the page reloads, which lets Cloudflare Access sign them in.
+    const signIn = consoleSignInURL({ document, location: window.location });
+    main.push(signIn ? { label: "Sign in again", icon: "i-ph-sign-in-light", to: signIn, external: true } : { label: "Sign in again", icon: "i-ph-sign-in-light", onClick: reload });
+  }
   else if (action === "reload") main.push({ label: "Reload", icon: "i-ph-arrows-clockwise-light", onClick: reload });
   else if (action === "retry" && props.retry) main.push({ label: "Try again", icon: "i-ph-arrows-clockwise-light", onClick: () => void props.retry?.() });
   const first = main[0];
   const buttons: ButtonProps[] = first ? [{ color: "neutral", variant: "soft", size: "xs", ...first }] : [];
+  // Later buttons are ghost buttons, so every button in the row has the same height and padding.
   if (docsAction.value) {
-    buttons.push({ color: "neutral", variant: buttons.length ? "link" : "soft", size: "xs", ...docsAction.value });
+    buttons.push({ color: "neutral", variant: buttons.length ? "ghost" : "soft", size: "xs", ...docsAction.value });
   }
-  for (const extra of props.actions ?? []) buttons.push({ color: "neutral", variant: "link", size: "xs", ...extra });
+  for (const extra of props.actions ?? []) buttons.push({ color: "neutral", variant: "ghost", size: "xs", ...extra });
   return buttons;
 });
 
@@ -91,35 +98,56 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- Compact: an inline alert for sidebars and panels. The icon has its own column; everything else starts on one edge. -->
   <div
+    v-if="compact"
     :role="problem ? 'alert' : 'status'"
-    :class="
-      compact
-        ? 'grid gap-1.5 rounded-md bg-elevated/50 px-3 py-2.5 text-xs'
-        : 'flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center'
-    "
+    class="grid grid-cols-[1rem_minmax(0,1fr)] gap-x-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs"
   >
-    <div :class="compact ? 'flex items-start gap-2' : 'grid justify-items-center gap-2'">
-      <UIcon :name="stateIcon" :class="compact ? 'mt-px size-4 shrink-0 text-muted' : 'size-5 text-muted'" />
-      <div :class="compact ? 'min-w-0 flex-1' : 'grid max-w-sm gap-1'">
+    <UIcon :name="stateIcon" class="mt-0.5 size-4 text-muted" />
+    <div class="grid min-w-0 gap-1">
+      <h2 class="text-[13px] font-medium leading-5 text-highlighted">{{ title }}</h2>
+      <p v-if="problem?.why || description" class="leading-5 text-pretty text-muted">{{ problem?.why ?? description }}</p>
+      <p v-if="problem?.fix" class="leading-5 text-pretty text-default">{{ problem.fix }}</p>
+      <slot />
+      <div v-if="stateActions.length" class="mt-1 flex flex-wrap items-center gap-1">
+        <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
+      </div>
+      <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
+        <button
+          type="button"
+          class="-mx-1 max-w-full justify-self-start rounded px-1 text-start font-mono text-[11px] text-dimmed outline-none [overflow-wrap:anywhere] hover:text-muted focus-visible:ring-1 focus-visible:ring-primary"
+          :aria-label="`Copy error code ${problem.code}`"
+          @click="copyCode"
+        >
+          {{ problem.code }} <span v-if="problem.status" class="whitespace-nowrap">· {{ problem.status }}</span>
+        </button>
+      </UTooltip>
+    </div>
+  </div>
+  <div
+    v-else
+    :role="problem ? 'alert' : 'status'"
+    class="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-10 text-center"
+  >
+    <div class="grid justify-items-center gap-2">
+      <UIcon :name="stateIcon" class="size-5 text-muted" />
+      <div class="grid max-w-sm gap-1">
         <h2 class="text-sm font-medium text-highlighted">{{ title }}</h2>
-        <p v-if="problem?.why || description" class="text-xs leading-5 text-muted">
+        <p v-if="problem?.why || description" class="text-xs leading-5 text-pretty text-muted">
           {{ problem?.why ?? description }}
         </p>
-        <p v-if="problem?.fix" class="text-xs leading-5 text-default">{{ problem.fix }}</p>
+        <p v-if="problem?.fix" class="text-xs leading-5 text-pretty text-default">{{ problem.fix }}</p>
       </div>
     </div>
     <!-- Extra content for the state, such as a code example for an empty state. -->
     <slot />
-    <div
-      v-if="stateActions.length || problem"
-      :class="compact ? 'flex flex-wrap items-center gap-x-1 gap-y-1 ps-6' : 'flex flex-wrap items-center justify-center gap-1'"
-    >
+    <div v-if="stateActions.length || problem" class="flex flex-wrap items-center justify-center gap-1">
       <UButton v-for="(button, index) in stateActions" :key="index" v-bind="button" />
       <UTooltip v-if="problem" :text="copied ? 'Copied' : 'Copy error code'">
         <button
           type="button"
-          class="ms-1 rounded px-1 font-mono text-[11px] text-dimmed outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-primary"
+          class="ms-1 whitespace-nowrap rounded px-1 font-mono text-[11px] text-dimmed outline-none hover:text-muted focus-visible:ring-1 focus-visible:ring-primary"
           :aria-label="`Copy error code ${problem.code}`"
           @click="copyCode"
         >

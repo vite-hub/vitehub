@@ -1,9 +1,10 @@
 ---
 title: Sandboxes
 description: Run a built-in provider Driver inside a Sandbox with a private Home, checkout, credentials, and process requirements.
-navigation.order: 50
-navigation.group: Advanced execution
+navigation.order: 75
+navigation.group: Advanced
 icon: i-lucide-package-open
+navigation.kind: Guides
 ---
 
 ::agent-only{skill="sandbox"}
