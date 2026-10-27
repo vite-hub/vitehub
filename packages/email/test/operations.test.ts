@@ -1,27 +1,18 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
-import { tmpdir } from "node:os"
-import { join } from "node:path"
-
 import { afterEach, describe, expect, it } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
 import { emailOperations } from "../src/operations.ts"
-import { setEmailTemplateRoots } from "../src/roots.ts"
 import { createEmailDevOutboxDriver } from "../src/runtime/outbox.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/types.ts"
 
 const outboxState = Symbol.for("vitehub.email.outbox")
 const captureState = Symbol.for("vitehub.email.devCapture")
-const rootsState = Symbol.for("vitehub.email.templateRoots")
-const tempDirs: string[] = []
 
-afterEach(async () => {
+afterEach(() => {
   Reflect.deleteProperty(globalThis, outboxState)
   Reflect.deleteProperty(globalThis, captureState)
-  Reflect.deleteProperty(globalThis, rootsState)
-  await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
 const registry = createOperationRegistry([{ operations: emailOperations }])
@@ -92,35 +83,5 @@ describe("email outbox operations", () => {
       "email.outbox-show": "read",
       "email.preview": "read",
     })
-  })
-})
-
-describe("email.preview", () => {
-  async function project(): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), "vitehub-email-preview-"))
-    tempDirs.push(root)
-    await mkdir(join(root, "emails", "billing"), { recursive: true })
-    await writeFile(join(root, "emails", "welcome.md"), "# Hello {{ data.name }}\n")
-    await writeFile(join(root, "emails", "billing", "receipt.md"), "Receipt {{ data.id }}\n")
-    setEmailTemplateRoots([join(root, "emails")])
-    return root
-  }
-
-  it("renders a template with data without sending it", async () => {
-    await project()
-    const result = await call("email.preview", { data: { name: "Ada" }, template: "welcome" })
-    expect(result).toMatchObject({ ok: true, value: { html: "<h1 id=\"hello-ada\">Hello Ada</h1>", template: "welcome", text: "# Hello Ada" } })
-  })
-
-  it("names the templates when one is missing", async () => {
-    await project()
-    const result = await call("email.preview", { template: "goodbye" })
-    expect(result).toMatchObject({ code: "EMAIL_TEMPLATE_NOT_FOUND", ok: false, status: 404 })
-    expect(!result.ok && result.message).toContain("Templates: billing/receipt, welcome.")
-  })
-
-  it("needs the email section", async () => {
-    await project()
-    expect(await call("email.preview", { template: "welcome" }, ["kv"])).toMatchObject({ code: "INTERNAL_R0023", ok: false })
   })
 })

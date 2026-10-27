@@ -1,7 +1,5 @@
-import { resolve } from "node:path"
-
-import { previewEmailTemplate } from "../preview.ts"
-import { getEmailTemplateRoots } from "../roots.ts"
+import { renderEmailMarkdown } from "../markdown.ts"
+import { EmailTemplateNotFoundError } from "../preview.ts"
 import { toEmailOutboxListItem } from "./console.ts"
 import { getActiveEmailOutbox, isEmailOutboxDisabled } from "./outbox.ts"
 
@@ -37,8 +35,11 @@ export function clearEmailOutboxMessages(): { cleared: number } {
   return { cleared: outbox()?.clear() ?? 0 }
 }
 
-/** Renders a template of the running app. The roots come from the Vite plugin; without it they default to `server/emails`. */
+/** Renders a template carried in generated host output, including in workers without the application's source files. */
 export async function previewEmail(template: string, data?: Record<string, unknown>): Promise<EmailPreview> {
-  const rootDir = process.cwd()
-  return await previewEmailTemplate(getEmailTemplateRoots() ?? [resolve(rootDir, "server", "emails")], rootDir, template, data)
+  const { emailPreview } = await import("#vitehub/email/definition")
+  const entry = emailPreview.templates.find(entry => entry.name === template)
+  if (!entry) throw new EmailTemplateNotFoundError(template, emailPreview.roots, ".", emailPreview.templates.map(entry => entry.name))
+  const rendered = await renderEmailMarkdown(entry.source, { data })
+  return { file: entry.file, html: rendered.html, template: entry.name, text: rendered.text }
 }

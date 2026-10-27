@@ -20,6 +20,8 @@ const props = defineProps<{
 const toast = useConsoleToast();
 const key = ref("");
 const peeked = ref<ConsoleRateLimitPeek>();
+// Inspection may redact the echoed key. Keep the successful request's identity for mutations.
+const peekedKey = ref<string>();
 const error = ref<string>();
 const loading = ref(false);
 const resetOpen = ref(false);
@@ -46,10 +48,14 @@ async function peek(): Promise<void> {
   error.value = undefined;
   try {
     const result = await peekConsoleRateLimit(props.base, props.name, current, controller.signal);
-    if (request === controller) peeked.value = result;
+    if (request === controller) {
+      peeked.value = result;
+      peekedKey.value = current;
+    }
   } catch (failure) {
     if (failure instanceof Error && failure.name === "AbortError") return;
     peeked.value = undefined;
+    peekedKey.value = undefined;
     error.value = message(failure, "The Console could not read this counter.");
   } finally {
     if (request === controller) {
@@ -61,10 +67,11 @@ async function peek(): Promise<void> {
 
 async function confirmReset(): Promise<void> {
   const target = peeked.value;
-  if (!target || resetting.value) return;
+  const targetKey = peekedKey.value;
+  if (!target || targetKey === undefined || resetting.value) return;
   resetting.value = true;
   try {
-    const result = await resetConsoleRateLimit(props.base, target.name, target.key);
+    const result = await resetConsoleRateLimit(props.base, target.name, targetKey);
     resetOpen.value = false;
     if (result.status === "reset") toast.show({ title: "Counter reset" });
     else toast.error(result.reason ?? "The provider could not reset this counter.");
@@ -82,6 +89,7 @@ watch(() => props.name, () => {
   request?.abort();
   loading.value = false;
   peeked.value = undefined;
+  peekedKey.value = undefined;
   error.value = undefined;
 });
 onBeforeUnmount(() => request?.abort());

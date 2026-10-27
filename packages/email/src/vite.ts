@@ -19,7 +19,6 @@ import type { Plugin } from "vite"
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
 import { discoverEmailTemplates } from "./templates.ts"
 import { disposeEmailOutbox } from "./runtime/outbox.ts"
-import { setEmailTemplateRoots } from "./roots.ts"
 import { emailCaptureKey } from "./runtime/capture.ts"
 
 import type { EmailTemplate } from "./templates.ts"
@@ -200,7 +199,7 @@ function renderEmailDefinitionModule(
   return [
     `import definition from ${JSON.stringify(definition.handler)}`,
     "export { definition }",
-    `export { outboxRuntimeId } from ${JSON.stringify(definition.handler)}`,
+    `export { emailPreview, outboxRuntimeId } from ${JSON.stringify(definition.handler)}`,
     "export default definition",
     "",
   ].join("\n")
@@ -216,6 +215,7 @@ function renderConfiguredEmailDefinitionModule(
   definition: GeneratedEmailDefinition,
   driverImport: string,
   runtimeEnvImport: string,
+  previewImport: string,
   cloudflare: boolean,
   cloudflareEmail: boolean,
   outbox?: GeneratedEmailOutbox,
@@ -224,6 +224,7 @@ function renderConfiguredEmailDefinitionModule(
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
     `import { resolveServerEnv } from ${JSON.stringify(runtimeEnvImport)}`,
+    `export { emailPreview } from ${JSON.stringify(previewImport)}`,
     ...(outbox ? [`import { createEmailDevOutboxDriver } from ${JSON.stringify(outbox.import)}`] : []),
     ...(cloudflare ? ["import { env as vitehubEmailEnv } from \"cloudflare:workers\""] : []),
     ...(cloudflareEmail ? ["import { EmailMessage } from \"cloudflare:email\""] : []),
@@ -409,6 +410,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
   let materializationRequested = false
   let providerImportAliases: Promise<Record<string, string>> | undefined
   let watchFiles = new Set<string>()
+  const previewRegistryPath = () => resolve(projectRoot, ".vitehub", "email", "preview.mjs")
 
   const updateTemplateRoots = (nextProjectRoot: string, nextServerDirs = serverDirs) => {
     const nextTemplatesRoots = (nextServerDirs ?? [resolve(nextProjectRoot, "server")]).map(directory => resolve(directory, "emails"))
@@ -416,7 +418,6 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     projectRoot = nextProjectRoot
     templatesRoots = nextTemplatesRoots
     materializedRoot = resolve(projectRoot, ".vitehub", "email", "templates")
-    setEmailTemplateRoots(templatesRoots)
   }
 
   const prepareTypes = async (options: { materialize?: boolean, projectRoot: string, serverDirs?: string[] }) => {
@@ -426,6 +427,16 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     const files = templates.map(template => template.file)
     const names = templates.map(template => template.name)
     await writeFileIfChanged(resolve(options.projectRoot, ".vitehub", "types", "email.d.ts"), renderEmailTemplateTypes(names))
+    // Bundle source text into runtime output: Nitro workers and deployed hosts do not share Vite's global state or filesystem.
+    const preview = {
+      roots: templatesRoots.map(root => relative(projectRoot, root)),
+      templates: await Promise.all(templates.map(async template => ({
+        file: relative(projectRoot, template.file),
+        name: template.name,
+        source: await readFile(template.file, "utf8"),
+      }))),
+    }
+    await writeFileIfChanged(previewRegistryPath(), `export const emailPreview = ${JSON.stringify(preview)}\n`)
     const nextWatchFiles = new Set([...watchFiles, ...files])
     watchFiles = nextWatchFiles
     if (options.materialize) {
@@ -528,11 +539,13 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
       // The outbox is added only for `vite dev`. A build never imports the outbox module.
       const devOutbox = command === "serve" && outbox ? { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId } : undefined
-      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, cloudflare, cloudflare && cloudflareEmail, devOutbox, command === "serve"))
+      const previewImport = previewRegistryPath()
+      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, devOutbox, command === "serve"))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),
-          external: cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : undefined,
+          // Leave the registry as a dependency so template changes invalidate it without rebuilding the driver.
+          external: [previewImport, ...(cloudflare ? ["node:*", "cloudflare:workers", ...(cloudflareEmail ? ["cloudflare:email"] : [])] : [])],
           format: "esm",
           minifyWhitespace: true,
           platform: cloudflare ? "neutral" : "node",
@@ -578,7 +591,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
             if (module.id) {
               const modulePath = module.id.split("?", 1)[0]
               const queriedSource = normalizeTemplateModulePath(module.id)
-              if (isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath) || [...watchFiles].some(file => normalizeWatchedPath(file) === normalizeWatchedPath(queriedSource) || normalizeWatchedPath(file) === normalizeWatchedPath(modulePath))) {
+              if (modulePath === previewRegistryPath() || isInside(materializedRoot, modulePath) || watchFiles.has(queriedSource) || watchFiles.has(modulePath) || [...watchFiles].some(file => normalizeWatchedPath(file) === normalizeWatchedPath(queriedSource) || normalizeWatchedPath(file) === normalizeWatchedPath(modulePath))) {
                 server.moduleGraph.invalidateModule(module)
               }
             }
