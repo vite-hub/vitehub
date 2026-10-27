@@ -53,6 +53,8 @@ export interface GitHubFileUpdate {
 export interface GitHubRepository {
   /** `owner/repo`, for messages. */
   name: string;
+  /** Key pending blob reads by repository and credentials. */
+  blobReadKey: (sha: string) => string;
   provider: () => Promise<GitHubProvider>;
   ref: (provider: GitHubProvider) => GitHubRepoRef;
 }
@@ -117,6 +119,7 @@ export function connectGitHubRepository(repository: string, token: string): GitH
   let provider: Promise<GitHubProvider> | undefined;
   return {
     name: repository,
+    blobReadKey: (sha) => JSON.stringify([repository, token, sha]),
     provider: async () => {
       splitGitHubRepository(repository);
       return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }));
@@ -323,13 +326,15 @@ export async function readGitHubFile(
   const cached = githubBlobs.get(entry.sha);
   if (cached) return cached.slice();
 
-  let read = githubBlobReads.get(entry.sha);
+  const readKey = repository.blobReadKey(entry.sha);
+  let read = githubBlobReads.get(readKey);
   if (!read) {
     read = githubRequest(repository, async (provider, repo) => {
       // GitHub's Contents API truncates large files. Blob shas identify immutable bytes across repositories.
       return await forgeBlob(provider, repo, entry.sha);
     }).then(bytes => {
-      if (bytes.byteLength <= githubBlobFileLimit) {
+      // Different request scopes can finish the same blob; retain and count it only once.
+      if (bytes.byteLength <= githubBlobFileLimit && !githubBlobs.has(entry.sha)) {
         for (const [sha, oldest] of githubBlobs) {
           if (githubBlobBytes + bytes.byteLength <= githubBlobByteLimit) break;
           githubBlobs.delete(sha);
@@ -340,9 +345,9 @@ export async function readGitHubFile(
       }
       return bytes;
     }).finally(() => {
-      githubBlobReads.delete(entry.sha);
+      githubBlobReads.delete(readKey);
     });
-    githubBlobReads.set(entry.sha, read);
+    githubBlobReads.set(readKey, read);
   }
   // Cancellation stops this caller's wait, not a download shared with other readers.
   return (await withSignal(read, signal)).slice();

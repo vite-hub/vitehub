@@ -103,6 +103,48 @@ it("reuses blobs across repositories", async () => {
   expect(other.requests.filter((request) => request.path.includes("/git/blobs/"))).toHaveLength(0);
 });
 
+it.each(["repository", "credentials"])("isolates pending blob failures by %s", async (scope) => {
+  fake.seed("docs/a.md", "shared");
+  const other = createFakeGitHub({ owner: "other", repo: "docs" });
+  other.seed("docs/a.md", "shared");
+  const started = deferred();
+  const release = deferred();
+  fake.respond((request) =>
+    request.path.includes("/git/blobs/") && request.headers.get("authorization") === "Bearer restricted"
+      ? new Response("forbidden", { status: 403 })
+      : undefined,
+  );
+  vi.stubGlobal("fetch", vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    const api = url.pathname.startsWith("/repos/other/docs/") ? other : fake;
+    const response = await api.fetch(input, init);
+    if (response.status === 403) {
+      started.resolve();
+      await release.promise;
+    }
+    return response;
+  }));
+  const { connectGitHubRepository, readGitHubFile } =
+    await import("../src/providers/github/shared.ts");
+  const entry = { mode: "100644", path: "docs/a.md", sha: textSha("shared") } as const;
+  const restricted = connectGitHubRepository("onmax/repo", "restricted");
+  const accessible = connectGitHubRepository(
+    scope === "repository" ? "other/docs" : "onmax/repo",
+    scope === "repository" ? "restricted" : "valid",
+  );
+  const failed = readGitHubFile(restricted, entry, baseSha);
+  const rejection = expect(failed).rejects.toThrow("403");
+  await started.promise;
+  const successful = readGitHubFile(accessible, entry, baseSha);
+  const success = expect(successful).resolves.toEqual(textBytes("shared"));
+  release.resolve();
+  await Promise.all([rejection, success]);
+
+  // Successful bytes remain reusable even from the scope whose request failed.
+  await expect(readGitHubFile(restricted, entry, baseSha)).resolves.toEqual(textBytes("shared"));
+  expect([...fake.requests, ...other.requests].filter((request) => request.path.includes("/git/blobs/"))).toHaveLength(2);
+});
+
 it("fetches changed blobs while history retains the old bytes", async () => {
   fake.seed("docs/a.md", "before");
   await (await store()).readFile("a.md");
@@ -148,21 +190,31 @@ it("does not retain blobs larger than 4 MiB", async () => {
   expect(blobRequests()).toHaveLength(2);
 });
 
-it("evicts the oldest blobs when the cache exceeds 32 MiB", async () => {
+it.each([false, true])("evicts the oldest blobs at 32 MiB with concurrent scopes: %s", async (concurrentScopes) => {
   for (let index = 0; index < 9; index++) {
     fake.seed(`docs/${index}.bin`, new Uint8Array(4 * 1024 * 1024).fill(index));
   }
+  if (concurrentScopes) {
+    const { connectGitHubRepository, readGitHubFile } =
+      await import("../src/providers/github/shared.ts");
+    const entry = fake.tree().find((file) => file.path === "docs/0.bin")!;
+    await Promise.all(["first", "second"].map((token) =>
+      readGitHubFile(connectGitHubRepository("onmax/repo", token), { ...entry, mode: "100644" }, baseSha),
+    ));
+    expect(blobRequests()).toHaveLength(2);
+  }
+  const extraRequest = concurrentScopes ? 1 : 0;
   for (let index = 0; index < 8; index++) await (await store()).readFile(`${index}.bin`);
   await (await store()).readFile("0.bin");
-  expect(blobRequests()).toHaveLength(8);
+  expect(blobRequests()).toHaveLength(8 + extraRequest);
 
   await (await store()).readFile("8.bin");
   await (await store()).readFile("1.bin");
-  expect(blobRequests()).toHaveLength(9);
+  expect(blobRequests()).toHaveLength(9 + extraRequest);
   const evicted = await readBytes(await store(), "0.bin");
   expect(evicted.byteLength).toBe(4 * 1024 * 1024);
   expect(evicted.at(-1)).toBe(0);
-  expect(blobRequests()).toHaveLength(10);
+  expect(blobRequests()).toHaveLength(10 + extraRequest);
 });
 
 it("rejects an already aborted read even when the blob is cached", async () => {
