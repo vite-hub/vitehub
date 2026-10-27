@@ -28,7 +28,6 @@ describe("workspace inventory", () => {
       "realtime",
       "runtime",
       "sandbox",
-      "sandbox-task",
       "schedule",
       "shell",
       "source",
