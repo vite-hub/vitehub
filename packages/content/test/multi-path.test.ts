@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
+import { useWorkspace } from "@vite-hub/workspace"
+
 import { documents, singleton } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
 import { createContentConsoleActions } from "../src/runtime/console.ts"
@@ -188,6 +190,41 @@ describe("content.resolve()", () => {
     await content.collection("first").save("y", { data: { title: "Y" }, body: "" })
     await content.publish()
     await expect(content.resolve("/same")).resolves.toEqual({ collection: "first", id: "y" })
+  })
+
+  it.each([
+    { kind: "schema-invalid", text: "---\ntitle: 42\n---\n", ref: "published", readable: false },
+    { kind: "schema-invalid", text: "---\ntitle: 42\n---\n", ref: "draft", readable: true },
+    { kind: "malformed", text: "---\ntitle: [unclosed\n---\n", ref: "published", readable: false },
+    { kind: "malformed", text: "---\ntitle: [unclosed\n---\n", ref: "draft", readable: false },
+  ] as const)("matches read eligibility for $kind files on $ref with a url function, including collisions", async ({ text, ref, readable }) => {
+    const workspace = await historyWorkspace(cleanup)
+    // Existing files can predate Content's validation hook or the current field schema.
+    await useWorkspace(workspace as never, { mode: "write" }).history.commit({
+      ref,
+      ifHead: null,
+      changes: { put: { "a/same.md": text, "a/only.md": text, "b/same.md": "---\ntitle: Valid\n---\n" } },
+    })
+    vi.spyOn(console, "warn").mockImplementation(() => undefined)
+    const url = vi.fn(({ id }: { id: string }) => `/${id}`)
+    const content = defineContent({
+      workspace,
+      collections: {
+        first: documents({ path: "a/*.md", fields, url }),
+        second: documents({ path: "b/*.md", fields }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const first = content.collection("first")
+    expect((await first.list({ ref })).items.map(item => item.id)).toEqual(readable ? ["only", "same"] : [])
+    if (readable) await expect(first.get("same", { ref })).resolves.toMatchObject({ issues: expect.any(Array) })
+    else await expect(first.get("same", { ref })).rejects.toMatchObject({ code: "CONTENT_INVALID" })
+    // Reads call url too, so count only the calls made while building the resolve() index.
+    url.mockClear()
+    await expect(content.resolve("/same", { ref })).resolves.toEqual({ collection: readable ? "first" : "second", id: "same" })
+    await expect(content.resolve("/only", { ref })).resolves.toEqual(readable ? { collection: "first", id: "only" } : null)
+    expect(url).toHaveBeenCalledTimes(readable ? 2 : 0)
   })
 
   it("decodes the path and builds the routes once per revision", async () => {
