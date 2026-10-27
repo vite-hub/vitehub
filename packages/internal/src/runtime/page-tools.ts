@@ -27,8 +27,10 @@ export interface ViteHubPageTool extends ViteHubPageToolInfo {
 }
 
 interface PageToolsState {
-  tools: Map<string, ViteHubPageTool>
+  tools: WeakMap<object, Map<string, ViteHubPageTool>>
+  apps: WeakMap<object, object>
   installed: WeakSet<object>
+  bases: WeakMap<object, string>
 }
 
 const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
@@ -37,29 +39,38 @@ const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
 const scope = globalThis as typeof globalThis & { [stateKey]?: PageToolsState }
 
 function state(): PageToolsState {
-  return scope[stateKey] ??= { installed: new WeakSet(), tools: new Map() }
+  return scope[stateKey] ??= { installed: new WeakSet(), tools: new WeakMap(), apps: new WeakMap(), bases: new WeakMap() }
 }
 
-/** Registers a page tool. A second call with the same id replaces it, as in development reloads. */
-export function registerViteHubPageTool(tool: ViteHubPageTool): void {
-  state().tools.set(tool.id, tool)
+/** Registers a page tool for one Nitro app, before or after installation. The same id replaces only that app's tool. */
+export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool): void {
+  if (nitroApp === null || typeof nitroApp !== "object") return
+  const { tools } = state()
+  let registry = tools.get(nitroApp)
+  if (!registry) {
+    registry = new Map()
+    tools.set(nitroApp, registry)
+  }
+  registry.set(tool.id, tool)
 }
 
 /**
  * Whether a request asks for the page tools: the `?vitehub` query, or the `vitehub-tools=1` cookie that the session
  * route sets. It is a hint, never a credential. Paths under `/_vitehub` and `/api/` never get the page tools.
  */
-export function hasViteHubPageToolsHint(request: Request): boolean {
+export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  if (url.pathname.startsWith("/_vitehub") || url.pathname.startsWith("/api/")) return false
+  const prefix = base.replace(/\/$/, "")
+  const pathname = prefix && url.pathname.startsWith(`${prefix}/`) ? url.pathname.slice(prefix.length) : url.pathname
+  if ([url.pathname, pathname].some(path => path.startsWith("/_vitehub") || path.startsWith("/api/"))) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`))
 }
 
 /** Whether ViteHub adds the loader to the page of this request: it has the hint, and a tool is registered. */
-function wantsLoader(request: Request): boolean {
-  return state().tools.size > 0 && hasViteHubPageToolsHint(request)
+function wantsLoader(nitroApp: object, request: Request): boolean {
+  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, state().bases.get(nitroApp))
 }
 
 function loaderTag(nonce?: string): string {
@@ -79,7 +90,7 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
  * It sets the hint cookie when at least one tool is allowed, and clears it when none is. A tool whose check throws is
  * not allowed. Requests from other sites get 403 and run no check.
  */
-export async function respondViteHubPageSession(request: Request, event: unknown): Promise<Response> {
+export async function respondViteHubPageSession(nitroApp: object, request: Request, event: unknown): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
     return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_METHOD", why: "The page tools session accepts GET only." } }, { status: 405 })
   }
@@ -87,7 +98,7 @@ export async function respondViteHubPageSession(request: Request, event: unknown
   if ((origin && origin !== forwardedRequestOrigin(request)) || request.headers.get("sec-fetch-site") === "cross-site") {
     return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_CROSS_ORIGIN", why: "The page tools session answers the site's own pages only." } }, { status: 403 })
   }
-  const registered = [...state().tools.values()]
+  const registered = [...state().tools.get(nitroApp)?.values() ?? []]
   const checks = await Promise.all(registered.map(async (tool) => {
     try {
       return await tool.allowed({ request, event })
@@ -120,7 +131,9 @@ function eventRequest(event: unknown): Request | undefined {
 export async function viteHubPageSessionHandler(event: unknown): Promise<Response> {
   const request = eventRequest(event)
   if (!request) return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_REQUEST", why: "The page tools session got no request." } }, { status: 400 })
-  return await respondViteHubPageSession(request, event)
+  const nitroApp = state().apps.get(request) ?? (event !== null && typeof event === "object" ? state().apps.get(event) : undefined)
+  if (!nitroApp) return sessionResponse({ error: { code: "VITEHUB_PAGE_TOOLS_APP", why: "The page tools session has no Nitro app." } }, { status: 503 })
+  return await respondViteHubPageSession(nitroApp, request, event)
 }
 
 /**
@@ -197,31 +210,38 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
 /**
  * Adds the loader of the page tools to the HTML pages of a Nitro app, for requests with the hint, when at least one
  * tool is registered. Call it from each owner's Nitro plugin: it installs once per app, whatever the number of calls.
- * It reads the registry on each request, so plugin order does not matter.
+ * It reads that app's registry on each request, so plugin order does not matter. Owners may supply the application
+ * base pathname even after installation, so reserved routes under that mount stay excluded.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
  *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
  */
-export function installViteHubPageTools(nitroApp: unknown): void {
+export function installViteHubPageTools(nitroApp: unknown, base?: string): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
-  const { installed } = state()
+  const { installed, bases } = state()
+  if (base !== undefined) bases.set(nitroApp, base)
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
 
   const fetch: unknown = Reflect.get(nitroApp, "fetch")
   if (fetch instanceof Function) {
     Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
+      // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
+      if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(request) ? injectPageToolsLoader(response) : response
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response) : response
     })
     return
   }
   const hooks: unknown = Reflect.get(nitroApp, "hooks")
   const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
   if (!(hook instanceof Function)) return
+  Reflect.apply(hook, hooks, ["request", (event: object) => {
+    state().apps.set(event, nitroApp)
+  }])
   Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
     const request = nitro2Request(context.event)
-    if (!request || !wantsLoader(request)) return
+    if (!request || !wantsLoader(nitroApp, request)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
     html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
@@ -231,6 +251,6 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request && wantsLoader(request)) response.body = injectPageToolsLoader(response.body)
+    if (request && wantsLoader(nitroApp, request)) response.body = injectPageToolsLoader(response.body)
   }])
 }

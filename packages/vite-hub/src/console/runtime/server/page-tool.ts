@@ -10,12 +10,12 @@ const asset = "__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__"
  * who gets it, so in `local` mode only the development server shows it. Generated Console output calls this.
  */
 export function installConsolePageTool(nitroApp: unknown, assetsBase = "/_vitehub/assets"): void {
-  registerViteHubPageTool({
+  registerViteHubPageTool(nitroApp, {
     id: "console",
     label: "Console",
     icon: "i-lucide-square-terminal",
     script: `${assetsBase}/${asset}`,
     allowed: ({ event }) => consoleAllowsRequest(event),
   })
-  installViteHubPageTools(nitroApp)
+  installViteHubPageTools(nitroApp, assetsBase.slice(0, -"/_vitehub/assets".length))
 }
