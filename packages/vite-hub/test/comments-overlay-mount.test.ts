@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 vi.mock("../src/comments-overlay/overlay.css?inline", () => ({ default: ":root { --x: 1 } [data-slot='comment-layer'] { color: red }" }))
 
-import { appPathname, trackNavigation } from "../src/comments-overlay/loader-core.ts"
+import { appPathname, readLoaderOptions, runLoader, trackNavigation } from "../src/comments-overlay/loader-core.ts"
 import { appTheme, mount } from "../src/comments-overlay/overlay.ts"
 import type { OverlaySession } from "../src/comments-overlay/loader-core.ts"
 import type { OverlayHandle } from "../src/comments-overlay/overlay.ts"
@@ -53,6 +53,53 @@ async function mounted(session: OverlaySession = { canRead: true, canWrite: true
 }
 
 describe("the comments overlay", () => {
+  it("removes rendered private threads and stops refreshes after SPA sign-out", async () => {
+    let signedIn = true
+    const thread = {
+      anchor: { kind: "page" },
+      author: { id: "ana", name: "Ana" },
+      createdAt: 1,
+      id: "private_thread",
+      messages: [{ attachments: [], author: { id: "ana", name: "Ana" }, body: "Private feedback", createdAt: 1, id: "m1", mentions: [], threadId: "private_thread" }],
+      n: 1,
+      scope: "site",
+      status: "open",
+      subject: { id: "/pricing", kind: "page" },
+      updatedAt: 1,
+    }
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      const { operation } = JSON.parse(String(init.body)) as { operation: string }
+      const value = operation === "comments.session"
+        ? { canRead: signedIn, canWrite: signedIn, user: signedIn ? { id: "ana" } : null }
+        : operation === "comments.list" ? [thread] : null
+      return Response.json({ ok: true, value })
+    })
+    vi.stubGlobal("fetch", request)
+    const loader = runLoader(readLoaderOptions(""), {
+      base: "/", cookie: () => "", fetch: globalThis.fetch,
+      load: async () => ({ mount }), overlayUrl: "/overlay.js",
+      path: () => location.pathname, subscribe: trackNavigation,
+    })
+    try {
+      await loader.ready
+      const host = document.querySelector("[data-comments-overlay]")!
+      await vi.waitFor(() => expect(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-list']")).not.toBeNull())
+      ;(host.shadowRoot!.querySelector("[data-slot='comment-toolbar-list']") as HTMLButtonElement).click()
+      await vi.waitFor(() => expect(host.shadowRoot!.textContent).toContain("Private feedback"))
+      signedIn = false
+      history.pushState(null, "", "/about")
+      await vi.waitFor(() => expect(host.isConnected).toBe(false))
+      expect(host.shadowRoot!.textContent).not.toContain("Private feedback")
+      const requests = request.mock.calls.length
+      window.dispatchEvent(new Event("focus"))
+      await Promise.resolve()
+      expect(request).toHaveBeenCalledTimes(requests)
+    }
+    finally {
+      loader.stop()
+    }
+  })
+
   it("mounts the comment parts into a shadow root on a host that carries data-comments-ui", async () => {
     const { host } = await mounted()
     expect(host.isConnected).toBe(true)

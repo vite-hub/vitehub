@@ -11,12 +11,12 @@ function environment(answer: () => Promise<Response> | Response, start = "/prici
   let path = start
   const listeners = new Set<Listener>()
   const fetchMock = vi.fn(async () => answer())
-  const control: OverlayControl = { setActive: vi.fn() }
+  const control: OverlayControl = { destroy: vi.fn(), setActive: vi.fn() }
   const mount = vi.fn(() => control)
   const load = vi.fn(async () => ({ mount }))
   const env: LoaderEnvironment = {
     base: "/",
-    // A visitor who signed in: the marker that ViteHub Auth sets is there.
+    // An app that explicitly opts into the marker maintains this cookie itself.
     cookie: () => "theme=dark; vitehub_session=1",
     fetch: fetchMock as never,
     load,
@@ -38,7 +38,7 @@ function environment(answer: () => Promise<Response> | Response, start = "/prici
 
 const session = (value: Record<string, unknown>) => () => Response.json({ ok: true, value })
 const readable = session({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
-const none = { edit: false, exclude: [], paths: [], session: "marker" } as const
+const none = { edit: false, exclude: [], paths: [], session: "always" } as const
 
 describe("the comments loader", () => {
   it("downloads the overlay only when the session may read comments", async () => {
@@ -74,7 +74,7 @@ describe("the comments loader", () => {
   it("makes no request for a visitor with no session marker, and asks once the marker appears", async () => {
     let cookie = "theme=dark"
     const anonymous = environment(readable, "/pricing", { cookie: () => cookie })
-    await runLoader(none, anonymous.env).ready
+    await runLoader({ ...none, session: "marker" }, anonymous.env).ready
     expect(anonymous.fetchMock).not.toHaveBeenCalled()
     expect(anonymous.load).not.toHaveBeenCalled()
     // A cleared marker, as after sign-out, is no marker.
@@ -91,9 +91,9 @@ describe("the comments loader", () => {
     expect(anonymous.fetchMock).toHaveBeenCalledOnce()
   })
 
-  it("asks on every page load without a marker when the app has other auth", async () => {
+  it("checks authorization without a marker by default", async () => {
     const page = environment(readable, "/pricing", { cookie: () => "" })
-    await runLoader({ ...none, session: "always" }, page.env).ready
+    await runLoader(readLoaderOptions(""), page.env).ready
     expect(page.fetchMock).toHaveBeenCalledOnce()
     expect(page.mount).toHaveBeenCalledOnce()
   })
@@ -104,16 +104,61 @@ describe("the comments loader", () => {
     expect(page.mount).toHaveBeenCalledWith(expect.objectContaining({ edit: true }))
   })
 
-  it("asks once per page load, also after a no, and not again on navigation", async () => {
-    const refused = environment(session({ canRead: false, canWrite: false, user: null }))
+  it("rechecks a denied session after client-side sign-in", async () => {
+    let answer = session({ canRead: false, canWrite: false, user: null })
+    const refused = environment(() => answer())
     await runLoader(none, refused.env).ready
+    answer = readable
     await refused.go("/about")
-    await refused.go("/")
-    expect(refused.fetchMock).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(refused.mount).toHaveBeenCalledOnce())
+    expect(refused.fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it.each(["marker", "denied"])("destroys private overlay state after %s session loss", async (loss) => {
+    let cookie = "vitehub_session=1"
+    let answer = readable
+    const page = environment(() => answer(), "/pricing", { cookie: () => cookie })
+    const loader = runLoader({ ...none, session: loss === "marker" ? "marker" : "always" }, page.env)
+    await loader.ready
+    cookie = ""
+    answer = session({ canRead: false, canWrite: false, user: null })
+    await page.go("/about")
+    await vi.waitFor(() => expect(page.control.destroy).toHaveBeenCalledOnce())
+    expect(page.fetchMock).toHaveBeenCalledTimes(loss === "marker" ? 1 : 2)
+    loader.stop()
+  })
+
+  it("does not mount stale authorization after navigation or stop", async () => {
+    let finish!: (response: Response) => void
+    const page = environment(() => new Promise<Response>((resolve) => { finish = resolve }))
+    const loader = runLoader(none, page.env)
+    const stale = finish
+    await page.go("/about")
+    finish(Response.json({ ok: true, value: { canRead: false } }))
+    stale(readable())
+    await loader.ready
+    expect(page.mount).not.toHaveBeenCalled()
+    await page.go("/pricing")
+    loader.stop()
+    finish(readable())
+    await vi.waitFor(() => expect(page.listeners.size).toBe(0))
+    expect(page.mount).not.toHaveBeenCalled()
+  })
+
+  it("does not mount an overlay import that finishes after stop", async () => {
+    const page = environment(readable)
+    let finish!: () => void
+    page.env.load = () => new Promise((resolve) => { finish = () => resolve({ mount: page.mount }) })
+    const loader = runLoader(none, page.env)
+    await vi.waitFor(() => expect(finish).toBeTypeOf("function"))
+    loader.stop()
+    finish()
+    await loader.ready
+    expect(page.mount).not.toHaveBeenCalled()
   })
 
   it("makes no request on a page the options leave out, and mounts lazily on the first allowed one", async () => {
-    const options = { edit: false, exclude: ["/admin/**"], paths: ["/docs/**", "/pricing"] }
+    const options = { ...none, exclude: ["/admin/**"], paths: ["/docs/**", "/pricing"] }
     for (const [pathname, included] of [["/pricing", true], ["/pricing/", true], ["/docs/a/b", true], ["/docs", true], ["/admin/x", false], ["/blog", false]] as const) {
       const page = environment(readable, pathname)
       await runLoader(options, page.env).ready
@@ -136,19 +181,18 @@ describe("the comments loader", () => {
 
   it("hides the overlay on a page the options leave out and shows it again on an allowed one", async () => {
     const page = environment(readable, "/docs/intro")
-    await runLoader({ edit: false, exclude: ["/docs/private"], paths: [] }, page.env).ready
+    await runLoader({ ...none, exclude: ["/docs/private"] }, page.env).ready
     await page.go("/docs/private")
-    expect(page.control.setActive).toHaveBeenLastCalledWith(false)
+    expect(page.control.destroy).toHaveBeenCalledOnce()
     await page.go("/docs/other")
-    expect(page.control.setActive).toHaveBeenLastCalledWith(true)
-    expect(page.fetchMock).toHaveBeenCalledOnce()
-    // A mount that starts on an excluded page starts hidden.
+    await vi.waitFor(() => expect(page.mount).toHaveBeenCalledTimes(2))
+    expect(page.fetchMock).toHaveBeenCalledTimes(2)
+    // A mount that starts on an excluded page is cancelled.
     const hidden = environment(readable, "/pricing")
-    const loader = runLoader({ edit: false, exclude: [], paths: ["/pricing"] }, hidden.env)
+    const loader = runLoader({ ...none, paths: ["/pricing"] }, hidden.env)
     await hidden.go("/nope")
     await loader.ready
-    // The page moved on while the session was on its way: the overlay mounts already hidden.
-    expect(hidden.mount).toHaveBeenCalledWith(expect.objectContaining({ active: false }))
+    expect(hidden.mount).not.toHaveBeenCalled()
   })
 
   it("never throws into the page when the overlay fails to load", async () => {
@@ -176,7 +220,7 @@ describe("the comments loader", () => {
     expect(readLoaderOptions("?f=x&e=0").edit).toBe(false)
     expect(readLoaderOptions("?f=x&s=always").session).toBe("always")
     expect(readLoaderOptions("?f=x&s=marker").session).toBe("marker")
-    expect(readLoaderOptions("?f=x&s=other").session).toBe("marker")
+    expect(readLoaderOptions("?f=x&s=other").session).toBe("always")
   })
 
   it("takes the app base and trailing slashes off the page path", () => {

@@ -658,6 +658,28 @@ describe("Content operations", () => {
     expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
   })
 
+  it.each([
+    ["/blog/:id/", "Hello", "/blog/hello"],
+    ["/blog/:id/?lang=en#top", "Hello", "/blog/hello"],
+    ["/blog/:title/", "", "/blog"],
+    ["/blog/?lang=en#top", "Hello", "/blog"],
+  ])("resolves normalized paths for the URL pattern %s", async (url, title, target) => {
+    const content = defineContent({
+      authorize: () => true,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello", { data: { title } })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    for (const path of [target, `${target}/`, `${target}/?ref=1#top`]) {
+      expect(await runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    }
+  })
+
   it("lists each collection once per head, and not at all when no route can produce the path", async () => {
     const workspace = await historyWorkspace()
     const content = defineContent({

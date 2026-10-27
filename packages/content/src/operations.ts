@@ -303,13 +303,16 @@ function normalizeUrl(value: string): string {
 }
 
 /**
- * The pattern of a `url` string as a regular expression over the encoded path. A `:name` token is any text, and an id may
- * hold slashes. A `url()` function can produce any path, so it has no pattern.
+ * A conservative prefilter over normalized paths. Tokens may be empty or contain slashes, so only the literal prefix
+ * before the first token is safe to require; the generated URL index decides the match. Functions can produce any path.
  */
 function routePattern(collection: AnyContentCollection): RegExp | null {
   if (collection.urlPattern === undefined) return null
-  const source = collection.urlPattern.split(/(:[A-Za-z_$][\w$]*)/).map((part, index) => index % 2 ? ".+" : part.replaceAll(/[$()*+.?[\\\]^{|}]/g, "\\$&")).join("")
-  return new RegExp(`^${source}$`)
+  const pattern = normalizeUrl(collection.urlPattern)
+  const token = /:[A-Za-z_$][\w$]*/.exec(pattern)
+  const prefix = token ? normalizeUrl(pattern.slice(0, token.index)) : pattern
+  const source = prefix.replaceAll(/[$()*+.?[\\\]^{|}]/g, "\\$&")
+  return new RegExp(`^${source}${token ? "" : "$"}`)
 }
 
 /** Paths of the documents of one collection, as of one draft head. Rebuilt only when the head moves. */

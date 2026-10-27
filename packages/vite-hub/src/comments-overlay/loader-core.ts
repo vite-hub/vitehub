@@ -7,8 +7,8 @@ export interface LoaderOptions {
   /** Globs of the pages that never get it. */
   exclude: readonly string[]
   /**
-   * `marker`: ask the server only when the `vitehub_session` cookie, which ViteHub Auth sets, says a session exists.
-   * `always`: ask on every page load, for an app whose sessions another Auth sets.
+   * `marker`: ask only when an app-managed `vitehub_session` cookie says a session exists.
+   * `always` (default): ask on page load and navigation, with any session provider.
    */
   session: "always" | "marker"
 }
@@ -37,6 +37,8 @@ export interface MountOptions {
 }
 
 export interface OverlayControl {
+  /** Removes private state, the UI, and its comment subscriptions. */
+  destroy: () => void
   /** Shows or hides the overlay and its hotkey, for a page that the options allow or leave out. */
   setActive: (active: boolean) => void
 }
@@ -131,7 +133,7 @@ export function matchesPath(pathname: string, options: Pick<LoaderOptions, "excl
   return options.paths.length === 0 || matches(options.paths)
 }
 
-/** Name of the cookie that ViteHub Auth sets when a session exists. It holds no secret and is not HttpOnly. */
+/** Optional app-managed session hint. It holds no secret and is not HttpOnly. */
 export const sessionMarkerCookie = "vitehub_session"
 
 /** Whether the page's cookies carry the session marker, set and not cleared. */
@@ -175,19 +177,44 @@ async function readSession(environment: LoaderEnvironment): Promise<OverlaySessi
  */
 export function runLoader(options: LoaderOptions, environment: LoaderEnvironment): { ready: Promise<void>, stop: () => void } {
   const allowed = () => matchesPath(environment.path(), options)
-  // Without the marker no visitor of this page has signed in, so the answer would be no. The marker is read again at each
-  // navigation, so a visitor who signs in later is still asked.
+  // Marker gating is opt-in: Auth does not currently maintain this cookie.
   const mayHaveSession = () => options.session === "always" || hasSessionMarker(environment.cookie())
-  let started: Promise<void> | undefined
   let control: OverlayControl | undefined
+  let mountedSession: string | undefined
+  let latest = 0
+  let stopped = false
 
-  async function start(): Promise<void> {
+  const revoke = () => {
+    control?.destroy()
+    control = undefined
+    mountedSession = undefined
+  }
+
+  async function check(): Promise<void> {
+    const ticket = ++latest
+    if (stopped || !allowed() || !mayHaveSession()) {
+      revoke()
+      return
+    }
+    // Hide private state while authorization is being refreshed.
+    control?.setActive(false)
     const session = await readSession(environment)
-    if (!session) return
+    if (stopped || ticket !== latest) return
+    if (!session || !mayHaveSession()) {
+      revoke()
+      return
+    }
+    const identity = JSON.stringify(session)
+    if (control && mountedSession === identity) {
+      control.setActive(true)
+      return
+    }
+    revoke()
     try {
       const overlay = await environment.load(environment.overlayUrl)
+      if (stopped || ticket !== latest || !allowed() || !mayHaveSession()) return
       control = overlay.mount({
-        active: allowed(),
+        active: true,
         base: environment.base,
         edit: options.edit,
         path: environment.path,
@@ -195,26 +222,27 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
         subscribe: environment.subscribe,
         ...(environment.nonce ? { nonce: environment.nonce } : {}),
       })
+      mountedSession = identity
     }
     catch (error) {
       globalThis.console.warn("[vitehub] The comments overlay did not load.", error)
     }
   }
 
-  const check = (): Promise<void> => {
-    if (control) control.setActive(allowed())
-    // One session request per page load, also when the answer is no. A page with no marker makes none.
-    else if (!started && allowed() && mayHaveSession()) started = start()
-    return started ?? Promise.resolve()
+  const unsubscribe = environment.subscribe(() => void check())
+  const stop = () => {
+    stopped = true
+    latest++
+    revoke()
+    unsubscribe()
   }
-  const stop = environment.subscribe(() => void check())
   return { ready: check(), stop }
 }
 
-/** Reads the loader options from the query of the loader URL: `e=1` for Edit, `s=always` to ask without the marker, and `o` for the page filter. */
+/** Reads the loader options: `e=1` for Edit, `s=marker` for an app-managed session hint, and `o` for the page filter. */
 export function readLoaderOptions(search: string): LoaderOptions {
   const query = new URLSearchParams(search)
-  const none: LoaderOptions = { edit: query.get("e") === "1", exclude: [], paths: [], session: query.get("s") === "always" ? "always" : "marker" }
+  const none: LoaderOptions = { edit: query.get("e") === "1", exclude: [], paths: [], session: query.get("s") === "marker" ? "marker" : "always" }
   try {
     const raw = query.get("o")
     const parsed: unknown = raw ? JSON.parse(raw) : {}

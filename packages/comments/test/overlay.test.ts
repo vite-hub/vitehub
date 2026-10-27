@@ -41,7 +41,7 @@ describe("the overlay loader tag", () => {
     expect(mountPath("//evil.example.com/")).toBe("")
     expect(loaderUrl("", assets)).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
     expect(loaderUrl("", assets, { edit: true })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&e=1")
-    expect(loaderUrl("", assets, { session: "marker" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js")
+    expect(loaderUrl("", assets, { session: "marker" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&s=marker")
     expect(loaderUrl("", assets, { session: "always" })).toBe("/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&s=always")
     const filtered = loaderUrl("/portal", assets, { exclude: ["/admin/**"], paths: ["/docs/**"] })
     expect(filtered.startsWith("/portal/_vitehub/comments/loader.abc123.js?f=overlay.def456.js&o=")).toBe(true)
@@ -77,6 +77,21 @@ describe("the overlay loader tag", () => {
     expect(scriptNonce("style-src 'nonce-style'")).toBeUndefined()
     expect(scriptNonce("script-src 'nonce-a\"b'")).toBeUndefined()
     expect(scriptNonce(null)).toBeUndefined()
+  })
+
+  it("ignores closing tags in raw text, comments and quoted attributes", () => {
+    const tag = loaderTag(loaderUrl("", assets))
+    for (const inner of [
+      '<script>const closing = "</body>"</script>',
+      '<style>p::after { content: "</html>" }</style>',
+      '<!-- </body> -->',
+      '<textarea></html></textarea>',
+      '<div title="</body>">Hi</div>',
+      '<!-- <script src="/_vitehub/comments/loader.old.js"></script> -->',
+    ]) {
+      expect(injectLoader(`<body>${inner}</body>`, tag)).toBe(`<body>${inner}${tag}</body>`)
+      expect(injectLoader(inner, tag)).toBe(inner)
+    }
   })
 })
 
@@ -135,6 +150,45 @@ describe("the Nitro middleware", () => {
     expect(identity.text).toContain("loader.abc123.js")
     expect((await run(inject, html(page, { "content-type": "text/html" }))).text).toContain("loader.abc123.js")
     expect((await run(inject, html(page, { "content-type": "TEXT/HTML; Charset=UTF-8" }))).text).toContain("loader.abc123.js")
+  })
+
+  it("preserves partial responses and their validators", async () => {
+    const inject = await middleware()
+    for (const status of [200, 206]) {
+      const headers = { "content-length": String(page.length), "content-range": `bytes 0-${page.length - 1}/1000`, etag: '"partial"' }
+      const response = html(page, headers, status)
+      expect(await inject(event(), async () => response)).toBe(response)
+      expect(response.status).toBe(status)
+      for (const [name, value] of Object.entries(headers)) expect(response.headers.get(name)).toBe(value)
+      expect(await response.text()).toBe(page)
+    }
+    const response = html(page, {}, 206)
+    expect(await inject(event(), async () => response)).toBe(response)
+    expect(await inject(event("/", "GET", "text/html", { "content-range": "bytes 0-10/100" }), async () => page)).toBe(page)
+  })
+
+  it("keeps HTML contexts across stream chunks and the held-back tail", async () => {
+    const inject = await middleware()
+    const inner = `<script>${"x".repeat(5_000)}; const closing = "</body>"</script><!-- </html> --><style>p::after { content: "</body>" }</style>`
+    const source = `<body>${inner}</body>`
+    const expected = `<body>${inner}${loaderTag(url)}</body>`
+    const chunks = Array.from(source, char => char)
+    expect((await run(inject, html(stream(chunks)))).text).toBe(expected)
+    expect(await inject(event(), async () => source)).toBe(expected)
+  })
+
+  it("preserves Unicode at the retained tail and after injection", async () => {
+    const inject = await middleware()
+    const first = `<body>😀${"x".repeat(4095)}`
+    const source = `${first}</body>😀`
+    expect((await run(inject, html(stream([first, "</body>😀"])))).text).toBe(`${first}${loaderTag(url)}</body>😀`)
+    const bytes = new TextEncoder().encode(source)
+    const body = new ReadableStream({ start(controller) {
+      controller.enqueue(bytes.slice(0, -2))
+      controller.enqueue(bytes.slice(-2))
+      controller.close()
+    } })
+    expect((await run(inject, html(body))).text).toBe(`${first}${loaderTag(url)}</body>😀`)
   })
 
   it("rewrites strings only when they are HTML", async () => {
