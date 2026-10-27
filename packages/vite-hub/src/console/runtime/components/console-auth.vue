@@ -207,10 +207,8 @@ onBeforeUnmount(() => {
               :disabled="loading"
               @click="refresh" /></template
         ></UDashboardNavbar>
-        <nav
-          aria-label="Auth pages"
-          class="flex gap-1 overflow-x-auto border-b border-default px-4 py-2"
-        >
+        <nav aria-label="Auth pages" class="overflow-x-auto border-b border-default">
+          <div class="mx-auto flex w-full max-w-6xl gap-1 px-4 py-2 sm:px-6">
           <UButton
             v-for="item in description?.pages ?? ['overview', 'users', 'activity']"
             :key="item"
@@ -222,8 +220,9 @@ onBeforeUnmount(() => {
             @click="navigate(item as AuthConsolePage)"
             >{{ labels[item as AuthConsolePage] }}</UButton
           >
+          </div>
         </nav>
-        <ConsolePageToolbar v-if="page === 'users'">
+        <ConsolePageToolbar v-if="page === 'users'" width="6xl">
           <UInput
             v-model="search"
             aria-label="Search users by name or email"
@@ -272,8 +271,11 @@ onBeforeUnmount(() => {
           </p>
           <div v-else class="min-h-0 flex-1 overflow-auto">
             <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
-              <details v-if="description?.access.length && page === 'users'" class="text-xs text-muted">
-                <summary class="cursor-pointer text-toned">Access rules</summary>
+              <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
+                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+                  <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                  Access rules
+                </summary>
                 <ul class="mt-2 list-inside list-disc space-y-1">
                   <li v-for="rule in description.access" :key="rule">{{ rule }}</li>
                 </ul>
