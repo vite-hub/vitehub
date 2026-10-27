@@ -13,6 +13,18 @@ function event(): H3Event {
 }
 
 describe("commentsRealtime", () => {
+  it("binds presence to a server-identified guest", async () => {
+    const definition = commentsRealtime(defineComments({
+      identify: () => ({ id: "external-guest", name: "Invited reviewer", guest: true }),
+      authorize: ({ user }) => user?.id === "external-guest",
+    }))
+    const request = event()
+    const context = { definition: "comments", event: request, request: new Request("http://site.test") }
+    const user = await definition.identify!(context)
+    expect(user).toEqual({ id: "external-guest", name: "Invited reviewer" })
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+  })
+
   it.each([true, false])("keeps Console guest awareness unbound while enforcing read access (%s)", async (allowed) => {
     const session = commentsConsoleSession({
       authorize: async () => true,

@@ -32,9 +32,9 @@ export function commentsRealtime(comments: Comments, options: { session?: (event
         ? await comments.options.identify({ event })
         : await options.session?.(event).catch(() => null)
       readers.set(event, await comments.can({ user: user ?? null, action: "read" }))
-      // Browser WebSockets carry no guest headers. Keep the authorized guest's browser identity in awareness instead
-      // of binding every Console guest to the shared session fallback. Account identities remain server-bound.
-      return user && user.guest !== true ? toRealtimeUser(user) : null
+      // Browser WebSockets carry no guest headers. Keep Console guests' browser identities in awareness instead of
+      // binding them to the shared session fallback. Custom identify results, including guests, remain server-bound.
+      return user && (comments.options.identify || user.guest !== true) ? toRealtimeUser(user) : null
     },
     authorize: ({ event, mode }) => mode === "read" && readers.get(event) === true,
     document: {

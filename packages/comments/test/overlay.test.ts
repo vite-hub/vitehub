@@ -115,6 +115,22 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
+  it("lets a server-identified guest delete their own comment", async () => {
+    vi.mocked(api.session).mockResolvedValue([undefined, {
+      user: { id: "ada", name: "Ada", guest: true }, can: { read: true, comment: true, resolve: false }, realtime: true, content: false,
+    }])
+    overlay.remove()
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
+    openThread()
+    const remove = shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
+    expect(remove).not.toBeNull()
+    remove!.click()
+    await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
+  })
+
   it("saves a draft edit back to the published text", async () => {
     const title = await startEdit()
     title.textContent = "Published"

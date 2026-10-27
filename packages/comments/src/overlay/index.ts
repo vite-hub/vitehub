@@ -334,10 +334,10 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  /** The signed-in person. A guest of a Console without accounts names itself like any guest. */
+  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
   private account(): CommentAuthor | undefined {
     const user = this.session?.user
-    return user && !user.guest ? user : undefined
+    return user && !(user.guest && user.id === "guest:console") ? user : undefined
   }
 
   private joinRoom() {
