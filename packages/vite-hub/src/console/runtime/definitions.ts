@@ -224,7 +224,7 @@ export function parseConsoleContributedSection(value: unknown): ConsoleContribut
   const parsed: ConsoleContributedSection = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   const pages = parseConsoleSectionPages(section.pages)
   if (pages.length) parsed.pages = pages
-  if (text(section.visit) && /^\/(?!\/)/.test(section.visit)) parsed.visit = section.visit
+  if (text(section.visit) && /^\/(?!\/)[^\\\r\n\t]*$/.test(section.visit)) parsed.visit = section.visit
   return parsed
 }
 

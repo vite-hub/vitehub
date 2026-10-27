@@ -360,7 +360,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private ensureAuthor(nameInput?: HTMLInputElement): boolean {
-    if (this.session?.user) return true
+    if (this.account()) return true
     if (readGuest()) return true
     const name = nameInput?.value.trim()
     if (!name) {
