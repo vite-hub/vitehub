@@ -42,6 +42,21 @@ it.each(["browser", "node"] as const)("bundles published messages without the Ag
   expect(retainedInputs.some(path => /(?:^|\/)valibot\//.test(path))).toBe(false)
   expect(retainedInputs.some(path => /(?:^|\/)src\/.+\.ts$/.test(path))).toBe(false)
 
+  const textConsumer = await build({
+    ...options,
+    stdin: {
+      contents: 'export { getMessageText } from "@vite-hub/agent/messages"',
+      resolveDir: packageRoot,
+      sourcefile: "text-consumer.js",
+    },
+  })
+  const textInputs = Object.values(textConsumer.metafile.outputs)
+    .flatMap(output => Object.entries(output.inputs))
+    .filter(([, input]) => input.bytesInOutput > 0)
+    .map(([path]) => path.replaceAll("\\", "/"))
+  expect(textInputs.some(path => /(?:^|\/)(?:runtime|nostics)\//.test(path))).toBe(false)
+  expect(textConsumer.outputFiles[0]!.text).not.toMatch(/AGENT_[A-Z]\d{4}|RUNTIME_[A-Z]\d{4}/)
+
   const messages = await build({
     ...options,
     stdin: {

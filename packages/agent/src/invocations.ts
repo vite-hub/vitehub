@@ -1,3 +1,4 @@
+import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import { maxAgentInvocationListLimit as MAX_LIST_LIMIT, normalizeAgentInvocationListOptions } from "./invocations/list-options.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { searchableAgentInvocationText } from "./invocations/search.ts"
@@ -856,23 +857,6 @@ interface BoundedObservationBuiltIn {
   value: unknown
 }
 
-function boxedObservationPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
-  for (const [type, unwrap] of [
-    ["Boolean", () => Boolean.prototype.valueOf.call(value)],
-    ["Number", () => Number.prototype.valueOf.call(value)],
-    ["String", () => String.prototype.valueOf.call(value)],
-    ["BigInt", () => BigInt.prototype.valueOf.call(value)],
-  ] as const) {
-    try {
-      return { type, value: unwrap() }
-    }
-    catch {
-      // Try the next intrinsic wrapper.
-    }
-  }
-}
-
 function reflectedSetValues(value: unknown): Iterator<unknown> | undefined {
   try {
     return Set.prototype.values.call(value)
@@ -934,7 +918,7 @@ async function collectBoundedObservationBuiltIns(
       })
       return
     }
-    const primitive = boxedObservationPrimitive(value)
+    const primitive = boxedPrimitive(value)
     if (primitive) {
       builtIns.set(value, { truncated: true, value: primitive })
       return

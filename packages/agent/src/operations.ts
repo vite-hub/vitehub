@@ -21,7 +21,7 @@ import {
   renderChannelConversationMarkdown,
 } from "./internal/channel-conversation.ts"
 
-import type { AnyOperation, OperationContext } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ChannelsConsoleHost } from "./channels-console-host.ts"
 import type { ChannelArchiveMedia, ChannelConversationMessage, ChannelCursor } from "./internal/channel-conversation.ts"
 import type { AgentChannelConversation, AgentChannelRetention } from "./server/routes.ts"
@@ -223,7 +223,18 @@ const channelsThreads = defineOperation({
   section: "channels",
 })
 
-function messageView(message: ChannelConversationMessage) {
+interface ChannelMessageView {
+  attachments: { mimeType?: string, name?: string, size?: number, type?: string, url?: string }[]
+  author: { id?: string, isBot?: boolean, name?: string }
+  at?: string
+  id: string
+  invocationId?: string
+  role: ChannelConversationMessage["role"]
+  source: ChannelConversationMessage["source"]
+  text: string
+}
+
+function messageView(message: ChannelConversationMessage): ChannelMessageView {
   const time = channelMessageTime(message)
   const author = channelAuthorName(message)
   const authorRecord = message.author !== null && typeof message.author === "object" ? message.author as Record<string, unknown> : {}
@@ -258,7 +269,10 @@ const channelsConversation = defineOperation({
   run: async (input, context) => {
     const cursor = cursorOf(input.cursor)
     const conversation = await readConversation(context, input)
-    const rest = pageAfterChannelCursor(conversation.messages, cursor, channelMessageCursor, (message, from) => channelMessageCursor(message).t > from.t)
+    const rest = pageAfterChannelCursor(conversation.messages, cursor, channelMessageCursor, (message, from) => {
+      const key = channelMessageCursor(message)
+      return key.t > from.t || (key.t === from.t && from.o !== undefined && key.o !== undefined && key.o > from.o)
+    })
     const size = input.limit ?? defaultMessages
     const selected = rest.slice(0, size)
     return {
@@ -338,5 +352,37 @@ const conversationsExport = defineOperation({
   section: "channels",
 })
 
+interface ChannelTarget {
+  agent: string
+  channel: string
+}
+
+interface ChannelPage {
+  cursor?: string
+  limit?: number
+}
+
+interface ChannelPageResult extends ChannelTarget {
+  nextCursor?: string
+  provider: string
+  retention: ChannelRetentionView
+}
+
+type ChannelOperationDefinitions = readonly [
+  OperationDefinition<Record<string, never>, {
+    channels: (ChannelTarget & { conversations: boolean, provider: string, retention: ChannelRetentionView })[]
+  }>,
+  OperationDefinition<ChannelTarget & ChannelPage, ChannelPageResult & {
+    threads: { invocationCount: number, lastMessageAt: string, participants: string[], thread: string, title?: string }[]
+  }>,
+  OperationDefinition<ChannelTarget & ChannelPage & { thread: string }, ChannelPageResult & {
+    messageCount: number
+    messages: ChannelMessageView[]
+    thread: string
+    truncated?: boolean
+  }>,
+  OperationDefinition<ChannelTarget & { format: "json" | "markdown", media: boolean, thread: string }, ConversationExport>,
+]
+
 /** The Channel operations of `@vite-hub/agent`. The section is `channels`. */
-export const agentChannelOperations = [channelsList, channelsThreads, channelsConversation, conversationsExport] as const satisfies readonly AnyOperation[]
+export const agentChannelOperations: ChannelOperationDefinitions = [channelsList, channelsThreads, channelsConversation, conversationsExport] as const satisfies readonly AnyOperation[]

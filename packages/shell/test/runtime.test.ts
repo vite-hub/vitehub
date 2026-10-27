@@ -6,6 +6,7 @@ import {
   createShellRuntime,
 } from "../src/index.ts"
 import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createShellRuntime as createPackagedShellRuntime } from "../dist/index.js"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 import {
   createReadonlyWorkspaceFs,
@@ -15,6 +16,7 @@ import {
 } from "../src/workspace/index.ts"
 
 import type {
+  ShellAnalyzeOptions,
   ShellExecutionProvider,
   ShellObservation,
   ShellProcess,
@@ -62,6 +64,61 @@ function stoppedProcessObservation(command: string) {
   return { command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }
 }
 
+describe.each([
+  ["source", createShellRuntime],
+  ["packaged", createPackagedShellRuntime],
+] as const)("%s background output limits", (_entry, createRuntime) => {
+  it.each([
+    { policyLimit: 4, requested: undefined, limit: 4 },
+    { policyLimit: 4, requested: 100, limit: 4 },
+    { policyLimit: 4, requested: 2, limit: 2 },
+    { policyLimit: 4, requested: 0, limit: 0 },
+    { policyLimit: undefined, requested: undefined, limit: undefined },
+  ])("enforces policy $policyLimit with requested limit $requested", async ({ policyLimit, requested, limit }) => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    let providerLimit: number | undefined
+    const provider = createBackgroundProvider(async (command, options) => {
+      providerLimit = options?.maxOutputLength
+      options?.onStdout?.("abc")
+      options?.onStderr?.("123")
+      return {
+        id: "worker", command,
+        async stop() {
+          options?.onStdout?.("defghi")
+          options?.onStderr?.("456789")
+          return new class implements ShellObservation {
+            get command() { return command }
+            get event() { return "command_finished" as const }
+            get exitCode() { return 0 }
+            get stdout() { return "abcdefghi" }
+            get stderr() { return "123456789" }
+          }()
+        },
+      }
+    })
+    const session = createRuntime({ provider, policy: { maxOutputLength: policyLimit } }).createSession()
+    try {
+      const process = await session.startProcess("worker", {
+        maxOutputLength: requested,
+        onStdout: value => stdout.push(value),
+        onStderr: value => stderr.push(value),
+      })
+      const result = await process.stop()
+      expect(stdout.join("")).toBe("abcdefghi".slice(0, limit))
+      expect(stderr.join("")).toBe("123456789".slice(0, limit))
+      expect(providerLimit).toBe(limit)
+      expect(result).toMatchObject({ command: "worker", event: "command_finished", exitCode: 0 })
+      const suffix = limit === undefined ? "" : `\n[output truncated to ${limit} characters]\n`
+      expect(result.stdout).toBe(`${"abcdefghi".slice(0, limit)}${suffix}`)
+      expect(result.stderr).toBe(`${"123456789".slice(0, limit)}${suffix}`)
+      expect(result.outputTruncated).toBe(limit === undefined ? undefined : true)
+      expect(result.maxOutputLength).toBe(limit)
+    }
+    finally { await session.dispose() }
+  })
+})
+
 describe("@vite-hub/shell just-bash runtime", () => {
   it("exposes stable public package subpaths", async () => {
     await expect(import("@vite-hub/shell")).resolves.toMatchObject({
@@ -75,6 +132,35 @@ describe("@vite-hub/shell just-bash runtime", () => {
     })
     await expect(import("@vite-hub/shell/providers/just-bash")).resolves.toMatchObject({
       createJustBashProvider: expect.any(Function),
+    })
+  })
+
+  it("preserves the receiver of a custom provider analyzer", async () => {
+    class StatefulProvider implements ShellExecutionProvider {
+      #maxInputBytes = 4
+      boundary = createBackgroundProvider(async () => { throw new Error("unused") }).boundary
+      async exec(command: string) { return stoppedProcessObservation(command) }
+      async analyze(command: string, options?: ShellAnalyzeOptions) {
+        return analyzeShellCommand(command, { maxInputBytes: this.#maxInputBytes, ...options })
+      }
+    }
+    const session = createShellRuntime({ provider: new StatefulProvider() }).createSession()
+    await expect(session.analyze("echo hello")).resolves.toMatchObject({
+      error: "Shell command exceeds 4 bytes.",
+      ok: false,
+    })
+    await expect(session.analyze("echo hello", { maxInputBytes: 32 })).resolves.toMatchObject({
+      commands: ["echo"],
+      ok: true,
+    })
+  })
+
+  it("uses the built-in analyzer when the provider has none", async () => {
+    const provider = createBackgroundProvider(async () => { throw new Error("unused") })
+    const session = createShellRuntime({ provider }).createSession()
+    await expect(session.analyze("echo hello", { maxInputBytes: 4 })).resolves.toMatchObject({
+      error: "Shell command exceeds 4 bytes.",
+      ok: false,
     })
   })
 
@@ -645,6 +731,43 @@ describe("@vite-hub/shell just-bash runtime", () => {
       stderr: expect.stringContaining("yq: command not available in browser environments"),
       stdout: "",
     })
+  })
+
+  it("refreshes paths again when mutations finish during a listing", async () => {
+    const workspace = new MemoryWorkspace({ "old.md": "old" })
+    const fs = createWritableWorkspaceFs(workspace)
+    let startListing!: () => void
+    let releaseListing!: () => void
+    const started = new Promise<void>((resolve) => { startListing = resolve })
+    const release = new Promise<void>((resolve) => { releaseListing = resolve })
+    const list = workspace.list.bind(workspace)
+    vi.spyOn(workspace, "list").mockImplementationOnce(async (...args) => {
+      const snapshot = await list(...args)
+      startListing()
+      await release
+      return snapshot
+    })
+
+    const first = fs.writeFile("/workspace/first.md", "first")
+    await started
+    const second = fs.writeFile("/workspace/second.md", "second")
+    const removal = fs.rm("/workspace/old.md")
+    await expect(workspace.exists("second.md")).resolves.toBe(true)
+    await expect(workspace.exists("old.md")).resolves.toBe(false)
+    releaseListing()
+    await Promise.all([first, second, removal])
+
+    expect(fs.getAllPaths()).toEqual(["/workspace", "/workspace/first.md", "/workspace/second.md"])
+    expect(await fs.readdir("/workspace")).toEqual(["first.md", "second.md"])
+  })
+
+  it("can refresh paths after a listing fails", async () => {
+    const workspace = new MemoryWorkspace({})
+    const fs = createWritableWorkspaceFs(workspace)
+    vi.spyOn(workspace, "list").mockRejectedValueOnce(new Error("listing failed"))
+    await expect(fs.writeFile("/workspace/first.md", "first")).rejects.toThrow("listing failed")
+    await fs.writeFile("/workspace/second.md", "second")
+    expect(fs.getAllPaths()).toEqual(["/workspace", "/workspace/first.md", "/workspace/second.md"])
   })
 
   it("exposes writable filesystem adapters", async () => {

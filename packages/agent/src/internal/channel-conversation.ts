@@ -113,12 +113,16 @@ interface Entry {
   time: number | undefined
 }
 
-/** Time first, in milliseconds. At one time a person speaks before the Agent, then the source decides: provider, transcript, journal. */
+function messageTieOrder(message: ChannelConversationMessage): string {
+  return `${roleRank[message.role]}:${sourceRank[message.source]}:${message.id}`
+}
+
+/** Time first, then role, source, and id so missing-cursor comparisons use the same stable order. */
 function compareEntries(left: Entry, right: Entry): number {
+  const leftOrder = messageTieOrder(left.message)
+  const rightOrder = messageTieOrder(right.message)
   return (left.time ?? Number.POSITIVE_INFINITY) - (right.time ?? Number.POSITIVE_INFINITY)
-    || roleRank[left.message.role] - roleRank[right.message.role]
-    || sourceRank[left.message.source] - sourceRank[right.message.source]
-    || left.order - right.order
+    || (leftOrder < rightOrder ? -1 : leftOrder > rightOrder ? 1 : left.order - right.order)
 }
 
 function similar(left: string, right: string): boolean {
@@ -315,6 +319,8 @@ export interface ChannelCursor {
   t: number
   /** Its id. */
   i: string
+  /** The complete same-time ordering for message cursors. Older cursors omit it. */
+  o?: string
 }
 
 export function encodeChannelCursor(cursor: ChannelCursor): string {
@@ -325,7 +331,7 @@ export function encodeChannelCursor(cursor: ChannelCursor): string {
 export function decodeChannelCursor(value: string): ChannelCursor | undefined {
   try {
     const parsed: unknown = JSON.parse(atob(value.replace(/-/g, "+").replace(/_/g, "/")))
-    return isRecord(parsed) && typeof parsed.t === "number" && Number.isFinite(parsed.t) && typeof parsed.i === "string" ? { i: parsed.i, t: parsed.t } : undefined
+    return isRecord(parsed) && typeof parsed.t === "number" && Number.isFinite(parsed.t) && typeof parsed.i === "string" && (parsed.o === undefined || typeof parsed.o === "string") ? { i: parsed.i, ...(typeof parsed.o === "string" ? { o: parsed.o } : {}), t: parsed.t } : undefined
   }
   catch {
     return undefined
@@ -335,7 +341,7 @@ export function decodeChannelCursor(value: string): ChannelCursor | undefined {
 /**
  * The items after the cursor of an ordered list. The cursor names the last item of the previous page by id, so a page
  * stays stable when new items arrive or the provider window slides. When that item is gone, the page starts at the first
- * item that sorts after its time (`after`).
+ * item that sorts after its complete key (`after`).
  */
 export function pageAfterChannelCursor<T>(items: readonly T[], cursor: ChannelCursor | undefined, key: (item: T) => ChannelCursor, after: (item: T, cursor: ChannelCursor) => boolean): T[] {
   if (!cursor) return [...items]
@@ -347,7 +353,7 @@ export function pageAfterChannelCursor<T>(items: readonly T[], cursor: ChannelCu
 
 /** The cursor of a message: its time (the end of the list for a message without one) and id. */
 export function channelMessageCursor(message: ChannelConversationMessage): ChannelCursor {
-  return { i: message.id, t: channelMessageTime(message) ?? Number.MAX_SAFE_INTEGER }
+  return { i: message.id, o: messageTieOrder(message), t: channelMessageTime(message) ?? Number.MAX_SAFE_INTEGER }
 }
 
 function iso(value: unknown): string {

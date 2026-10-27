@@ -86,7 +86,7 @@ const definitions = {
     },
     {
       fields: [{ label: "Kind", value: "Package entry" }],
-      file: "node_modules/@vite-hub/sandbox-task/dist/providers/node.js",
+      file: "node_modules/@vite-hub/sandbox/dist/task/providers/node.js",
       name: "node",
       source: "server-sandbox-tasks",
     },
@@ -483,21 +483,74 @@ function databaseInspection(url: URL): Record<string, unknown> {
   }
 }
 
+/**
+ * Fails chosen Console routes, so a contributor can see each error state. Set the `playground-fail` cookie to
+ * `<route>=<status>` pairs, such as `agents=401,invocations=401` or `sections=503`. A route matches the path after
+ * `/api/_vitehub/console/`, so `agents` also fails `agents/<name>/invocations`.
+ */
+function playgroundFailure(request: IncomingMessage, path: string): number | undefined {
+  const cookie = request.headers?.cookie?.split(/;\s*/).find(entry => entry.startsWith("playground-fail="))
+  if (!cookie) return undefined
+  const route = path.slice("/api/_vitehub/console/".length)
+  for (const pair of decodeURIComponent(cookie.slice("playground-fail=".length)).split(",")) {
+    const [name, status] = pair.split("=")
+    if (name && (route === name || route.startsWith(`${name}/`)) && Number(status) >= 400) return Number(status)
+  }
+  return undefined
+}
+
+const playgroundFailureMessages: Record<number, string> = {
+  401: "The Cloudflare Access token is not valid for this Console.",
+  403: "This account cannot read this Console section.",
+  500: "The Console handler threw an error.",
+  503: "The Console server is restarting.",
+}
+
 async function handleAPI(request: IncomingMessage, response: ServerResponse, url: URL): Promise<boolean> {
   const path = url.pathname
   if (!path.startsWith("/api/_vitehub/console/")) return false
 
+  const failure = playgroundFailure(request, path)
+  if (failure) {
+    response.statusCode = failure
+    response.setHeader("content-type", "text/plain; charset=utf-8")
+    response.end(playgroundFailureMessages[failure] ?? `Playground failure ${failure}.`)
+    return true
+  }
+
   if (path === "/api/_vitehub/console/env") {
-    json(response, { entries: [
+    // Grouped by namespace like a real app: providers, nested literals, top-level values, and undisclosed names.
+    const envEntries = [
+      { path: "env.server.typesafe.apiKey", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.typesafe.model", source: "env", secret: false, required: false, hasDefault: true, type: "string" },
+      { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.executor.url", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientId", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.executor.accessClientSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.github.token", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.openai.apiKey", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.codex.auth", source: "provider", provider: "personal-vault", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
-      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
+      { path: "env.server.pubsub.topic", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.audience", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.pubsub.serviceAccount", source: "env", secret: false, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.labeller.adminToken", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
       { path: "env.server.labeller.dryRun", source: "env", secret: false, required: true, hasDefault: true, type: "boolean" },
       { path: "env.server.labeller.minConfidence", source: "env", secret: false, required: true, hasDefault: true, type: "number" },
+      { path: "env.server.labeller.labels.GitHub.color.textColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.labeller.labels.GitHub.color.backgroundColor", source: "literal", secret: false, required: false, hasDefault: false },
+      { path: "env.server.webhookSecret", source: "env", secret: true, required: true, hasDefault: false, type: "string" },
+      { path: "env.server.logLevel", source: "env", secret: false, required: false, hasDefault: true, type: '"debug" | "info" | "warn"' },
       { path: "env.server.appName", source: "literal", secret: false, required: false, hasDefault: false },
-    ] })
+      { source: "literal", secret: false, required: false, hasDefault: false },
+      { source: "literal", secret: false, required: false, hasDefault: false },
+    ]
+    // `?status=1` answers like inspectServerEnv: two required values are missing and the vault fails once.
+    const missing = new Set(["env.server.pubsub.audience", "env.server.labeller.adminToken"])
+    json(response, { entries: envEntries, status: url.searchParams.has("status") ? envEntries.map(entry => ({
+      blocking: missing.has(entry.path ?? "") || entry.path === "env.server.openai.apiKey",
+      path: entry.path,
+      status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
+    })) : undefined })
     return true
   }
   if (path === "/api/_vitehub/console/sections") {
@@ -870,7 +923,7 @@ export function consoleMockAPI(): Plugin {
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/auth/manage") {
-            json(response, authFixture(await body(request)));
+            json(response, authFixture(await body(request), process.env.VITEHUB_PLAYGROUND_AUTH_EVENTS !== "off"));
             return
           }
           if (request.method === "POST" && url.pathname === "/_vitehub/connections") {

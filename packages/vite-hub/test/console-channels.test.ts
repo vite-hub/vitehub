@@ -8,7 +8,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { consoleSectionDetails, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
-import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
+import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 const retention = { durable: false, maxMessages: 100, transcripts: false, ttlMs: 604_800_000 }
 const message = { attachments: [], author: { fullName: "Maxi", isMe: false, userId: "1" }, id: "1", metadata: { dateSent: "2026-06-10T12:00:00.000Z" }, role: "user", source: "provider", text: "hello", threadId: "telegram:1" }
@@ -28,7 +28,7 @@ function install() {
 }
 
 function rpc(operation: string, input: unknown = {}) {
-  return consoleRpcHandler.fetch(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+  return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
     body: JSON.stringify({ input, operation }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
     method: "POST",

@@ -101,7 +101,13 @@ function telegramAdapter(options: { cache?: boolean, name?: string, window?: num
     startTyping: vi.fn(async () => {}),
     userName: "vitehub",
   }
-  return Object.assign(adapter, { messages })
+  return Object.assign(adapter, {
+    deleteHistory: async (userKey: string) => {
+      if (!chat) throw new Error("Chat is not initialized")
+      return await chat.history.user.delete({ userKey })
+    },
+    messages,
+  })
 }
 
 
@@ -124,13 +130,14 @@ let memoryFixtures = 0
 
 interface FixtureOptions {
   adapterName?: string
+  channel?: string
   cache?: boolean
   content?: boolean
   identity?: AgentChatOptions["identity"]
   /** `libsql` (the default) and `cloudflare` are durable. `memory` uses the in-process State of the route. */
   state?: "cloudflare" | "libsql" | "memory"
   /** Sets `channels.telegram.transcripts`. */
-  transcripts?: false | { maxPerUser?: number }
+  transcripts?: false | { maxPerUser?: number, retention?: number }
   window?: number
   journalFails?: boolean
 }
@@ -147,6 +154,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const adapter = telegramAdapter({ ...(options.adapterName ? { name: options.adapterName } : {}), ...(options.cache === undefined ? {} : { cache: options.cache }), ...(options.window === undefined ? {} : { window: options.window }) })
   let turn = 0
   const invocations = defineAgentInvocations({ ...(options.content ? { content: "content" as const } : {}), store: createMemoryAgentInvocationStore() })
+  const channel = options.channel ?? "telegram"
   const agent = defineAgent({
     capabilities: [
       defineChatCapability({
@@ -155,7 +163,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         stream: false,
         ...(options.identity ? { identity: options.identity } : {}),
         ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
-        webhooks: { telegram: { secretHeader: "x-test-secret", secretToken: "history-secret" } },
+        webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: "history-secret" } },
       }),
     ],
     driver: { run: () => ({ text: `reply ${++turn}` }) },
@@ -180,7 +188,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         body: JSON.stringify({ threadId }),
         headers: { "content-type": "application/json", "x-test-secret": "history-secret", "x-vitehub-channel-history": "1" },
         method: "POST",
-      }), "telegram", routeOptions)
+      }), channel, routeOptions)
     },
     async say(id, text, extra = {}, chat = 456) {
       vi.setSystemTime(new Date(Date.parse("2026-06-10T12:00:00.000Z") + id * 60_000))
@@ -189,7 +197,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         body: JSON.stringify({ message, update_id: id + idOffset }),
         headers: { "x-test-secret": "history-secret" },
         method: "POST",
-      }), "telegram", routeOptions)
+      }), channel, routeOptions)
       expect(response.status).toBe(200)
     },
     state: state ?? libsql,
@@ -274,6 +282,14 @@ describe("Channel conversation operations", () => {
     await expect(operation("channels.threads")({ agent: "support", channel: "telegram", cursor: "nope" })).rejects.toMatchObject({ code: "CHANNELS_CURSOR_INVALID", status: 400 })
   })
 
+  it("reads journal threads using the Channel id when its adapter key differs", async () => {
+    const chat = await fixture({ channel: "support-telegram", transcripts: false })
+    await chat.say(1, "hello")
+    const input = { agent: "support", channel: "support-telegram" }
+    await expect(operation("channels.threads")(input)).resolves.toMatchObject({ threads: [{ thread: "telegram:456" }] })
+    await expect(operation("channels.conversation")({ ...input, thread: "telegram:456" })).resolves.toMatchObject({ messageCount: 2 })
+  })
+
   it("saves every message to the transcripts, so a conversation outlives the provider window", async () => {
     // The provider returns only the newest two messages and keeps no cache.
     const chat = await fixture({ cache: false, window: 2 })
@@ -350,6 +366,19 @@ describe("Channel conversation operations", () => {
     await expect(operation("channels.conversation")({ agent: "support", channel: "telegram", cursor: "nope", thread: "telegram:456" })).rejects.toMatchObject({ code: "CHANNELS_CURSOR_INVALID" })
   })
 
+  it("keeps equal-time messages after the cursor message leaves the provider window", async () => {
+    const chat = await fixture({ cache: false, transcripts: false })
+    await chat.say(1, "first question")
+    await chat.say(3, "second question")
+    const time = chat.adapter.messages[0].metadata.dateSent
+    for (const message of chat.adapter.messages) message.metadata.dateSent = time
+    const first = await operation("channels.conversation")({ agent: "support", channel: "telegram", limit: 1, thread: "telegram:456" })
+    expect(first.messages.map(message => message.id)).toEqual(["1"])
+    chat.adapter.messages.splice(0, 1)
+    const second = await operation("channels.conversation")({ agent: "support", channel: "telegram", cursor: first.nextCursor, thread: "telegram:456" })
+    expect(second.messages.map(message => message.id)).toEqual(["3", "sent-1", "sent-2"])
+  })
+
   it("fails with a coded error for an unknown Agent or Channel", async () => {
     await fixture()
     await expect(conversation("t", {})).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN" })
@@ -403,6 +432,19 @@ describe("conversation privacy", () => {
     await expect(conversation("telegram:456", { ...participant, actor: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
     await expect(conversation("telegram:456", { ...participant, user: { id: "verified" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
     await expect(conversation("telegram:456", { ...participant, actor: { id: "account:verified" } })).resolves.toMatchObject({ messageCount: 4 })
+  })
+
+  it.each(["deleted", "expired"] as const)("denies indexed participants whose transcripts were %s", async (removed) => {
+    const chat = await fixture({ cache: false, journalFails: true, transcripts: removed === "expired" ? { retention: 60_000 } : { maxPerUser: 100 }, window: 2 })
+    const group = { id: -100, type: "supergroup" } as const
+    await chat.say(1, "former participant", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    if (removed === "deleted") expect((await chat.adapter.deleteHistory("telegram:456")).deleted).toBeGreaterThan(0)
+    // The next message expires the first user's TTL in the retention case.
+    await chat.say(3, "current participant", { chat: group, from: { id: 789, username: "second" } }, group.id)
+    await chat.history("telegram:-100") // Make the journal unavailable, so retained transcript identities decide access.
+    const participant = { conversations: "participant", surface: "agent", user: null } as const
+    await expect(conversation("telegram:-100", { ...participant, actor: { id: "telegram:456" } })).rejects.toMatchObject({ code: "CHANNELS_FORBIDDEN", status: 403 })
+    await expect(conversation("telegram:-100", { ...participant, actor: { id: "telegram:789" } })).resolves.toMatchObject({ messageCount: 2 })
   })
 
   it.each(["libsql", "cloudflare"] as const)("recovers all group participants from %s after provider history and the thread cache expire", async (state) => {

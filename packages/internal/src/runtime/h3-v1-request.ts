@@ -84,7 +84,15 @@ function readNodeRequestURL(request: H3V1NodeRequest): URL {
 
 function toBodyStream(value: unknown): ReadableStream<Uint8Array> | undefined {
   if (value instanceof ReadableStream) return value
-  if (value instanceof Uint8Array) return new Blob([value]).stream()
+  if (value instanceof Uint8Array) {
+    // Not a Blob: the DOM types refuse a view whose buffer may be shared.
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(value)
+        controller.close()
+      },
+    })
+  }
   if (typeof value === "string") return new Blob([value]).stream()
   if (value instanceof URLSearchParams) return new Blob([value.toString()]).stream()
   if (value instanceof Object && Object.getPrototypeOf(value) === Object.prototype) return new Blob([JSON.stringify(value)]).stream()
@@ -204,6 +212,18 @@ export function toH3V1Request(event: H3V1Event): Request {
   const webRequest = new Request(readNodeRequestURL(request), init)
   nodeEventRequests.set(event, webRequest)
   return webRequest
+}
+
+/**
+ * Return the Web Request of a request, an H3 2 event with an own `req` request, or an H3 1 event such as Nuxt 4's.
+ * H3 1 events have no `url`, so read the URL from the request this returns. Throws a `TypeError` for any other value.
+ */
+export function toEventRequest(event: object): Request {
+  if (isWebRequest(event)) return event
+  const req: unknown = Object.hasOwn(event, "req") ? Reflect.get(event, "req") : undefined
+  if (isWebRequest(req)) return req
+  if (isH3V1Event(event)) return toH3V1Request(event)
+  throw new TypeError("[vitehub] Expected a Request, an H3 2 event, or an H3 1 event.")
 }
 
 function headerValues(value: number | string | string[] | undefined): string[] {

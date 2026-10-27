@@ -1,9 +1,9 @@
 # @vite-hub/env
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-public%20env-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=public+env">
 </p>
 
 `@vite-hub/env` declares environment values once, then generates typed public and server-oriented access plus untyped build-time replacements for Vite applications.
@@ -116,11 +116,9 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | Preset | Declares |
 | --- | --- |
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
-| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`. `TYPESAFE_DEFAULT_MODEL` overrides the model. |
+| `typesafeEnv({ model? })` | The Server Env of the `typesafe()` AI gateway from `vite-hub/gateways`: Secret `apiKey` (`TYPESAFE_API_KEY`) and `model` (`TYPESAFE_DEFAULT_MODEL`, default `jev-latest`). |
 
-The preset allows a missing API key during Env resolution. The ask Driver requires `TYPESAFE_API_KEY` for the TypeSafe provider and reports `AGENT_R0936` when it is missing. The Vercel provider can use `VERCEL_OIDC_TOKEN` without an API key.
-
-`@vite-hub/agent` reads `typesafeEnv()` from the `typesafe` group for `driver.ask`:
+The preset allows a missing API key during Env resolution; Jev reports `GATEWAYS_R0002` when a request needs it. `defineAgent({ driver: { ask } })`, `llmGate()`, and `llmRoute()` use `typesafe()` when they get no other gateway, and it reads this group:
 
 ```ts
 env: {

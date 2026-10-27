@@ -695,8 +695,8 @@ describe("agent Vite plugin", () => {
         },
         workflowImportBase: "vite-hub/_internal/workflow",
         workspaceDependencyRuntimeImports: {
-          sandboxTask: "@vite-hub/sandbox-task",
-          sandboxTaskRuntimeState: "vite-hub/_internal/sandbox-task/runtime/state",
+          sandboxTask: "@vite-hub/sandbox/task",
+          sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
           shellWorkspace: "vite-hub/shell/workspace",
         },
         workspaceImportBase: "vite-hub/_internal/workspace",
@@ -722,7 +722,7 @@ describe("agent Vite plugin", () => {
       expect(filteredRoute).toContain(
         'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
       )
-      expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox-task")')
+      expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox/task")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const composedBlobPlugin = hubAgent({
@@ -1299,7 +1299,7 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("writes Netlify provider output during Netlify local dev", async () => {
+  it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
@@ -1316,18 +1316,14 @@ describe("agent Vite plugin", () => {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: {
-        build?: { outDir?: string }
-        command: "serve"
-        resolve: { alias: Array<{ find: string; replacement: string }> }
-        root: string
-      }) => Promise<void>
+      const configResolved: unknown = plugin.configResolved
+      if (!isRuntimeFunction(configResolved)) throw new Error("Expected the Agent configResolved hook to be callable.")
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
       await configResolved({
         build: { outDir: "dist/client" },
         command: "serve",
+        plugins: kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [],
         resolve: {
           alias: [
             { find: "@", replacement: join(root, "src") },
@@ -1339,10 +1335,13 @@ describe("agent Vite plugin", () => {
       })
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const capabilityOption = kvMode === "configured" ? " capabilities: vitehubAgentRouteCapabilities," : ""
       expect(wrapper).toContain(
-        "handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })",
+        `handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite',${capabilityOption} state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })`,
       )
-      expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
+      expect(wrapper).toContain(
+        `handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite',${capabilityOption} waitUntil })`,
+      )
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(
         expect.objectContaining({
           netlify: expect.objectContaining({
@@ -1361,8 +1360,9 @@ describe("agent Vite plugin", () => {
                   external: [
                     "@ai-sdk/mcp",
                     "@modelcontextprotocol/sdk/*",
-                    "@vite-hub/sandbox-task",
-                    "@vite-hub/sandbox-task/*",
+                    ...kvMode === "absent" ? ["@vite-hub/kv"] : [],
+                    "@vite-hub/sandbox/task",
+                    "@vite-hub/sandbox/task/*",
                     "@vite-hub/shell",
                     "@vite-hub/shell/*",
                     "@vite-hub/workflow",

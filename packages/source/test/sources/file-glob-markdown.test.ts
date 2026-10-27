@@ -52,6 +52,21 @@ describe("@vite-hub/source local file sources", () => {
     })
   })
 
+  it.each([0, 1, 4097])("returns exactly sized binary content for a %i-byte file", async (size) => {
+    const root = await createRoot()
+    const bytes = Uint8Array.from({ length: size }, (_, index) => index % 256)
+    await writeFile(join(root, "bytes.bin"), bytes)
+    const reader = createSource(file("bytes.bin"), { rootDir: root })
+    const content = await reader.read("bytes.bin", { encoding: "binary" })
+
+    expect(content).toEqual(bytes)
+    expect(content.buffer.byteLength).toBe(size)
+    if (size > 0) {
+      content.slice()[0] = 255
+      expect(content[0]).toBe(0)
+    }
+  })
+
   it("ignores inherited file options", async () => {
     const root = await createRoot()
     await writeFile(join(root, "safe.md"), "# Safe\n")

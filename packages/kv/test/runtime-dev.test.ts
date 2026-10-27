@@ -60,6 +60,19 @@ describe("KV dev runtime handler", () => {
     finally { get.mockRestore(); has.mockRestore(); set.mockRestore(); del.mockRestore() }
   })
 
+  it("returns large binary values through the inspection response without changing bytes", async () => {
+    const source = Uint8Array.from({ length: 65_553 }, (_, index) => index % 256)
+    const value = source.subarray(7, 65_544)
+    const get = vi.spyOn(kv, "get").mockResolvedValue([undefined, value])
+    try {
+      expect(await run({ key: "binary", operation: "get" })).toEqual({
+        status: 200,
+        body: { found: true, key: "binary", store: "default", type: "bytes", encoding: "base64", value: Buffer.from(value).toString("base64") },
+      })
+    }
+    finally { get.mockRestore() }
+  })
+
   it("rejects accessor-backed values without running their getters", async () => {
     const getter = vi.fn(() => { throw new Error("Getter must not run") })
     const value = Object.defineProperty({}, "secret", { enumerable: true, get: getter })

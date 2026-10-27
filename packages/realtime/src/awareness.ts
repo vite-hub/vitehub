@@ -88,9 +88,9 @@ export function compactRealtimeAwareness(awareness: awarenessProtocol.Awareness)
  * every awareness change they see, other people's too, so an echo is normal and must not close the connection.
  */
 function dropForeignAwareness<Peer extends object>(update: Uint8Array, owners: ReadonlyMap<number, Peer>, peer: Peer): Uint8Array {
-  readAwarenessClientIds(update)
   const decoder = decoding.createDecoder(update)
   const length = decoding.readVarUint(decoder)
+  if (length > maxAwarenessClients) throw realtimeErrorDiagnostics.REALTIME_TOO_MANY_AWARENESS_CLIENTS({})
   const kept: Array<[number, number, string]> = []
   for (let index = 0; index < length; index++) {
     const client = decoding.readVarUint(decoder)

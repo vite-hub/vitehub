@@ -8512,7 +8512,7 @@ async function readChannelConversation(
     }
     return { entries, truncated }
   }
-  const origin = adapterName!
+  const origin = chatRegistrationOrigin(registration)
   const journal = await channelConversationInvocations(agent, context, origin, input.threadId)
   if (input.requireKnown && !journal.invocations.length) {
     const known = (await readTranscripts(keys, 1)).entries.length > 0
@@ -8565,7 +8565,12 @@ async function readChannelConversation(
   }
   const transcripts = await readTranscripts(keys, channelTranscriptReadLimit)
   const stitched = stitchChannelConversation({ invocations: journal.invocations, provider: messages, threadId: input.threadId, transcripts: transcripts.entries })
-  const participants = new Set<string>([...channelConversationPeople(stitched), ...journal.invocations.flatMap(invocation => invocation.invokerId ? [invocation.invokerId] : []), ...keys])
+  const participants = new Set<string>([...channelConversationPeople(stitched), ...journal.invocations.flatMap(invocation => invocation.invokerId ? [invocation.invokerId] : [])])
+  // The durable index locates transcripts; only retained entries establish their owners' access.
+  for (const entry of transcripts.entries) {
+    if (entry.userKey) participants.add(entry.userKey)
+    if (entry.userId) participants.add(entry.userId)
+  }
   return {
     agent: context.agentIdentity?.name || "agent",
     channel: registration.channelId || registration.id || registration.provider,
@@ -9996,11 +10001,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         const chatOptions = getChannelChatOptions(agent, registration.channelId, getAgentChatOptions(agent))
         const state = await resolveChatState(chatOptions, context, registration, handlerOptions)
         const custom = Boolean(agentChannelOptions(agent)[id]?.history)
-        const adapters = trigger.id === "chat.message" ? await resolveChatAdapters(getAgentChatOptions(agent), context) : {}
         channels.set(id, {
           conversations: !custom && trigger.id === "chat.message",
           id,
-          origin: resolveChatAdapterName(adapters, registration) ?? registration.provider,
+          origin: chatRegistrationOrigin(registration),
           provider: registration.provider,
           retention: channelRetention(chatOptions, state.state),
         })
@@ -10036,8 +10040,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
     const context = await channelContext(request, handlerOptions)
     return await runWithRuntimeCloudflareEnv(context, async () => {
       const registration = await channelRegistration(context, input.channel)
-      const adapters = await resolveChatAdapters(getAgentChatOptions(agent), context)
-      const origin = resolveChatAdapterName(adapters, registration) ?? registration.provider
+      const origin = chatRegistrationOrigin(registration)
       return await channelJournalThreads(agent, context, origin, input.invokers === true)
     })
   }

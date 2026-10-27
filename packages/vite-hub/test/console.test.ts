@@ -50,12 +50,13 @@ import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import invocationHandlerRoute, { cancelConsoleInvocation, getConsoleInvocationDetail } from "../src/console/runtime/server/invocation.get.ts"
 import invocationCapabilitiesHandlerRoute from "../src/console/runtime/server/invocation-capabilities.get.ts"
 import invocationsHandlerRoute from "../src/console/runtime/server/invocations.get.ts"
+import consoleClientHandler from "../src/console/runtime/server/client.get.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleRequest } from "../src/console/runtime/server/request.ts"
 import searchHandlerRoute from "../src/console/runtime/server/search.get.ts"
 import { consoleSearch } from "../src/console/runtime/server/search.ts"
 import sectionsHandlerRoute from "../src/console/runtime/server/sections.get.ts"
-import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
+import { installConsoleDevelopment, installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { consoleInvocationRootPlugin, consoleVitePlugin, updateConsoleInvocationRootState } from "../src/console/vite.ts"
 import usageHandlerRoute from "../src/console/runtime/server/usage.get.ts"
 import { createUsageSummary, invocationUsage } from "../src/console/runtime/server/usage.ts"
@@ -144,6 +145,11 @@ function runtime(runId: string): AgentRuntimeContext {
 }
 
 afterEach(() => {
+  for (const name of ["development", "development.root", "development.registry", "development.ambiguous-root"]) {
+    const key = Symbol.for(`vitehub.console.${name}`)
+    Reflect.deleteProperty(globalThis, key)
+    Reflect.deleteProperty(process, key)
+  }
   delete scope[consoleBlobKey]
   delete scope[consoleBlobRootKey]
   delete scope[consoleInvocationsKey]
@@ -671,7 +677,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -685,6 +691,8 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/_vitehub/**",
+        "/portal/_vitehub",
         "/portal/api/_vitehub/console/status",
         "/portal/api/_vitehub/console/usage",
         "/portal/_vitehub",
@@ -4916,7 +4924,7 @@ describe("Agent invocation console", () => {
   })
 
   it("serves the standalone shell with build-replaceable assets and a restrictive non-cacheable policy", async () => {
-    const response = consolePageHandler(event("127.0.0.1"))
+    const response = await consolePageHandler(event("127.0.0.1"))
     const page = await response.text()
 
     expect(page).toContain("/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__")
@@ -4928,13 +4936,79 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
     expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    expect(response.headers.get("x-frame-options")).toBe("DENY")
+  })
+
+  it("denies framing without development output even with NODE_ENV=development", async () => {
+    vi.stubEnv("NODE_ENV", "development")
+    const response = await consolePageHandler(event("127.0.0.1"))
+
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+    expect(response.headers.get("x-frame-options")).toBe("DENY")
+  })
+
+  it("lets same-origin DevTools frame the shell on a development server", async () => {
+    installConsoleDevelopment("/tmp/vitehub-console", true)
+    const response = await consolePageHandler(event("127.0.0.1"))
+
+    expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
+    expect(response.headers.get("x-frame-options")).toBe("SAMEORIGIN")
+  })
+
+  it.each([false, true])("denies framing when production and development share a scope (development first: %s)", async (developmentFirst) => {
+    installConsoleDevelopment("/first", developmentFirst)
+    installConsoleDevelopment("/second", !developmentFirst)
+
+    for (const root of ["/first", "/second"]) {
+      const response = await consolePageHandler(event("127.0.0.1"))
+      expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
+      expect(response.headers.get("x-frame-options")).toBe("DENY")
+      // Refreshing a project cannot disambiguate the scope of the serving handler.
+      installConsoleDevelopment(root, true)
+    }
+    expect((await consolePageHandler(event("127.0.0.1"))).headers.get("x-frame-options")).toBe("DENY")
+  })
+
+  it.each(["build", "serve"])("uses generated %s output to select framing regardless of NODE_ENV or mode", async (command) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-frame-policy-"))
+    try {
+      const development = command === "serve"
+      const mode = development ? "production" : "development"
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: [] })
+      const config: { nitro?: { plugins?: string[] }, root: string } = { root }
+      await callPluginHook(plugin.config, {}, [config, { command, mode }])
+      const initial = await readFile(config.nitro!.plugins![0]!, "utf8")
+      await callPluginHook(plugin.configResolved, {}, [config])
+      await callPluginHook(plugin.buildStart, {})
+      const refreshed = await readFile(config.nitro!.plugins![0]!, "utf8")
+
+      vi.stubEnv("NODE_ENV", mode)
+      for (const generated of [initial, refreshed]) {
+        const installation = generated.split("\n").find(line => line.startsWith("installConsoleDevelopment("))
+        if (!installation) throw new TypeError("Expected generated development state.")
+        runInNewContext(installation, { installConsoleDevelopment })
+        const response = await consolePageHandler(event("127.0.0.1"))
+        expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+        expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      }
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("serves the Console client stub with a body, so every development server finishes it", async () => {
+    const response = consoleClientHandler()
+
+    expect(response.headers.get("content-type")).toBe("text/javascript; charset=utf-8")
+    expect(await response.text()).not.toBe("")
   })
 
   it("prefixes shell assets when the application is mounted below a base path", async () => {
     const request = event("127.0.0.1")
     request.req = { url: "http://localhost/portal/_vitehub" }
     request.node!.req!.url = "http://localhost/portal/_vitehub"
-    const page = await consolePageHandler(request).text()
+    const page = await (await consolePageHandler(request)).text()
 
     expect(page).toContain('href="/portal/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__"')
     expect(page).toContain('src="/portal/api/_vitehub/console/client.js"')

@@ -7,6 +7,7 @@ import type {
   AuthConsoleOrganization,
   AuthConsoleOrganizationDetail,
   AuthConsolePage,
+  AuthConsoleOverview,
   AuthConsoleQuery,
   AuthConsoleSession,
   AuthConsoleUser,
@@ -17,17 +18,22 @@ import { authDate, authFieldValue, readAuthConsole } from "../client/auth-manage
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
+import ConsoleAuthOverview from "./console-auth-overview.vue";
+import ConsoleAuthActivity from "./console-auth-activity.vue";
 import ConsoleFrame from "./console-frame.vue";
+import ConsolePageToolbar from "./console-page-toolbar.vue";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ sectionsBase: string; managementBase: string }>();
 const route = useRoute();
 const router = useRouter();
 const page = computed<AuthConsolePage>(() =>
-  ["sessions", "organizations", "agents"].includes(String(route.params.page))
+  ["users", "sessions", "organizations", "agents", "activity"].includes(String(route.params.page))
     ? (route.params.page as AuthConsolePage)
-    : "users",
+    : "overview",
 );
 const description = shallowRef<AuthConsoleDescription>();
+const overview = shallowRef<AuthConsoleOverview>();
+const revision = ref(0);
 const users = shallowRef<AuthConsoleUser[]>([]);
 const sessions = shallowRef<AuthConsoleSession[]>([]);
 const organizations = shallowRef<AuthConsoleOrganization[]>([]);
@@ -37,7 +43,12 @@ const offset = ref(0);
 const limit = 25;
 const search = ref("");
 const filter = ref<NonNullable<AuthConsoleQuery["filter"]>>("all");
-const selectedUser = ref<string>();
+const selectedUser = computed({
+  get: () => (typeof route.query.user === "string" ? route.query.user : undefined),
+  set: (user: string | undefined) => {
+    void router.replace({ query: { ...route.query, user } });
+  },
+});
 const selectedOrg = shallowRef<AuthConsoleOrganizationDetail>();
 const orgOffset = ref(0);
 const loading = ref(false);
@@ -46,12 +57,16 @@ const orgError = shallowRef<unknown>();
 const action = ref<AuthConsoleAction>();
 const actionId = ref<string>();
 const labels: Record<AuthConsolePage, string> = {
+  overview: "Overview",
+  activity: "Activity",
   users: "Users",
   sessions: "Sessions",
   organizations: "Organizations",
   agents: "Agents",
 };
 const icons: Record<AuthConsolePage, string> = {
+  overview: "i-lucide-chart-no-axes-combined",
+  activity: "i-lucide-history",
   users: "i-lucide-users-round",
   sessions: "i-lucide-monitor",
   organizations: "i-lucide-building-2",
@@ -75,6 +90,15 @@ async function refresh() {
     const config = await readAuthConsole(props.managementBase, "describe", {}, current.signal);
     if (current.signal.aborted) return;
     description.value = config;
+    if (page.value === "overview") {
+      const result = await readAuthConsole(props.managementBase, "overview", {}, current.signal);
+      if (!current.signal.aborted) overview.value = result;
+      return;
+    }
+    if (page.value === "activity") {
+      revision.value++;
+      return;
+    }
     if (!config.storage.enabled) return;
     if (!config.pages.includes(page.value))
       throw new Error("This page needs a Better Auth plugin that the app has not enabled.");
@@ -127,12 +151,11 @@ async function refresh() {
 function navigate(target: AuthConsolePage) {
   void router.push({
     name: "vitehub-console-auth",
-    params: { page: target === "users" ? undefined : target },
+    params: { page: target === "overview" ? undefined : target },
   });
 }
 watch(page, () => {
   offset.value = 0;
-  selectedUser.value = undefined;
   closeOrganization();
   void refresh();
 });
@@ -171,7 +194,7 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <ConsoleFrame active="auth" :sections-base="sectionsBase">
-    <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="auth" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <UDashboardNavbar title="Auth" :toggle="false"
           ><template #right
@@ -184,12 +207,10 @@ onBeforeUnmount(() => {
               :disabled="loading"
               @click="refresh" /></template
         ></UDashboardNavbar>
-        <nav
-          aria-label="Auth pages"
-          class="flex gap-1 overflow-x-auto border-b border-default px-4 py-2"
-        >
+        <nav aria-label="Auth pages" class="overflow-x-auto border-b border-default">
+          <div class="mx-auto flex w-full max-w-6xl gap-1 px-4 py-2 sm:px-6">
           <UButton
-            v-for="item in description?.pages ?? ['users']"
+            v-for="item in description?.pages ?? ['overview', 'users', 'activity']"
             :key="item"
             :icon="icons[item as AuthConsolePage]"
             :color="page === item ? 'primary' : 'neutral'"
@@ -199,18 +220,16 @@ onBeforeUnmount(() => {
             @click="navigate(item as AuthConsolePage)"
             >{{ labels[item as AuthConsolePage] }}</UButton
           >
+          </div>
         </nav>
-        <div
-          v-if="page === 'users'"
-          class="flex flex-wrap items-center gap-2 border-b border-default px-4 py-2"
-        >
+        <ConsolePageToolbar v-if="page === 'users'" width="6xl">
           <UInput
             v-model="search"
             aria-label="Search users by name or email"
             placeholder="Search name or email…"
             icon="i-lucide-search"
-            variant="none"
-            class="min-w-48 flex-1"
+            size="sm"
+            class="min-w-48 flex-1 sm:max-w-72"
           /><USelect
             v-model="filter"
             aria-label="Filter users"
@@ -225,13 +244,24 @@ onBeforeUnmount(() => {
             size="sm"
             class="w-36"
           />
-        </div>
+        </ConsolePageToolbar>
       </template>
       <template #body>
         <main class="flex min-h-0 flex-1 flex-col" :aria-busy="loading">
           <ConsoleState v-if="error" :error="error" title="Could not load Auth" :retry="refresh" />
+          <ConsoleAuthOverview
+            v-else-if="page === 'overview' && overview && description"
+            :data="overview"
+            :description="description"
+          />
+          <ConsoleAuthActivity
+            v-else-if="page === 'activity' && description"
+            :base="managementBase"
+            :enabled="description.events.enabled"
+            :revision="revision"
+          />
           <ConsoleState
-            v-else-if="description && !description.storage.enabled"
+            v-else-if="description && !description.storage.enabled && page !== 'overview'"
             icon="i-lucide-users-round"
             title="No stored Auth data"
             :description="description.storage.reason"
@@ -239,21 +269,20 @@ onBeforeUnmount(() => {
           <p v-else-if="loading" role="status" class="p-4 text-sm text-muted">
             Loading {{ labels[page].toLowerCase() }}…
           </p>
-          <template v-else>
-            <div
-              v-if="description?.access.length && page === 'users'"
-              class="border-b border-default px-4 py-3 text-xs text-muted"
-            >
-              <details>
-                <summary class="cursor-pointer text-toned">Access rules</summary>
+          <div v-else class="min-h-0 flex-1 overflow-auto">
+            <div class="mx-auto flex w-full max-w-6xl flex-col gap-3 p-4 sm:p-6">
+              <details v-if="description?.access.length && page === 'users'" class="group text-xs text-muted">
+                <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+                  <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+                  Access rules
+                </summary>
                 <ul class="mt-2 list-inside list-disc space-y-1">
                   <li v-for="rule in description.access" :key="rule">{{ rule }}</li>
                 </ul>
               </details>
-            </div>
-            <div class="min-h-0 flex-1 overflow-auto">
+              <div class="overflow-x-auto rounded-md border border-default">
               <table class="w-full text-left text-sm auth-table" :aria-label="labels[page]">
-                <thead>
+                <thead class="bg-elevated/30">
                   <tr v-if="page === 'users'">
                     <th>User</th>
                     <th>Role</th>
@@ -284,10 +313,11 @@ onBeforeUnmount(() => {
                   </tr>
                 </thead>
                 <tbody v-if="page === 'users'">
-                  <tr v-for="user in users" :key="user.id" class="hover:bg-elevated/50">
+                  <tr v-for="user in users" :key="user.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
                     <td>
+                      <!-- The button overlay makes the whole row open the user. Focus shows as the row fill. -->
                       <button
-                        class="flex max-w-72 items-center gap-2 rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                        class="flex max-w-72 items-center gap-2 text-left outline-none after:absolute after:inset-0"
                         @click="selectedUser = user.id"
                       >
                         <UAvatar :src="user.image ?? undefined" :alt="user.name" size="sm" /><span
@@ -344,17 +374,16 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
                 <tbody v-else-if="page === 'organizations'">
-                  <tr v-for="org in organizations" :key="org.id">
+                  <tr v-for="org in organizations" :key="org.id" class="relative hover:bg-elevated/50 has-focus-visible:bg-elevated/50">
                     <td>
-                      <UButton
-                        color="neutral"
-                        variant="link"
-                        class="p-0"
+                      <button
+                        class="text-left font-medium text-highlighted outline-none after:absolute after:inset-0"
                         @click="openOrganization(org.id)"
-                        >{{ org.name }}</UButton
                       >
+                        {{ org.name }}
+                      </button>
                     </td>
-                    <td class="text-muted">{{ org.slug }}</td>
+                    <td class="font-mono text-xs text-muted">{{ org.slug }}</td>
                     <td class="text-muted">{{ authDate(org.createdAt) }}</td>
                   </tr>
                 </tbody>
@@ -393,28 +422,28 @@ onBeforeUnmount(() => {
                   </tr>
                 </tbody>
               </table>
-              <p v-if="!total" class="p-8 text-center text-sm text-muted">
+              <p v-if="!total" class="border-t border-default p-8 text-center text-sm text-muted">
                 {{
                   search || filter !== "all"
                     ? "No users match these filters."
                     : `No ${labels[page].toLowerCase()} yet.`
                 }}
               </p>
-            </div>
+              </div>
             <p
               v-if="page === 'agents' && description?.actions.revokeConsent.reason"
-              class="border-t border-default px-4 py-3 text-xs text-muted"
+              class="text-xs text-muted"
             >
               {{ description.actions.revokeConsent.reason }}
             </p>
             <p
               v-if="page === 'sessions' && description?.actions.revokeSession.reason"
-              class="border-t border-default px-4 py-3 text-xs text-muted"
+              class="text-xs text-muted"
             >
               {{ description.actions.revokeSession.reason }}
             </p>
             <footer
-              class="flex items-center justify-between gap-3 border-t border-default px-4 py-2 text-xs text-muted"
+              class="flex items-center justify-between gap-3 text-xs text-muted"
             >
               <span class="tabular-nums"
                 >{{ total ? offset + 1 : 0 }}–{{ Math.min(offset + limit, total) }} of {{ total }}
@@ -438,7 +467,8 @@ onBeforeUnmount(() => {
                 >
               </div>
             </footer>
-          </template>
+            </div>
+          </div>
         </main>
       </template>
     </UDashboardPanel>
@@ -534,15 +564,15 @@ onBeforeUnmount(() => {
 </template>
 <style scoped>
 .auth-table th {
-  padding: 0.75rem 1rem;
+  height: 2.25rem;
+  padding: 0 0.75rem;
   font-size: 0.75rem;
   font-weight: 500;
   color: var(--ui-text-muted);
-  border-bottom: 1px solid var(--ui-border);
   white-space: nowrap;
 }
 .auth-table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid var(--ui-border-muted);
+  padding: 0.625rem 0.75rem;
+  border-top: 1px solid var(--ui-border);
 }
 </style>

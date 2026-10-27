@@ -1,6 +1,7 @@
 import type { ViteHubConsoleAuthSection } from "@vite-hub/internal/console";
 
 export type * from "./console-types.ts";
+export { authConsoleEventGroups } from "./console-types.ts";
 
 /** The owner descriptor. The host supplies the navigation and renders the Auth views. */
 export const authConsoleSection: ViteHubConsoleAuthSection = {

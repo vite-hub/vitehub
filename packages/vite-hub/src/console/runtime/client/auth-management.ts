@@ -1,5 +1,8 @@
 import type {
   AuthConsoleDescription,
+  AuthConsoleOverview,
+  AuthConsoleActivity,
+  AuthConsoleActivityQuery,
   AuthConsoleList,
   AuthConsoleUser,
   AuthConsoleUserDetail,
@@ -10,10 +13,14 @@ import type {
   AuthConsoleMutation,
   AuthConsoleQuery,
 } from "@vite-hub/auth/console";
+
+import { consoleDateTime } from "./time";
 import { ConsoleRequestError } from "./request";
 
 type AuthResults = {
   describe: AuthConsoleDescription;
+  overview: AuthConsoleOverview;
+  activity: AuthConsoleActivity;
   users: AuthConsoleList<AuthConsoleUser>;
   user: AuthConsoleUserDetail;
   sessions: AuthConsoleList<AuthConsoleSession>;
@@ -41,7 +48,7 @@ async function request(base: string, body: unknown, signal?: AbortSignal): Promi
 export async function readAuthConsole<K extends keyof AuthResults>(
   base: string,
   operation: K,
-  input: { query?: AuthConsoleQuery; id?: string } = {},
+  input: { query?: AuthConsoleQuery; activity?: AuthConsoleActivityQuery; id?: string } = {},
   signal?: AbortSignal,
 ): Promise<AuthResults[K]> {
   // The owner and the synthetic fixture share this response contract. Only the selected operation determines its type.
@@ -52,9 +59,7 @@ export async function changeAuthConsole(base: string, input: AuthConsoleMutation
 }
 export const authDate = (value: string | null) =>
   value
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-        new Date(value),
-      )
+    ? consoleDateTime(value)
     : "Unknown";
 export const authFieldValue = (value: unknown) =>
   value === null || value === undefined

@@ -75,10 +75,12 @@ describe("Auth Console with real Better Auth plugins", () => {
     ])
       expect(serialized).not.toContain(String(forbidden));
     expect((await data(api.describe(operator.request))).pages).toEqual([
+      "overview",
       "users",
       "sessions",
       "organizations",
       "agents",
+      "activity",
     ]);
   });
 
