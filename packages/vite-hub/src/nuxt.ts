@@ -87,7 +87,9 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
   const root = resolve(nuxt.options.rootDir || process.cwd())
   nuxt.hook?.("listen", (_server, listener) => {
     try {
-      writeViteHubDevServerFile(root, { root, url: listener.url })
+      const url = new URL(listener.url)
+      url.pathname = nuxt.options.app?.baseURL || "/"
+      writeViteHubDevServerFile(root, { root, url: url.href })
     }
     catch {
       // A read-only root only means commands must pass --url.

@@ -121,10 +121,13 @@ describe("generated operation commands", () => {
     expect(refused.stderr).toContain("CLI_R0004")
     expect(refused.stderr).toContain("Fix: Run it again with --yes")
     expect(refused.fetch).not.toHaveBeenCalled()
-    expect((await run(["reports", "delete", "r1", "--yes"])).code).toBe(0)
+    const confirmed = await run(["reports", "delete", "r1", "--yes"])
+    expect(confirmed.code).toBe(0)
+    expect(new Headers(confirmed.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("confirmed")
     // The operation says which calls only read.
     const dryRun = await run(["reports", "delete", "r1", "--dry-run"])
     expect(dryRun.code).toBe(0)
+    expect(new Headers(dryRun.fetch.mock.calls[0]![1]!.headers).get("x-vitehub-confirmation")).toBe("required")
     expect(JSON.parse(String(dryRun.fetch.mock.calls[0]![1]!.body)).input).toEqual({ dryRun: true, id: "r1" })
   })
 

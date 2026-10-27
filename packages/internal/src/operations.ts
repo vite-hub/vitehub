@@ -27,6 +27,8 @@ export function projectRootHash(root: string): string {
 }
 /** Header that names the tool behind a call. `cli` marks `vitehub` commands. */
 export const operationSurfaceHeader = "x-vitehub-surface"
+/** Generated CLI commands ask the server to check confirmation after it parses the input. */
+export const operationConfirmationHeader = "x-vitehub-confirmation"
 
 /** `read` never changes state. `write` changes state. `destructive` deletes or publishes. */
 export type OperationKind = "read" | "write" | "destructive"
@@ -446,12 +448,23 @@ export async function runOperation(registry: OperationRegistry, name: string, in
     const operation = registry.get(name)
     if (!operation) throw Object.assign(internalErrorDiagnostics.INTERNAL_R0021({ message: `No operation is named ${JSON.stringify(name)}.` }), { status: 404 })
     const parsed = await parseOperationInput(operation, input)
+    return await runParsedOperation(operation, parsed, context, options)
+  }
+  catch (error) {
+    return { ok: false, ...failure(error) }
+  }
+}
+
+/** Run input already validated by parseOperationInput, so approval and execution can share one normalization. */
+export async function runParsedOperation(operation: AnyOperation, parsed: unknown, context: OperationContext, options: RunOperationOptions = {}): Promise<OperationResult> {
+  const failure = options.failure ?? toOperationFailure
+  try {
     const section = operationSection(operation, parsed)
     if (!operationAccessAllows(context.access, section)) {
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${name} needs.` }), { status: 403 })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${operation.name} needs.` }), { status: 403 })
     }
     if (!operationAccessAllows(context.access, section, operationCall(operation, parsed))) {
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${operation.name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
     }
     // SAFETY: The schema of the operation produced `parsed`.
     return { ok: true, value: await (operation.run as (value: unknown, context: OperationContext) => unknown)(parsed, context) }
@@ -476,6 +489,8 @@ export interface OperationTarget {
   fetch?: typeof fetch
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
+  /** Generated commands set this after --yes or a prompt. False requires confirmation if the server parses a destructive call. */
+  confirmed?: boolean
   /**
    * Project roots that the caller accepts. The server checks their hashes before dispatch and rejects a mismatch
    * with `INTERNAL_R0025`. The response identity is also checked.
@@ -512,12 +527,20 @@ export function assertOperationProject(request: Request, root: string | undefine
   throw Object.assign(internalErrorDiagnostics.INTERNAL_R0025({ message: "The server runs another project than the command expects." }), { status: 409 })
 }
 
+/** Check a generated CLI command against the same classification that the server will execute. */
+export function assertOperationConfirmation(request: Request, call: OperationCallKind): void {
+  if (request.headers.get(operationSurfaceHeader) !== "cli" || request.headers.get(operationConfirmationHeader) !== "required") return
+  if (call.kind !== "destructive" || call.readOnly) return
+  throw Object.assign(internalErrorDiagnostics.INTERNAL_R0026(), { status: 409 })
+}
+
 /** Call one operation over the RPC of a dev server or a deployed app. Never throws. */
 export async function callOperation(target: OperationTarget, name: string, input: unknown): Promise<OperationResult> {
   const base = new URL(target.url)
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
   const url = new URL(operationRpcPath.slice(1), base)
   const headers = operationHeaders(target.env)
+  if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
   if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
   let response: Response
   try {
