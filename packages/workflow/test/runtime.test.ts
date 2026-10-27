@@ -1150,6 +1150,93 @@ describe("workflow runtime", () => {
     })
   })
 
+  it("uses one resolved storage snapshot for the OpenWorkflow cache and backend", async () => {
+    const firstStorage = { namespaceId: "first", runMigrations: false, schema: "first_schema", url: "postgres://localhost/first" }
+    const nextStorage = { namespaceId: "next", runMigrations: true, schema: "next_schema", url: "postgres://localhost/next" }
+    let storage = firstStorage
+    const config = {
+      get postgres() {
+        const current = storage
+        storage = nextStorage
+        return current
+      },
+      provider: "openworkflow",
+    } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+
+    const first = await getOpenWorkflowRuntime(config)
+    expect(openWorkflowMock.connect).toHaveBeenCalledExactlyOnceWith(firstStorage.url, {
+      namespaceId: "first",
+      runMigrations: false,
+      schema: "first_schema",
+    })
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: firstStorage })).resolves.toBe(first)
+
+    const next = await getOpenWorkflowRuntime(config)
+    expect(next).not.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+    expect(openWorkflowMock.connect).toHaveBeenLastCalledWith(nextStorage.url, {
+      namespaceId: "next",
+      runMigrations: true,
+      schema: "next_schema",
+    })
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow", postgres: nextStorage })).resolves.toBe(next)
+  })
+
+  it("resolves the current OpenWorkflow environment on each acquisition", async () => {
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
+    const first = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/next"
+    const next = await getOpenWorkflowRuntime({ provider: "openworkflow" })
+    expect(next).not.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenNthCalledWith(1, "postgres://localhost/first", {
+      namespaceId: "production", schema: "openworkflow",
+    })
+    expect(openWorkflowMock.connect).toHaveBeenNthCalledWith(2, "postgres://localhost/next", {
+      namespaceId: "production", schema: "openworkflow",
+    })
+    process.env.OPENWORKFLOW_POSTGRES_URL = "postgres://localhost/first"
+    await expect(getOpenWorkflowRuntime({ provider: "openworkflow" })).resolves.toBe(first)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+  })
+
+  it("validates OpenWorkflow configuration even when its runtime is cached", async () => {
+    const sqlite: { path?: string } = {}
+    const config = {
+      postgres: { url: "postgres://localhost/cached" },
+      provider: "openworkflow",
+      sqlite,
+    } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const runtime = await getOpenWorkflowRuntime(config)
+    config.sqlite.path = ":memory:"
+    await expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ code: "WORKFLOW_R0030" })
+    config.sqlite.path = undefined
+    await expect(getOpenWorkflowRuntime(config)).resolves.toBe(runtime)
+    expect(openWorkflowMock.connect).toHaveBeenCalledOnce()
+    expect(openWorkflowMock.sqliteConnect).not.toHaveBeenCalled()
+  })
+
+  it("keeps a new OpenWorkflow acquisition when an acquisition from before reset rejects", async () => {
+    let rejectBackend: ((reason: Error) => void) | undefined
+    openWorkflowMock.connect.mockImplementationOnce(() => new Promise((_resolve, reject) => {
+      rejectBackend = reject
+    }))
+    const config = { provider: "openworkflow", postgres: { url: "postgres://localhost/reset-rejection" } } satisfies Parameters<typeof getOpenWorkflowRuntime>[0]
+    const failure = new Error("database unavailable")
+    const rejected = expect(getOpenWorkflowRuntime(config)).rejects.toMatchObject({ cause: failure })
+    await vi.waitFor(() => expect(openWorkflowMock.connect).toHaveBeenCalledOnce())
+    const resetting = resetOpenWorkflowRuntime()
+    setOpenWorkflowMockImporter()
+    const next = await getOpenWorkflowRuntime(config)
+    rejectBackend?.(failure)
+    await rejected
+    await expect(resetting).resolves.toBeUndefined()
+    await expect(getOpenWorkflowRuntime(config)).resolves.toBe(next)
+    expect(openWorkflowMock.connect).toHaveBeenCalledTimes(2)
+    expect(next.backend.stop).not.toHaveBeenCalled()
+    await resetOpenWorkflowRuntime()
+    expect(next.backend.stop).toHaveBeenCalledOnce()
+  })
+
   it("evicts a rejected OpenWorkflow acquisition", async () => {
     const failure = new Error("database unavailable")
     const config = {

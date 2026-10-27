@@ -1,5 +1,10 @@
 # @vite-hub/sandbox-task
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fsandbox-task&icon=npm)](https://www.npmjs.com/package/@vite-hub/sandbox-task)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fsandbox-task&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/sandbox-task)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 A Sandbox Task is one job that runs inside one Sandbox. `@vite-hub/sandbox-task` runs a discovered Sandbox Task Definition inside a provider-backed Sandbox. Sandbox Task owns discovery, package staging, typed invocation, timeouts, and result transport. [`@vite-hub/sandbox`](../sandbox/README.md) owns the Sandbox: the execution environment and its isolation.
 
 Most applications should install [`vite-hub`](https://vitehub.dev/docs/getting-started/installation) and import APIs such as `runSandboxTask` from `vite-hub/sandbox-task`. Install `@vite-hub/sandbox-task` directly when you are building a library, a custom Vite composition, or package-level tooling.

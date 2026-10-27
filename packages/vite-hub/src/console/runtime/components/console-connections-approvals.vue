@@ -5,6 +5,7 @@ import {
   loadConnectionApprovals,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const emit = defineEmits<{ changed: [] }>();
@@ -104,7 +105,7 @@ onMounted(load);
         <p class="break-all font-mono text-highlighted">{{ approval.action }}</p>
         <p class="break-all text-muted">{{ approval.actor }}</p>
         <time :datetime="approval.createdAt" class="block text-muted tabular-nums">{{
-          new Date(approval.createdAt).toLocaleString()
+          consoleDateTime(approval.createdAt)
         }}</time>
         <div class="flex gap-2">
           <UButton
@@ -153,7 +154,7 @@ onMounted(load);
           <time
             :datetime="approval.decidedAt ?? approval.createdAt"
             class="block text-muted tabular-nums"
-            >{{ new Date(approval.decidedAt ?? approval.createdAt).toLocaleString() }}</time
+            >{{ consoleDateTime(approval.decidedAt ?? approval.createdAt) }}</time
           >
           <p v-if="approval.error" class="break-all font-mono text-error">{{ approval.error }}</p>
         </li>

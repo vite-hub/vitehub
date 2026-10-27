@@ -1,4 +1,4 @@
-import { H3Event } from "h3"
+import { H3Event, normalizeRoute } from "h3"
 import { createApp, createRouter, eventHandler, toWebHandler } from "h3-v1"
 import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
@@ -74,5 +74,36 @@ describe("Console canonical authorization paths", () => {
   it.each(["%2F", "%25", "%3F"])("keeps reserved escape %s encoded", (escape) => {
     const request = new Request(`https://app.example.com/_vitehub${escape}rpc`)
     expect(consoleEventPath(request, request)).toBe(new H3Event(request).url.pathname)
+  })
+
+  it.each([
+    "/_vitehub",
+    "/_%76itehub/rpc/__call",
+    "/_%56ITEHUB",
+    "/_vitehub/%7E%2d%5F%2E%41%7a",
+    "/_vitehub/%2e%2e/%2E/admin",
+    "/a/.%2E/_vitehub",
+    "/_vitehub/x%2e%2e/y",
+    "/_vitehub/%C3%A9%20%22%3C",
+    "/_vitehub//rpc/",
+    "/_vitehub/%252F/%2f/%5C",
+  ])("matches H3 2's route for the bare Request path %s", (path) => {
+    const request = new Request(`https://app.example.com${path}`)
+    expect(consoleEventPath(request, request)).toBe(normalizeRoute(new URL(request.url).pathname))
+  })
+
+  it("loads on h3 1, because Nuxt 4 bundles every h3 import as its own h3 1", async () => {
+    vi.resetModules()
+    vi.doMock("h3", () => import("h3-v1"))
+    try {
+      const { consoleEventPath: readPath } = await import("../src/console/auth-path.ts")
+      const request = new Request("https://app.example.com/_%76itehub/rpc/__call")
+
+      expect(readPath(request, request)).toBe("/_vitehub/rpc/__call")
+    }
+    finally {
+      vi.doUnmock("h3")
+      vi.resetModules()
+    }
   })
 })
