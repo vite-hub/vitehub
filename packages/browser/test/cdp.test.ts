@@ -30,6 +30,29 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it.each(["complete", "reject", "pending"])("cancels a failed Cloudflare upgrade body when cancellation is %s", async (behavior) => {
+    const cancel = vi.fn(() => {
+      if (behavior === "reject") return Promise.reject(new Error("cleanup failed"))
+      if (behavior === "pending") return new Promise<void>(() => {})
+    })
+    const response = new Response(new ReadableStream({ cancel }), { status: 503 })
+    const connecting = cdp().attach({
+      binding: { fetch: async () => response },
+      kind: "cloudflare-binding",
+      sessionId: "provider-session",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      sessionId: "public-id",
+    })
+
+    await expect(Promise.race([connecting, setImmediate().then(() => "pending")])).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { status: 503 },
+    })
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(response.bodyUsed).toBe(true)
+  })
+
   it.each([
     ["closing", 2],
     ["closed", 3],

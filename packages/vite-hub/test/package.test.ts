@@ -214,6 +214,18 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 }
 
 describe("framework package contract", () => {
+  it("imports from h3 only what h3 1 exports, because Nuxt 4 bundles h3 as its own h3 1", async () => {
+    const h3V1Exports = new Set(Object.keys(await import("h3-v1")));
+    const missing = globSync("dist/**/*.js", { cwd: packageRoot }).flatMap((file) => {
+      const source = readFileSync(`${packageRoot}/${file}`, "utf8");
+      return [...source.matchAll(/^import \{([^}]*)\} from "h3";/gm)]
+        .flatMap(([, names]) => names!.split(",").map(name => name.trim().split(/\s+as\s+/)[0]!))
+        .filter(name => name && !h3V1Exports.has(name))
+        .map(name => `${file}: ${name}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   it("keeps the root export intentionally small", () => {
     expect(Object.keys(framework)).toEqual(["vitehub"]);
   });

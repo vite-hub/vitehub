@@ -194,7 +194,6 @@ async function waitForExecOutput(
   error: unknown,
   timeout: number | undefined,
   execution: ExecutionMeta | undefined,
-  shouldAccept: (output: string) => boolean,
   signal?: AbortSignal,
 ) {
   const recoveryTimeout = resolveExecOutputRecoveryTimeout(timeout)
@@ -207,7 +206,7 @@ async function waitForExecOutput(
     try {
       const output = await sandbox.readFile(outputPath, { signal })
       lastOutput = output
-      if (shouldAccept(output))
+      if (isCompleteSandboxTaskOutput(output))
         return output
     }
     catch (readError) {
@@ -245,7 +244,6 @@ async function recoverExecOutput(
     error,
     timeout,
     execution,
-    output => isCompleteSandboxTaskOutput(output),
     signal,
   )
 }
@@ -270,7 +268,6 @@ async function waitForCloudflareOutput(
     error,
     timeout,
     execution,
-    output => isCompleteSandboxTaskOutput(output),
     signal,
   )
 }
@@ -290,8 +287,6 @@ export async function readExecOutputWithRecovery(
 
   try {
     const output = await sandbox.readFile(outputPath, { signal })
-    if (tryParseSandboxTaskOutput(output))
-      return output
     // A complete output file belongs to this execution. Preserve malformed
     // envelopes so the caller can report the invalid contract instead of
     // replacing the useful diagnostic with recovery failure.
