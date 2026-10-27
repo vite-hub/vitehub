@@ -201,6 +201,20 @@ describe("GitHub history commit", () => {
     expect(next.cursor).toBeUndefined()
   })
 
+  it("continues after the last revision when the page limit changes", async () => {
+    const ids = Array.from({ length: 25 }, (_, index) => fake.commit("main", { "posts/a.md": String(index) })).reverse()
+    const first = await history().list({ ref: "main", limit: 20 })
+    const next = await history().list({ ref: "main", cursor: first.cursor, limit: 5 })
+    expect(next.revisions.map(revision => revision.id)).toEqual(ids.slice(20))
+  })
+
+  it("opens an older draft on a fresh store with its draft alias", async () => {
+    fake.commit("main", { "posts/a.md": "published" })
+    const old = await history({ refs: aliases }).commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    await history({ refs: aliases }).commit({ ref: "draft", ifHead: old.id, changes: { put: { "posts/b.md": file("posts/b.md", "next") } } })
+    expect((await history({ refs: aliases }).open(old.id)).revision.ref).toBe("draft")
+  })
+
   it("keeps a branch head for a short time", async () => {
     vi.useFakeTimers({ toFake: ["Date"] })
     const parent = fake.commit("main", { "posts/a.md": "a" })

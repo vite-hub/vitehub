@@ -224,6 +224,27 @@ describe("Content on the GitHub store", () => {
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
     })
 
+    it("acknowledges published drafts across later main edits and partial publishes", async () => {
+      const { posts, content } = await setup()
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      await posts.save("b", { data: { title: "B draft" }, body: "" })
+      await content.publish({ collection: "posts", ids: ["a"] })
+      onMain({ "content/posts/a.md": page("A main") })
+      fake.commit("vitehub/content", { "README.md": "Other edit" })
+      vi.advanceTimersByTime(6_000)
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "b", change: "add" }])
+      expect((await posts.get("a"))?.data.title).toBe("A main")
+      onMain({ "content/posts/b.md": page("B main") })
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "c", change: "add" }])
+      // A fresh edit after publication remains protected from concurrent main edits.
+      const reviewed = (await posts.raw("a", { ref: "published" }))!
+      await posts.save("a", { data: { title: "A again" }, body: "" }, { ifPublishedDigest: reviewed.digest })
+      onMain({ "content/posts/a.md": page("A newer main") })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    })
+
     it.each(["git", "workspace"])("keeps publish protection after a %s commit without Content metadata", async (writer) => {
       const { posts, content, workspace } = await setup()
       await posts.save("b", { data: { title: "B" }, body: "" })
