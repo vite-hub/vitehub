@@ -111,7 +111,7 @@ const inspectionSchema = v.object({
   chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
   actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
-  credential: v.picklist(["api-key", "oauth2"]),
+  credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
   keySource: v.optional(v.picklist(["fallback", "stored"])),
   name: v.string(),
   provider: v.string(),

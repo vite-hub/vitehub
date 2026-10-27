@@ -18,6 +18,7 @@ export async function createChatGPTFake(now: () => number = Date.now) {
   const jwk = { ...await exportJWK(keys.publicKey), kid: "local-siwc-test", alg: "RS256", use: "sig" }
   const authorizations = new Map<string, Authorization>()
   const refreshTokens = new Set<string>()
+  const accessTokens = new Set<string>()
   const usedRefreshTokens = new Set<string>()
   const calls: Array<{ path: string, method: string, parameters: URLSearchParams }> = []
   const state = {
@@ -31,13 +32,19 @@ export async function createChatGPTFake(now: () => number = Date.now) {
     omit: [] as string[],
     signWithWrongKey: false,
     responseError: undefined as { code: string, status: number } | undefined,
+    streamError: undefined as string | undefined,
     requests: [] as Record<string, unknown>[],
+    originators: [] as string[],
+    onResponse: undefined as ((request: Record<string, unknown>) => Record<string, unknown> | undefined) | undefined,
+    stallResponses: false,
     revoked: 0,
     registrations: 0,
     refreshes: 0,
   }
 
   async function token(authorization: Pick<Authorization, "clientId" | "nonce">) {
+    const accessToken = `test-access-${randomUUID()}`
+    accessTokens.add(accessToken)
     const refreshToken = `test-refresh-${randomUUID()}`
     refreshTokens.add(refreshToken)
     const signingKey = state.signWithWrongKey ? (await generateKeyPair("RS256")).privateKey : keys.privateKey
@@ -53,7 +60,7 @@ export async function createChatGPTFake(now: () => number = Date.now) {
       .setExpirationTime(typeof state.idClaims.exp === "number" ? state.idClaims.exp : Math.floor(now() / 1000) + 3600)
       .sign(signingKey)
     return Object.fromEntries(Object.entries({
-      access_token: `test-access-${randomUUID()}`,
+      access_token: accessToken,
       refresh_token: refreshToken,
       id_token: idToken,
       token_type: "Bearer",
@@ -120,6 +127,9 @@ export async function createChatGPTFake(now: () => number = Date.now) {
         reply.writeHead(200)
         return reply.end()
       }
+      if (url.pathname.startsWith("/v1/") && !accessTokens.has(request.headers.authorization?.replace(/^Bearer /, "") ?? "")) {
+        return json({ error: { code: "fake_missing_oauth_token", message: "The fake requires its issued access token." } }, 401)
+      }
       if (url.pathname === "/v1/models") return json({ models: [
         { slug: "gpt-6.1-sol", display_name: "GPT-6.1", visibility: "list" },
         { slug: "hidden", display_name: "Hidden", visibility: "hidden" },
@@ -127,17 +137,28 @@ export async function createChatGPTFake(now: () => number = Date.now) {
       if (url.pathname === "/v1/responses") {
         const parsed: unknown = JSON.parse(body)
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return json({ error: { code: "invalid_request" } }, 400)
-        state.requests.push(Object.fromEntries(Object.entries(parsed)))
+        const payload = Object.fromEntries(Object.entries(parsed))
+        state.requests.push(payload)
+        state.originators.push(String(request.headers.originator ?? ""))
         if (state.responseError) return json({ error: { code: state.responseError.code, message: "test-secret-do-not-echo", param: "tools" } }, state.responseError.status)
+        if (state.stallResponses) return
+        if (state.streamError) {
+          reply.writeHead(200, { "content-type": "text/event-stream" })
+          reply.write(`event: response.created\ndata: ${JSON.stringify({ type: "response.created", response: { id: "resp_failed", status: "in_progress", output: [] } })}\n\n`)
+          reply.end(`event: response.failed\ndata: ${JSON.stringify({ type: "response.failed", response: { id: "resp_failed", status: "failed", error: { code: state.streamError, message: "test-secret-do-not-echo" } } })}\n\n`)
+          return
+        }
+        const customItem = state.onResponse?.(payload)
         const item = { id: "msg_test", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text: "Hello from the local ChatGPT fake.", annotations: [] }] }
-        const response = { id: "resp_test", object: "response", created_at: Math.floor(now() / 1000), status: "completed", output: [item], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
+        const output = customItem ?? item
+        const response = { id: "resp_test", object: "response", created_at: Math.floor(now() / 1000), status: "completed", output: [output], usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } }
         reply.writeHead(200, { "content-type": "text/event-stream" })
         for (const event of [
           { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-          { type: "response.output_item.added", output_index: 0, item: { ...item, status: "in_progress", content: [] } },
-          { type: "response.content_part.added", item_id: item.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } },
-          { type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: item.content[0]!.text },
-          { type: "response.output_item.done", output_index: 0, item },
+          { type: "response.output_item.added", output_index: 0, item: { ...output, status: "in_progress", ...(customItem ? {} : { content: [] }) } },
+          ...customItem ? [] : [{ type: "response.content_part.added", item_id: item.id, output_index: 0, content_index: 0, part: { type: "output_text", text: "", annotations: [] } },
+          { type: "response.output_text.delta", item_id: item.id, output_index: 0, content_index: 0, delta: item.content[0]!.text }],
+          { type: "response.output_item.done", output_index: 0, item: output },
           { type: "response.completed", response },
         ]) reply.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`)
         return reply.end()

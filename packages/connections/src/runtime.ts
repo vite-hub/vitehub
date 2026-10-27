@@ -924,7 +924,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         expiresAt: state?.status === "connected" && state.chatgpt?.expiresAt ? new Date(state.chatgpt.expiresAt).toISOString() : undefined,
         chatgpt: { clientId: state?.chatgpt?.clientId, hostId: await hostId(), plan: state?.status === "connected" && chatgptScopes.every(scope => granted.includes(scope)) ? "enabled" as const : "disabled" as const },
       } : {}),
-      credential: apiKeyProvider ? "api-key" : "oauth2",
+      credential: apiKeyProvider ? "api-key" : isChatGPTProvider(provider) ? "chatgpt" : "oauth2",
       ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       ...(keySource ? { keySource } : {}),
       name,

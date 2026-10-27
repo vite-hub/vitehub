@@ -451,8 +451,8 @@ export interface ConnectionInspection {
   }
   actions: ConnectionActionInfo[]
   connectedAt?: string
-  /** `oauth2` Connections connect through the provider. `api-key` Connections store a key that an admin sets. */
-  credential: "api-key" | "oauth2"
+  /** ChatGPT uses loopback OAuth; ordinary OAuth providers also support website callbacks. */
+  credential: "api-key" | "oauth2" | "chatgpt"
   /** The provider's MCP endpoint, when it declares one. */
   mcp?: string
   /** Where the key of a connected API key Connection comes from: a key that an admin set, or the provider `fallback`. */
