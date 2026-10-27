@@ -6049,6 +6049,8 @@ interface InterruptedChatRecord {
   runId: string
   startedAt: string
   threadId: string
+  /** Message.toJSON omits the resolved transcript identity. Null preserves an explicit opt-out. */
+  transcriptUserKey?: string | null
 }
 
 export interface DrainInlineChatInvocationsOptions {
@@ -6173,6 +6175,7 @@ function registerInlineChatInvocation(options: {
         runId,
         startedAt: new Date().toISOString(),
         threadId: message.threadId,
+        transcriptUserKey: message.userKey ?? null,
       }
     }).catch(logError)
   }
@@ -6218,6 +6221,7 @@ async function interruptedChatFallbackText(
 
 async function resumeInterruptedChatInvocation(options: {
   adapter: Adapter
+  adapterName: string
   agent: AgentInput<ViteAgentRouteRuntimeContext>
   agentName: string
   chat: Chat
@@ -6225,7 +6229,7 @@ async function resumeInterruptedChatInvocation(options: {
   record: InterruptedChatRecord
   waitUntil: ViteAgentRouteRuntimeContext["waitUntil"]
 }): Promise<boolean> {
-  const { adapter, agent, agentName, chat, chatOptions, record, waitUntil } = options
+  const { adapter, adapterName, agent, agentName, chat, chatOptions, record, waitUntil } = options
   if (!isRecord(record) || !isRuntimeString(record.threadId) || !isRecord(record.message) || !isRuntimeString(record.message.id)) return false
   // SAFETY: Agent Definitions expose the invocation journal; only its optional summary reader is used.
   const invocations = isRecord(agent) && isRecord(agent.invocations) ? agent.invocations as { getSummary?: (id: string) => unknown } : undefined
@@ -6239,10 +6243,22 @@ async function resumeInterruptedChatInvocation(options: {
   const exhausted = Boolean(record.recoveryToken) || interruptedChatRetryAttempt(record.message.id) >= 1
   const notice = await interruptedChatFallbackText(chatOptions, thread, message, exhausted ? "exhausted" : "pending")
   if (notice) {
+    const recorder = transcriptRecorders.get(chat)
+    let userKey = record.transcriptUserKey
+    if (recorder && userKey === undefined) {
+      // Records from older hosts did not retain the identity resolved during inbound dispatch.
+      try {
+        userKey = chatOptions?.identity
+          ? await chatOptions.identity({ adapter: adapter.name, author: message.author, message })
+          : message.author.isBot ? null : `${adapterName}:${message.author.userId}`
+      }
+      catch { userKey = null }
+    }
     const edited = isRuntimeString(record.placeholderId)
       ? await Promise.resolve(adapter.editMessage(record.threadId, record.placeholderId, notice)).then(() => true, () => false)
       : false
-    if (!edited) await thread.post(notice)
+    const messageId = edited ? record.placeholderId : (await thread.post(notice)).id
+    await recorder?.outbound(adapter, record.threadId, messageId, notice, userKey ?? null)
   }
   if (exhausted) return true
   const retry = Message.fromJSON({
@@ -6307,7 +6323,7 @@ async function resumeInterruptedChatInvocations(
         claimed = true
       })
       if (!claimed) return
-      const accepted = await resumeInterruptedChatInvocation({ adapter, agent, agentName, chat, chatOptions, record, waitUntil: context.waitUntil })
+      const accepted = await resumeInterruptedChatInvocation({ adapter, adapterName, agent, agentName, chat, chatOptions, record, waitUntil: context.waitUntil })
         .catch(error => console.error("[vitehub] Interrupted chat invocation could not be resumed.", error))
       await updateInterruptedChatIndex(state.state, state.titleKeyPrefix, (current) => {
         // The retry's admission or another startup may already own this record.
@@ -7585,7 +7601,7 @@ interface TranscriptRecorder {
   inbound(thread: Thread, message: ChatSdkMessage, context?: MessageContext): Promise<void>
   /** The person a reply in a thread answers: the author of the last message that the Channel saw there. */
   keys: Map<string, string>
-  outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string): Promise<void>
+  outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string, userKey?: string | null): Promise<void>
 }
 
 function channelTranscriptParticipantsKey(prefix: string, threadId: string): string {
@@ -7613,13 +7629,15 @@ function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): Trans
       }
     },
     keys: new Map(),
-    async outbound(adapter, threadId, id, text) {
+    async outbound(adapter, threadId, id, text, userKey = recorder.keys.get(threadId)) {
       const history = recorder.chat?.history.user
-      const userKey = recorder.keys.get(threadId)
       if (!history || !userKey || !text) return
       try {
         // SAFETY: The transcript store reads the adapter name and the id of the thread, which this stand-in has.
         await history.append({ adapter, id: threadId } as unknown as Thread, { ...(id ? { platformMessageId: id } : {}), role: "assistant", text }, { userKey })
+        const index = channelTranscriptParticipantsKey(keyPrefix, threadId)
+        const participants = await state.getList<string>(index)
+        if (!participants.includes(userKey)) await state.appendToList(index, userKey)
       }
       catch {}
     },

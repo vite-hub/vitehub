@@ -9,6 +9,7 @@ import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
 import { defineChatCapability } from "../src/chat-trigger.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelConversationArchive } from "../src/internal/channel-conversation.ts"
+import { interruptedChatRetrySuffix } from "../src/internal/chat-reply.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { agentChannelOperations } from "../src/operations.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
@@ -116,6 +117,7 @@ interface Fixture {
   /** The route handler that the generated webhook route calls, asked for the signed history. */
   history: (threadId: string) => Promise<Response>
   state: StateAdapter
+  recover: (placeholder?: "edit" | "failed-edit", legacy?: boolean) => Promise<void>
   say: (id: number, text: string, extra?: Partial<TelegramMessage>, chat?: number) => Promise<void>
 }
 
@@ -182,6 +184,27 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   })
   return {
     adapter,
+    async recover(placeholder, legacy = false) {
+      const message = adapter.messages.find(message => !message.author.isBot)!
+      const key = `chat:support:${channel}:vitehub:interrupted-chat`
+      await state!.set(key, {
+        interrupted: {
+          agentName: "support", runId: "interrupted", threadId: message.threadId,
+          message: { ...message.toJSON(), id: `${message.id}${interruptedChatRetrySuffix}` },
+          startedAt: new Date(Date.now() - 1_000).toISOString(),
+          ...(legacy ? {} : { transcriptUserKey: message.userKey ?? null }),
+          ...(placeholder ? { placeholderId: "restart-placeholder" } : {}),
+        },
+      })
+      if (placeholder === "failed-edit") adapter.editMessage.mockRejectedValueOnce(new Error("placeholder deleted"))
+      const stop = handler.resume({ ...routeOptions, webhookState: state, recoverInterruptedBefore: Date.now() })
+      try {
+        await vi.waitFor(async () => expect(await state!.get(key)).toBeNull(), { timeout: 5_000 })
+      }
+      finally {
+        await stop()
+      }
+    },
     history: threadId => {
       if (options.journalFails) invocations.list = async () => { throw new Error("journal down") }
       return handler(new Request(webhookUrl, {
@@ -316,6 +339,36 @@ describe("Channel conversation operations", () => {
     expect(read.messages[4].author).toMatchObject({ name: "Maxi" })
     const times = read.messages.map(message => message.at)
     expect([...times].sort()).toEqual(times)
+  })
+
+  it.each([undefined, "edit", "failed-edit"] as const)("retains restart notices after provider history expires (%s)", async (delivery) => {
+    const chat = await fixture({ cache: false, window: 0, identity: ({ author }) => `account:${author.userId}` })
+    await chat.say(1, "hello")
+    await chat.recover(delivery)
+    const result = await conversation()
+    expect(result.messages.filter(message => message.text.includes("The server restarted twice"))).toHaveLength(1)
+    expect(result.messages.filter(message => message.text === "hello")).toHaveLength(1)
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
+    expect(exported.text).toContain("The server restarted twice")
+  })
+
+  it("recovers transcript identity for restart records from before identity was persisted", async () => {
+    const chat = await fixture({ cache: false, window: 0, identity: ({ author }) => `account:${author.userId}` })
+    await chat.say(1, "hello")
+    await chat.recover(undefined, true)
+    expect((await conversation()).messages.some(message => message.text.includes("The server restarted twice"))).toBe(true)
+  })
+
+  it.each(["account:456", null])("preserves the saved identity when the resolver changes (%s)", async (originalKey) => {
+    let identity = originalKey
+    const chat = await fixture({ cache: false, window: 0, identity: () => identity })
+    await chat.say(1, "hello")
+    identity = "account:other"
+    await chat.recover()
+    expect(await chat.state.getList("chat:support:transcripts:user:account:other")).toEqual([])
+    const retained = (await conversation()).messages.some(message => message.text.includes("The server restarted twice"))
+    expect(retained).toBe(originalKey !== null)
+    expect(chat.adapter.postMessage.mock.calls.some(([, text]) => String(text).includes("The server restarted twice"))).toBe(true)
   })
 
   it("keeps no transcripts when the Channel turns them off, or when the State is not durable", async () => {

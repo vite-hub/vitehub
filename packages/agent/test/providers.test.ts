@@ -14223,6 +14223,8 @@ describe("server helpers", () => {
       }
       await expect(drain).resolves.toEqual({ active: 1, interrupted: 1, unsettled: 0 })
       await Promise.allSettled(waitUntilTasks)
+      const interrupted = await state.get<Record<string, { transcriptUserKey?: string | null }>>("chat:support:telegram:vitehub:interrupted-chat")
+      expect(Object.values(interrupted ?? {}).map(record => record.transcriptUserKey)).toEqual(["telegram:123"])
       const restartNotice = scenario === "citation notice" ? "Restarted. [source link unavailable]" : "The server restarted while I was working on this. I'll retry it automatically."
       expect([...firstAdapter.postMessage.mock.calls, ...firstAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
 
