@@ -45,6 +45,7 @@
     "oxlint": "catalog:tooling",
     "oxlint-tsgolint": "catalog:tooling",
     "typescript": "catalog:tooling",
+    "typescript-native": "npm:typescript@7.0.2",
     "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",
