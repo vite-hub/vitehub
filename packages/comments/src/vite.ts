@@ -511,6 +511,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           const modules = Array.isArray(kit.config.modules) ? [...kit.config.modules] : []
           // Nitro resolves the preset and its Node support after Vite config hooks. Runtime variables may name files.
           modules.push(async (nitro: { options: { node: boolean } }) => {
+            parseDatabaseLocation(standalone.where, "comments", { node: nitro.options.node })
             await writeFile(plugin, renderCommentsPlugin({ ...pluginInput, standalone: { ...standalone, node: nitro.options.node } }))
           })
           kit.config.modules = modules

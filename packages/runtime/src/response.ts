@@ -226,6 +226,8 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+  // deserializeResponse validates the record before reaching this permissive decoder.
+  if (typeof Buffer !== "undefined") return Buffer.from(value, "base64")
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)

@@ -3,6 +3,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
 
+import { createClient } from "@libsql/client"
+import { createClient as createHttpClient } from "@libsql/client/http"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { eq } from "drizzle-orm"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
@@ -12,6 +14,8 @@ import { authTokenVariable, connectDatabase as connectWorker, parseDatabaseLocat
 import { connectDatabase } from "../src/connect/node.ts"
 
 import type { SQLInputValue } from "node:sqlite"
+
+vi.mock("@libsql/client/http", () => ({ createClient: vi.fn() }))
 
 const notes = sqliteTable("notes", { id: integer("id").primaryKey(), body: text("body").notNull() })
 const setup = ["CREATE TABLE IF NOT EXISTS notes (id integer PRIMARY KEY, body text NOT NULL)"]
@@ -97,6 +101,32 @@ describe("database locations", () => {
 })
 
 describe("connectDatabase", () => {
+  it.each(["D1", "libSQL", "Node"])("returns undefined for missing single rows on %s", async (driver) => {
+    const d1 = fakeD1()
+    // Use libSQL's real result shapes without requiring a remote database.
+    const client = createClient({ url: ":memory:" })
+    vi.mocked(createHttpClient).mockReturnValue(client)
+    const options = { setup, schema: { notes } }
+    const db = driver === "Node" ? connectDatabase(":memory:", options) : connectWorker(driver === "D1" ? "d1:NOTES" : "https://db.test", options)
+    try {
+      await runWithActiveCloudflareEnv({ NOTES: d1.binding }, async () => {
+        await db.insert(notes).values({ id: 1, body: "one" })
+        expect(await db.select().from(notes).where(eq(notes.id, 2)).get()).toBeUndefined()
+        expect(await db.query.notes.findFirst({ where: eq(notes.id, 2) })).toBeUndefined()
+        expect(await db.select().from(notes).where(eq(notes.id, 2)).all()).toEqual([])
+        expect(await db.select().from(notes).where(eq(notes.id, 1)).get()).toEqual({ id: 1, body: "one" })
+        expect(await db.query.notes.findFirst({ where: eq(notes.id, 1) })).toEqual({ id: 1, body: "one" })
+        expect(await db.batch([
+          db.query.notes.findFirst({ where: eq(notes.id, 2) }),
+          db.query.notes.findFirst({ where: eq(notes.id, 1) }),
+        ])).toEqual([undefined, { id: 1, body: "one" }])
+      })
+    }
+    finally {
+      client.close()
+    }
+  })
+
   it("creates the tables before the first query, once, on a D1 binding", async () => {
     const d1 = fakeD1()
     const db = connectWorker("d1:NOTES", { setup, schema: { notes } })

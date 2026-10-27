@@ -102,6 +102,6 @@ describe("defineComments", () => {
   })
 
   it("names its schema keys with the vitehub prefix, so they never meet an app's own comments table", () => {
-    expect(Object.keys(commentsSchema)).toEqual(["vitehubCommentThreads", "vitehubComments", "vitehubCommentForge"])
+    expect(Object.keys(commentsSchema)).toEqual(["vitehubCommentThreads", "vitehubComments", "vitehubCommentForge", "vitehubCommentScopeCounters"])
   })
 })

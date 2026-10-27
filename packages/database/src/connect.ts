@@ -21,12 +21,12 @@ export interface SqlQuery {
 }
 
 /**
- * Runs SQL for `connectDatabase()`. Rows are arrays of column values; `get` returns one row, or an empty array. A batch
+ * Runs SQL for `connectDatabase()`. Rows are arrays of column values; `get` returns one row, or undefined. A batch
  * is one transaction.
  */
 export interface SqlDriver {
-  query(query: SqlQuery): Promise<unknown[]>
-  batch(queries: SqlQuery[]): Promise<unknown[][]>
+  query(query: SqlQuery): Promise<unknown[] | undefined>
+  batch(queries: SqlQuery[]): Promise<Array<unknown[] | undefined>>
 }
 
 export interface ConnectDatabaseOptions<TSchema extends Record<string, unknown>> {
@@ -145,24 +145,27 @@ function d1Driver(d1: D1Binding): SqlDriver {
         return []
       }
       const rows = await statement.raw()
-      return method === "get" ? rows[0] ?? [] : rows
+      return method === "get" ? rows[0] : rows
     },
     async batch(queries) {
       const results = await d1.batch(queries.map(({ sql, params }) => d1.prepare(sql).bind(...params)))
       // D1 returns batch rows as objects; Drizzle reads arrays of column values, as its D1 driver does.
-      return results.map((result, index) => queries[index]!.method === "run"
-        ? []
-        : (result.results ?? []).map(row => row !== null && typeof row === "object" ? Object.values(row) : []))
+      return results.map((result, index) => {
+        const method = queries[index]!.method
+        if (method === "run") return []
+        const rows = (result.results ?? []).map(row => row !== null && typeof row === "object" ? Object.values(row) : [])
+        return method === "get" ? rows[0] : rows
+      })
     },
   }
 }
 
 function libsqlDriver(url: string, authToken: string | undefined): SqlDriver {
   const client = createClient({ url, ...(authToken ? { authToken } : {}) })
-  const rowsOf = (result: { columns: string[], rows: ArrayLike<unknown>[] }, method: SqlMethod): unknown[] => {
+  const rowsOf = (result: { columns: string[], rows: ArrayLike<unknown>[] }, method: SqlMethod): unknown[] | undefined => {
     if (method === "run") return []
     const rows = result.rows.map(row => Array.from({ length: result.columns.length }, (_, index) => row[index]))
-    return method === "get" ? rows[0] ?? [] : rows
+    return method === "get" ? rows[0] : rows
   }
   // SAFETY: Drizzle binds only SQLite values: text, numbers, blobs, and null.
   const statement = ({ sql, params }: SqlQuery) => ({ sql, args: params as InValue[] })
@@ -223,9 +226,10 @@ export function connectDatabase<TSchema extends Record<string, unknown> = Record
     return driver
   }
 
+  // SAFETY: Drizzle's callback types omit undefined, but its get mapper requires it for a missing row.
   return drizzle<TSchema>(
-    async (sql, params, method) => ({ rows: await (await current()).query({ sql, params, method }) }),
-    async queries => (await (await current()).batch(queries)).map(rows => ({ rows })),
+    async (sql, params, method) => ({ rows: await (await current()).query({ sql, params, method }) as unknown[] }),
+    async queries => (await (await current()).batch(queries)).map(rows => ({ rows: rows as unknown[] })),
     options.schema ? { schema: options.schema } : {},
   )
 }

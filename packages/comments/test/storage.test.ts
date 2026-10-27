@@ -1,6 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { DatabaseSync } from "node:sqlite"
 
 import { connectDatabase } from "@vite-hub/database/connect/node"
 import { eq } from "drizzle-orm"
@@ -51,6 +52,26 @@ describe("comments on a database that it connects itself", () => {
     await comments.remove(second!.id)
     const [, threads] = await comments.list()
     expect(threads!.map(thread => thread.number)).toEqual([1])
+  })
+
+  it("seeds counters for existing files and preserves them after deleting threads and reopening", async () => {
+    const file = tempFile()
+    const comments = open(file)
+    for (let index = 0; index < 3; index += 1) {
+      const [error, thread] = await comments.create({ page: "/", anchor, body: "Hello", author: ada })
+      expect(error).toBeUndefined()
+      expect(thread!.number).toBe(index + 1)
+    }
+    // Simulate a file from before durable scope counters were introduced.
+    const sqlite = new DatabaseSync(file)
+    sqlite.exec("DROP TABLE vitehub_comment_scope_counters")
+    sqlite.close()
+
+    const upgraded = open(file)
+    expect((await upgraded.create({ page: "/", anchor, body: "After upgrade", author: ada }))[1]?.number).toBe(4)
+    await upgraded.removeScope("pages")
+    const restarted = open(file)
+    expect((await restarted.create({ page: "/", anchor, body: "After restart", author: ada }))[1]?.number).toBe(5)
   })
 
   it("returns inserted rows, so a pull request sync can claim a comment once", async () => {
