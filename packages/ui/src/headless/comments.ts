@@ -241,6 +241,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     draft.value = null;
   }
   function close(): void {
+    if (hasText()) return block();
     openId.value = null;
     hoverId.value = null;
   }
@@ -277,6 +278,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
     if (!current || current.busy || !body) return undefined;
+    const submittedBody = current.body;
+    const mentions = [...current.mentions];
     current.busy = true;
     current.error = undefined;
     try {
@@ -284,9 +287,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         subject: subject.value,
         anchor: toRaw(current.anchor),
         body,
-        mentions: [...current.mentions],
+        mentions,
       });
-      if (draft.value === current) draft.value = null;
+      current.busy = false;
+      if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
       current.busy = false;
@@ -460,7 +464,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();
-      close();
+      openId.value = null;
+      hoverId.value = null;
       deepLinked = false;
       client.refresh().catch(() => undefined);
     }));
@@ -498,7 +503,14 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     close,
     reply: (threadId, body, mentions) => client.reply({ threadId, body, mentions }),
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
-    remove: (threadId, messageId) => client.delete({ threadId, messageId }),
+    remove: async (threadId, messageId) => {
+      const next = await client.delete({ threadId, messageId });
+      if (!next && openId.value === threadId) {
+        openId.value = null;
+        hoverId.value = null;
+      }
+      return next;
+    },
     resolve: threadId => client.resolve({ threadId }),
     reopen: threadId => client.reopen({ threadId }),
     users: query => client.users({ query }),

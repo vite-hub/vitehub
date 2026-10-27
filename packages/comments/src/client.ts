@@ -97,6 +97,22 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (byId.delete(threadId)) publish()
   }
 
+  // Timestamps cannot order mutations within one millisecond. Send each thread's mutations in order.
+  const mutations = new Map<string, Promise<unknown>>()
+  const mutate = async <T>(threadId: string, operation: () => Promise<T>): Promise<T> => {
+    const previous = mutations.get(threadId)
+    const request = (async () => {
+      await previous?.catch(() => undefined)
+      return operation()
+    })()
+    mutations.set(threadId, request)
+    try {
+      return await request
+    } finally {
+      if (mutations.get(threadId) === request) mutations.delete(threadId)
+    }
+  }
+
   const refresh = async (): Promise<readonly CommentThread[]> => {
     const current = ++generation
     changed = new Set()
@@ -169,16 +185,16 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     refresh,
     get: input => transport.get(input),
     create: async input => upsert(await transport.create(input)),
-    reply: async input => upsert(await transport.reply(input)),
-    edit: async input => upsert(await transport.edit(input)),
-    delete: async input => {
+    reply: input => mutate(input.threadId, async () => upsert(await transport.reply(input))),
+    edit: input => mutate(input.threadId, async () => upsert(await transport.edit(input))),
+    delete: input => mutate(input.threadId, async () => {
       const next = await transport.delete(input)
       if (next) upsert(next)
       else drop(input.threadId)
       return next
-    },
-    resolve: async input => upsert(await transport.resolve(input)),
-    reopen: async input => upsert(await transport.reopen(input)),
+    }),
+    resolve: input => mutate(input.threadId, async () => upsert(await transport.resolve(input))),
+    reopen: input => mutate(input.threadId, async () => upsert(await transport.reopen(input))),
     users: input => transport.users(input),
     onChange(listener) {
       listeners.add(listener)

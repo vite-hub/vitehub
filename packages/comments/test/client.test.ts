@@ -3,6 +3,12 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
 import { createMemoryTransport } from "../src/testing.ts"
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const ben: CommentUser = { id: "ben", name: "Ben Soto" }
 const subject = { kind: "page", id: "/pricing" }
@@ -232,6 +238,56 @@ describe("createCommentsClient", () => {
       listeners[0]!({ type: "thread", thread: stale })
       expect(pushing.threads[0]!.messages).toHaveLength(2)
       stop()
+    })
+
+    it("keeps concurrent replies with equal timestamps when the first response is delayed", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000)
+      const store = createMemoryTransport({ user: ana })
+      const gate = deferred<void>()
+      const firstApplied = deferred<void>()
+      const client = createCommentsClient({ transport: {
+        ...store,
+        subscribe: undefined,
+        reply: async input => {
+          const result = await store.reply(input)
+          if (input.body === "Second") {
+            firstApplied.resolve()
+            await gate.promise
+          }
+          return result
+        },
+      } })
+      const thread = await client.create({ subject, anchor, body: "First" })
+      const first = client.reply({ threadId: thread.id, body: "Second" })
+      await firstApplied.promise
+      const second = client.reply({ threadId: thread.id, body: "Third" })
+      await new Promise(resolve => setTimeout(resolve, 0))
+      gate.resolve()
+      await Promise.all([first, second])
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second", "Third"])
+    })
+
+    it("continues after a failed mutation without blocking other threads", async () => {
+      const store = createMemoryTransport({ user: ana })
+      const gate = deferred<void>()
+      const reply = vi.fn(async (input: Parameters<typeof store.reply>[0]) => {
+        if (input.body === "Fail") {
+          await gate.promise
+          throw new Error("Offline")
+        }
+        return store.reply(input)
+      })
+      const client = createCommentsClient({ transport: { ...store, reply, subscribe: undefined } })
+      const first = await client.create({ subject, anchor, body: "First" })
+      const other = await client.create({ subject, anchor, body: "Other" })
+      const failing = client.reply({ threadId: first.id, body: "Fail" }).catch(error => error)
+      const queued = client.reply({ threadId: first.id, body: "Retry" })
+      await client.reply({ threadId: other.id, body: "Independent" })
+      expect(reply.mock.calls.map(([input]) => input.body)).toEqual(["Fail", "Independent"])
+      gate.resolve()
+      expect(await failing).toEqual(new Error("Offline"))
+      await queued
+      expect(client.threads.find(thread => thread.id === first.id)?.messages.map(message => message.body)).toEqual(["First", "Retry"])
     })
 
     it("keeps a local reply when a pending list has the same timestamp", async () => {

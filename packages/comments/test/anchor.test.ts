@@ -78,6 +78,19 @@ describe("createAnchor selectors", () => {
   })
 })
 
+it("only hit-tests descendants of an element root", () => {
+  page('<aside id="outside"></aside><main id="root"><button id="inside">Buy</button></main>')
+  const root = document.getElementById("root")!
+  const inside = document.getElementById("inside")!
+  const outside = document.getElementById("outside")!
+  place(inside, { left: 0, top: 0, width: 100, height: 100 })
+  document.elementsFromPoint = () => [outside, inside, root, document.body]
+  const anchor = createAnchor({ x: 20, y: 20 }, { root })
+  expect(resolved(resolveAnchor(anchor, root)).element).toBe(inside)
+  document.elementsFromPoint = () => [outside, root, document.body]
+  expect(() => createAnchor({ x: 20, y: 20 }, { root })).toThrow()
+})
+
 describe("anchor round trips", () => {
   it("stores offsets in thousandths of the element box and finds the same point again", () => {
     page(`<div id="card"></div>`)
