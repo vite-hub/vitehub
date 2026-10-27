@@ -1,5 +1,6 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsInlineStart, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase } from "./page-tools-shared.ts"
+import { pageToolsHtmlTransform } from "./page-tools-html.ts"
+import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
@@ -172,62 +173,10 @@ export function injectPageToolsLoader(response: Response, base = ""): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
   const tag = loaderTag(base, scriptNonce(response.headers))
-  const inlineEnd = "</script>"
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  // Keep enough to find a closing body, marker, or generated opening tag split across chunks.
-  const overlap = viteHubPageToolsInlineStart.length
-  let tail = ""
-  let done = false
-  let present = false
-  let skippingInline = false
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      if (done) {
-        controller.enqueue(chunk)
-        return
-      }
-      let text = tail + decoder.decode(chunk, { stream: true })
-      while (true) {
-        if (skippingInline) {
-          const end = text.indexOf(inlineEnd)
-          if (end === -1) {
-            tail = text.slice(-(inlineEnd.length - 1))
-            return
-          }
-          text = text.slice(end + inlineEnd.length)
-          skippingInline = false
-        }
-        const inline = text.indexOf(viteHubPageToolsInlineStart)
-        if (inline === -1) break
-        const before = text.slice(0, inline)
-        controller.enqueue(encoder.encode(before + tag))
-        present = true
-        text = text.slice(inline + viteHubPageToolsInlineStart.length)
-        skippingInline = true
-      }
-      present ||= text.includes(viteHubPageToolsMarker)
-      const index = text.search(/<\/body\s*>/i)
-      if (index !== -1) {
-        done = true
-        controller.enqueue(encoder.encode(present ? text : text.slice(0, index) + tag + text.slice(index)))
-        tail = ""
-        return
-      }
-      const keep = Math.max(0, text.length - overlap)
-      controller.enqueue(encoder.encode(text.slice(0, keep)))
-      tail = text.slice(keep)
-    },
-    flush(controller) {
-      if (skippingInline) return
-      const rest = tail + decoder.decode()
-      controller.enqueue(encoder.encode(done || present ? rest : rest + tag))
-    },
-  })
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   headers.set("cache-control", "private, no-store")
-  return new Response(response.body.pipeThrough(transform), { headers, status: response.status, statusText: response.statusText })
+  return new Response(response.body.pipeThrough(pageToolsHtmlTransform(tag)), { headers, status: response.status, statusText: response.statusText })
 }
 
 /** The parts of an H3 1 event that the Nitro 2 hooks read. */
