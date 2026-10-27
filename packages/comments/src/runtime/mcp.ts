@@ -1,18 +1,26 @@
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { describeCommentContext } from "../context.ts"
 import { commentsErrors } from "../errors.ts"
-import { authorOf, text } from "../identity.ts"
+import { authorOf, guestFromHeaders, text } from "../identity.ts"
 import { normalizeCommentPage } from "../page.ts"
+import { resolveCommentsUser } from "./session.ts"
 
-import type { ViteHubMcpTool, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
+import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
+import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
-/** The Console user as a Comments user. A Console without accounts acts as its guest, like the overlay. */
-function commentsUser(user: Record<string, unknown> | null): CommentsUser {
+/** A user supplied by an app's own MCP server. Missing identities remain anonymous. */
+function commentsUser(user: Record<string, unknown> | null): CommentsUser | null {
   const id = text(user?.id) ?? text(user?.email)
-  return user && id ? { ...user, id } : { id: "guest:console", name: "Guest", guest: true }
+  return user && id ? { ...user, id } : null
+}
+
+function guestFor(context: ViteHubMcpToolContext) {
+  return context.event instanceof Object ? guestFromHeaders(toEventRequest(context.event).headers) : undefined
 }
 
 function failure(why: string): ViteHubMcpToolResult {
@@ -62,12 +70,17 @@ function summary(thread: CommentThread): Record<string, unknown> {
 }
 
 /**
- * The Comments tools of the ViteHub MCP server. Each call checks `authorize` for the Console user of the request,
- * as the overlay does. Replies and resolves show that user as the author.
+ * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
+ * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
+ * A configured `identify` takes precedence over either session. Replies and resolves show that user as the author.
  */
-export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
+export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
+  async function userFor(context: ViteHubMcpToolContext): Promise<CommentsUser | null> {
+    // SAFETY: The MCP transport passes its request event to owner identity readers.
+    return resolveCommentsUser(comments, context.event as H3Event, options.session ?? (async () => commentsUser(context.user)))
+  }
 
-  async function threadFor(input: Record<string, unknown>, user: CommentsUser, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
+  async function threadFor(input: Record<string, unknown>, user: CommentsUser | null, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
     const id = text(input.id)
     if (!id) return failure("Give the thread id from comments_list_threads.")
     const [error, thread] = await comments.get(id)
@@ -94,7 +107,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = commentsUser(context.user)
+        const user = await userFor(context)
         if (!await comments.can({ user, action: "read" })) return forbidden("read")
         const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
@@ -122,7 +135,7 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The thread id." } }, required: ["id"], additionalProperties: false },
       async call(input, context) {
-        const found = await threadFor(input, commentsUser(context.user), "read")
+        const found = await threadFor(input, await userFor(context), "read")
         if (!("thread" in found)) return found
         const { thread } = found
         return { text: describeThread(thread), structured: { thread: { ...thread } } }
@@ -140,12 +153,14 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = commentsUser(context.user)
+        const user = await userFor(context)
         const found = await threadFor(input, user, "comment")
         if (!("thread" in found)) return found
         const { thread, grant } = found
+        const author = user ? authorOf(user) : guestFor(context)
+        if (!author) return forbidden("comment")
         spend(grant, "comment", thread.id)
-        const [error, comment] = await comments.reply(thread.id, { body: text(input.body) ?? "", author: authorOf(user) })
+        const [error, comment] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
         if (error) return failure(error.why)
         return { text: `Replied to thread ${thread.id}.`, structured: { comment: { ...comment } } }
       },
@@ -163,12 +178,13 @@ export function commentsMcpTools(comments: Comments): ViteHubMcpTool[] {
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = commentsUser(context.user)
+        const user = await userFor(context)
         const found = await threadFor(input, user, "resolve")
         if (!("thread" in found)) return found
         const { thread, grant } = found
         spend(grant, "resolve", thread.id)
-        const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: authorOf(user) })
+        const author = user ? authorOf(user) : guestFor(context) ?? { id: "anonymous", name: "Someone" }
+        const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: author })
         if (error) return failure(error.why)
         return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: summary(updated) } }
       },

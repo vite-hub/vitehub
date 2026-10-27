@@ -1,3 +1,5 @@
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
+
 import { guestFromHeaders, text } from "../identity.ts"
 
 import type { H3Event } from "h3"
@@ -24,7 +26,7 @@ export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H
     const person = await access.identify({ event })
     // Cloudflare Access names the person by email. A Console without accounts makes a new guest id for each request.
     if (person && !person.id.startsWith("guest-")) return { ...person }
-    const guest = guestFromHeaders(event.req.headers)
+    const guest = guestFromHeaders(toEventRequest(event).headers)
     return guest ? { ...guest } : { id: "guest:console", name: "Guest", guest: true }
   }
 }
