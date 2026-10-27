@@ -172,7 +172,6 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       title: "Resolve or reopen a comment thread",
       description: "Resolve a thread after the change it asks for is done, or reopen it. Resolved threads leave the page.",
       section: "comments",
-      annotations: { idempotentHint: true },
       inputSchema: {
         type: "object",
         properties: { id: { type: "string", description: "The thread id." }, resolved: { type: "boolean", description: "Default true. False reopens the thread." } },

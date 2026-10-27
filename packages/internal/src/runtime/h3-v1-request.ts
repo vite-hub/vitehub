@@ -84,7 +84,15 @@ function readNodeRequestURL(request: H3V1NodeRequest): URL {
 
 function toBodyStream(value: unknown): ReadableStream<Uint8Array> | undefined {
   if (value instanceof ReadableStream) return value
-  if (value instanceof Uint8Array) return new Blob([new Uint8Array(value)]).stream()
+  if (value instanceof Uint8Array) {
+    // Not a Blob: the DOM types refuse a view whose buffer may be shared.
+    return new ReadableStream({
+      start(controller) {
+        controller.enqueue(value)
+        controller.close()
+      },
+    })
+  }
   if (typeof value === "string") return new Blob([value]).stream()
   if (value instanceof URLSearchParams) return new Blob([value.toString()]).stream()
   if (value instanceof Object && Object.getPrototypeOf(value) === Object.prototype) return new Blob([JSON.stringify(value)]).stream()

@@ -207,7 +207,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     // Keep the app's own components: names without a project file, such as RouterView or a UI library's, are noise.
     // Without a file map, or when none matches, keep the three innermost names.
     const named = context.components?.map((component) => {
-      const files = options.components?.[component.name]
+      const files = options.components && Object.hasOwn(options.components, component.name) ? options.components[component.name] : undefined
       return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
     })
     const own = named?.filter(component => component.files)
@@ -353,6 +353,22 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
         const { context, ...input } = parsed.output
+        if (context) {
+          const origin = forwardedRequestOrigin(request)
+          const page = normalizeCommentPage(input.page)
+          let submitted: URL
+          try {
+            submitted = new URL(context.url)
+          }
+          catch {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }))
+          }
+          if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== page) {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }))
+          }
+          // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
+          context.url = `${origin}${page}`
+        }
         return respond(await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }

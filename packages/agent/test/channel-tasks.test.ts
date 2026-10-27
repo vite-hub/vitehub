@@ -45,15 +45,15 @@ function ticketsAgent(options: {
         triggers: {
           // The webhook route passes the parsed body as `payload`.
           opened: defineChannelTrigger<{ payload: Ticket }>({
-            ...(options.prepare ? { prepare: (_context, invocation) => options.prepare!(invocation) } : {}),
+            prepare: options.prepare ? (_context, invocation) => options.prepare!(invocation) : undefined,
             ...(options.failed ? { failed: options.failed } : {}),
             tasks: {
               triage: {
                 agent: triageAgent,
                 ...(options.taskFailed ? { failed: options.taskFailed } : {}),
-                ...(options.taskPrepare
-                  ? { prepare: (_context, { input }) => options.taskPrepare!(input) as undefined }
-                  : {}),
+                prepare: options.taskPrepare
+                  ? (_context, { input }) => options.taskPrepare!(input) as undefined
+                  : undefined,
               },
               mirror: { run: (_context, { input }) => { mirror(input) } },
             },

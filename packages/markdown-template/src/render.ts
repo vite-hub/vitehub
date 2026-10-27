@@ -53,6 +53,24 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
   const data = snapshotTemplateData(options.data ?? {})
   // Comark resolves attributes before custom handlers; only our path resolver may read caller data.
   const renderData = (state: State): NodeRenderData => ({ ...state.renderData, data })
+  const renderAuthoredHtml = async (node: ElementNode, state: State, parent: ElementNode | undefined, childPolicy: "preserve" | "markdown") => {
+    const [tag, attrs, ...children] = node
+    const props = resolveScalarTemplateAttributes(attrs, renderData(state))
+    const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
+    const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
+      [key, typeof value === "string" ? escapeHtml(value) : value]))
+    const content = childPolicy === "markdown" && attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
+      ? (await parseMarkdown(children.join(""), parseOptions)).nodes
+      : children
+    // Preserve SVG ancestry across descendants; foreignObject children use HTML semantics.
+    const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
+    try {
+      return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
+    }
+    finally {
+      state.applyContext(revert)
+    }
+  }
   return prepared.restore((await renderMarkdown(tree, {
     components: {
       Binding: async (node, state, parent) => {
@@ -108,39 +126,11 @@ export async function renderMarkdownTemplateInternal(template: string, options: 
       Img: async (node, state, parent) => {
         rejectBoundEventHandlers(node[1])
         if (node[1].$?.html !== 1) return await state.handlers.img!(node, state, parent)
-        const [tag, attrs, ...children] = node
-        const props = resolveScalarTemplateAttributes(attrs, renderData(state))
-        const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
-        const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-          [key, typeof value === "string" ? escapeHtml(value) : value]))
-        const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
-        try {
-          return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...children], state, parent)
-        }
-        finally {
-          state.applyContext(revert)
-        }
+        return await renderAuthoredHtml(node, state, parent, "preserve")
       },
       Html: {
         match: node => node[1].$?.html === 1,
-        handler: async (node, state, parent) => {
-          const [tag, attrs, ...children] = node
-          const props = resolveScalarTemplateAttributes(attrs, renderData(state))
-          const sanitized = await sanitizeUrlAttributes(tag, props, attrs, state.context.svg === true)
-          const escaped = Object.fromEntries(Object.entries(sanitized).map(([key, value]) =>
-            [key, typeof value === "string" ? escapeHtml(value) : value]))
-          const content = attrs.$?.block === 1 && !literalHtmlTags.has(tag) && children.every(child => typeof child === "string")
-            ? (await parseMarkdown(children.join(""), parseOptions)).nodes
-            : children
-          // Preserve SVG ancestry across descendants; foreignObject children use HTML semantics.
-          const revert = state.applyContext({ svg: tag.toLowerCase() === "svg" || state.context.svg === true && tag.toLowerCase() !== "foreignobject" })
-          try {
-            return await state.handlers.html!([tag, { ...escaped, $: attrs.$ }, ...content], state, parent)
-          }
-          finally {
-            state.applyContext(revert)
-          }
-        },
+        handler: async (node, state, parent) => renderAuthoredHtml(node, state, parent, "markdown"),
       },
     },
   })).trim())

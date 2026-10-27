@@ -51,7 +51,10 @@ async function readSourceFile<TKey extends string>(options: FileSourceOptions<TK
     throw sourceErrorDiagnostics.SOURCE_R0018({ message: "[vitehub] file requires path when content is not provided." })
   }
   const { readFile } = await import("node:fs/promises")
-  return new Uint8Array(await readFile(await resolveSafeSourceFilePath(options.path, ctx)))
+  const content = await readFile(await resolveSafeSourceFilePath(options.path, ctx))
+  return content.byteOffset === 0 && content.byteLength === content.buffer.byteLength
+    ? new Uint8Array(content.buffer)
+    : new Uint8Array(content)
 }
 
 async function resolveSafeSourceFilePath(path: string, ctx: SourceContext) {

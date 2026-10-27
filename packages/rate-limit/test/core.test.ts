@@ -1,3 +1,5 @@
+import { globSync, readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import { runInNewContext } from "node:vm"
 import { describe, expect, it, vi } from "vitest"
 
@@ -624,5 +626,15 @@ describe("Rate Limit core", () => {
 
     await expect(allow.consume({ key: "user" })).rejects.toBe(defect)
     await expect(deny.consume({ key: "user" })).rejects.toBe(defect)
+  })
+})
+
+describe("Rate Limit server code", () => {
+  it("never reads `typeof window`, because Nitro 2 replaces it with \"undefined\" in server bundles", () => {
+    const sourceRoot = fileURLToPath(new URL("../src", import.meta.url))
+    const files = globSync("**/*.ts", { cwd: sourceRoot }).filter(file => /typeof window\b/.test(readFileSync(`${sourceRoot}/${file}`, "utf8")))
+
+    // Nuxt 4 builds turn `typeof window !== "string"` into `"undefined" !== "string"`. Rename the local variable.
+    expect(files).toEqual([])
   })
 })

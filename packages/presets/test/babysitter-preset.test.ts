@@ -2794,15 +2794,34 @@ describe("Babysitter preset runtime", () => {
     expect((await f.runtime.inbox.get("acme/app", 12))?.status).toBe("waiting");
   });
 
-  it("retries checkout failure when no repair was pushed", async () => {
+  it("bounds repeated checkout failures on the same head", async () => {
     const f = await fixture();
     f.failCheckout(new Error("Checkout cleanup failed"));
-    await f.reconcile();
-    expect(f.push).not.toHaveBeenCalled();
-    const state = (await f.runtime.inbox.get("acme/app", 12))!;
-    expect(state.status).toBe("ready");
-    expect(state.handled).toBeLessThan(state.generation);
-    expect(state.attempts).toBe(1);
+    const now = vi.spyOn(Date, "now");
+    try {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        f.errors.mockClear();
+        if (attempt > 1) await f.runtime.inbox.ingest(`retry-${attempt}`, "issue_comment", {
+          repository: { full_name: "acme/app" }, action: "created", issue: { number: 12, pull_request: {} },
+          comment: { id: 800 + attempt, body: "Retry the repair", user: { login: "developer" } },
+        });
+        await f.reconcile();
+        const state = (await f.runtime.inbox.get("acme/app", 12))!;
+        expect(state.progressBudget?.count).toBe(attempt);
+        if (attempt < 3) {
+          expect(state.status).toBe("ready");
+          now.mockReturnValue(state.nextAt + 1);
+        } else {
+          expect(state.status).toBe("waiting");
+          expect(state.progressBudget?.exhausted).toBe(true);
+        }
+      }
+      expect(f.push).not.toHaveBeenCalled();
+      expect(await f.runtime.inbox.claim(1)).toHaveLength(0);
+    } finally {
+      now.mockRestore();
+      await f.runtime.inbox.close();
+    }
   });
 
 

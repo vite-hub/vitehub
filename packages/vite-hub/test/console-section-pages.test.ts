@@ -89,5 +89,8 @@ describe("Console section pages", () => {
     expect(comments.visit).toBe("/api/_vitehub/comments/session")
     expect(parseConsoleContributedSection(comments)?.visit).toBe("/api/_vitehub/comments/session")
     expect(parseConsoleContributedSection({ ...comments, visit: "//evil.test/x" })).not.toHaveProperty("visit")
+    for (const visit of ["/\\evil.test/x", "/\n/evil.test/x", "/\r/evil.test/x", "/\t/evil.test/x"]) {
+      expect(parseConsoleContributedSection({ ...comments, visit })).not.toHaveProperty("visit")
+    }
   })
 })
