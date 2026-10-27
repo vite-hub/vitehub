@@ -30,7 +30,7 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
 // The page shell and the empty client script carry no project data. Static assets are public in the same way.
-const shellRoutes = new Set(["client.get.ts", "page.get.ts"])
+const shellRoutes = new Set(["client.get.ts", "page.get.ts", "sign-in.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -374,7 +374,7 @@ describe("Connections manager from Console access", () => {
 })
 
 describe("generated Console access", () => {
-  async function generatedPlugin(options: Parameters<typeof consoleVitePlugin>[0], command: "build" | "serve"): Promise<string> {
+  async function generatedPlugin(options: Parameters<typeof consoleVitePlugin>[0], command: "build" | "serve", config: { base?: string, nitro?: { handlers: Array<{ handler: string, middleware?: boolean, route: string }> } } = {}): Promise<string> {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-access-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -382,7 +382,7 @@ describe("generated Console access", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a Console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      await Reflect.apply(configHandler, {}, [{ root }, { command, mode: command === "build" ? "production" : "development" }])
+      await Reflect.apply(configHandler, {}, [Object.assign(config, { root }), { command, mode: command === "build" ? "production" : "development" }])
       return await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
     }
     finally {
@@ -434,6 +434,21 @@ describe("generated Console access", () => {
       resolveAuthConfig: () => appAuth([{ authorize: true, route: "/_vitehub/**" }, { authorize: true, method: "GET", route: "/api/_vitehub/console/**" }]),
     }, "build")
     expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signInPage: "/sign-in" })')
+  })
+
+  it.each(["/", "/portal/"])("registers the page sign-in middleware before app Auth below %s", async (base) => {
+    const mount = base.replace(/\/$/, "")
+    const appHandler = { handler: "/.vitehub/auth/access-middleware.ts", middleware: true, route: "/**" }
+    const config = { base, nitro: { handlers: [appHandler] } }
+    await generatedPlugin({
+      console: { auth: "app", signInPage: "/sign-in" },
+      resolveAuthConfig: () => appAuth([{ authorize: true, route: `${mount}/_vitehub/**` }, { authorize: true, route: `${mount}/api/_vitehub/console/**` }]),
+    }, "build", config)
+    expect(config.nitro.handlers.slice(0, 2)).toEqual([
+      { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub/**` },
+      { handler: expect.stringMatching(/server\/sign-in\.js$/), middleware: true, route: `${mount}/_vitehub` },
+    ])
+    expect(config.nitro.handlers[2]).toEqual(appHandler)
   })
 
   it("accepts exact GET rules for the registered Console API endpoints", async () => {
@@ -544,7 +559,7 @@ describe("Console sign-in page", () => {
   it("accepts a path on the app's origin for app Auth and open access only", () => {
     expect(resolveConsoleOptions({ auth: "app", signInPage: "/sign-in" })).toMatchObject({ signInPage: "/sign-in" })
     expect(resolveConsoleOptions({ auth: false, authorize: "authorize.ts", signInPage: "/?signin=1" })).toMatchObject({ signInPage: "/?signin=1" })
-    for (const signInPage of ["sign-in", "//evil.example/sign-in", "https://evil.example/sign-in", "/sign in", "/a\\b", 1]) {
+    for (const signInPage of ["sign-in", "//evil.example/sign-in", "/..//evil.example/sign-in", "/%2e%2e//evil.example/sign-in", "https://evil.example/sign-in", "/sign in", "/a\\b", 1]) {
       expect(() => resolveConsoleOptions({ auth: "app", signInPage })).toThrow("console.signInPage must be a path on the app's origin")
     }
     expect(() => resolveConsoleOptions({ auth: { provider: "github" }, signInPage: "/sign-in" })).toThrow("Console Auth has its own sign-in page")

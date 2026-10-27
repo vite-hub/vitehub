@@ -11,8 +11,9 @@ export interface ConsoleSignInPage {
  */
 export function consoleSignInURL(page: ConsoleSignInPage): string | undefined {
   const signInPage = page.document.querySelector('meta[name="vitehub-console-sign-in"]')?.getAttribute("content")
-  if (!signInPage?.startsWith("/") || signInPage.startsWith("//")) return undefined
+  if (!signInPage || !/^\/(?!\/)[^\\\s]*$/.test(signInPage)) return undefined
   const url = new URL(signInPage, page.location.origin)
+  if (url.origin !== page.location.origin || url.pathname.startsWith("//")) return undefined
   url.searchParams.set("redirect", `${page.location.pathname}${page.location.search}`)
-  return `${url.pathname}${url.search}`
+  return `${url.pathname}${url.search}${url.hash}`
 }

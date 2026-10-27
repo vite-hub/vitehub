@@ -365,6 +365,7 @@ export default defineConfig({
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/schedule-run.ts",
       "src/console/runtime/server/search.get.ts",
+      "src/console/runtime/server/sign-in.ts",
       "src/console/runtime/server/sections.get.ts",
       "src/console/runtime/server/usage.get.ts",
       "src/console/runtime/server/status.get.ts",
@@ -427,6 +428,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];
+        delete exports["./console/runtime/server/sign-in"];
         delete exports["./console/runtime/server/sections.get"];
         delete exports["./console/runtime/server/sections"];
         delete exports["./console/runtime/server/usage.get"];

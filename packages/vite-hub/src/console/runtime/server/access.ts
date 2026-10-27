@@ -90,17 +90,22 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   scope[policyKey] = Object.freeze({ ...policy })
 }
 
-/** Whether a value is a path on the same origin: it starts with one `/` and has no backslash or whitespace. */
+/** Whether a value stays a path on the same origin after URL normalization. */
 export function isConsoleSignInPage(value: unknown): value is string {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
-  return typeof value === "string" && /^\/(?!\/)[^\\\s]*$/.test(value)
+  if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
+  // Dot segments can turn a single-slash input into a network-path reference when serialized.
+  return !new URL(value, "http://vitehub.local").pathname.startsWith("//")
 }
 
 /** The sign-in page of the installed policy, under the application mount of a Console path. */
 export function consoleSignInPage(pathname: string): string | undefined {
   const policy = scope[policyKey]
   const page = policy && "signInPage" in policy ? policy.signInPage : undefined
-  return page ? `${consoleMountBase(pathname)}${page}` : undefined
+  if (!page) return undefined
+  const normalized = new URL(page, "http://vitehub.local")
+  const mounted = `${consoleMountBase(pathname)}${normalized.pathname}${normalized.search}${normalized.hash}`
+  return isConsoleSignInPage(mounted) ? mounted : undefined
 }
 
 /**
@@ -118,7 +123,7 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
-    headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}`, "x-robots-tag": "noindex, nofollow" },
+    headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
     status: 302,
   })
 }
