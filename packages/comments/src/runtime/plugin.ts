@@ -13,6 +13,8 @@ export interface CommentsPluginOptions {
   database: () => CommentsDatabase | undefined
   /** URL of the overlay script that pages load in comment mode. */
   overlay: string
+  /** Vite's serve/build identity, recorded by the generated plugin. Defaults to false. */
+  development?: boolean
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.runtime")
@@ -96,7 +98,7 @@ export function injectOverlay(response: Response, src: string): Response {
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
   return (nitroApp) => {
     const database = options.database()
-    if (database) installComments(options.comments, { database })
+    if (database) installComments(options.comments, { database, development: options.development })
     else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.

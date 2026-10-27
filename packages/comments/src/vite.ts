@@ -10,6 +10,7 @@ import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
+import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
@@ -294,10 +295,11 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, standalone?: StandaloneDatabase }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean }): string {
   if (input.standalone) {
     const { where, fallback, node } = input.standalone
     const options = [`name: "comments"`, "setup: commentsTables", ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
+
     return [
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
       // A Worker build imports no node:sqlite.
@@ -307,7 +309,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
-      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+      `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
       "",
     ].join("\n")
   }
@@ -330,7 +332,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -380,7 +382,11 @@ async function addD1Binding(projectRoot: string, nitro: NitroOptions, where: str
   const binding = where.slice(3)
   for (const file of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
     const source = await readFile(join(projectRoot, file), "utf8").catch(() => "")
-    if (new RegExp(`["']?binding["']?\\s*[:=]\\s*["']${binding}["']`).test(source)) return
+    if (!source) continue
+    const config = file.endsWith(".toml") ? parseTOML(source) : parseJSONC(source, { allowTrailingComma: true })
+    if (config === null || typeof config !== "object") continue
+    const entries: unknown = Reflect.get(config, "d1_databases")
+    if (Array.isArray(entries) && entries.some(entry => entry !== null && typeof entry === "object" && Reflect.get(entry, "binding") === binding)) return
   }
   const cloudflare = nitro.cloudflare ?? {}
   const wrangler = cloudflare.wrangler ?? {}
@@ -422,6 +428,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let realtime = false
+  let development = false
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
   // Without `vite-hub`, Comments is on without `server/comments.ts`.
   const enabled = () => Boolean(options.standalone) || Boolean(discover())
@@ -438,7 +445,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!nitro.options.dev) standalone.node = nitro.options.node
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
         const definition = discover() ?? join(directory, "definition.mjs")
-        await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, imports, standalone }))
+        await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, imports, standalone, development }))
         await addD1Binding(projectRoot, nitro.options, standalone.where)
         await addD1Binding(projectRoot, nitro.options, standalone.fallback)
       },
@@ -501,7 +508,8 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
     enforce: "pre",
     config: {
-      async handler(config) {
+      async handler(config, env) {
+        development = env.command === "serve" && !env.isPreview
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
@@ -520,7 +528,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
           // Standalone storage waits for Nitro's resolved dev runner in the module setup above.
-          options.standalone ? undefined : writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
+          options.standalone ? undefined : writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, development })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${commentsRoute}/**` })

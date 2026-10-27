@@ -24,12 +24,12 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build", nitro?: Record<string, unknown>) {
+async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build", nitro?: Record<string, unknown>, env: ConfigEnv = { command, mode: command === "serve" ? "development" : "production" }) {
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...(nitro ? { nitro } : {}) }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
-  await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
+  await hook.handler(config, env)
   if (plugin.nitro) {
-    const instance = await createNitro({ ...config.nitro, rootDir: root, dev: command === "serve", modules: [plugin.nitro] })
+    const instance = await createNitro({ ...config.nitro, rootDir: root, dev: env.command === "serve" && !env.isPreview, modules: [plugin.nitro] })
     await instance.close()
     return instance.options
   }
@@ -175,6 +175,8 @@ describe("comments() without vite-hub", () => {
     const [error, threads] = await definition.list({ page: "/" })
     expect(error).toBeUndefined()
     expect(threads).toEqual([])
+    vi.stubEnv("NODE_ENV", "development")
+    expect(await definition.can({ user: null, action: "read" })).toBe(false)
     expect(source).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
   }, 30_000)
 
@@ -186,6 +188,7 @@ describe("comments() without vite-hub", () => {
     expect(source).toContain("from \"@vite-hub/comments/runtime/connect\"")
     expect(source).not.toContain("runtime/connect/node")
     expect(source).not.toContain("node:sqlite")
+    expect(source).toContain("development: false")
   }, 30_000)
 
   it("adds the D1 binding to the Wrangler config, unless the app's wrangler.jsonc has it", async () => {
@@ -224,6 +227,28 @@ describe("comments() without vite-hub", () => {
     await expect(readFile(join(root, ".vitehub/data/.gitignore"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
   })
 
+  it.each([
+    ["wrangler.jsonc", '// { "binding": "COMMENTS" }\n{ "d1_databases": [] }'],
+    ["wrangler.jsonc", '{ /* "binding": "COMMENTS" */ "d1_databases": [], }'],
+    ["wrangler.json", '{ "kv_namespaces": [{ "binding": "COMMENTS" }] }'],
+    ["wrangler.jsonc", '{ "env": { "production": { "d1_databases": [{ "binding": "COMMENTS" }] } } }'],
+    ["wrangler.toml", '# binding = "COMMENTS"\nname = "app"'],
+    ["wrangler.toml", '[[kv_namespaces]]\nbinding = "COMMENTS"'],
+    ["wrangler.toml", '[[env.production.d1_databases]]\nbinding = "COMMENTS"'],
+  ])("adds D1 when %s mentions the binding outside its active D1 entries (%s)", async (file, source) => {
+    const root = await project({ "package.json": "{}", [file]: source })
+    const nitro = await configure(comments({ database: "d1:COMMENTS" })[0] as Plugin, root)
+    expect(nitro?.cloudflare?.wrangler?.d1_databases).toEqual([{ binding: "COMMENTS", database_name: "comments" }])
+  })
+
+  it.each([
+    ["wrangler.jsonc", '{ /* existing */ "d1_databases": [{ "binding": "COMMENTS", "database_id": "abc" },], }'],
+    ["wrangler.toml", '[[d1_databases]]\nbinding = "COMMENTS"\ndatabase_id = "abc"'],
+  ])("preserves an active D1 binding in %s", async (file, source) => {
+    const root = await project({ "package.json": "{}", [file]: source })
+    expect((await configure(comments({ database: "d1:COMMENTS" })[0] as Plugin, root))?.cloudflare).toBeUndefined()
+  })
+
   it("fails the build on a location that Comments cannot use", async () => {
     const root = await project({ "package.json": "{}" })
     await expect(configure(comments({ database: "postgres://db.test/app" })[0] as Plugin, root)).rejects.toThrow("cannot connect to a Postgres URL")
@@ -246,5 +271,22 @@ describe("comments() without vite-hub", () => {
     expect(nitro.length).toBeGreaterThan(0)
     for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
     expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)
+  })
+})
+
+describe("generated guest access policy", () => {
+  it.each(["standalone", "vitehub"])("records Vite's command for %s, including builds in development mode", async (setup) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = setup === "standalone" ? comments()[0] as Plugin : hubComments()
+    const cases: Array<{ env: ConfigEnv, development: boolean }> = [
+      { env: { command: "serve", mode: "development" }, development: true },
+      { env: { command: "build", mode: "development" }, development: false },
+      { env: { command: "serve", mode: "development", isPreview: true }, development: false },
+    ]
+    for (const { env, development } of cases) {
+      await configure(plugin, root, env.command, undefined, env)
+      const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+      expect(generated).toContain(`development: ${development}`)
+    }
   })
 })

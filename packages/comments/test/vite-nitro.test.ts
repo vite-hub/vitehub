@@ -44,6 +44,7 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
       expect(instance).toBeDefined()
       expect((instance!.options.devServer.runner || process.env.NITRO_DEV_RUNNER || "node-worker") === "miniflare").toBe(workerd)
       const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+      expect(plugin).toContain("development: true")
       if (workerd) {
         expect(plugin).toContain('import { connectDatabase } from "@vite-hub/comments/runtime/connect"\n')
         expect(plugin).toContain('connectDatabase("d1:COMMENTS"')
