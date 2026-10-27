@@ -77,21 +77,17 @@ export interface Comments {
   flush(): Promise<void>
 }
 
-/** Whether this is the development server, where anyone may comment without signing in. */
-function developmentServer(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "development"
-}
-
 /**
  * The policy without `authorize`, for every action: a person signed in with GitHub needs push access to the repository
  * of the build; any other signed-in user may; anonymous people may only on the development server, as guests.
+ * `development` comes from Vite's command in the generated Nitro plugin, and defaults to false.
  */
-export function defaultPolicy(user: CommentsUser | null): boolean {
-  if (!user) return developmentServer()
+export function defaultPolicy(user: CommentsUser | null, development = false): boolean {
+  if (!user) return development
   return user.github ? user.github.write : true
 }
 
-const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync }>()
+const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync, development: boolean }>()
 
 /**
  * Defines Comments for the app. Export it as `comments` from `server/comments.ts`; ViteHub then stores threads in the
@@ -235,7 +231,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       return [undefined, { removed }]
     },
     async can(context) {
-      if (!options.authorize) return defaultPolicy(context.user)
+      if (!options.authorize) return defaultPolicy(context.user, runtimes.get(comments)?.development)
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
       return await options.authorize({ ...context, scope }) !== false
     },
@@ -258,10 +254,10 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
 
 /**
  * Connects a Comments definition to its Database. The generated Nitro plugin calls it when the server starts; call it
- * yourself only in tests or outside ViteHub.
+ * yourself only in tests or outside ViteHub. Only the Vite dev server enables `development`; it defaults to false.
  */
-export function installComments(comments: Comments, runtime: { database: CommentsDatabase }): void {
+export function installComments(comments: Comments, runtime: { database: CommentsDatabase, development?: boolean }): void {
   const store = createCommentsStore(runtime.database)
   const forge = comments.options.forge ? createForgeSync(comments.options.forge, { database: runtime.database, store }) : undefined
-  runtimes.set(comments, forge ? { store, forge } : { store })
+  runtimes.set(comments, { store, forge, development: runtime.development === true })
 }

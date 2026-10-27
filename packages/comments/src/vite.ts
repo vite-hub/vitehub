@@ -279,7 +279,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
 /** What a production build without a database tells the server log. */
 const missingSqlite = "[vitehub] Comments has no database in this build. Set `comments({ database: \"file:./data/comments.sqlite\" })` to a file on a disk that lasts, or use `vite-hub` with a Database."
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, sqlite?: string | false }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, sqlite?: string | false, development?: boolean }): string {
   if (input.sqlite !== undefined) {
     return [
       `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
@@ -290,7 +290,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
         ? `const database = () => openCommentsSqlite(${JSON.stringify(input.sqlite)})`
         : "const database = () => undefined",
       "",
-      `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, missingDatabase: ${JSON.stringify(missingSqlite)} })`,
+      `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, missingDatabase: ${JSON.stringify(missingSqlite)} })`,
       "",
     ].join("\n")
   }
@@ -312,7 +312,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, development: ${input.development === true}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -459,7 +459,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, ...(sqlite === undefined ? {} : { sqlite }) })),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, development: env.command === "serve" && !env.isPreview, ...(sqlite === undefined ? {} : { sqlite }) })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${commentsRoute}/**` })

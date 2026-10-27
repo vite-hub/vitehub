@@ -165,3 +165,22 @@ describe("comments() without vite-hub", () => {
     expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)
   })
 })
+
+describe("generated guest access policy", () => {
+  it.each(["standalone", "vitehub"])("records Vite's command for %s, including builds in development mode", async (setup) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = setup === "standalone" ? comments()[0] as Plugin : hubComments()
+    const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+    const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
+    const cases: Array<{ env: ConfigEnv, development: boolean }> = [
+      { env: { command: "serve", mode: "development" }, development: true },
+      { env: { command: "build", mode: "development" }, development: false },
+      { env: { command: "serve", mode: "development", isPreview: true }, development: false },
+    ]
+    for (const { env, development } of cases) {
+      await hook.handler(config, env)
+      const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+      expect(generated).toContain(`development: ${development}`)
+    }
+  })
+})
