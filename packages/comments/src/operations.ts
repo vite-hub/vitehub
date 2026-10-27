@@ -60,8 +60,8 @@ function fail(error: Error, status: number): Error {
   return Object.assign(error, { status })
 }
 
-function personOf(user: OperationContext["user"]): CommentUser | null {
-  if (!user) return null
+/** Public identity for stored comments and notifications; policies keep the full user. */
+function personOf(user: CommentUser): CommentUser {
   return { id: user.id, ...(user.name ? { name: user.name } : {}), ...(user.image ? { image: user.image } : {}) }
 }
 
@@ -77,7 +77,7 @@ interface Caller {
 
 async function caller(context: OperationContext): Promise<Caller> {
   const actor = actorOf(context.actor)
-  return { runtime: await commentsRuntime(), user: personOf(context.user), ...(actor ? { actor } : {}) }
+  return { runtime: await commentsRuntime(), user: context.user, ...(actor ? { actor } : {}) }
 }
 
 interface Target {
@@ -96,7 +96,7 @@ function policy(who: Caller): NonNullable<CommentsRuntime["definition"]["authori
 async function permitted(who: Caller, action: CommentAction, target: Target = {}, user: CommentUser | null = who.user): Promise<boolean> {
   const subject = target.subject ?? target.thread?.subject
   const actor = user === who.user ? who.actor : undefined
-  return Boolean(await policy(who)({ action, user, ...(actor ? { actor } : {}), ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }))
+  return Boolean(await policy(who)({ action, user: user ? { ...user } : null, ...(actor ? { actor } : {}), ...(target.thread ? { thread: target.thread } : {}), ...(subject ? { subject } : {}) }))
 }
 
 async function allow(who: Caller, action: CommentAction, target?: Target): Promise<void> {
@@ -105,7 +105,7 @@ async function allow(who: Caller, action: CommentAction, target?: Target): Promi
 
 function author(who: Caller): CommentUser {
   if (!who.user) throw fail(commentsErrorDiagnostics.COMMENTS_R0012(), 401)
-  return who.user
+  return personOf(who.user)
 }
 
 function scopeOf(runtime: CommentsRuntime, target: CommentSubject): string {
@@ -159,7 +159,7 @@ function announce(who: Caller, context: OperationContext, thread: CommentThread,
     try {
       const readers: CommentUser[] = []
       for (const person of mentioned) {
-        if (await permitted(who, "read", { thread }, person).catch(() => false)) readers.push(person)
+        if (await permitted(who, "read", { thread }, person).catch(() => false)) readers.push(personOf(person))
       }
       if (readers.length) await onMention({ mentioned: readers, message, thread })
     }
@@ -253,6 +253,7 @@ const create = defineOperation({
   name: "comments.create",
   run: async (input, context): Promise<CommentThread> => {
     const who = await caller(context)
+    await allow(who, "read", { subject: input.subject })
     await allow(who, "write", { subject: input.subject })
     noAttachments(input.attachments)
     const person = author(who)
@@ -378,6 +379,7 @@ const users = defineOperation({
   name: "comments.users",
   run: async (input, context): Promise<CommentUser[]> => {
     const who = await caller(context)
+    await allow(who, "read")
     // Only people who can write mention anyone, so only they get suggestions.
     await allow(who, "write")
     const query = input.query.trim()

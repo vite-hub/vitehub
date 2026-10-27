@@ -515,12 +515,13 @@ describe("onMention", () => {
   it("runs for the mentioned people who may read the thread, and the mention stays in the text", async () => {
     const seen: string[][] = []
     const readers = ({ action, user }: { action: string, user: CommentUser | null }) => action !== "read" || user?.id !== "cat"
-    const { store } = await setup(defineComments({ authorize: readers, onMention: event => void seen.push(event.mentioned.map(person => person.id)) }))
+    const { store } = await setup()
     const cat = { id: "cat", name: "Cat" }
     for (const person of [ben, cat]) {
       signedIn = person
       await create(`${person.name} was here`)
     }
+    installComments({ definition: defineComments({ authorize: readers, onMention: event => void seen.push(event.mentioned.map(person => person.id)) }), store })
     signedIn = ana
     const thread = await create("Look @Ben and @Cat", { mentions: ["ben", "cat"] })
     await Promise.all(pending.splice(0))

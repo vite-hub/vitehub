@@ -3,8 +3,8 @@ import type { CommentActor, CommentMessage, CommentSubject, CommentThread, Comme
 export type CommentAction = "read" | "write" | "resolve" | "delete"
 
 export interface CommentsAuthorizeContext {
-  /** The signed-in user, or null. */
-  user: CommentUser | null
+  /** The signed-in user, including application fields such as `role`, or null. */
+  user: (CommentUser & Record<string, unknown>) | null
   /** The Agent Actor when an agent acts for `user`. */
   actor?: CommentActor
   action: CommentAction
