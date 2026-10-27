@@ -7,7 +7,7 @@ import { defineComments } from "../src/index.ts"
 
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=4\" data-vitehub-page-tools></script>"
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}): void {
@@ -37,7 +37,7 @@ describe("Comments page tool", () => {
     install({}, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
     expect(await pageSession("person=ada")).toEqual({
       cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
-      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js" }] },
+      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true }] },
     })
     expect(await pageSession("person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
     // Without authorize, anonymous people may not read.

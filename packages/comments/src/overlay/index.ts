@@ -135,6 +135,8 @@ class CommentsOverlay extends HTMLElement {
   private openThread?: string
   private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
   private panel = false
+  private pageWindow?: ReturnType<ViteHubPageToolContext["createWindow"]>
+  private panelBody?: HTMLElement
   private showResolved = false
   private room?: RealtimeRoom
   private frame = 0
@@ -152,6 +154,7 @@ class CommentsOverlay extends HTMLElement {
     this.root.append(this.layer, this.cursors, this.floating)
     this.layer.append(this.outlines, this.pins)
     const bar = this.context?.bar
+    if (bar) bar.tabIndex = -1
     if (bar) {
       // Hidden until the session allows the overlay, so the pill shows no empty segment.
       bar.hidden = true
@@ -177,6 +180,9 @@ class CommentsOverlay extends HTMLElement {
     await this.load()
     this.joinRoom()
     this.openFromHash()
+    this.context?.onOpen(() => this.showPanel())
+    this.context?.beforeExit(() => !this.hasUnsentComment() || window.confirm("Turn off tools without sending your comment?"))
+    if (this.context?.open) this.showPanel()
   }
 
   disconnectedCallback() {
@@ -261,7 +267,7 @@ class CommentsOverlay extends HTMLElement {
   private ours(event: Event): boolean {
     const path = event.composedPath()
     const pill = this.context?.bar.parentElement
-    return path.includes(this) || Boolean(pill && path.includes(pill))
+    return path.includes(this) || path.some(node => node instanceof Element && node.localName === "vitehub-window") || Boolean(pill && path.includes(pill))
   }
 
   private elementAt(x: number, y: number): Element | undefined {
@@ -471,6 +477,8 @@ class CommentsOverlay extends HTMLElement {
     if (!field) return
     const [error, value] = await api.field(field)
     if (error) return this.failed(error)
+    const path = `/content/${encodeURIComponent(value.collection)}/${value.id.split("/").map(encodeURIComponent).join("/")}`
+    if (await this.context?.openTool("content", path)) return
     if (!value.editable || value.value === null) {
       this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", "/_vitehub/content"] })
       return
@@ -553,9 +561,8 @@ class CommentsOverlay extends HTMLElement {
       session.content && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
       h("span", { className: "sep" }),
       h("button", { className: "tool", "aria-pressed": String(this.panel), title: "Comments on this page", "aria-label": `Comments on this page, ${count}`, onClick: () => {
-        this.panel = !this.panel
-        this.renderToolbar()
-        this.render()
+        if (this.panel) this.pageWindow?.hide()
+        else this.showPanel()
       } }, icons.list(), String(open)),
       avatars.length > 0 && h("span", { className: "people", "aria-label": `${people.length} on this page` }, ...avatars),
     ))
@@ -669,16 +676,44 @@ class CommentsOverlay extends HTMLElement {
     card.style.top = `${top}px`
   }
 
+  private hasUnsentComment(): boolean {
+    return [...this.floating.querySelectorAll<HTMLTextAreaElement>("textarea"), ...this.panelBody?.querySelectorAll<HTMLTextAreaElement>("textarea") ?? []].some(input => input.value.trim().length > 0)
+  }
+
+  private showPanel() {
+    if (!this.context) return
+    if (!this.pageWindow) {
+      this.pageWindow = this.context.createWindow({
+        id: "comments", title: "Comments", trigger: this.context.bar,
+        onHide: () => { this.panel = false; this.renderToolbar() },
+      })
+      const host = document.createElement("div")
+      const shadow = host.attachShadow({ mode: "open" })
+      this.panelBody = h("div", { className: "root" })
+      shadow.append(h("style", {}, overlayStyles + `
+        :host{display:block;height:100%}.root{position:static;height:100%;pointer-events:auto}
+        .panel,.card{position:static;width:auto;max-width:none;max-height:none;border:0;border-radius:0;box-shadow:none}
+        .panel-head>.title h2,.panel-head>.icon{display:none}.panel-list{max-height:40vh}
+        .card{border-top:1px solid var(--line)}
+      `), this.panelBody)
+      this.pageWindow.body.append(host)
+    }
+    this.panel = true
+    this.pageWindow.show()
+    this.renderToolbar()
+    this.render()
+  }
+
   private renderFloating() {
     const nodes: Node[] = []
-    if (this.panel) nodes.push(this.renderPanel())
+
     if (this.draft) {
       const card = this.renderComposer()
       this.place(card, this.draft.x, this.draft.y)
       nodes.push(card)
     }
     const thread = this.threads.find(candidate => candidate.id === this.openThread)
-    if (thread) {
+    if (thread && !this.panel) {
       const placed = placeAnchor(thread.anchor)
       const card = this.renderThread(thread)
       if (placed.state !== "hidden") this.place(card, placed.x, placed.y)
@@ -688,6 +723,16 @@ class CommentsOverlay extends HTMLElement {
     if (this.toast) nodes.push(this.toast)
     // Keep focus and typed text: only replace the cards when what they show changed.
     const key = JSON.stringify([this.panel, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, this.threads.length, Boolean(this.toast)])
+    if (this.panelBody && this.panel && this.panelBody.dataset.key !== key) {
+      const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, input.value]))
+      this.panelBody.dataset.key = key
+      this.panelBody.dataset.theme = hostIsDark() ? "dark" : "light"
+      this.panelBody.replaceChildren(this.renderPanel(), ...(thread ? [this.renderThread(thread)] : []))
+      for (const input of this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")) {
+        const draft = drafts.get(input.closest<HTMLElement>("[data-card]")?.dataset.card)
+        if (draft) { input.value = draft; input.dispatchEvent(new Event("input", { bubbles: true })) }
+      }
+    }
     if (this.floating.dataset.key === key) {
       for (const card of this.floating.querySelectorAll<HTMLElement>(".card")) {
         const fresh = nodes.find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.card === card.dataset.card)

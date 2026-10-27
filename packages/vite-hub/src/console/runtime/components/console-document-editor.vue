@@ -347,6 +347,13 @@ const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compac
 const deleted = computed(() => !creating.value && !loading.value && !base.value && state.value === "deleted");
 // A singleton that was never saved opens with its defaults instead.
 const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !loadError.value && state.value !== "deleted");
+watch(dirty, value => {
+  if (window.parent !== window) window.parent.postMessage({ type: "vitehub:dirty", dirty: value }, location.origin);
+}, { immediate: true });
+onBeforeUnmount(() => {
+  if (window.parent !== window) window.parent.postMessage({ type: "vitehub:dirty", dirty: false }, location.origin);
+});
+
 const publishable = computed(() => canPublish.value && !creating.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
 const title = computed(() => {
   if (single.value) return props.collection.label;

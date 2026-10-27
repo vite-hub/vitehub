@@ -183,7 +183,7 @@ export async function readCommentsComponents(root: string, limit = 5000): Promis
 }
 
 const overlayBaseURL = `${commentsRoute}/assets`
-const version = "2"
+const version = "3"
 
 /** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
 function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], value: string } {

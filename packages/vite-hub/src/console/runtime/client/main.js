@@ -266,6 +266,7 @@ const appearance = startConsoleAppearance({
 });
 
 router.beforeEach(async (to) => {
+  if (window.parent !== window && to.query.embed !== "1") return { ...to, query: { ...to.query, embed: "1" } };
   if (to.matched.length === 0) {
     // Contributed section routes exist only after the navigation response arrives.
     const navigation = await loadConsoleNavigation(sectionsBase);
@@ -300,3 +301,17 @@ createApp(App)
 const loadMathStyles = () => void import("katex/dist/katex.min.css");
 if ("requestIdleCallback" in window) window.requestIdleCallback(loadMathStyles, { timeout: 2_000 });
 else setTimeout(loadMathStyles, 0);
+
+// Only the same-origin parent can navigate this editor; Vue Router runs its save/leave guards.
+if (window.parent !== window) {
+  window.addEventListener("keydown", event => {
+    if (event.key === "Escape" && !event.defaultPrevented) window.parent.postMessage({ type: "vitehub:minimize" }, location.origin);
+  });
+  window.addEventListener("message", (event) => {
+    if (event.origin !== location.origin || event.source !== window.parent) return;
+    const data = event.data;
+    if (data?.type === "vitehub:navigate" && typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//") && !data.path.includes("\\")) void router.push(data.path);
+  });
+  router.afterEach((to) => window.parent.postMessage({ type: "vitehub:route", path: to.fullPath }, location.origin));
+  void router.isReady().then(() => window.parent.postMessage({ type: "vitehub:ready" }, location.origin));
+}

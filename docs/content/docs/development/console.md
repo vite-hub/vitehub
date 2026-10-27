@@ -400,7 +400,7 @@ All Console paths in this guide include the resolved Vite `base` pathname. With 
 
 ### Open the Console from the app's pages
 
-The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** link that opens `/_vitehub` (below the app base, such as `/docs/_vitehub`) in a new tab, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
+The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
 The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill.
 
@@ -622,3 +622,15 @@ Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combi
 Open the right panel's tab chooser and select **Capabilities**. Select a Capability to inspect its recorded data and tools. MCP groups tools by server and preserves original tool names and schemas. Title shows its generation settings, progress, and result. Other Capabilities have a default tools and configuration view.
 
 The panel reads the selected Invocation's snapshots. It does not run MCP discovery or title generation. Missing or truncated capture is marked. Developers can [contribute a read-only view](/docs/agents/capabilities/custom#contribute-an-inspection-view) with the shared JSON Render component catalog.
+
+## Work from a page
+
+After opening the Console, return to any application page. The ViteHub pill stays available while its hint cookie is present. You can also open a page with `?vitehub`. The server checks each tool's access; the cookie grants no permissions. Ordinary signed-out visitors do not get the editor.
+
+Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include it. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
+
+Expand or minimize the window without losing the selected document or unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
+
+The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
+
+Comments uses the same expandable window for the current page's thread list and replies. When Content access is available, Comments' **Edit** action opens the document editor. Without that access, its existing plain-text field editing remains available according to the Comments and Content policies.

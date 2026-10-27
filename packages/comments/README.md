@@ -77,3 +77,9 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 - [Comments](https://vitehub.dev/docs/comments) covers access, guests, mentions, hosts, and errors.
 - [Content](https://vitehub.dev/docs/content) covers collections, drafts, and publishing.
 - [Realtime](https://vitehub.dev/docs/realtime) covers room authorities.
+
+### Floating window
+
+Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
+
+With access to the Content page tool, selecting **Edit** and a marked field opens that document in the existing Content editor. Otherwise Comments keeps its plain-text inline editor. The Content write and publish rules do not change.

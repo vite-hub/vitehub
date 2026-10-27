@@ -2,6 +2,8 @@ import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/inte
 
 import type { ViteHubPageToolsInstallOptions } from "@vite-hub/internal/runtime/page-tools"
 
+import { getConsoleSections } from "./sections.ts"
+
 import { consoleAllowsRequest } from "./access.ts"
 
 /**
@@ -11,7 +13,7 @@ import { consoleAllowsRequest } from "./access.ts"
 const script = "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__"
 
 /**
- * Registers the `console` page tool: a link to the Console in the page tools pill. The Console access policy decides
+ * Registers the Console and Content windows in the page tools pill. The Console access policy decides
  * who gets it, so in `local` mode only the development server shows it. Generated Console output calls this with the
  * app base.
  */
@@ -20,8 +22,12 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
     id: "console",
     label: "Console",
     icon: "i-lucide-square-terminal",
-    script,
+    script, lazy: true,
     allowed: ({ event }) => consoleAllowsRequest(event),
+  })
+  registerViteHubPageTool({
+    id: "content", label: "Content", icon: "i-lucide-file-pen", script, lazy: true,
+    allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content"),
   })
   installViteHubPageTools(nitroApp, options)
 }
