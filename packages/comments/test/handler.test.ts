@@ -81,6 +81,20 @@ describe("Comments API", () => {
     expect(threads.body.error?.code).toBe("COMMENTS_FORBIDDEN")
   })
 
+  it("reports per-thread permissions separately from new-thread permissions", async () => {
+    const { comments, call } = await setup({ options: {
+      authorize: ({ user, action, thread }) => action === "read" || thread?.createdBy.id === user?.id,
+    } })
+    const [, own] = await comments.create({ page: "/", anchor, body: "Mine", author: { id: "ada", name: "Ada" } })
+    await comments.create({ page: "/", anchor, body: "Theirs", author: { id: "lin", name: "Lin" } })
+    expect((await call("/session")).body.data.can).toEqual({ read: true, comment: false, resolve: false })
+    const listed = (await call("/threads?page=/")).body.data
+    expect(listed.find((item: { id: string }) => item.id === own!.id).can).toEqual({ comment: true, resolve: true })
+    expect(listed.find((item: { id: string }) => item.id !== own!.id).can).toEqual({ comment: false, resolve: false })
+    const resolved = await call(`/threads/${own!.id}/resolve`, { method: "POST" })
+    expect(resolved.body.data.can).toEqual({ comment: true, resolve: true })
+  })
+
   it("creates, lists, replies, resolves, and deletes through HTTP", async () => {
     const { call } = await setup()
     const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, body: "Looks off" } })

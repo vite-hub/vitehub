@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { defineCommentsPlugin, injectOverlay, wantsCommentMode } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
+import { commentsApiRoute } from "../src/page.ts"
 
 function streamed(chunks: string[], type = "text/html; charset=utf-8"): Response {
   const encoder = new TextEncoder()
@@ -14,6 +15,15 @@ function streamed(chunks: string[], type = "text/html; charset=utf-8"): Response
 }
 
 describe("overlay injection", () => {
+  it("uses the script's application mount for API calls and HTML injection", () => {
+    expect(commentsApiRoute("https://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/api/_vitehub/comments")
+    expect(commentsApiRoute("https://site.test/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/api/_vitehub/comments")
+    expect(wantsCommentMode(new Request("http://site.test/portal/?comments"), "/portal")).toBe(true)
+    expect(wantsCommentMode(new Request("http://site.test/portal/_vitehub/content?comments"), "/portal")).toBe(false)
+    expect(wantsCommentMode(new Request("http://site.test/portal/api/x?comments"), "/portal")).toBe(false)
+    expect(wantsCommentMode(new Request("http://site.test/other?comments"), "/portal")).toBe(false)
+  })
+
   it("asks for comment mode with ?comments or the hint cookie, never on Console or API routes", () => {
     expect(wantsCommentMode(new Request("http://site.test/pricing?comments"))).toBe(true)
     expect(wantsCommentMode(new Request("http://site.test/", { headers: { cookie: "a=1; vitehub-comments=1" } }))).toBe(true)

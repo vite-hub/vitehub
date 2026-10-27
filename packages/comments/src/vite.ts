@@ -3,12 +3,12 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
-import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
-import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute } from "./page.ts"
+import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -75,7 +75,15 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
   const module = scanModule(source, file)
   if (module.errors.length) return
   const bindings = new Set<string>()
+  const factories = new Set(["defineComments"])
   for (const statement of module.program.body) {
+    if (statement.type === "ImportDeclaration" && statement.importKind !== "type" && ["vite-hub/comments", "@vite-hub/comments"].includes(statement.source.value)) {
+      for (const specifier of statement.specifiers) {
+        if (specifier.type !== "ImportSpecifier" || specifier.importKind === "type") continue
+        const name = specifier.imported.type === "Identifier" ? specifier.imported.name : specifier.imported.value
+        if (name === "defineComments") factories.add(specifier.local.name)
+      }
+    }
     if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
     if (statement.declaration?.type === "VariableDeclaration") {
       for (const declaration of statement.declaration.declarations) {
@@ -93,7 +101,7 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
     for (const binding of declaration.declarations) {
       if (binding.id.type !== "Identifier" || !bindings.has(binding.id.name) || !binding.init) continue
       const call = unwrapExpression(binding.init)
-      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineComments") continue
+      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || !factories.has(call.callee.name)) continue
       const options = argumentExpression(call.arguments[0])
       if (options?.type !== "ObjectExpression") return
       for (const property of objectProperties(options).reverse()) {
@@ -115,7 +123,6 @@ export function commentsOverlayDirectory(): string {
   return here.endsWith("src") ? resolve(here, "../dist/overlay") : resolve(here, "overlay")
 }
 
-const overlayBaseURL = `${commentsRoute}/assets`
 const version = "1"
 
 /** Generated session reader: the ViteHub Auth user of a request. */
@@ -148,7 +155,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, base?: string }): string {
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
@@ -167,7 +174,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -182,6 +189,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let realtime = false
+  let route = commentsRoute
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
 
   return {
@@ -215,7 +223,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
             if (!definition) return []
             return [{
               fields: [
-                { label: "Route", value: `${commentsRoute}/**` },
+                { label: "Route", value: `${route}/**` },
                 { label: "Presence", value: realtime ? `Realtime Definition "${commentsRealtimeDefinition}"` : "off: the host has no Realtime authority" },
                 { label: "Comment mode", value: `?${commentsHintQuery} or the ${commentsHintCookie} cookie` },
               ],
@@ -245,7 +253,9 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     config: {
       async handler(config) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
-        const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
+        const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], [VITEHUB_APP_BASE_URL]?: string }
+        const base = viteConfig[VITEHUB_APP_BASE_URL] ?? config.base
+        route = mountedCommentsRoute(base)
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
@@ -259,16 +269,16 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         await mkdir(directory, { recursive: true })
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), auth: options.auth ?? false, realtime, imports })),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, base })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, route: `${commentsRoute}/**` })
+        kit.addHandler({ handler, route: `${route}/**` })
         kit.addPlugin(plugin)
         const nitro = kit.config
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
         const overlay = commentsOverlayDirectory()
         if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "dir") === overlay)) {
-          assets.push({ baseURL: overlayBaseURL, dir: overlay, maxAge: 300 })
+          assets.push({ baseURL: `${route}/assets`, dir: overlay, maxAge: 300 })
         }
         nitro.publicAssets = assets
         Reflect.set(config, "nitro", nitro)
@@ -277,7 +287,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     // A single page app whose `index.html` Vite serves: load the overlay in the browser when the hint is present.
     transformIndexHtml() {
       if (!discover()) return
-      const src = `${overlayBaseURL}/overlay.js?v=${version}`
+      const src = `${route}/assets/overlay.js?v=${version}`
       return [{
         tag: "script",
         attrs: { type: "module" },

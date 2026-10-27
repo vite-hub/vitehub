@@ -1,4 +1,4 @@
-import { commentsRoute } from "../page.ts"
+import { commentsApiRoute } from "../page.ts"
 
 import type { Comment, CommentAnchor, CommentAuthor, CommentMention, CommentThread } from "../types.ts"
 
@@ -7,6 +7,11 @@ export interface CommentsSession {
   can: { read: boolean, comment: boolean, resolve: boolean }
   realtime: boolean
   content: boolean
+}
+
+/** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
+export interface CommentsThread extends CommentThread {
+  can?: { comment: boolean, resolve: boolean }
 }
 
 export interface CommentsField {
@@ -28,6 +33,7 @@ export interface CommentsApiError {
 export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 
 const guestKey = "vitehub-comments-guest"
+const route = commentsApiRoute(import.meta.url)
 
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
@@ -54,7 +60,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
   }
   let response: Response
   try {
-    response = await fetch(`${commentsRoute}${path}`, { ...init, headers, credentials: "same-origin" })
+    response = await fetch(`${route}${path}`, { ...init, headers, credentials: "same-origin" })
   }
   catch {
     return [{ code: "COMMENTS_OFFLINE", why: "The server cannot be reached." }, undefined]
@@ -71,11 +77,11 @@ const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.strin
 
 export const api = {
   session: () => call<CommentsSession>("/session"),
-  threads: (page: string) => call<CommentThread[]>(`/threads?page=${encodeURIComponent(page)}`),
-  create: (input: { page: string, anchor: CommentAnchor, body: string, mentions: CommentMention[] }) => call<CommentThread>("/threads", post(input)),
+  threads: (page: string) => call<CommentsThread[]>(`/threads?page=${encodeURIComponent(page)}`),
+  create: (input: { page: string, anchor: CommentAnchor, body: string, mentions: CommentMention[] }) => call<CommentsThread>("/threads", post(input)),
   reply: (thread: string, input: { body: string, mentions: CommentMention[] }) => call<Comment>(`/threads/${encodeURIComponent(thread)}/comments`, post(input)),
-  resolve: (thread: string) => call<CommentThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
-  reopen: (thread: string) => call<CommentThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
+  resolve: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
+  reopen: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
   remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
   removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
   people: (query: string) => call<CommentMention[]>(`/people?q=${encodeURIComponent(query)}`),
