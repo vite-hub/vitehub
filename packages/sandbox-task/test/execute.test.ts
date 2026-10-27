@@ -259,6 +259,70 @@ function createFakeSandbox(options: { execError?: Error, execResult?: SandboxExe
 }
 
 describe("executeSandboxTaskDefinition", () => {
+  describe.each(["cloudflare", "vercel"] as const)("complete %s output", (provider) => {
+    it.each(["null", "false", "true", "0", "42", '""', '"ready"', "[]", "{}"])("rejects %s at final validation without polling", async (output) => {
+      const { sandbox } = createFakeSandbox({
+        provider,
+        async onExecute({ args, write }) {
+          write(args.at(-1)!, new TextEncoder().encode(output))
+          return { ok: true, stdout: "", stderr: "", code: 0 }
+        },
+      })
+      const readFile = vi.spyOn(sandbox, "readFile")
+
+      await expect(executeSandboxTaskDefinition(sandbox, "complete-output", undefined, {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      })).rejects.toMatchObject({
+        code: "SANDBOX_TASK_HANDLER_ERROR",
+        message: "Sandbox Task Definition output is not valid JSON.",
+        details: { output },
+      })
+      expect(readFile).toHaveBeenCalledTimes(1)
+    })
+
+    it("returns an immediate valid result with one output read", async () => {
+      const { sandbox } = createFakeSandbox({ provider })
+      const readFile = vi.spyOn(sandbox, "readFile")
+
+      await expect(executeSandboxTaskDefinition(sandbox, "complete-output", undefined, {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => ({ ok: true })" },
+      })).resolves.toEqual({ ok: true })
+      expect(readFile).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  describe.each(["partial output", "whitespace output", "transport error"])("Cloudflare recovery after %s", (failure) => {
+    it.each(["null", "false", "0", '""'])("stops polling at complete %s and reports the invalid envelope", async (output) => {
+      const { sandbox } = createFakeSandbox({
+        provider: "cloudflare",
+        async onExecute({ args, write }) {
+          write(args.at(-1)!, new TextEncoder().encode(output))
+          if (failure === "transport error")
+            throw Object.assign(new Error("transport unavailable"), { code: "SANDBOX_TASK_TRANSPORT_ERROR", provider: "cloudflare" })
+          return { ok: true, stdout: "", stderr: "", code: 0 }
+        },
+      })
+      const readFile = vi.spyOn(sandbox, "readFile")
+      if (failure !== "transport error")
+        readFile.mockResolvedValueOnce(failure === "partial output" ? '{"ok":' : " \n\t")
+
+      await expect(executeSandboxTaskDefinition(sandbox, "recover-output", undefined, {
+        entry: "definition.mjs",
+        execution: "module",
+        modules: { "definition.mjs": "export default async () => true" },
+      })).rejects.toMatchObject({
+        code: "SANDBOX_TASK_HANDLER_ERROR",
+        message: "Sandbox Task Definition output is not valid JSON.",
+        details: { output },
+      })
+      expect(readFile).toHaveBeenCalledTimes(failure === "transport error" ? 1 : 2)
+    })
+  })
+
   it.each([false, true])("tracks inner execution after cancellation when cleanup rejects=%s", async (rejectCleanup) => {
     const { sandbox, execCalls } = createFakeSandbox({ holdExecution: true, provider: "cloudflare" })
     const cleanupError = new Error("cleanup failed")

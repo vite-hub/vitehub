@@ -64,7 +64,7 @@ const vercelBlobMock = vi.hoisted(() => ({
     uploadedAt: new Date("2026-01-01T00:00:00.000Z"),
     url: `https://blob.example/${pathname}`,
   })),
-  list: vi.fn(async () => ({
+  list: vi.fn(async (_options?: unknown) => ({
     blobs: [],
     hasMore: false,
   })),
@@ -419,6 +419,52 @@ describe("blob runtime", () => {
       access: "public",
       token: "secret-token",
     }))
+  })
+
+  it.each([undefined, false, true])("preserves Vercel list options and result shape with folded %s", async (folded) => {
+    const { createDriver } = await import("../src/drivers/vercel.ts")
+    const driver = createDriver({ access: "public", driver: "vercel-blob", token: "default-token" })
+    const reads: string[] = []
+    vercelBlobMock.list.mockImplementationOnce(async () => ({
+      blobs: [],
+      cursor: "next-page",
+      get folders() {
+        reads.push("folders")
+        return []
+      },
+      hasMore: true,
+    }))
+
+    const result = await driver.list({
+      get folded() {
+        reads.push("folded")
+        return folded
+      },
+      get cursor() {
+        reads.push("cursor")
+        return "opaque+/=cursor"
+      },
+      get limit() {
+        reads.push("limit")
+        return 7
+      },
+      get prefix() {
+        reads.push("prefix")
+        return "a/"
+      },
+    })
+
+    expect(reads).toEqual(folded ? ["folded", "cursor", "limit", "prefix", "folders"] : ["folded", "cursor", "limit", "prefix"])
+    expect(vercelBlobMock.list).toHaveBeenCalledExactlyOnceWith({
+      token: "default-token",
+      cursor: "opaque+/=cursor",
+      limit: 7,
+      ...(folded ? { mode: "folded" } : {}),
+      prefix: "a/",
+    })
+    expect(Object.keys(vercelBlobMock.list.mock.calls[0]?.[0] ?? {})).toEqual(folded ? ["token", "cursor", "limit", "mode", "prefix"] : ["token", "cursor", "limit", "prefix"])
+    expect(result).toEqual({ blobs: [], cursor: "next-page", ...(folded ? { folders: [] } : {}), hasMore: true })
+    expect(Object.keys(result)).toEqual(folded ? ["blobs", "cursor", "folders", "hasMore"] : ["blobs", "cursor", "hasMore"])
   })
 
   it("preserves provider cursors for folded Vercel listings", async () => {

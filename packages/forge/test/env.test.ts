@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm"
+
 import { providersFromEnv } from "forges/env"
 import { describe, expect, it } from "vitest"
 
@@ -36,6 +38,16 @@ describe("forgeEnv", () => {
 })
 
 describe("readForgeEnv", () => {
+  it.each([
+    [{ VITEHUB_GITHUB_TOKEN: " canonical ", FORGES_GITHUB_TOKEN: "fallback" }, "canonical"],
+    [{ VITEHUB_GITHUB_TOKEN: " ", FORGES_GITHUB_TOKEN: " fallback " }, "fallback"],
+    [{ VITEHUB_GITHUB_TOKEN: 1, FORGES_GITHUB_TOKEN: " fallback " }, "fallback"],
+  ])("reads environment values through a callback from another realm: %j", (bindings, expected) => {
+    const lookup: (name: string) => unknown = runInNewContext("name => bindings[name]", { bindings })
+
+    expect(readForgeEnv(forgeEnv.github.token, lookup)).toBe(expected)
+  })
+
   it("reads the VITEHUB_ name first, then the FORGES_ name", () => {
     expect(readForgeEnv(forgeEnv.github.token, { FORGES_GITHUB_TOKEN: "forges", VITEHUB_GITHUB_TOKEN: "vitehub" })).toBe("vitehub")
     expect(readForgeEnv(forgeEnv.github.token, { FORGES_GITHUB_TOKEN: " forges ", VITEHUB_GITHUB_TOKEN: " " })).toBe("forges")

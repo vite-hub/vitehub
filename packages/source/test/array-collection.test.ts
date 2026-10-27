@@ -262,6 +262,25 @@ describe("array()", () => {
       await expect(query(collection, { "authors.name": "ada", category: "GUIDE" }, first.nextCursor!, 2)).resolves.toMatchObject({ items: [{ slug: "gamma" }] })
     })
 
+    it("accepts equivalent numeric-looking filters and rejects changed values", async () => {
+      const items = [
+        { "2": "two", "10": "ten", "02": "padded", category: "guide", id: "first" },
+        { "2": "two", "10": "ten", "02": "padded", category: "guide", id: "second" },
+        { "2": "other", "10": "ten", "02": "padded", category: "guide", id: "excluded" },
+      ]
+      const collection = defineCollection({ source: array(items, { filters: ["2", "10", "02", "category"] }) })
+      const first = await collection.page({
+        limit: 1,
+        query: await collection.parseQuery({ category: "GUIDE", "02": "PADDED", "10": ["TEN", "ten"], "2": "TWO" }),
+      })
+      expect(first).toMatchObject({ items: [items[0]], total: 2, nextCursor: expect.any(String) })
+      const equivalent = await collection.parseQuery({ "2": ["two", "TWO"], "10": "ten", "02": "padded", category: "guide" })
+      await expect(collection.page({ cursor: first.nextCursor!, limit: 1, query: equivalent }))
+        .resolves.toMatchObject({ items: [items[1]], total: 2, nextCursor: null })
+      await expect(collection.page({ cursor: first.nextCursor!, query: { ...equivalent, "2": ["other"] } }))
+        .rejects.toMatchObject({ reason: "stale" })
+    })
+
     it("rejects cursors after the data changes, by digest or by content hash", async () => {
       let snapshot: { items: Item[], digest?: string } = { digest: "v1", items: records }
       const digested = articles(() => snapshot)

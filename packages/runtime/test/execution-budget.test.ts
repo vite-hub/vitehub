@@ -39,6 +39,35 @@ describe("ExecutionBudget", () => {
     expect(() => inputBudget.recordToolCall(7)).toThrow("inputBytes")
   })
 
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, -1])("rejects invalid tool input bytes %s without charging or cancelling", (inputBytes) => {
+    const budget = createExecutionBudget({ maxInputBytes: 3, maxToolCalls: 1 })
+    try {
+      expect(() => budget.recordToolCall(inputBytes)).toThrow(RangeError)
+      expect(budget.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
+      expect(budget.signal.aborted).toBe(false)
+
+      budget.recordToolCall(3)
+      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 3, toolCalls: 1 })
+    }
+    finally {
+      budget.dispose()
+    }
+  })
+
+  it.each([undefined, 0])("allows a tool call with %s input bytes after the parent's byte usage exceeds the child's limit", (inputBytes) => {
+    const budget = createExecutionBudget({ maxInputBytes: 3 })
+    try {
+      budget.recordInputBytes(3)
+      const child = budget.child({ maxInputBytes: 0 })
+      child.recordToolCall(inputBytes)
+      expect(budget.snapshot().usage).toMatchObject({ inputBytes: 3, toolCalls: 1 })
+      expect(child.signal.aborted).toBe(false)
+    }
+    finally {
+      budget.dispose()
+    }
+  })
+
   it("aborts on byte exhaustion and detaches external cancellation listeners", () => {
     const controller = new AbortController()
     const removeListener = vi.spyOn(controller.signal, "removeEventListener")

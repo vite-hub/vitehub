@@ -5,10 +5,11 @@ import { createRequestScheduler } from "./requests.ts"
 import { providerAccount } from "./account.ts"
 import { createConnectionTransport, isMcpEndpoint } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
-import { connectionResult, isConnectionError, isEnvBridgeError } from "./errors.ts"
+import { isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
 import { isLoginProvider } from "./oauth-login.ts"
+import { codeChallenge, randomToken } from "./internal/oauth-crypto.ts"
 import { createLoginSessions } from "./runtime/login.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
@@ -156,18 +157,6 @@ const approvalInputSchema = v.variant("kind", [
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
   return v.is(v.string(), value) || value === undefined ? value : await value()
-}
-
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-function randomToken(): string {
-  return base64Url(crypto.getRandomValues(new Uint8Array(32)))
-}
-
-async function codeChallenge(verifier: string): Promise<string> {
-  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))
 }
 
 function tokenKey(name: string): string {
@@ -601,7 +590,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   /** Reject a failed typed method response. Raw `fetch` returns every response. */
-  async function checkResponse(context: CallContext, providerRequest: ProviderRequest, response: Response): Promise<Response> {
+  async function checkResponse(providerRequest: ProviderRequest, response: Response): Promise<Response> {
     if (response.ok || providerRequest.action === "fetch") return response
     const message = await providerMessage(response)
     throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ action: providerRequest.action, message, status: response.status })
@@ -638,7 +627,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       await record("started")
       let response: Response
       try {
-        response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+        response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
       }
       catch (error) {
         await record("failed").catch(() => undefined)
@@ -682,7 +671,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             token = await refresh(context.name, context.definition, token.accessToken, true)
             response = await call(token)
           }
-          return await checkResponse(context, providerRequest, response)
+          return await checkResponse(providerRequest, response)
         }
         catch (error) {
           failure = error
@@ -721,7 +710,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         token = await logins.token(context.name, loaded, token.accessToken)
         response = await dispatch(context, providerRequest, init, token)
       }
-      response = await checkResponse(context, providerRequest, response)
+      response = await checkResponse(providerRequest, response)
       await record("succeeded").catch(() => undefined)
       return response
     }
