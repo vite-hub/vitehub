@@ -47,7 +47,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
 
-    registerViteHubPageTool({
+    registerViteHubPageTool(nitroApp, {
       id: "comments",
       label: "Comments",
       icon: "i-lucide-message-square-text",

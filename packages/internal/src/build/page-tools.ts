@@ -1,4 +1,4 @@
-import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery } from "../runtime/page-tools-shared.ts"
+import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsInlineScript, viteHubPageToolsMarker } from "../runtime/page-tools-shared.ts"
 
 import type { NitroServerKit } from "../nitro-kit.ts"
 
@@ -80,8 +80,7 @@ export function viteHubPageToolsBase(config: unknown, env: Record<string, string
  */
 export function viteHubPageToolsIndexHtml(html: string, base: string | undefined): string | undefined {
   if (html.includes(viteHubPageToolsMarker)) return undefined
-  const hint = `new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)})`
-  const script = `<script type="module" ${viteHubPageToolsMarker}>if(${hint})import(${JSON.stringify(`${viteHubBasePath(base)}${viteHubPageToolsLoader}`)})</script>`
+  const script = viteHubPageToolsInlineScript(base)
   const index = html.search(/<\/body\s*>/i)
   return index === -1 ? `${html}${script}` : `${html.slice(0, index)}${script}${html.slice(index)}`
 }

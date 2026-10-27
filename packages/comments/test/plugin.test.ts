@@ -10,7 +10,7 @@ import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=4\" data-vitehub-page-tools></script>"
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
-function install(nitroApp: unknown, options: DefineCommentsOptions = {}): void {
+function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
   const warn = console.warn
   console.warn = () => {}
   const session = async (event: unknown): Promise<CommentsUser | null> => {
@@ -18,13 +18,13 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}): void {
     const person = request instanceof Request ? /person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
-  defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay: "/o.js", session })(nitroApp)
+  defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay, session })(nitroApp)
   console.warn = warn
 }
 
-async function pageSession(cookie: string) {
+async function pageSession(app: object, cookie: string) {
   const request = new Request("http://site.test/_vitehub/page/session", { headers: { cookie } })
-  const response = await respondViteHubPageSession(request, { req: request })
+  const response = await respondViteHubPageSession(app, request, { req: request })
   return { cookie: response.headers.get("set-cookie"), body: await response.json() }
 }
 
@@ -33,16 +33,28 @@ beforeEach(() => {
 })
 
 describe("Comments page tool", () => {
+  it("keeps each app's overlay URL and authorization when another app installs Comments", async () => {
+    const appA = {}
+    const appB = {}
+    install(appA, { authorize: ({ user }) => user?.id === "ada" })
+    install(appB, { authorize: ({ user }) => user?.id === "ben" }, "/b.js")
+    expect((await pageSession(appA, "person=ada")).body.tools[0].script).toBe("/o.js")
+    expect((await pageSession(appB, "person=ada")).body).toEqual({ tools: [] })
+    expect((await pageSession(appB, "person=ben")).body.tools[0].script).toBe("/b.js")
+    expect((await pageSession(appA, "person=ben")).body).toEqual({ tools: [] })
+  })
+
   it("lets a visitor load the overlay when authorize allows read", async () => {
-    install({}, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
-    expect(await pageSession("person=ada")).toEqual({
+    const app = {}
+    install(app, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
+    expect(await pageSession(app, "person=ada")).toEqual({
       cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
       body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true }] },
     })
-    expect(await pageSession("person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
+    expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
     // Without authorize, anonymous people may not read.
-    install({})
-    expect((await pageSession("")).body).toEqual({ tools: [] })
+    install(app)
+    expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })
 
   it("adds the loader to pages with the hint on Nitro 3, never on Console or API routes", async () => {

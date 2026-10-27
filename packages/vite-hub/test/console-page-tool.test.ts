@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
+import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
@@ -15,13 +15,17 @@ import type { ConsoleAccessPolicy } from "../src/console/runtime/server/access.t
 const policyKey = Symbol.for("vitehub.console.access")
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
+function sessionApp() {
+  return { fetch: (request: Request) => pageSessionHandler({ method: "GET", req: request }) }
+}
+
 /** The tools that the page tools session allows for one page request under a Console access policy. */
-async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Record<string, string> = {}) {
+async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Record<string, string> = {}, base = "", app = sessionApp()) {
   if (policy) installConsoleAccess(policy)
   else Reflect.deleteProperty(globalThis, policyKey)
-  installConsolePageTool({})
-  const request = new Request("http://site.test/_vitehub/page/session", { headers })
-  const response = await pageSessionHandler({ method: "GET", req: request })
+  installConsolePageTool(app, { base })
+  const request = new Request(`http://site.test${base}/_vitehub/page/session`, { headers })
+  const response = await app.fetch(request)
   const body: unknown = await response.json()
   return { body, cookie: response.headers.get("set-cookie") }
 }
@@ -33,6 +37,21 @@ afterEach(() => {
 })
 
 describe("the Console page tool", () => {
+  it.each(["comments-first", "console-first"])("excludes mounted Console and API pages regardless of installation order (%s)", async (order) => {
+    const html = "<body>Page</body>"
+    const app = { fetch: (_request: Request) => new Response(html, { headers: { "content-type": "text/html" } }) }
+    registerViteHubPageTool(app, { id: "comments", label: "Comments", icon: "comments", script: "/comments.js", allowed: async () => true })
+    if (order === "comments-first") installViteHubPageTools(app)
+    installConsolePageTool(app, { base: "/portal/" })
+    if (order === "console-first") installViteHubPageTools(app)
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/", "/portal/_vitehub/comments", "/portal/api/data", "/_vitehub", "/api/data"]) {
+      const response = await app.fetch(new Request(`http://site.test${path}?vitehub`, { headers: { cookie: "vitehub-tools=1" } }))
+      expect(await response.text()).toBe(html)
+      expect(response.headers.get("cache-control")).toBeNull()
+    }
+    expect(await (await app.fetch(new Request("http://site.test/portal/pricing?vitehub"))).text()).toContain("data-vitehub-page-tools")
+  })
+
   it("is allowed for people that the Console access policy accepts, for any section", async () => {
     const { body, cookie } = await sessionTools({ mode: "open" })
     expect(body).toEqual({ tools: [{ id: "console", label: "Console", icon: "i-lucide-square-terminal", lazy: true, script: "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
@@ -55,11 +74,12 @@ describe("the Console page tool", () => {
 
   it("keeps other allowed tools when Console access is missing or denied", async () => {
     const comments = { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/comments.js" }
-    registerViteHubPageTool({ ...comments, allowed: async () => true })
+    const app = sessionApp()
+    registerViteHubPageTool(app, { ...comments, allowed: async () => true })
 
     const expected = { body: { tools: [comments] }, cookie: expect.stringContaining("vitehub-tools=1") }
-    await expect(sessionTools(undefined)).resolves.toEqual(expected)
-    await expect(sessionTools({ mode: "open", authorize: async () => false })).resolves.toEqual(expected)
+    await expect(sessionTools(undefined, {}, undefined, app)).resolves.toEqual(expected)
+    await expect(sessionTools({ mode: "open", authorize: async () => false }, {}, undefined, app)).resolves.toEqual(expected)
   })
 
   it("is allowed in local mode only on the development server", async () => {
@@ -72,7 +92,9 @@ describe("the Console page tool", () => {
   it("is not registered while no Console output installed it", async () => {
     installConsoleAccess({ mode: "open" })
     const request = new Request("http://site.test/_vitehub/page/session")
-    await expect((await pageSessionHandler({ req: request })).json()).resolves.toEqual({ tools: [] })
+    const app = sessionApp()
+    installViteHubPageTools(app)
+    await expect((await app.fetch(request)).json()).resolves.toEqual({ tools: [] })
   })
 })
 
@@ -98,7 +120,11 @@ describe("the Console Nitro configuration", () => {
     }
   })
 
-  it("serves the page tools below the Vite base, as it serves the Console", async () => {
+  it.each([
+    ["/portal/", "/portal"],
+    ["https://site.test/portal/", "/portal"],
+    ["./", ""],
+  ])("serves the page tools and Console below Vite base %s", async (base, path) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -106,16 +132,16 @@ describe("the Console Nitro configuration", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base: "/portal/", root }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base, root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
-      expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: "/portal/_vitehub/page/session" })
-      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }))
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain("installConsolePageTool(nitroApp, { base: \"/portal/\" })")
+      expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: `${path}/_vitehub/page/session` })
+      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/page/assets` }))
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`installConsolePageTool(nitroApp, { base: ${JSON.stringify(base)} })`)
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=4\")")
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=4")`)
       expect(transform(page!)).toBeUndefined()
     }
     finally {
@@ -151,10 +177,7 @@ describe("the Console below a Nitro baseURL", () => {
 
 describe("the Console page tool below an app base", () => {
   it("links to the Console assets below the base of the session route", async () => {
-    installConsoleAccess({ mode: "open" })
-    installConsolePageTool({}, { base: "/portal/" })
-    const request = new Request("http://site.test/portal/_vitehub/page/session")
-    const body: unknown = await (await pageSessionHandler({ method: "GET", req: request })).json()
+    const { body } = await sessionTools({ mode: "open" }, {}, "/portal")
     expect(body).toMatchObject({ tools: [{ id: "console", script: "/portal/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
   })
 })
