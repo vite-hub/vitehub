@@ -356,6 +356,42 @@ describe("cdp controller", () => {
     await attached.release()
   })
 
+  it.each([false, true])("keeps newer subscriptions after repeated cleanup with a retained event group: %s", async (retainGroup) => {
+    const socket = new FakeSocket()
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    try {
+      const listener = vi.fn()
+      const newerListener = vi.fn()
+      const retainedListener = vi.fn()
+      const stop = attached.client.on("Page.lifecycleEvent", listener)
+      if (retainGroup) attached.client.on("Page.lifecycleEvent", retainedListener)
+      stop()
+      const stopResubscribed = attached.client.on("Page.lifecycleEvent", listener)
+      const stopNewer = attached.client.on("Page.lifecycleEvent", newerListener)
+      stop()
+
+      socket.emit("Page.lifecycleEvent", { name: "load" })
+      expect(listener).toHaveBeenCalledExactlyOnceWith({ name: "load" }, "page-session")
+      expect(newerListener).toHaveBeenCalledExactlyOnceWith({ name: "load" }, "page-session")
+      expect(retainedListener).toHaveBeenCalledTimes(retainGroup ? 1 : 0)
+
+      stopResubscribed()
+      stopNewer()
+      socket.emit("Page.lifecycleEvent", { name: "load" })
+      expect(listener).toHaveBeenCalledOnce()
+      expect(newerListener).toHaveBeenCalledOnce()
+    }
+    finally {
+      await attached.release()
+    }
+  })
+
   it("allows protocol events with omitted parameters", async () => {
     const socket = new FakeSocket()
     const attached = await cdp({ connect: async () => socket }).attach({
