@@ -35,6 +35,17 @@ export type CommentThreadsTable = SQLiteTableWithColumns<{
   schema: undefined
 }>
 
+/** Allocation history survives thread and scope deletion. */
+export type CommentScopeCountersTable = SQLiteTableWithColumns<{
+  columns: {
+    scope: Column<"vitehub_comment_scope_counters", string, true, true>
+    lastNumber: Column<"vitehub_comment_scope_counters", number, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_comment_scope_counters"
+  schema: undefined
+}>
+
 /** The `vitehub_comments` table, typed explicitly so its declaration can be emitted. */
 export type CommentsTable = SQLiteTableWithColumns<{
   columns: {
@@ -98,9 +109,17 @@ const comments = sqliteTable("vitehub_comments", {
   index("vitehub_comments_thread").on(table.threadId, table.createdAt),
 ]) as unknown as CommentsTable
 
+// SAFETY: CommentScopeCountersTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations.
+const scopeCounters = sqliteTable("vitehub_comment_scope_counters", {
+  scope: text("scope").primaryKey(),
+  lastNumber: integer("last_number").notNull(),
+}) as unknown as CommentScopeCountersTable
+
 /**
  * The tables behind Comments. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
- * yourself only to a Database that you configure without ViteHub. Apply the migration that `vitehub db generate` writes.
+ * yourself only to a Database that you configure without ViteHub. For existing tables, follow the scope upgrade
+ * at https://vitehub.dev/docs/comments/configure#upgrade-existing-comments before applying generated migrations.
  */
 // The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
-export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments }
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentScopeCounters: CommentScopeCountersTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentScopeCounters: scopeCounters }

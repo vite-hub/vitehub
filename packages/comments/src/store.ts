@@ -5,7 +5,7 @@ import { commentsSchema } from "./database.ts"
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
 import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentMetadata, CommentThread, CommentThreadStatus } from "./types.ts"
 
-const { vitehubCommentThreads: threads, vitehubComments: comments } = commentsSchema
+const { vitehubCommentThreads: threads, vitehubComments: comments, vitehubCommentScopeCounters: counters } = commentsSchema
 
 export type CommentsDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
 
@@ -125,11 +125,14 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
         updatedAt: now,
       }
       const comment: CommentRow = { id: crypto.randomUUID(), threadId: thread.id, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      // One statement picks the next number, so two threads that start at once in a scope cannot share it.
-      const next = sql<number>`(SELECT coalesce(max(${threads.number}), 0) + 1 FROM ${threads} WHERE ${threads.scope} = ${scope})`
-      await database.batch([database.insert(threads).values({ ...thread, number: next }), database.insert(comments).values(comment)])
-      const [saved] = await database.select({ number: threads.number }).from(threads).where(eq(threads.id, thread.id)).limit(1)
-      return toThread({ ...thread, number: saved?.number ?? 0 }, [comment])
+      // Allocation and creation share one transaction. Deleting threads never deletes allocation history.
+      const next = sql<number>`(SELECT ${counters.lastNumber} FROM ${counters} WHERE ${counters.scope} = ${scope})`
+      const [, saved] = await database.batch([
+        database.insert(counters).values({ scope, lastNumber: 1 }).onConflictDoUpdate({ target: counters.scope, set: { lastNumber: sql`${counters.lastNumber} + 1` } }),
+        database.insert(threads).values({ ...thread, number: next }).returning(),
+        database.insert(comments).values(comment),
+      ])
+      return toThread(saved[0]!, [comment])
     },
     async reply(threadId, { body, author, mentions }) {
       const now = Date.now()
