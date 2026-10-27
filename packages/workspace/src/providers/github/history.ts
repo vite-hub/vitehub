@@ -415,7 +415,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const followingPage = nextPage(result.cursor?.nextUrl)
     if (afterId) {
       const last = shown.at(-1)?.sha
-      return { revisions, ...(last && (items.length > limit || followingPage !== undefined) ? { cursor: last } : {}) }
+      return { revisions, ...(last && (items.length > limit || followingPage !== undefined) ? { cursor: cursorFor(ref, last) } : {}) }
     }
     const last = shown.at(-1)?.sha
     return { revisions, ...(last && followingPage !== undefined ? { cursor: cursorFor(ref, last) } : {}) }

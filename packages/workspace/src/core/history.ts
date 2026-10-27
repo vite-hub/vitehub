@@ -225,7 +225,8 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
           throw error
         }
       }
-      const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata }
+      // Keep grant validation and the Store commit on the revision reviewed before write hooks ran.
+      const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
       const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
         ? { ...base, files: desired }
         : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }

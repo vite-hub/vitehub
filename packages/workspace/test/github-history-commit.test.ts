@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { baseSha, createFakeGitHub, fakeSha, textBytes, textSha } from "./fake-github.ts"
+import { createWorkspace } from "../src/core/workspace.ts"
 import { normalizeWorkspaceStoreOptions } from "../src/config.ts"
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 
@@ -31,6 +32,45 @@ const file = (path: string, content: string) => ({ path, content })
 const aliases = { published: "main", draft: "vitehub/content" }
 
 describe("GitHub history commit", () => {
+  it.each([false, true])("authorizes full draft snapshots against their fork baseline (explicit start: %s)", async (explicit) => {
+    const baseline = fake.commit("main", { "posts/a.md": "a" })
+    if (explicit) fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const target = createWorkspace({ name: "content", store, rules: { "posts/a.md": { write: false } } }).history!
+    const revision = await target.commit({ ref: "draft", ifHead: null, ...(explicit ? { startFrom: baseline } : {}), files: { "posts/a.md": "a", "posts/b.md": "b" } })
+    expect(revision.parentId).toBe(baseline)
+    expect(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]).sort()).toEqual([["posts/a.md", textSha("a")], ["posts/b.md", textSha("b")]])
+    await expect(target.commit({ ref: "draft", ifHead: revision.id, files: { "posts/a.md": "changed", "posts/b.md": "b" } })).rejects.toThrow()
+    await expect(target.commit({ ref: "draft", ifHead: revision.id, files: { "posts/b.md": "b" } })).rejects.toThrow()
+    expect(fake.head("vitehub/content")).toBe(revision.id)
+  })
+
+  it("pins the fork baseline before write hooks can advance the published branch", async () => {
+    const baseline = fake.commit("main", { "posts/a.md": "a" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const target = createWorkspace({ name: "content", store, hooks: { "write:before": () => {
+      fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
+    } } }).history!
+    const revision = await target.commit({ ref: "draft", ifHead: null, files: { "posts/a.md": "a", "posts/b.md": "b" } })
+    expect(revision.parentId).toBe(baseline)
+    expect(fake.tree("vitehub/content").map(entry => entry.path).sort()).toEqual(["posts/a.md", "posts/b.md"])
+  })
+
+  it("keeps later continuation cursors bound to their ref while limits change", async () => {
+    const ids = Array.from({ length: 12 }, (_, index) => fake.commit("main", { "posts/a.md": String(index) })).reverse()
+    const target = history({ refs: aliases })
+    const collected: string[] = []
+    let cursor: string | undefined
+    for (const limit of [2, 3, 1, 4, 5]) {
+      const page = await target.list({ ref: "published", cursor, limit })
+      collected.push(...page.revisions.map(revision => revision.id))
+      cursor = page.cursor
+      if (cursor) await expect(target.list({ ref: "draft", cursor, limit })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    }
+    expect(cursor).toBeUndefined()
+    expect(collected).toEqual([...ids, baseSha])
+  })
+
   it("rejects a stale ifHead before it writes", async () => {
     fake.commit("main", { "posts/a.md": "a" })
     const stale = fakeSha("stale")
@@ -195,7 +235,7 @@ describe("GitHub history commit", () => {
     const target = history()
     const page = await target.list({ ref: "main", cursor: third, limit: 1 })
     expect(page.revisions.map(revision => revision.id)).toEqual([second])
-    expect(page.cursor).toBe(second)
+    expect(page.cursor).toBe(`main:after:${second}`)
     const next = await target.list({ ref: "main", cursor: page.cursor, limit: 2 })
     expect(next.revisions.map(revision => revision.id)).toEqual([first, baseSha])
     expect(next.cursor).toBeUndefined()
