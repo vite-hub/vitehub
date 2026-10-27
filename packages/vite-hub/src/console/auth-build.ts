@@ -258,6 +258,8 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const url = new URL(request.url)",
       "  const publicPath = url.pathname",
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
+      "  // Page tools apply their own visitor and API authorization, independently of the Console.",
+      "  if (path === '/_vitehub/page/session' || path.startsWith('/_vitehub/page/assets/')) return",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
       "  if (path === '/_vitehub/sign-in') return",
       "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",

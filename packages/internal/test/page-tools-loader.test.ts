@@ -168,6 +168,30 @@ describe("loadViteHubPageTools", () => {
     await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([])
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
+
+  it("cleans up exactly once when a tool exits during startup", async () => {
+    page("/?vitehub=comments")
+    session({ tools: [comments, consoleTool] })
+    let mounted = false
+    let context: ViteHubPageToolContext | undefined
+    const cleanup = vi.fn(() => { mounted = false })
+    const start = vi.fn((value: ViteHubPageToolContext) => {
+      context = value
+      mounted = true
+      value.exit()
+      return cleanup
+    })
+    const load = async () => ({ default: start })
+
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(start).toHaveBeenCalledOnce()
+    expect(context?.signal.aborted).toBe(true)
+    expect(mounted).toBe(false)
+    expect(cleanup).toHaveBeenCalledOnce()
+    context?.exit()
+    expect(cleanup).toHaveBeenCalledOnce()
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
 })
 
 describe("readViteHubPageSession", () => {

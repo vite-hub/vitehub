@@ -16,7 +16,7 @@ const script = "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__"
  * app base.
  */
 export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
-  registerViteHubPageTool({
+  registerViteHubPageTool(nitroApp, {
     id: "console",
     label: "Console",
     icon: "i-lucide-square-terminal",

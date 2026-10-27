@@ -51,7 +51,7 @@ try {
   })
   await overlay.link(() => { throw new Error("The built overlay must be self-contained") })
   await overlay.evaluate()
-  overlay.namespace.default({ bar: page.mainFrame.document.createElement("div") })
+  overlay.namespace.default({ bar: page.mainFrame.document.createElement("div"), signal: new page.mainFrame.window.AbortController().signal })
   await connections
   console.log(JSON.stringify(sockets))
 }

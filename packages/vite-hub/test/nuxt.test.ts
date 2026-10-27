@@ -2019,6 +2019,8 @@ describe("ViteHub Nuxt integration", () => {
     const config = nitroOptions(production.nuxt)
     expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
     expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
+    const plugin = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
+    expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/" })')
   })
 
   it("registers the Cloudflare Access Console guard in production Nuxt builds only", async () => {

@@ -1,3 +1,4 @@
+import { H3 } from "h3"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
@@ -111,6 +112,16 @@ describe("injectPageToolsLoader", () => {
     expect(await injectPageToolsLoader(external).text()).toBe(loaderTag)
   })
 
+  it.each(["script-src 'self'", "default-src 'self'"])("replaces the generated check under meta CSP %s without a response CSP header", async (policy) => {
+    const head = `<head><meta http-equiv="Content-Security-Policy" content="${policy}"></head>`
+    const page = viteHubPageToolsIndexHtml(`${head}<body>Page</body>`, "/portal/")!
+    for (const chunks of [[page], [...page]]) {
+      const response = streamed(chunks)
+      expect(response.headers.has("content-security-policy")).toBe(false)
+      expect(await injectPageToolsLoader(response, "/portal").text()).toBe(`${head}<body>Page${loaderTag.replace('src="/_vitehub', 'src="/portal/_vitehub')}</body>`)
+    }
+  })
+
   it("appends the loader to HTML without a body tag, and leaves other responses alone", async () => {
     expect(await injectPageToolsLoader(streamed(["<h1>Hi</h1>"])).text()).toBe(`<h1>Hi</h1>${loaderTag}`)
     const json = streamed(["{}"], "application/json")
@@ -123,9 +134,9 @@ describe("injectPageToolsLoader", () => {
 describe("installViteHubPageTools on Nitro 3", () => {
   it("adds exactly one loader tag for any number of tools, with one fetch wrapper", async () => {
     const app = nitro3App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, pill)
     installViteHubPageTools(app)
     const response = await app.fetch(new Request("http://site.test/?vitehub"))
     expect(await response.text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
@@ -140,7 +151,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     const wrapped = app.fetch
     installViteHubPageTools(app)
     expect(app.fetch).toBe(wrapped)
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     expect(await (await app.fetch(new Request("http://site.test/?vitehub"))).text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
   })
 
@@ -149,7 +160,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
     installViteHubPageTools(app)
     const none = await app.fetch(new Request("http://site.test/?vitehub"))
     expect(await none.text()).toBe("<html><body>Page</body></html>")
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     const response = await app.fetch(new Request("http://site.test/"))
     expect(await response.text()).toBe("<html><body>Page</body></html>")
     expect(response.headers.get("cache-control")).toBeNull()
@@ -157,7 +168,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
 
   it("never adds the loader to Console or API routes", async () => {
     const app = nitro3App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     for (const path of ["/_vitehub/content", "/api/x"]) {
       expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toBe("<html><body>Page</body></html>")
@@ -168,8 +179,8 @@ describe("installViteHubPageTools on Nitro 3", () => {
 describe("installViteHubPageTools on Nitro 2", () => {
   it("adds the loader in Nuxt's render:html hook, and keeps that page out of shared caches", () => {
     const app = nitro2App()
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
     installViteHubPageTools(app)
     installViteHubPageTools(app)
     expect(app.handlers.get("render:html")).toHaveLength(1)
@@ -192,7 +203,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
 
   it("adds the loader to a page that a route returns as a Response, such as a prerendered file", async () => {
     const app = nitro2App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
     const send = (url: string, body: unknown, cookie = "") => {
@@ -213,14 +224,15 @@ describe("installViteHubPageTools on Nitro 2", () => {
 })
 
 describe("GET /_vitehub/page/session", () => {
+  const app = nitro2App()
   const session = async (cookie: string, headers: Record<string, string> = {}) => {
-    const response = await respondViteHubPageSession(new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }), {})
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/_vitehub/page/session", { headers: { cookie, ...headers } }), {})
     return { response, body: await response.json() as { tools?: unknown[], error?: { code: string } } }
   }
 
   it("returns the allowed tools with their display fields, and sets the hint cookie", async () => {
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
     const { response, body } = await session("person=ada")
     expect(body).toEqual({ tools: [
       { id: "comments", label: "COMMENTS", icon: "i-lucide-comments", script: "/comments.js" },
@@ -231,8 +243,8 @@ describe("GET /_vitehub/page/session", () => {
   })
 
   it("returns only the tools that allow this visitor", async () => {
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
     const { body, response } = await session("person=ben")
     expect(body.tools).toEqual([{ id: "comments", label: "COMMENTS", icon: "i-lucide-comments", script: "/comments.js" }])
     expect(response.headers.get("set-cookie")).toContain("vitehub-tools=1")
@@ -240,8 +252,8 @@ describe("GET /_vitehub/page/session", () => {
 
   it("clears the hint cookie when no tool allows the visitor, also when a check throws", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {})
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool({ ...pill, allowed: async () => { throw new Error("session store down") } })
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, { ...pill, allowed: async () => { throw new Error("session store down") } })
     const { body, response } = await session("person=eve")
     expect(body).toEqual({ tools: [] })
     expect(response.headers.get("cache-control")).toBe("private, no-store")
@@ -251,7 +263,7 @@ describe("GET /_vitehub/page/session", () => {
 
   it("rejects other sites before it runs any check", async () => {
     const allowed = vi.fn(async () => true)
-    registerViteHubPageTool({ ...comments, allowed })
+    registerViteHubPageTool(app, { ...comments, allowed })
     for (const headers of [{ origin: "https://evil.test" }, { "sec-fetch-site": "cross-site" }]) {
       const { body, response } = await session("person=ada", headers)
       expect(response.status).toBe(403)
@@ -265,13 +277,17 @@ describe("GET /_vitehub/page/session", () => {
 
   it("passes the H3 event to the checks, from H3 2 and H3 1 events", async () => {
     const seen: unknown[] = []
-    registerViteHubPageTool({ ...comments, allowed: async ({ event, request }) => {
+    registerViteHubPageTool(app, { ...comments, allowed: async ({ event, request }) => {
       seen.push(event, new URL(request.url).pathname)
       return true
     } })
+    installViteHubPageTools(app)
+    const onRequest = app.handlers.get("request")![0] as (event: object) => void
     const h3 = { req: new Request("http://site.test/_vitehub/page/session") }
+    onRequest(h3)
     expect((await viteHubPageSessionHandler(h3)).status).toBe(200)
     const h3v1 = { node: { req: { url: "/_vitehub/page/session", method: "GET", headers: { host: "site.test" }, [Symbol.asyncIterator]: async function* () {} } } }
+    onRequest(h3v1)
     expect((await viteHubPageSessionHandler(h3v1)).status).toBe(200)
     expect(seen).toEqual([h3, "/_vitehub/page/session", h3v1, "/_vitehub/page/session"])
   })
@@ -292,7 +308,7 @@ describe("page tools below an app base", () => {
 
   it("gives the Nitro 3 loader tag the base that the owner passes", async () => {
     const app = nitro3App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app, { base: "/portal/" })
     expect(await (await app.fetch(new Request("http://site.test/portal/?vitehub"))).text()).toBe(`<html><body>Page${baseTag}</body></html>`)
     expect(await (await app.fetch(new Request("http://site.test/portal/_vitehub/content?vitehub"))).text()).toBe("<html><body>Page</body></html>")
@@ -300,7 +316,7 @@ describe("page tools below an app base", () => {
 
   it("reads the Nitro 2 base from the request, as H3 1 removes it from url and keeps it in originalUrl", async () => {
     const app = nitro2App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
@@ -318,20 +334,128 @@ describe("page tools below an app base", () => {
   })
 
   it("adds no second loader to a page that has one, such as a single page app that Vite changed", async () => {
-    const page = "<body><script type=\"module\" data-vitehub-page-tools>import(\"/x\")</script></body>"
+    const page = `<body>${loaderTag}</body>`
     expect(await injectPageToolsLoader(streamed([page])).text()).toBe(page)
     expect(await injectPageToolsLoader(streamed([page.slice(0, 30), page.slice(30)])).text()).toBe(page)
   })
 
   it("gives the tool scripts the base of the session route", async () => {
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool({ ...pill, script: "https://cdn.test/console.js" })
-    const response = await respondViteHubPageSession(new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }), {})
+    const app = nitro2App()
+    installViteHubPageTools(app)
+    const onRequest = app.handlers.get("request")![0] as (event: object) => void
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, { ...pill, script: "https://cdn.test/console.js" })
+    const response = await respondViteHubPageSession(app, new Request("http://site.test/portal/_vitehub/page/session", { headers: { cookie: "person=ada" } }), {})
     expect(await response.json()).toEqual({ tools: [
       expect.objectContaining({ id: "comments", script: "/portal/comments.js" }),
       expect.objectContaining({ id: "console", script: "https://cdn.test/console.js" }),
     ] })
     const h3v1 = { node: { req: { url: "/_vitehub/page/session", originalUrl: "/portal/_vitehub/page/session", method: "GET", headers: { host: "site.test", cookie: "person=ada" }, [Symbol.asyncIterator]: async function* () {} } } }
+    onRequest(h3v1)
     expect(await (await viteHubPageSessionHandler(h3v1)).json()).toMatchObject({ tools: [{ id: "comments", script: "/portal/comments.js" }, { id: "console" }] })
+  })
+})
+
+describe("per-app page tools", () => {
+  it("isolates Nitro 3 loader injection and sessions across bundled copies, late registration and replacement", async () => {
+    const makeApp = () => {
+      const h3 = new H3().get("/_vitehub/page/session", event => viteHubPageSessionHandler(event))
+      h3.get("/", () => new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }))
+      return { fetch: (request: Request) => h3.fetch(request) }
+    }
+    const appA = makeApp()
+    const appB = makeApp()
+    const empty = makeApp()
+    for (const app of [appA, appB, empty]) installViteHubPageTools(app)
+    registerViteHubPageTool(appA, comments)
+    vi.resetModules()
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.registerViteHubPageTool(appB, { ...comments, script: "/old.js" })
+    otherOwner.registerViteHubPageTool(appB, { ...comments, script: "/b.js" })
+    otherOwner.registerViteHubPageTool(appB, pill)
+    const wrapped = appB.fetch
+    otherOwner.installViteHubPageTools(appB)
+    expect(appB.fetch).toBe(wrapped)
+    const pages = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/?vitehub"))).text()))
+    expect(pages).toEqual([`<body>Page${loaderTag}</body>`, `<body>Page${loaderTag}</body>`, "<body>Page</body>"])
+    const sessions = await Promise.all([appA, appB, empty].map(async app => (await app.fetch(new Request("http://site.test/_vitehub/page/session", { headers: { cookie: "person=ada" } }))).json()))
+    expect(sessions.map(session => session.tools.map((tool: { script: string }) => tool.script))).toEqual([["/comments.js"], ["/b.js", "/console.js"], []])
+    const unbound = await otherOwner.viteHubPageSessionHandler({ req: new Request("http://site.test/_vitehub/page/session") })
+    expect(unbound.status).toBe(503)
+  })
+
+  it("isolates Nitro 2 rendered and returned pages and binds sessions to each event", async () => {
+    const apps = [nitro2App(), nitro2App(), nitro2App()]
+    for (const app of apps) installViteHubPageTools(app)
+    registerViteHubPageTool(apps[0]!, comments)
+    registerViteHubPageTool(apps[1]!, { ...pill, script: "/b.js" })
+    const results = await Promise.all(apps.map(async (app) => {
+      const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body: Response }) => void
+      const onRequest = app.handlers.get("request")![0] as (event: object) => void
+      const event = { node: { req: { url: "/?vitehub", headers: { host: "site.test", cookie: "person=ada" }, method: "GET", [Symbol.asyncIterator]: async function* () {} } } }
+      const html = { bodyAppend: [] as string[] }
+      render(html, { event })
+      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) }
+      respond(event, response)
+      event.node.req.url = "/_vitehub/page/session"
+      onRequest(event)
+      vi.resetModules()
+      const otherOwner = await import("../src/runtime/page-tools.ts")
+      const session = await (await otherOwner.viteHubPageSessionHandler(event)).json()
+      return { tags: html.bodyAppend, page: await response.body.text(), scripts: session.tools.map((tool: { script: string }) => tool.script) }
+    }))
+    expect(results).toEqual([
+      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>`, scripts: ["/comments.js"] },
+      { tags: [loaderTag], page: `<body>Page${loaderTag}</body>`, scripts: ["/b.js"] },
+      { tags: [], page: "<body>Page</body>", scripts: [] },
+    ])
+  })
+})
+
+
+describe("mounted page tool exclusions", () => {
+  it("applies a late base to Nitro 3 without changing another app", async () => {
+    const app = nitro3App()
+    const other = nitro3App()
+    for (const candidate of [app, other]) {
+      registerViteHubPageTool(candidate, comments)
+      installViteHubPageTools(candidate)
+    }
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.installViteHubPageTools(app, { base: "/portal/" })
+    installViteHubPageTools(app)
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api/data"]) {
+      expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).not.toContain("data-vitehub-page-tools")
+      expect(await (await other.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
+    }
+    for (const path of ["/portal/pricing", "/portals/_vitehub"]) {
+      expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
+    }
+  })
+
+  it("excludes mounted Console and API pages on both Nitro 2 response paths", async () => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    installViteHubPageTools(app, { base: "/portal/" })
+    const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body: Response }) => void
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api/data", "/portal/pricing"]) {
+      const event = { node: { req: { url: path, headers: { cookie: "vitehub-tools=1" } } } }
+      const html = { bodyAppend: [] as string[] }
+      const original = new Response("<body>Page</body>", { headers: { "content-type": "text/html" } })
+      const response = { body: original }
+      render(html, { event })
+      respond(event, response)
+      if (path.endsWith("pricing")) {
+        expect(html.bodyAppend).toEqual([loaderTag.replace("src=\"/_vitehub", "src=\"/portal/_vitehub")])
+        expect(await response.body.text()).toContain("data-vitehub-page-tools")
+      }
+      else {
+        expect(html.bodyAppend).toEqual([])
+        expect(response.body).toBe(original)
+      }
+    }
   })
 })
