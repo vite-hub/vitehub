@@ -2,16 +2,14 @@ import { readFile } from 'node:fs/promises'
 import { isAbsolute, join, resolve as resolvePath } from 'pathe'
 import type { Import, ScanDir } from 'unimport'
 
-import { bundleDiscoveredDefinitionModule } from './discovered-definition/bundler'
 import { injectTypeImportsFromUnimport } from './discovered-definition/ast'
 import { isServerAutoImportEnabled } from './server-imports'
 
 import type { ServerImportsOptions } from './server-imports'
 import type { ServerImport } from './runtime-artifacts'
-import type { DiscoveredDefinitionBundleOptions } from './discovered-definition/bundler'
 
 export type { DiscoveredDefinitionBundleOptions, DiscoveredDefinitionModuleGraph } from './discovered-definition/bundler'
-export { bundleDiscoveredDefinitionModule, bundleDiscoveredDefinitionModuleGraph } from './discovered-definition/bundler'
+export { bundleDiscoveredDefinitionModuleGraph } from './discovered-definition/bundler'
 
 export interface DiscoveredDefinitionCompilerOptions {
   rootDir: string
@@ -21,10 +19,7 @@ export interface DiscoveredDefinitionCompilerOptions {
 }
 
 export interface DiscoveredDefinitionCompiler {
-  enabled: boolean
-  injectSource: (source: string, id: string) => Promise<string>
   readSource: (id: string) => Promise<string>
-  bundleModule: (options: DiscoveredDefinitionBundleOptions) => Promise<string>
 }
 
 function normalizeDir(rootDir: string, dir: string | ScanDir): string | ScanDir {
@@ -150,15 +145,8 @@ export async function createDiscoveredDefinitionCompiler(
 
   if (!isServerAutoImportEnabled(resolvedOptions.serverImports)) {
     return {
-      enabled: false,
-      async injectSource(source) {
-        return source
-      },
       async readSource(id) {
         return await readFile(id, 'utf8')
-      },
-      async bundleModule(bundleOptions) {
-        return await bundleDiscoveredDefinitionModule(bundleOptions)
       },
     }
   }
@@ -169,13 +157,8 @@ export async function createDiscoveredDefinitionCompiler(
     return await injectTypeImportsFromUnimport(valueInjected.code, id, await unimport.getImports())
   }
   return {
-    enabled: true,
-    injectSource,
     async readSource(id) {
       return await injectSource(await readFile(id, 'utf8'), id)
-    },
-    async bundleModule(bundleOptions) {
-      return await bundleDiscoveredDefinitionModule(bundleOptions)
     },
   }
 }

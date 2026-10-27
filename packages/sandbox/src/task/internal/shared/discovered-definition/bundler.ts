@@ -49,36 +49,6 @@ function usesRuntimeModuleResolution(contents: string) {
     || /\bcreateRequire\b/.test(contents)
 }
 
-export async function bundleDiscoveredDefinitionModule(options: DiscoveredDefinitionBundleOptions) {
-  const { build } = await import('esbuild')
-  const result = await build({
-    alias: options.alias,
-    stdin: {
-      contents: options.source,
-      loader: resolveDefinitionLoader(options),
-      resolveDir: dirname(options.filename),
-      sourcefile: options.filename,
-    },
-    bundle: true,
-    write: false,
-    format: 'esm',
-    platform: 'node',
-    target: 'es2022',
-    logLevel: 'silent',
-    jsx: isJsxDefinitionLoader(options) ? 'automatic' : undefined,
-    jsxImportSource: isJsxDefinitionLoader(options) ? 'react' : undefined,
-    packages: options.packages === 'external' ? 'external' : undefined,
-    external: [...builtinModuleSet, ...(options.external || [])],
-    plugins: options.plugins,
-  })
-
-  const output = result.outputFiles?.[0]?.text
-  if (!output)
-    throw sandboxTaskErrorDiagnostics.SANDBOX_TASK_R0047({ message: `[vitehub] Failed to bundle discovered definition "${options.filename}".` })
-
-  return output
-}
-
 export async function bundleDiscoveredDefinitionModuleGraph(
   options: DiscoveredDefinitionBundleOptions,
 ): Promise<DiscoveredDefinitionModuleGraph> {
