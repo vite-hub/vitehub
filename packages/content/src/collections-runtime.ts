@@ -1471,7 +1471,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     }
 
     const route = definition.kind === "documents" ? definition.route ?? defaultRoute : undefined
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseText, pathFor, route, sessionCollection }
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, route, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1764,7 +1764,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const routes = new Map<string, ContentResolved>()
       for (const collection of collections.values()) {
         if (!collection.route) continue
-        for (const id of collection.entries(opened.files).keys()) {
+        for (const [id, entry] of collection.entries(opened.files)) {
+          const parsed = await collection.parseEntry(opened, entry)
+          // Match get() and list(): drafts may have field issues, but malformed files are never readable.
+          if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) continue
           let route: unknown
           try {
             route = collection.route(id)
