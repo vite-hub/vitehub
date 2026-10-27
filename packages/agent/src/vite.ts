@@ -141,6 +141,7 @@ const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
+  "@vite-hub/kv",
   "@vite-hub/sandbox/task",
   "@vite-hub/sandbox/task/*",
   "@vite-hub/shell",
@@ -164,6 +165,9 @@ function isAgentPackageImporter(importer: string | undefined): boolean {
 
 function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions): string[] {
   const bundled = new Set<string>()
+  if (options.runtimeCapabilities?.some(capability => capability.name === "kv" && capability.packageName !== false)) {
+    bundled.add("@vite-hub/kv")
+  }
   if (options.workflowImportBase) {
     bundled.add("@vite-hub/workflow")
     bundled.add("@vite-hub/workflow/*")
@@ -3008,6 +3012,12 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
   return {
     name: "@vite-hub/agent/vite",
     async resolveId(source, importer, options) {
+      if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
+        // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
+        // optional package and its unresolved virtual config out of unrelated Agent builds.
+        if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
+        return
+      }
       if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
       // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
       // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
