@@ -1,4 +1,4 @@
-import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
+import { getCloudflareEnv, resolveWaitUntil, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { defineHandler } from "h3"
@@ -351,11 +351,17 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  return defineHandler(async (event) => {
+  async function handle(event: H3Event) {
     const response = await route(event)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
     if (event.req.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
     return response
+  }
+
+  return defineHandler((event) => {
+    // Nitro's workerd dev server gives the Cloudflare bindings only with the request, so the database finds D1 there.
+    const env = getCloudflareEnv(event, { fallback: false })
+    return env ? runWithActiveCloudflareEnv(env, () => handle(event)) : handle(event)
   })
 
   async function route(event: H3Event): Promise<Response> {

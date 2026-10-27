@@ -13,6 +13,7 @@ Comments needs somewhere to keep threads on every host. The [`comments()` plugin
 | Host | Works | Where threads go |
 | --- | --- | --- |
 | `vite dev` | Yes | `.vitehub/data/comments.sqlite`, with no option |
+| `vite dev` with a Cloudflare preset | Yes | A local D1 binding `COMMENTS` in `.wrangler/state`, with no option |
 | Node, Docker (one process) | Yes | `comments({ database: 'file:./data/comments.sqlite' })`, on a disk or volume that survives deploys |
 | Several processes or machines | Yes | A Turso database: `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` on each server. |
 | Cloudflare Workers | Yes | `comments({ database: 'd1:COMMENTS' })`, or a D1 binding named `DB`. See [Cloudflare D1](/docs/comments/configure#cloudflare-d1). |

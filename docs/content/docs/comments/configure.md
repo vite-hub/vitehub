@@ -217,6 +217,8 @@ Give `database` a string that says where the database is. The string names a var
 
 On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
 
+With a Nitro Cloudflare preset, such as `NITRO_PRESET=cloudflare_module`, `vite dev` runs the server in workerd, which cannot open that file. There, threads go to a local D1 binding `COMMENTS` that Miniflare keeps in `.wrangler/state`, or to the `database` option when you set one. Set Nitro's `devServer.runner` to `node-worker` to keep the file.
+
 When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.
 
 ### Turso and other libSQL databases

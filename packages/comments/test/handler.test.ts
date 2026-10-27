@@ -1,3 +1,4 @@
+import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
 import { describe, expect, it } from "vitest"
@@ -71,6 +72,16 @@ describe("Comments API", () => {
     const { response, body } = await call("/session")
     expect(body.data).toEqual({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: true, resolve: true }, realtime: true, content: false })
     expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1")
+  })
+
+  it("runs with the Cloudflare bindings of the request, as Nitro's workerd dev server passes them", async () => {
+    const comments = await createComments({ identify: () => getActiveCloudflareBinding<CommentsUser>("PERSON") ?? null })
+    const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, build: {}, components: {} }))
+    const request = Object.assign(new Request(`${origin}/api/_vitehub/comments/session`), {
+      runtime: { name: "cloudflare", cloudflare: { env: { PERSON: { id: "ada", name: "Ada" } }, context: { waitUntil() {}, passThroughOnException() {} } } },
+    })
+    const body = await (await app.fetch(request)).json() as { data: { user: CommentsUser | null } }
+    expect(body.data.user).toEqual({ id: "ada", name: "Ada" })
   })
 
   it("clears the hint and denies threads to an anonymous user by default", async () => {

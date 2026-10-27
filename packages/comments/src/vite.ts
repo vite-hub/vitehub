@@ -7,6 +7,7 @@ import { promisify } from "node:util"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
+import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
 
@@ -50,7 +51,9 @@ export interface CommentsOptions {
    * - `"env:COMMENTS_DATABASE_URL"`: the libSQL URL in that variable, with its token in `COMMENTS_AUTH_TOKEN`.
    * - `"file:./data/comments.sqlite"`: a SQLite file on Node, relative to the server's working directory.
    *
-   * The development server uses `.vitehub/data/comments.sqlite`, unless `database` is a file or a set variable.
+   * The development server uses `.vitehub/data/comments.sqlite`, unless `database` is a file or a set variable. Under a
+   * Nitro Cloudflare preset, it runs in workerd, which cannot open that file, so it uses a local D1 binding `COMMENTS`
+   * instead, unless `database` names another location.
    */
   database?: string
 }
@@ -344,17 +347,27 @@ async function writeDefaultDefinition(directory: string, imports: CommentsImport
   return file
 }
 
+/** Whether `vite dev` runs the server in workerd: Nitro's dev runner of its Cloudflare presets. */
+function runsInWorkerd(config: UserConfig): boolean {
+  const nitro = Object(Reflect.get(config, "nitro"))
+  const runner: unknown = Object(nitro.devServer).runner
+  if (runner) return runner === "miniflare"
+  return /^cloudflare/.test(String(nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || ""))
+}
+
 /**
  * The storage of `comments()`. A build connects to the `database` option, else to what it finds at runtime. The
- * development server uses `.vitehub/data/comments.sqlite`, unless the option is a file, or a variable that is set.
+ * development server uses `.vitehub/data/comments.sqlite`, unless the option is a file, or a variable that is set. In
+ * workerd, which cannot open files, it uses the option, else a D1 binding that Miniflare keeps in `.wrangler/state`.
  */
-async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve"): Promise<StandaloneDatabase> {
+async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve", workerd: boolean): Promise<StandaloneDatabase> {
   const where = options.database || undefined
   // Fails the build on a location that Comments cannot use.
   parseDatabaseLocation(where, "comments")
   if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
   if (command !== "serve") return { ...(where ? { where } : {}), node: Boolean(where?.startsWith("file:")) }
   if (where?.startsWith("file:")) return { where, node: true }
+  if (workerd) return { where: where ?? "d1:COMMENTS", node: false }
   const data = resolve(projectRoot, ".vitehub/data")
   await mkdir(data, { recursive: true })
   // Threads written on this computer stay out of Git.
@@ -398,7 +411,9 @@ function hasViteHubComments(config: UserConfig): boolean {
 export function comments(options: CommentsOptions = {}): PluginOption[] {
   const plugin = hubComments({ standalone: options })
   plugin.apply = config => !hasViteHubComments(config)
-  return [plugin, ...includedNitro({ unless: hasViteHubComments })]
+  const workerd = nitroWorkerdDependencies()
+  workerd.apply = (config, env) => env.command === "serve" && !hasViteHubComments(config)
+  return [plugin, workerd, ...includedNitro({ unless: hasViteHubComments })]
 }
 
 export default comments
@@ -489,7 +504,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }
         await mkdir(directory, { recursive: true })
         const definition = discover() ?? await writeDefaultDefinition(directory, imports)
-        const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
+        const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command, env.command === "serve" && runsInWorkerd(config)) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])

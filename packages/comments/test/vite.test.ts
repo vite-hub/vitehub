@@ -22,8 +22,8 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build") {
-  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build", nitro?: Record<string, unknown>) {
+  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...(nitro ? { nitro } : {}) }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }>, cloudflare?: { wrangler?: { d1_databases?: unknown[] } } } | undefined
@@ -158,9 +158,21 @@ describe("comments() without vite-hub", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("connectDatabase(\"d1:COMMENTS\"")
     await writeFile(join(root, "wrangler.jsonc"), `{ "d1_databases": [{ "binding": "COMMENTS", "database_id": "abc" }] }`)
     expect((await configure(d1(), root))?.cloudflare).toBeUndefined()
-    // The development server has no binding, so it keeps the threads in the local file.
+    // The development server on Node has no binding, so it keeps the threads in the local file.
     await configure(d1(), root, "serve")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
+  })
+
+  it("keeps threads in a local D1 binding when the development server runs in workerd", async () => {
+    const root = await project({ "package.json": "{}" })
+    const plugin = () => readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    const nitro = await configure(standalone(), root, "serve", { preset: "cloudflare_module" })
+    expect(await plugin()).toContain(`import { connectDatabase } from "@vite-hub/comments/runtime/connect"\n`)
+    expect(await plugin()).toContain(`connectDatabase("d1:COMMENTS"`)
+    expect(nitro?.cloudflare?.wrangler?.d1_databases).toEqual([{ binding: "COMMENTS", database_name: "comments" }])
+    // Nitro's Node runner can open the local file.
+    await configure(standalone(), root, "serve", { preset: "cloudflare_module", devServer: { runner: "node-worker" } })
+    expect(await plugin()).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
   })
 
   it("fails the build on a location that Comments cannot use", async () => {
