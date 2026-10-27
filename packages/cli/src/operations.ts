@@ -5,6 +5,7 @@ import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
+import { redactInspectionText } from "@vite-hub/internal/inspect"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCliPath, operationInputJsonSchema, operationsOf } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
@@ -356,23 +357,40 @@ async function callDispatch(operation: string, route: string, url: string, input
     return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
   }
   if (!key) return undefined
-  const base = new URL(url)
+  let base: URL
+  try {
+    base = new URL(url)
+  }
+  catch {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })), ok: false }
+  }
+  const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+  if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })), ok: false }
+  }
+  if (base.username || base.password || base.search || base.hash) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })), ok: false }
+  }
   if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
   const target = new URL(route.slice(1), base)
   const body = JSON.stringify(input ?? {})
   const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
   const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
+  if (context.env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", context.env.CF_ACCESS_CLIENT_ID)
+  if (context.env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", context.env.CF_ACCESS_CLIENT_SECRET)
   let response: Response
+  let text: string
   try {
     response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
+    text = await response.text()
   }
   catch (error) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${error instanceof Error ? error.message : String(error)}` }), 502), ok: false }
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${redactInspectionText(error instanceof Error ? error.message : String(error))}` }), 502), ok: false }
   }
-  const text = await response.text()
   let json: unknown
   try {
-    json = text ? JSON.parse(text) : undefined
+    // Redact free text before formatters or JSON output, without truncating operation results.
+    json = text ? JSON.parse(text, (_key, value: unknown) => typeof value === "string" ? redactInspectionText(value) : value) : undefined
   }
   catch {
     json = undefined

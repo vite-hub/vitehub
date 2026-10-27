@@ -192,11 +192,11 @@ describe("generated operation commands", () => {
   describe("signed dispatch", () => {
     const key = "ab".repeat(32)
 
-    async function runTrigger(env: NodeJS.ProcessEnv, fetch: ReturnType<typeof vi.fn>) {
+    async function runTrigger(env: NodeJS.ProcessEnv, fetch: ReturnType<typeof vi.fn>, url = "https://app.example.com", args: string[] = []) {
       const stdout = stream()
       const stderr = stream()
       const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [trigger], module: "fixture/operations" }] } }
-      const code = await runViteHubCli({ args: ["triggers", "run", "nightly", "--url", "https://app.example.com", "--yes"], cwd: "/app", env, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
+      const code = await runViteHubCli({ args: ["triggers", "run", "nightly", "--url", url, "--yes", ...args], cwd: "/app", env, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
       return { code, stderr: stderr.output(), stdout: stdout.output() }
     }
 
@@ -215,6 +215,65 @@ describe("generated operation commands", () => {
       expect(result.code).toBe(0)
       expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r1", name: "nightly" } })
       expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("forwards Access service tokens without Console session credentials", async () => {
+      const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("cf-access-client-id")).toBe("access-id")
+        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
+        expect(headers.get("authorization")).toBeNull()
+        expect(headers.get("cookie")).toBeNull()
+        return Response.json({ run: { id: "r1" } })
+      })
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key, CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token", VITEHUB_CONSOLE_COOKIE: "session=console-cookie" }, fetch)
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledOnce()
+    })
+
+    it.each([
+      ["http://app.example.com", "must use HTTPS"],
+      ["http://localhost.example.com", "must use HTTPS"],
+      ["ftp://localhost", "must use HTTPS"],
+      ["not a url", "must be a URL"],
+      ["https://user:password@app.example.com", "must not contain credentials"],
+      ["https://app.example.com?token=private", "must not contain credentials"],
+      ["https://app.example.com#fragment", "must not contain credentials"],
+    ])("rejects unsafe dispatch URL %s without fetching", async (url, message) => {
+      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(`CLI_R0003: --url ${message}`)
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts dispatch URL %s", async (url) => {
+      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
+      expect((await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)).code).toBe(0)
+      expect(fetch.mock.calls[0]).toEqual([`${url}/_vitehub/triggers/run`, expect.any(Object)])
+    })
+
+    it.each([[], ["--json"]])("redacts signed results and failures with flags %j", async (...args) => {
+      const message = "Request failed: Bearer fake-token at https://user:fake-password@example.com"
+      const outputs = [
+        vi.fn(async () => Response.json({ run: { id: "r1", error: { name: "token=fake-name", message } }, items: Array.from({ length: 120 }, (_, i) => i), text: "x".repeat(11_000) })),
+        vi.fn(async () => Response.json({ message }, { status: 500 })),
+        vi.fn(async () => { throw new Error(message) }),
+      ]
+      for (const [index, fetch] of outputs.entries()) {
+        const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, undefined, args)
+        const output = result.stdout + result.stderr
+        expect(output).toContain("[redacted]")
+        expect(output).not.toContain("fake-token")
+        expect(output).not.toContain("fake-password")
+        expect(output).not.toContain("fake-name")
+        expect(result.code).toBe(index === 0 ? 0 : 1)
+        if (index === 0) {
+          const value = JSON.parse(result.stdout)
+          expect(value.items).toHaveLength(120)
+          expect(value.text).toHaveLength(11_000)
+        }
+      }
     })
 
     it("uses the RPC with Console credentials when no key is set", async () => {
