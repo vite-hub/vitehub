@@ -4992,10 +4992,11 @@ cli_auth_credentials_store = "keyring"
   })
 
   it.each([
-    { provider: "codex", instructions: "generated repair instructions" },
-    { provider: "codex", instructions: "generated repair instructions".repeat(1400) },
-    { provider: "claude-code", instructions: "generated repair instructions" },
-  ] as const)("repairs conflicted $provider instruction files without committing generated instructions", async ({ provider, instructions }) => {
+    { provider: "codex", instructions: "generated repair instructions", nativeOverride: false },
+    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: false },
+    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: true },
+    { provider: "claude-code", instructions: "generated repair instructions", nativeOverride: false },
+  ] as const)("repairs conflicted $provider instruction files without committing generated instructions", async ({ provider, instructions, nativeOverride }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-instructions-"))
     const threadId = `thread-conflicted-instructions-${provider}`
     const git = (...args: string[]) => {
@@ -5008,6 +5009,7 @@ cli_auth_credentials_store = "keyring"
       git("config", "user.name", "Test")
       git("config", "user.email", "test@localhost")
       for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "original\n")
+      if (nativeOverride) await writeFile(join(root, "AGENTS.override.md"), "native override\n")
       git("add", "-A"); git("commit", "-qm", "initial")
       git("branch", "feature")
       for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "target instructions\n")
@@ -5017,7 +5019,7 @@ cli_auth_credentials_store = "keyring"
       for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "feature instructions\n")
       git("commit", "-qam", "feature")
       const head = git("rev-parse", "HEAD").trim()
-      runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      const session = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
         async onSendTurn() {
           expect(git("diff", "--name-only", "--diff-filter=U")).toBe("AGENTS.md\nCLAUDE.md\n")
           for (const name of ["AGENTS.md", "CLAUDE.md"]) {
@@ -5025,11 +5027,17 @@ cli_auth_credentials_store = "keyring"
             await writeFile(join(root, name), "resolved source instructions\n")
           }
           if (provider === "codex" && instructions.length < 32768) expect(launchedCodexDeveloperInstructions()).toBe(instructions)
-          else expect(await readFile(join(root, provider === "codex" ? "AGENTS.override.md" : ".claude/vitehub-system-prompt.md"), "utf8")).toBe(instructions)
+          else if (provider === "codex") expect(session.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining(instructions) }))
+          else expect(await readFile(join(root, ".claude/vitehub-system-prompt.md"), "utf8")).toBe(instructions)
+          if (nativeOverride) {
+            expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("native override\n")
+            await writeFile(join(root, "AGENTS.override.md"), "updated native override\n")
+          }
           git("add", "-A"); git("commit", "-qm", "resolve instructions")
           expect(git("rev-parse", "HEAD^1").trim()).toBe(head)
           expect(git("rev-parse", "HEAD^2").trim()).toBe(base)
-          expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("AGENTS.override.md")
+          if (nativeOverride) expect(git("show", "HEAD:AGENTS.override.md")).toBe("updated native override\n")
+          else expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("AGENTS.override.md")
           expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
         },
       })
@@ -5046,6 +5054,7 @@ cli_auth_credentials_store = "keyring"
         expect(await readFile(join(root, name), "utf8")).toBe("resolved source instructions\n")
         expect(git("show", `HEAD:${name}`)).toBe("resolved source instructions\n")
       }
+      if (nativeOverride) expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("updated native override\n")
       expect(git("status", "--porcelain")).toBe("")
     } finally { await rm(root, { recursive: true, force: true }) }
   })

@@ -3367,6 +3367,7 @@ async function* runProvider<
     // Host launch preparation must see source-authored instruction files.
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     let materializeInstructions = Boolean(instructions)
+    let turnInstructions: string | undefined
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => undefined)
       if (nativeInstructions !== undefined) instructions = nativeInstructions
@@ -3461,14 +3462,11 @@ async function* runProvider<
         }
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
-      } else if (!unmergedInstructions.has("AGENTS.md") || codexDeveloperInstructions === undefined) {
-        // With developer instructions, an empty AGENTS.md still hides the native file, as before.
-        // A conflict is source work for the Agent. Codex reads its override first, so
-        // generated instructions can remain separate while AGENTS.md is repaired.
-        const instructionName = unmergedInstructions.has("AGENTS.md") ? "AGENTS.override.md" : "AGENTS.md"
-        if (unmergedInstructions.has(instructionName)) throw new Error(`Cannot replace conflicted provider instructions: ${instructionName}`)
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, instructionName), codexDeveloperInstructions === undefined ? instructions : "")
-        if (instructionName === "AGENTS.md" && preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+      } else if (unmergedInstructions.has("AGENTS.md")) {
+        if (codexDeveloperInstructions === undefined) turnInstructions = instructions
+      } else {
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
+        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
         }
@@ -3729,7 +3727,7 @@ async function* runProvider<
       })
     }
     const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      runtime.sendTurn({ attachments, input: turnInstructions ? `${turnInstructions}\n\n${prompt}` : prompt, threadId }),
       effectiveSignal,
       lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
       deferRuntimeCleanup,
