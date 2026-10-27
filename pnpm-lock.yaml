@@ -93,8 +93,8 @@ catalogs:
       specifier: 4.1.4
       version: 4.1.4
     comark-chat:
-      specifier: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468
-      version: 0.5.0
+      specifier: 0.7.1
+      version: 0.7.1
     forges:
       specifier: https://pkg.pr.new/danielroe/forges@40d50b2f8bdc5585becfae405e1a3b8a325f7202
       version: 0.2.0
@@ -2494,7 +2494,7 @@ importers:
         version: 24.19.1
       comark-chat:
         specifier: 'catalog:'
-        version: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
+        version: 0.7.1(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
       katex:
         specifier: ^0.17.0
         version: 0.17.0
@@ -11091,9 +11091,8 @@ packages:
   colortranslator@5.0.0:
     resolution: {integrity: sha512-Z3UPUKasUVDFCDYAjP2fmlVRf1jFHJv1izAmPjiOa0OCIw1W7iC8PZ2GsoDa8uZv+mKyWopxxStT9q05+27h7w==}
 
-  comark-chat@https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468:
-    resolution: {integrity: sha512-NnOtIzYUAeptosW3Rd3SBHonWra6Rul8jDXcT722T1Bf16i4oUxQflP+8hukAVwHGQoj+4wiQ9+pKvBt9ngsCQ==, tarball: https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468}
-    version: 0.5.0
+  comark-chat@0.7.1:
+    resolution: {integrity: sha512-4U5SBtVbkJ1nkdeiY48aeoDZgFP1rcdWQwm3fcWGn5nYe9+z4ACEaYKBWWUhSj7rb2I/X56h1+ZlQPWIKcFkkQ==}
     engines: {node: '>=22.12.0'}
     peerDependencies:
       '@comark/react': ^0.7.0 || ^0.8.0
@@ -28659,7 +28658,7 @@ snapshots:
 
   colortranslator@5.0.0: {}
 
-  comark-chat@https://pkg.pr.new/onmax/comark-ui/comark-chat@01fb5505399492b1540c363da12a006a9158b468(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
+  comark-chat@0.7.1(@comark/vue@0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3)))(react@19.2.6)(vue@3.5.44(typescript@6.0.3)):
     optionalDependencies:
       '@comark/vue': 0.7.0(katex@0.17.0)(shiki@4.5.0)(vue@3.5.44(typescript@6.0.3))
       react: 19.2.6
