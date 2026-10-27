@@ -95,7 +95,16 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
         throw new HTTPError({ status: 501, message: "Durable realtime rooms require a durable Workspace Store." })
       }
       try {
-        const current = ifDigest ? await workspace.fs.stat(documentId) : undefined
+        const current = ifDigest
+          ? await workspace.fs.stat(documentId).catch((error: unknown) => {
+              const shape = getViteHubErrorShape(error)
+              // Only this lookup proves the document is missing; write hooks can read other paths.
+              if (shape?.code === "WORKSPACE_NOT_FOUND" && shape.message.startsWith("[vitehub] Workspace path does not exist:")) {
+                throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
+              }
+              throw error
+            })
+          : undefined
         await workspace.fs.writeFile(documentId, document.body, {
           ifDigest,
           mediaType: current?.mediaType,
@@ -104,11 +113,7 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
         })
       }
       catch (error) {
-        const shape = getViteHubErrorShape(error)
-        // Workspace deletion and missing revisions share this code; only absent paths are document conflicts.
-        const deleted = ifDigest !== null && shape?.code === "WORKSPACE_NOT_FOUND"
-          && shape.message.startsWith("[vitehub] Workspace path does not exist:")
-        if (isWorkspaceConflict(error) || deleted) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
+        if (isWorkspaceConflict(error)) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
         throw error
       }
       // Workspace hooks may normalize the file; the room merges the stored form.

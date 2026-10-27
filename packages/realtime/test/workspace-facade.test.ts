@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { defineWorkspace, useWorkspace } from "@vite-hub/workspace";
 import { registerWorkspace } from "@vite-hub/workspace/test";
 import { readRealtimeWorkspaceDocument, workspaceDocument } from "../src/server.ts";
@@ -36,6 +36,40 @@ it.each([
     editors: [], ifDigest: loaded.digest, reason: "idle",
   })).rejects.toMatchObject({ code: "REALTIME_DOCUMENT_CONFLICT" });
   expect(await workspace.fs.exists(context.documentId)).toBe(false);
+});
+
+describe.each([
+  ["source", workspaceDocument],
+  ["packaged", packagedWorkspaceDocument],
+] as const)("Workspace hook errors through the %s adapter", (entry, createAdapter) => {
+  it.each(["write:before", "write:validate", "write:after"] as const)("preserves a missing auxiliary path error from %s", async (hook) => {
+    const name = `realtime-hook-error-${entry}-${hook}`;
+    let checkAuxiliary = false;
+    registerWorkspace(name, defineWorkspace({
+      store: { provider: "memory" },
+      rules: { "/**": { write: true, mediaType: "text/markdown" } },
+      hooks: {
+        [hook]: async () => {
+          if (checkAuxiliary) await useWorkspace(name).fs.stat("guides/auxiliary.md");
+        },
+      },
+    }));
+    const workspace = useWorkspace(name, { mode: "write" });
+    const adapter = createAdapter(name);
+    const context = { authority: "memory", definition: "docs", documentId: "guides/page.md" } as const;
+    await workspace.fs.writeFile(context.documentId, "# Original");
+    const loaded = await adapter.load(context);
+    checkAuxiliary = true;
+
+    await expect(adapter.save(context, { body: "# Edited" }, {
+      editors: [], ifDigest: loaded.digest, reason: "idle",
+    })).rejects.toMatchObject({
+      code: "WORKSPACE_NOT_FOUND",
+      message: "[vitehub] Workspace path does not exist: guides/auxiliary.md.",
+    });
+    expect(await workspace.fs.readFile(context.documentId, { encoding: "utf8" }))
+      .toBe(hook === "write:after" ? "# Edited" : "# Original");
+  });
 });
 
 it("opens new documents through the packaged Realtime server without duplicate models", async () => {
