@@ -1,0 +1,75 @@
+{
+  "name": "@vite-hub/gateways",
+  "version": "0.1.0",
+  "description": "One AI gateway model: route Codex and Claude Code model requests, and ask TypeSafe Jev typed questions, through TypeSafe, Vercel AI Gateway, Cloudflare AI Gateway, CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, or Anthropic.",
+  "keywords": [
+    "ai",
+    "ai-gateway",
+    "cloudflare",
+    "gateway",
+    "jev",
+    "typesafe",
+    "vercel",
+    "vitehub"
+  ],
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "bugs": "https://github.com/vite-hub/vitehub/issues",
+  "license": "Apache-2.0",
+  "author": "onmax <maximogarciamtnez@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vite-hub/vitehub.git",
+    "directory": "packages/gateways"
+  },
+  "files": [
+    "dist",
+    "package.json"
+  ],
+  "type": "module",
+  "sideEffects": false,
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js",
+      "require": "./dist/internal.js",
+      "default": "./dist/internal.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "vp run --cache -t @vite-hub/gateways#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "test": "vp run -t @vite-hub/gateways#build && vp test"
+  },
+  "dependencies": {
+    "nostics": "catalog:runtime"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "@vite-hub/internal": "workspace:*",
+    "advocaat": "catalog:ai",
+    "publint": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling",
+    "vitest": "catalog:tooling"
+  },
+  "peerDependencies": {
+    "advocaat": "catalog:ai"
+  },
+  "peerDependenciesMeta": {
+    "advocaat": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

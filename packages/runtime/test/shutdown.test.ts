@@ -165,6 +165,53 @@ describe("onShutdown", () => {
     ])
   })
 
+  it.each([
+    { name: "null prototype", create: () => Object.create(null) as unknown },
+    { name: "throwing conversion", create: () => ({ toString() { throw new Error("conversion failed") } }) },
+    { name: "throwing message", create: () => Object.defineProperty(new Error(), "message", { get() { throw new Error("message failed") } }) },
+  ])("records a failed drain with an unprintable $name value and cleans up", async ({ create }) => {
+    vi.useFakeTimers()
+    const { runtime } = fakeRuntime({ VITEHUB_SHUTDOWN_DRAIN_MS: "1000" })
+    const { app } = fakeApp()
+    let drainSignal: AbortSignal | undefined
+    onShutdown(app, "broken", ({ signal }) => {
+      drainSignal = signal
+      throw create()
+    }, runtime)
+    onShutdown(app, "healthy", () => {}, runtime)
+    await vi.advanceTimersByTimeAsync(0)
+
+    await expect(runShutdownDrains(app, runtime)).resolves.toEqual([
+      expect.objectContaining({ name: "broken", status: "failed", error: "Unknown shutdown drain error." }),
+      expect.objectContaining({ name: "healthy", status: "drained" }),
+    ])
+    expect(drainSignal?.aborted).toBe(true)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(shutdownState(runtime).results).toHaveLength(2)
+  })
+
+  it("still closes the server after a drain throws an unprintable value", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => {})
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    const { emitter, exit, runtime } = fakeRuntime()
+    const { app, close } = fakeApp()
+    onShutdown(app, "broken", () => { throw Object.create(null) }, runtime)
+    const closeServer = vi.fn(async () => { await close() })
+    Object.defineProperty(closeServer, "name", { value: "shutdown" })
+    emitter.on("SIGTERM", closeServer)
+    await nextTimer()
+
+    emitter.emit("SIGTERM", "SIGTERM")
+    await vi.waitFor(() => expect(exit).toHaveBeenCalled())
+
+    expect(closeServer).toHaveBeenCalledOnce()
+    expect(exit).toHaveBeenCalledExactlyOnceWith(0)
+    expect(shutdownState(runtime)).toMatchObject({
+      results: [{ name: "broken", status: "failed", error: "Unknown shutdown drain error." }],
+      status: "exited",
+    })
+  })
+
   it("exits when the server listener throws", async () => {
     vi.spyOn(console, "info").mockImplementation(() => {})
     const error = vi.spyOn(console, "error").mockImplementation(() => {})

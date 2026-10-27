@@ -1,6 +1,6 @@
 ---
 title: Auth Console
-description: Inspect users, sessions, organizations, and approved clients in your app's Console.
+description: Inspect auth activity, sign-in counts, users, sessions, organizations, and approved clients.
 navigation.title: Console
 navigation.order: 8
 icon: i-lucide-users-round
@@ -12,12 +12,41 @@ Enable and protect the [Console](/docs/development/console). The section id for 
 
 ## Pages
 
-- **Users** searches names and email addresses, filters admins, banned users, or users with approved clients, and loads one page at a time. Open a user to inspect their profile, declared fields, sessions, linked accounts, organizations, and approved clients.
+- **Overview** is the section index. It shows users, new users in the last seven days, active sessions, and approved agents when the OAuth provider plugin is enabled. With events enabled, it adds active users in the last seven days, daily sign-ins and sign-ups for 30 UTC days, sign-in methods, and the eight latest events.
+- **Activity** lists events newest first. Filter by Sign-in, Admin actions, Agents, or Organizations, and by the subject user ID. Next and Previous use cursors. New events do not shift later pages. Refresh returns to the newest page. Actor and subject names link to the user panel. Deleted users keep their IDs in the log.
+- **Users** searches names and email addresses, filters admins, banned users, or users with approved clients, and loads one page at a time. Open a user to inspect their profile, declared fields, sessions, linked accounts, organizations, approved clients, and recent events. View all opens Activity with that subject user selected.
 - **Sessions** shows active sessions, devices, creation dates, and expiry dates. Revoke a session by its id.
 - **Organizations** appears with the Better Auth organization plugin. Open an organization to read members, roles, and pending invitations.
 - **Agents** appears with the OAuth provider or MCP plugin. It shows each user's approved clients and scopes. Last use is `Unknown` when the provider does not record it.
 
-The section does not include an event recorder, analytics, or an activity log. Those can add pages next to Users without changing the user field contract.
+Active users are distinct users who completed a recorded sign-in in the last seven days. A session created at sign-up counts. The chart includes today and the previous 29 UTC days. The current day is incomplete. Method shares use recorded sign-ins in this chart window. Event counts cover retained records only, with no backfill. The default retention is 90 days or 100,000 events.
+
+Users and new users come from the current user database. Active sessions count unexpired database sessions. This count is unavailable when the app keeps sessions only in secondary storage. Approved agents counts consent grants, one per user and client.
+
+## Enable events
+
+Overview and Activity stay visible without an event store. They show the required setup. Overview still shows totals from the Auth database.
+
+Add `events.store` to `defineAuth()` in your Auth Definition. This example uses a SQLite Database Definition named `auth`. Keep the app's existing Better Auth adapter and options.
+
+```ts [server/auth.ts]
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+
+export default defineAuth(() => {
+  const { db, schema } = useDatabase('auth')
+  return {
+    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
+    emailAndPassword: { enabled: true },
+    events: { store: createDatabaseAuthEventStore({ db }) },
+  }
+})
+```
+
+The event store supports Node SQLite and Cloudflare D1. It records new events after setup. Read the [event log contract](/docs/auth/events) for retention, event coverage, and storage failure limits. The Console checks `console.authorize` for the `auth` section before reading either store. `events.authorize` controls the separate CLI endpoint and is not required for the Console.
+
+Activity returns event IDs, types, times, and actor and subject names and IDs. It does not send event metadata, IP addresses, tokens, or secret values to the client.
 
 ## Declare fields and policy
 
@@ -98,6 +127,8 @@ for (const user of users.items) console.log(user.email, user.fields)
 
 Operations return `[error, data]`. Errors have a typed code, a cause for server diagnostics, and a link to [Auth errors](/docs/auth/limits-and-errors).
 
-Manual hosts can use `createAuthConsole(auth, consoleOptions)` from `vite-hub/auth/console-runtime`. `auth` is the app's Better Auth instance. Read methods do not check HTTP access themselves. A host must check its access policy before exposing them in a route.
+`inspect.overview()` returns the same totals, chart data, and recent events as Overview. `inspect.activity({ group: 'admin', userId: 'user-id', limit: 25 })` returns safe display records and a `nextCursor`. Pass that cursor with the same filters for the next page.
+
+Manual hosts can use `createAuthConsole(auth, consoleOptions, eventStore)` from `vite-hub/auth/console-runtime`. `auth` is the app's Better Auth instance. Pass the same store as `events.store`, or omit it to disable event reads. Read methods do not check HTTP access themselves. A host must check its access policy before exposing them in a route.
 
 Use `inspect.execute(action, request)` for the same policy and permission checks as the Console, or call Better Auth's own API from trusted code. No separate CLI is needed for these operations.

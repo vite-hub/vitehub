@@ -7,12 +7,116 @@ import { createRuntimeRegistry, createSourceContext, resolveBuildConfig, resolve
 import { parseSchema } from "../src/schema.ts"
 
 describe("env declarations", () => {
+  describe.each(["public", "define"] as const)("%s build declarations", (section) => {
+    const resolveDeclarations = (declarations: Record<string, ReturnType<typeof env>>) => {
+      const input = {
+        context: createSourceContext({ env: { FALLBACK: "42" }, mode: "build", rootDir: process.cwd() }),
+        timing: "test",
+      }
+      return section === "public"
+        ? resolveEnvEntries(declarations, { ...input, exposure: "build public", section: "env.public" })
+        : resolveBuildConfig(declarations, { ...input, exposure: "compile-time replacement", section: "env.define" })
+    }
+
+    it.each([
+      { status: "valid", names: ["INPUT", "FALLBACK"], fallback: undefined, value: 42, source: "env:FALLBACK", type: "number" },
+      { status: "defaulted", names: ["INPUT"], fallback: "7", value: 7, source: "env:INPUT", type: "number" },
+      { status: "missing", names: ["INPUT"], fallback: undefined, value: undefined, source: "env:INPUT", type: "undefined" },
+    ])("preserves $status values and complete diagnostics", async (scenario) => {
+      for (const secret of [false, true]) {
+        for (const type of [undefined, "DeclaredType"]) {
+          const result = await resolveDeclarations({
+            value: env({
+              default: scenario.fallback,
+              mode: "build",
+              optional: true,
+              schema: z.coerce.number(),
+              secret,
+              source: env.source(scenario.names, { canonical: false }),
+              type,
+            }),
+          })
+          const masked = section === "public" && secret
+          const exposure = section === "public" ? "build public" : "compile-time replacement"
+          expect(result.diagnostics).toEqual([{
+            exposed: masked ? `${exposure}, masked` : exposure,
+            key: `env.${section}.value`,
+            masked,
+            mode: "build",
+            source: scenario.status === "defaulted" ? "default" : scenario.source,
+            status: scenario.status,
+            timing: "test",
+            type: type ?? scenario.type,
+          }])
+          if ("entries" in result) {
+            expect(result.entries).toEqual([{
+              key: "value", masked, source: scenario.source, type: type ?? scenario.type, value: scenario.value,
+            }])
+          }
+          else {
+            expect(result.values).toEqual({ value: scenario.value })
+          }
+        }
+      }
+    })
+
+    it("awaits each source once in declaration order", async () => {
+      const calls: string[] = []
+      const declaration = (name: string) => env({
+        mode: "build",
+        source: env.custom(name, async () => {
+          calls.push(`start:${name}`)
+          await Promise.resolve()
+          calls.push(`end:${name}`)
+          return name
+        }),
+      })
+      const result = await resolveDeclarations({ second: declaration("second"), first: declaration("first") })
+      expect(calls).toEqual(["start:second", "end:second", "start:first", "end:first"])
+      expect(result.diagnostics.map(entry => entry.key)).toEqual([`env.${section}.second`, `env.${section}.first`])
+    })
+
+    it.each([false, true])("preserves output getter order when missing is %s", async (missing) => {
+      const reads: string[] = []
+      let typeReads = 0
+      const declaration = env({
+        mode: "build",
+        optional: true,
+        schema: { parse: (value: unknown) => {
+          reads.push("parse")
+          return value
+        } },
+        source: env.custom("custom:value", () => {
+          reads.push("resolve")
+          return missing ? undefined : "value"
+        }),
+      })
+      Object.defineProperties(declaration, {
+        mode: { get: () => { reads.push("mode"); return "build" } },
+        secret: { get: () => { reads.push("secret"); return true } },
+        type: { get: () => { reads.push("type"); return `type-${++typeReads}` } },
+      })
+      const result = await resolveDeclarations({ value: declaration })
+      expect(reads).toEqual(section === "public"
+        ? missing
+          ? ["resolve", "secret", "type", "secret", "secret", "mode", "type"]
+          : ["resolve", "parse", "type", "secret", "secret", "secret", "mode"]
+        : missing ? ["resolve", "mode", "type"] : ["resolve", "parse", "type", "mode"])
+      expect(result.diagnostics[0]?.type).toBe(section === "public" && missing ? "type-2" : "type-1")
+    })
+  })
+
   it("rejects public and nested define canonical collisions before resolving sources", async () => {
     const input = {
       context: createSourceContext({ env: {}, mode: "build", rootDir: process.cwd() }),
       timing: "test",
     }
-    const declarations = { apiKey: env({ mode: "build" }), api_key: env({ mode: "build" }) }
+    const calls: string[] = []
+    const declarations = {
+      first: env({ mode: "build", source: () => { calls.push("first"); return "value" } }),
+      apiKey: env({ mode: "build" }),
+      api_key: env({ mode: "build" }),
+    }
     await expect(resolveEnvEntries(declarations, { ...input, exposure: "build public", section: "env.public" }))
       .rejects.toMatchObject({ code: "ENV_DECLARATION_INVALID" })
     await expect(resolveBuildConfig({ nested: declarations }, { ...input, exposure: "compile-time replacement", section: "env.define" }))
@@ -20,6 +124,7 @@ describe("env declarations", () => {
     await expect(resolveBuildConfig({ nestedApiKey: env({ mode: "build" }), nested: { apiKey: env({ mode: "build" }) } }, {
       ...input, exposure: "compile-time replacement", section: "env.define", prefix: "APP_",
     })).rejects.toMatchObject({ code: "ENV_DECLARATION_INVALID" })
+    expect(calls).toEqual([])
   })
 
   it("suppresses build canonical names for unsafe keys and their descendants", async () => {

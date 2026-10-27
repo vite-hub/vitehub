@@ -21,6 +21,7 @@ const packedPackages = await packedWorkspacePackages(workspaceRoot, [
   "connections",
   "env",
   "forge",
+  "gateways",
   "markdown-template",
   "rate-limit",
   "runtime",

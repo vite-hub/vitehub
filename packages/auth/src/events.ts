@@ -35,7 +35,7 @@ export interface AuthEvent {
   metadata: AuthEventMetadata
 }
 export interface AuthEventListInput {
-  type?: AuthEventType
+  type?: AuthEventType | readonly AuthEventType[]
   userId?: string
   actor?: AuthEventActor
   /** Inclusive ISO timestamp. */
@@ -84,7 +84,7 @@ const eventSchema = v.object({ id: text, type: v.picklist(authEventTypes), time:
 const rowSchema = v.object({ payload: v.string() })
 const cursorSchema = v.tuple([timestamp, text])
 const listSchema = v.object({
-  type: v.optional(v.picklist(authEventTypes)), userId: v.optional(text), actor: v.optional(actor),
+  type: v.optional(v.union([v.picklist(authEventTypes), v.pipe(v.array(v.picklist(authEventTypes)), v.minLength(1), v.maxLength(authEventTypes.length))])), userId: v.optional(text), actor: v.optional(actor),
   from: v.optional(timestamp), to: v.optional(timestamp), cursor: v.optional(v.pipe(v.string(), v.maxLength(2048))),
   limit: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(200))),
 })
@@ -143,7 +143,7 @@ export function createDatabaseAuthEventStore(options: { db: EnvDatabase, retenti
       const limit = query.limit ?? 50
       await initialize()
       const rows = await db.all(sql`SELECT payload FROM vitehub_auth_events WHERE ${visible()}
-        ${query.type ? sql`AND type = ${query.type}` : sql``}
+        ${query.type ? sql`AND type IN (${sql.join((typeof query.type === "string" ? [query.type] : query.type).map(type => sql`${type}`), sql`, `)})` : sql``}
         ${query.userId ? sql`AND user_id = ${query.userId}` : sql``}
         ${query.actor ? sql`AND actor = ${query.actor}` : sql``}
         ${query.from ? sql`AND time >= ${new Date(query.from).toISOString()}` : sql``}

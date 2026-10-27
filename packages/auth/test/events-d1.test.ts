@@ -22,6 +22,7 @@ it("records, filters, paginates, aggregates and prunes on real local D1", async 
   expect((await store.aggregate(window)).totals).toEqual({ signUps: 0, signIns: 3, activeUsers: 1, methods: { "email-password": 3 } })
   const restarted = createDatabaseAuthEventStore({ db: drizzle(await worker.getD1Database("DB")) })
   expect((await restarted.list()).events).toHaveLength(3)
+  expect((await restarted.list({ type: ["user.signed_in", "user.banned"], limit: 2 })).events.map(event => event.id)).toEqual(["d", "c"])
 })
 
 it("keeps D1 aggregates consistent when a write follows the first read", async () => {

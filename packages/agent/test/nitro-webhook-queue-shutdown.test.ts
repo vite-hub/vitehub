@@ -14,7 +14,7 @@ import { createLibsqlAgentState } from "../src/state/sqlite.ts"
 const execFileAsync = promisify(execFile)
 const packageRoot = resolve(import.meta.dirname, "..")
 const workspaceRoot = resolve(packageRoot, "../..")
-const packedPackages = await packedWorkspacePackages(workspaceRoot, ["agent", "env", "forge", "markdown-template", "rate-limit", "runtime", "sandbox", "source", "workflow", "workspace"])
+const packedPackages = await packedWorkspacePackages(workspaceRoot, ["agent", "env", "forge", "gateways", "markdown-template", "rate-limit", "runtime", "sandbox", "source", "workflow", "workspace"])
 
 async function runPnpm(args: string[], cwd: string): Promise<void> {
   const npmExecPath = process.env.npm_execpath

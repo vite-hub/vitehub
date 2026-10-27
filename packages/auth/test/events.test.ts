@@ -54,6 +54,20 @@ describe("auth event SQLite store", () => {
     expect(result.days.map(day => day.activeUsers)).toEqual([1, 2, 0])
     expect(result.days[2]).toEqual({ day: "2026-10-22", signUps: 0, signIns: 0, activeUsers: 0, methods: {} })
   })
+  it("filters a group of event types in SQL before its cursor limit", async () => {
+    const { db, queries } = database()
+    const store = createDatabaseAuthEventStore({ db, retention: false })
+    for (const [id, type] of [["a", "user.banned"], ["b", "user.signed_in"], ["c", "user.unbanned"], ["d", "user.signed_in"]] as const)
+      await store.append({ ...event(id), type })
+    queries.length = 0
+    const first = await store.list({ type: ["user.banned", "user.unbanned"], userId: "u1", limit: 1 })
+    expect(first.events.map(event => event.id)).toEqual(["c"])
+    expect(queries).toHaveLength(1)
+    const second = await store.list({ type: ["user.banned", "user.unbanned"], userId: "u1", cursor: first.nextCursor, limit: 1 })
+    expect(second.events.map(event => event.id)).toEqual(["a"])
+    expect(second.nextCursor).toBeUndefined()
+    await expect(store.list({ type: [] })).rejects.toThrow()
+  })
   it("keeps method totals consistent when a write follows the aggregate read", async () => {
     const { db } = database()
     const store = createDatabaseAuthEventStore({ db, retention: false })

@@ -1,5 +1,7 @@
 import { consoleMountBase } from "../console-route.ts"
+import { consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
 import type { ConsoleRequestEvent } from "./request.ts";
 
@@ -22,21 +24,34 @@ const page = `<!doctype html>
   </body>
 </html>`;
 
-export default function consolePageHandler(event: ConsoleRequestEvent): Response {
+const escapeAttribute = (value: string): string =>
+  value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+
+export default async function consolePageHandler(event: ConsoleRequestEvent): Promise<Response> {
   assertConsoleRequest(event);
-  const mountBase = consoleMountBase(consoleRequestURL(event).pathname)
+  // With a sign-in page, a signed-out visit goes there and comes back, as with Console Auth.
+  const signIn = await consoleSignInRedirect(event)
+  if (signIn) return signIn
+  const { pathname } = consoleRequestURL(event)
+  const mountBase = consoleMountBase(pathname)
+  // The Console links to the sign-in page when a session ends while the page is open.
+  const signInPage = consoleSignInPage(pathname)
+  const signInMeta = signInPage ? `\n    <meta name="vitehub-console-sign-in" content="${escapeAttribute(signInPage)}">` : ""
   const mountedPage = page
+    .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}`)
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
     .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)
+  // On a development server, Nuxt DevTools and Vite DevTools show the Console in a frame of the same origin.
+  const development = isConsoleDevelopmentBuild()
   return new Response(mountedPage, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+      "content-security-policy": `default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self' data:; frame-ancestors ${development ? "'self'" : "'none'"}; base-uri 'none'; form-action 'none'`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
-      "x-frame-options": "DENY",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
   });

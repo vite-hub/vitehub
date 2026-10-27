@@ -1,10 +1,10 @@
 # @vite-hub/auth
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Better Auth" src="https://img.shields.io/badge/Better%20Auth-powered-0f766e?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Better Auth" src="https://comark-ui.onmax.me/badge.svg?label=Better+Auth&amp;value=powered">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/auth` defines one server-owned Auth Definition and turns it into a Better Auth server for ViteHub apps.
@@ -352,3 +352,5 @@ Event writes are separate from auth mutations. Storage failures warn with `AUTH_
 The primary Auth Definition adds `/_vitehub/auth` to the ViteHub Console. It lists users, active sessions, organizations, and approved OAuth clients. Better Auth additional fields become columns. Set `console.fields.<name>.editable` to allow edits, `console.columns` for batch computed values, and `console.roles` or `console.actions` for read-only policy with a reason. `console.access` holds short descriptions of the app's sign-in rules.
 
 `getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.
+
+Overview shows database totals and, with `events.store`, active users, a 30-day chart, sign-in methods, and recent events. Activity filters event groups and subject users before cursor pagination. User panels include recent events. Both pages show the `events.store` setup when recording is disabled. Server callers use `inspect.overview()` and `inspect.activity({ group, userId, cursor, limit })`. Manual hosts pass their event store as the third argument to `createAuthConsole(auth, consoleOptions, eventStore)`.

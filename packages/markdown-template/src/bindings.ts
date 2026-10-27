@@ -20,7 +20,6 @@ function pathValue(value: unknown, parts: string[]): { value: unknown } | undefi
 export function resolveTemplateAttributes(
   attributes: Record<string, unknown>,
   renderData: NodeRenderData,
-  options: { parseJson: true },
 ): Record<string, unknown> {
   const values: Record<string, unknown> = Object.create(null)
   const rewritten = { ...attributes }
@@ -32,11 +31,11 @@ export function resolveTemplateAttributes(
     values[alias] = pathValue(renderData, value.split("."))?.value
     rewritten[key] = `props.${alias}`
   }
-  return resolveAttributes(rewritten, { ...renderData, props: values }, options)
+  return resolveAttributes(rewritten, { ...renderData, props: values }, { parseJson: true })
 }
 
 export function resolveTemplateBinding(attributes: Record<string, unknown>, renderData: NodeRenderData, prop = "value"): unknown {
-  const props = resolveTemplateAttributes(attributes, renderData, { parseJson: true })
+  const props = resolveTemplateAttributes(attributes, renderData)
   if (props[prop] === undefined || props[prop] === null) {
     throw diagnostics.MARKDOWN_TEMPLATE_R0017({ message: `[vitehub] Markdown template binding "${String(attributes[`:${prop}`] ?? prop)}" is not defined.` })
   }
@@ -57,7 +56,7 @@ function requireScalar(value: unknown, path: string): string {
 
 /** Resolves and validates bound scalar attributes before Comark serializes a tag. */
 export function resolveScalarTemplateAttributes(attributes: Record<string, unknown>, renderData: NodeRenderData): Record<string, unknown> {
-  const props = resolveTemplateAttributes(attributes, renderData, { parseJson: true })
+  const props = resolveTemplateAttributes(attributes, renderData)
   for (const key of Object.keys(attributes)) {
     if (key.startsWith(":")) requireScalar(props[key.slice(1)], String(attributes[key]))
   }
