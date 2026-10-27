@@ -37,7 +37,7 @@ describe.each([
     });
     const wrapper = mount(() => render(invocation(diagnostic)));
     try {
-      expect(JSON.parse(wrapper.get(".vh-invocation-error__details pre").text())).toEqual({
+      expect(JSON.parse(wrapper.get(".vh-invocation-error__details").text())).toEqual({
         code: diagnostic.code,
         docs: diagnostic.docs,
         fix: diagnostic.fix,
@@ -52,9 +52,8 @@ describe.each([
   it("shows a diagnostic disclosure when source locations are the only details", () => {
     const wrapper = mount(() => render(invocation(Object.assign(new Error(message), { sources }))));
     try {
-      const details = wrapper.get("details.vh-invocation-error__details");
-      expect(details.get("summary").text()).toBe("Diagnostic details");
-      expect(JSON.parse(details.get("pre").text())).toEqual({ message, sources });
+      expect(wrapper.get(".vh-invocation-error__action[aria-controls]").text()).toBe("Details");
+      expect(JSON.parse(wrapper.get("pre.vh-invocation-error__details").text())).toEqual({ message, sources });
     } finally {
       wrapper.unmount();
     }

@@ -1629,6 +1629,8 @@
       "error": {
         "name": "Error",
         "message": "[vitehub] Timed out waiting to read Workspace path: docs/content.",
+        "fix": "Check that the Workspace source includes docs/content, then start a new session.",
+        "docs": "https://vitehub.dev/docs/workspace",
         "code": "WORKSPACE_READ_TIMEOUT"
       },
       "createdAt": "2026-08-30T15:40:00.000Z",

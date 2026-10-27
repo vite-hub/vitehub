@@ -1885,6 +1885,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
             await pullRequestInbox.finish(inboxClaim, {
               text: error instanceof Error ? error.message : String(error),
               retry: !pushSucceeded,
+              ...!pushSucceeded ? { progress: { kind: "no-progress" as const } } : {},
             });
             schedulerError("babysitter.owner.failed", error, owner);
           }

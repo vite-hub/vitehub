@@ -128,7 +128,7 @@ onBeforeUnmount(() => request?.abort());
           </UTooltip>
         </template>
       </ConsolePageHeader>
-      <ConsolePageToolbar v-if="connections.length">
+      <ConsolePageToolbar v-if="connections.length" width="5xl">
         <UInput
           v-model="search"
           class="w-full sm:w-64"
