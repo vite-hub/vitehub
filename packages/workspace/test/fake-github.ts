@@ -327,7 +327,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     }
     if (rest.startsWith("/git/matching-refs/heads/") && method === "GET") {
       const prefix = rest.slice("/git/matching-refs/heads/".length)
-      return page([...branches].filter(([name]) => name.startsWith(prefix)).sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ object: { sha, type: "commit" }, ref: `refs/heads/${name}` })), url)
+      return json([...branches].filter(([name]) => name.startsWith(prefix)).sort(([left], [right]) => left.localeCompare(right)).map(([name, sha]) => ({ object: { sha, type: "commit" }, ref: `refs/heads/${name}` })))
     }
     if (rest.startsWith("/git/refs/heads/") && method === "DELETE") {
       return branches.delete(rest.slice("/git/refs/heads/".length)) ? new Response(null, { status: 204 }) : failure(422, "Reference does not exist")
@@ -446,7 +446,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const name = rest.slice("/git/refs/heads/".length)
       const commit = commits.get(String(request.body?.sha))
       if (!branches.has(name) || !commit) return failure(422, "Reference does not exist")
-      if (commit.parents[0] !== branches.get(name)) return failure(422, "Update is not a fast forward")
+      if (!reachable(commit.sha).has(branches.get(name)!)) return failure(422, "Update is not a fast forward")
       branches.set(name, commit.sha)
       return json({ object: { sha: commit.sha } })
     }

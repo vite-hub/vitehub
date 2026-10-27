@@ -418,6 +418,8 @@ export interface WorkspaceOpenPullRequestOptions {
   draft?: boolean
   /** Delete the head ref when the pull request cannot be opened, so a failed publish leaves no branch behind. */
   deleteHeadOnFailure?: boolean
+  /** Atomically exclude overlapping open PRs from this prefix while creating the request, across Store instances. */
+  reservation?: { headPrefix: string, paths: string[] }
 }
 
 /** A file that both refs changed in different ways. Digests are the Store's (`history.digest`); null means deleted. */
@@ -484,7 +486,14 @@ export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, Worksp
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 
-export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
+/** Run the Workspace commit policy on a prepared merge before the Store advances its destination ref. */
+export type WorkspaceMergeCommit = (
+  options: WorkspaceStoreHistoryCommitOptions,
+  apply: (checked: WorkspaceStoreHistoryCommitOptions) => Promise<WorkspaceRevision>,
+) => Promise<WorkspaceRevision>
+
+export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<WorkspaceHistoryExtensions, "merge"> {
+  merge?(options: WorkspaceMergeOptions, commit?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null>
   commit(options: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 
