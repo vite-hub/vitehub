@@ -211,7 +211,8 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
   }
 
   function touching(target: CommentsDatabase, id: string, now: number, values: Partial<typeof threads.$inferInsert> = {}) {
-    return target.update(threads).set({ ...values, updatedAt: now }).where(eq(threads.id, id))
+    // Each mutation needs a newer snapshot even when the clock has not advanced.
+    return target.update(threads).set({ ...values, updatedAt: sql`case when ${threads.updatedAt} >= ${now} then ${threads.updatedAt} + 1 else ${now} end` }).where(eq(threads.id, id))
   }
 
   function messageRow(threadId: string, input: NewMessage): typeof messages.$inferInsert {

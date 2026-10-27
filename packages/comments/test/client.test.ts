@@ -61,6 +61,16 @@ describe("createCommentsClient", () => {
     expect(await other.resolve({ threadId: thread.id })).toMatchObject({ status: "resolved", resolvedBy: ben })
   })
 
+  it.each([false, true])("preserves other authors' replies when deleting a thread (first message: %s)", async (firstMessage) => {
+    const { client, store } = setup()
+    const thread = await client.create({ subject, anchor, body: "Mine" })
+    const replied = await store.as(ben).reply({ threadId: thread.id, body: "Ben's reply" })
+    await expect(client.delete({ threadId: thread.id, ...(firstMessage ? { messageId: thread.messages[0]!.id } : {}) })).rejects.toMatchObject({ code: "COMMENTS_R0004" })
+    expect((await store.get({ id: thread.id }))?.messages).toHaveLength(2)
+    await store.as(ben).delete({ threadId: thread.id, messageId: replied.messages[1]!.id })
+    expect(await client.delete({ threadId: thread.id })).toBeNull()
+  })
+
   it("rejects an empty comment and an unknown thread with a coded error", async () => {
     const { client } = setup()
     await expect(client.create({ subject, anchor, body: "   " })).rejects.toMatchObject({ code: "COMMENTS_R0005" })
@@ -143,6 +153,30 @@ describe("createCommentsClient", () => {
   })
 
   describe("races", () => {
+    it.each(["reply", "edit"] as const)("keeps the newest same-millisecond %s when responses arrive in reverse order", async (action) => {
+      const store = createMemoryTransport({ user: ana, now: () => 1 })
+      const thread = await store.create({ subject, anchor, body: "First" })
+      const pending: Array<() => void> = []
+      const delay = (snapshot: CommentThread) => new Promise<CommentThread>(resolve => pending.push(() => resolve(snapshot)))
+      const transport = {
+        ...store,
+        reply: (input: Parameters<typeof store.reply>[0]) => store.reply(input).then(delay),
+        edit: (input: Parameters<typeof store.edit>[0]) => store.edit(input).then(delay),
+      }
+      const client = createCommentsClient({ transport })
+      const mutate = (body: string) => action === "reply"
+        ? client.reply({ threadId: thread.id, body })
+        : client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body })
+      const older = mutate("Second")
+      const newer = mutate("Third")
+      await vi.waitFor(() => expect(pending).toHaveLength(2))
+      pending[1]!()
+      await newer
+      pending[0]!()
+      await older
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(action === "reply" ? ["First", "Second", "Third"] : ["Third"])
+    })
+
     // A transport whose list answers when the test says so, with what the server knew when it was asked.
     function slowList() {
       const store = createMemoryTransport({ user: ana, now: () => 1 })
@@ -188,9 +222,11 @@ describe("createCommentsClient", () => {
       expect(client.threads).toEqual([])
     })
 
-    it("keeps the local thread when the list holds an older copy", async () => {
+    it("keeps the locally changed thread when the list has an equal timestamp", async () => {
       const { pending, store, transport } = slowList()
       const thread = await store.create({ subject, anchor, body: "First" })
+      const reply = transport.reply
+      transport.reply = async input => ({ ...await reply(input), updatedAt: thread.updatedAt })
       const client = createCommentsClient({ transport })
       const loading = client.refresh()
       await vi.waitFor(() => expect(pending).toHaveLength(1))
@@ -199,6 +235,7 @@ describe("createCommentsClient", () => {
       await client.reply({ threadId: thread.id, body: "Second" })
       pending[0]!.answer()
       await loading
+      expect(client.threads[0]!.updatedAt).toBe(thread.updatedAt)
       expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second"])
     })
 

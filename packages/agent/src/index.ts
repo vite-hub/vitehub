@@ -2072,27 +2072,6 @@ export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
-export { ask } from "./ask.ts"
-export type {
-  AskAnswer,
-  AskAnswers,
-  AskChanceAnswer,
-  AskChanceCriteria,
-  AskChanceQuestion,
-  AskChoiceAnswer,
-  AskChoiceCriteria,
-  AskChoiceLabels,
-  AskChoiceQuestion,
-  AskEntry,
-  AskIfQuestion,
-  AskJson,
-  AskQuestion,
-  AskQuestions,
-  AskScoreAnswer,
-  AskScoreCriteria,
-  AskScoreQuestion,
-  AskSwitchQuestion,
-} from "./ask.ts"
 export {
   agentInvocationStreamRoute,
   createAgentInvocationStreamResponse,

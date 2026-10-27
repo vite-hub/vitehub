@@ -74,6 +74,18 @@ it("keeps insertion order and deletes only the reply when timestamps collide", a
   expect(await call("comments.delete", { messageId: "a-reply", threadId: thread.id })).toMatchObject({ ok: true, value: { messages: [{ id: "z-first" }] } })
 })
 
+it("gives each same-millisecond mutation a strictly newer timestamp", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "first", mentions: [], now: 1 }
+  const created = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  const replied = await store.addMessage(created.id, { ...message, body: "Reply", id: "reply" })
+  const edited = await store.editMessage(created.id, "reply", { body: "Edited", mentions: [], now: 1 })
+  const resolved = await store.setStatus(created.id, "resolved", member, 1)
+  const reopened = await store.setStatus(created.id, "open", member, 1)
+  const deleted = await store.deleteMessage(created.id, "reply", 1)
+  expect([created, replied, edited, resolved, reopened, deleted].map(thread => thread.updatedAt)).toEqual([1, 2, 3, 4, 5, 6])
+})
+
 function setup(definition: CommentsDefinition) {
   const store = createCommentsStore(drizzle(client))
   installComments({ definition, store })

@@ -283,7 +283,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       {
-        name: "@vite-hub/sandbox-task/vite",
+        name: "@vite-hub/sandbox/task/vite",
         config: mocks.sandboxTaskHook,
       },
       {
@@ -555,9 +555,9 @@ describe("ViteHub Nuxt integration", () => {
 
   it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
     const setup = vi.fn()
-    const nitroModule = { name: "@vite-hub/sandbox-task/provider-runtime", setup }
+    const nitroModule = { name: "@vite-hub/sandbox/task/provider-runtime", setup }
     mocks.vitehub.mockReturnValue([{
-      name: "@vite-hub/sandbox-task/vite",
+      name: "@vite-hub/sandbox/task/vite",
       nitro: nitroModule,
     }])
     const { nuxt, runNitroConfigHook } = createNuxt()
@@ -580,7 +580,7 @@ describe("ViteHub Nuxt integration", () => {
     })
     mocks.vitehub.mockReturnValue([
       {
-        name: "@vite-hub/sandbox-task/vite",
+        name: "@vite-hub/sandbox/task/vite",
         config: mocks.sandboxTaskHook,
         configResolved,
       },
@@ -2546,7 +2546,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       existingQueuePlugin,
-      expect.objectContaining({ name: "@vite-hub/sandbox-task/vite" }),
+      expect.objectContaining({ name: "@vite-hub/sandbox/task/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       existingPlugin,
       expect.objectContaining({ name: "@vite-hub/env/vite" }),

@@ -99,7 +99,9 @@ function message(store: Store, user: CommentUser, input: { threadId: string, bod
 
 function view(store: Store, user: CommentUser): MemoryTransport {
   const save = (next: CommentThread): CommentThread => {
-    next.updatedAt = store.now()
+    const previous = store.threads.get(next.id)
+    const now = store.now()
+    next.updatedAt = previous ? Math.max(now, previous.updatedAt + 1) : now
     store.threads.set(next.id, next)
     emit(store, { type: "thread", thread: next })
     return copy(next)
@@ -177,6 +179,7 @@ function view(store: Store, user: CommentUser): MemoryTransport {
       if (input.messageId !== undefined && !target) throw commentsErrorDiagnostics.COMMENTS_R0003({ messageId: input.messageId })
       if ((target ?? found).author.id !== user.id) throw commentsErrorDiagnostics.COMMENTS_R0004()
       if (!target || target === found.messages[0]) {
+        if (found.messages.some(message => message.author.id !== user.id)) throw commentsErrorDiagnostics.COMMENTS_R0004()
         store.threads.delete(found.id)
         emit(store, { type: "deleted", threadId: found.id })
         return null

@@ -45,8 +45,6 @@ export function renderCommentsDatabaseModule(imports: Pick<CommentsImports, "dat
   ].join("\n")
 }
 
-const entryName = /^comments\.[cm]?[jt]s$/
-
 /** Import paths of the generated runtime. The `vite-hub` integration passes its own subpaths, so the module resolves from the app. */
 export interface CommentsImports {
   auth: string
@@ -92,7 +90,7 @@ export type CommentsVitePlugin = Plugin & {
 
 function candidates(projectRoot: string, serverDirs: readonly string[] | undefined): string[] {
   const directories = serverDirs === undefined ? [resolve(projectRoot, "server")] : serverDirs.map(directory => resolve(projectRoot, directory))
-  return directories.flatMap(directory => ["comments.ts", "comments.mts", "comments.js", "comments.mjs"].map(name => join(directory, name))).filter(file => entryName.test(file.slice(file.lastIndexOf("/") + 1)))
+  return directories.flatMap(directory => ["comments.ts", "comments.mts", "comments.js", "comments.mjs"].map(name => join(directory, name)))
 }
 
 /** The `server/comments.{ts,js}` file of the project, or undefined. */
@@ -120,7 +118,7 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
     ...(options.auth ? [`import { getAuth } from ${JSON.stringify(options.imports.auth)}`] : []),
     `import * as app from ${JSON.stringify(pathToFileURL(options.entry).href)}`,
     "",
-    `const definition = validateCommentsDefinition(app.default ?? app.comments, ${JSON.stringify(options.entry)})`,
+    `const definition = validateCommentsDefinition(app.default, ${JSON.stringify(options.entry)})`,
     `const databaseName = ${name}`,
     "",
     "function entry() {",
@@ -182,13 +180,13 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       const hasDatabase = nitroContext || config.plugins.some(plugin => plugin.name === "@vite-hub/database/vite")
       if (!hasDatabase) throw commentsErrorDiagnostics.COMMENTS_B0001({ file: entry.slice((projectRoot ?? "").length + 1) || entry })
       const { runnerImport } = await import("vite")
-      const { module: app } = await runnerImport<{ default?: unknown, comments?: unknown }>(entry, {
+      const { module: app } = await runnerImport<{ default?: unknown }>(entry, {
         configFile: false,
         root: projectRoot,
         resolve: { alias: config.resolve?.alias },
         logLevel: "silent",
       })
-      validateCommentsDefinition(app.default ?? app.comments, displayPath(entry, projectRoot ?? ""))
+      validateCommentsDefinition(app.default, displayPath(entry, projectRoot ?? ""))
     },
     vitehub: {
       async databases(context: DatabaseContributionContext) {

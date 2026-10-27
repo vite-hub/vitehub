@@ -71,9 +71,10 @@ describe("defineComments", () => {
 const unused = { plugins: [], projectRoot: "/unused", root: "/unused", rootDir: "/unused" }
 
 describe("hubComments", () => {
-  it("finds server/comments.ts", async () => {
-    const root = await project(true)
-    expect(findCommentsEntry({ projectRoot: root })).toBe(join(root, "server", "comments.ts"))
+  it.each(["comments.ts", "comments.mts", "comments.js", "comments.mjs"])("finds server/%s", async (name) => {
+    const root = await project(false)
+    await writeFile(join(root, "server", name), "export default {}")
+    expect(findCommentsEntry({ projectRoot: root })).toBe(join(root, "server", name))
     expect(usesComments({ projectRoot: root })).toBe(true)
     expect(usesComments({ projectRoot: await project(false) })).toBe(false)
   })
@@ -164,9 +165,19 @@ describe("hubComments", () => {
     expect(() => (plain.configResolved as unknown as (config: ResolvedConfig) => void)({ plugins: [] } as unknown as ResolvedConfig)).not.toThrow()
   })
 
-  it.each(["export const other = {}", "export default {}", "export default null", "export default () => ({})"])("rejects an invalid comments module during configuration: %s", async (source) => {
+  const invalidModules = [
+    "export const other = {}",
+    "export default {}",
+    "export default null",
+    "export default () => ({})",
+    "export const comments = defineComments()",
+    "export default null; export const comments = defineComments()",
+    "export default undefined; export const comments = defineComments()",
+  ]
+
+  it.each(invalidModules)("rejects an invalid comments module during configuration: %s", async (source) => {
     const root = await project(true)
-    await writeFile(join(root, "server/comments.ts"), source)
+    await writeFile(join(root, "server/comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\n${source}`)
     const plugin = hubComments()
     await configHook(plugin)({ root })
     // SAFETY: The hook only reads the Database plugin from this partial resolved config.
@@ -174,10 +185,10 @@ describe("hubComments", () => {
     await expect(resolve({ plugins: [{ name: "@vite-hub/database/vite" }] })).rejects.toMatchObject({ code: "COMMENTS_B0002" })
   })
 
-  it("validates the generated module before installing the lazy runtime", async () => {
+  it.each(invalidModules)("validates the generated module before installing the lazy runtime: %s", async (source) => {
     const root = await project(true)
     const entry = join(root, "server/comments.mjs")
-    await writeFile(entry, "export default {}")
+    await writeFile(entry, `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\n${source}`)
     const file = join(root, "plugin.mjs")
     await writeFile(file, renderCommentsNitroPlugin({
       auth: false,
