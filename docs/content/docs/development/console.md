@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 12501)
-Total output lines: 616
-
 ---
 title: Console
 description: Enable the Console, inspect configured primitives, and protect its routes.
@@ -286,7 +283,154 @@ If you previously protected the Console through Primary Auth, remove its `/_vite
 
 Inline Console Auth uses `node:sqlite` and requires the Node deployment preset. Other presets need a file-based Console Auth Definition with a database adapter supported by the host.
 
-Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `BETTER_AUTH_SECRET` in the server environment. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes …2501 tokens truncated…essage } from 'vite-hub/agent'
+Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and `BETTER_AUTH_SECRET` in the server environment. `baseURL` is the public origin used for OAuth redirects; set it when a proxy terminates TLS. The GitHub callback URL is `https://agent.example.com/api/_vitehub/console/auth/callback/github`. For Nuxt apps mounted below `/`, ViteHub includes `app.baseURL` in the callback and redirects. Put `databasePath` on persistent storage. Console Auth creates or updates its Better Auth tables before the first protected request. It refuses a missing database or secret. Application requests and channel requests keep their own authentication.
+
+For a custom provider, GitHub organization check, or Better Auth server plugins, commit `vitehub/console/auth/server.ts` and use `console: { auth: {} }`. The file can import `defineAuth` and export a Console definition:
+
+```ts [vitehub/console/auth/server.ts]
+import { DatabaseSync } from 'node:sqlite'
+import { defineAuth } from 'vite-hub/auth'
+import { defineConsoleAuth } from 'vite-hub/console/auth'
+
+const database = new DatabaseSync('/var/lib/app/console-auth.sqlite')
+
+export default defineConsoleAuth({
+  auth: defineAuth(() => ({
+    baseURL: process.env.CONSOLE_AUTH_BASE_URL,
+    database,
+    secret: process.env.BETTER_AUTH_SECRET,
+    socialProviders: {
+      github: {
+        clientId: process.env.GITHUB_CLIENT_ID!,
+        clientSecret: process.env.GITHUB_CLIENT_SECRET!,
+      },
+    },
+  })),
+  signIn: { provider: 'github' },
+  authorize: ({ user }) => user.email === 'maintainer@example.com',
+})
+```
+
+ViteHub fixes this definition's auth route to `/api/_vitehub/console/auth/**` and its cookie prefix to `vitehub_console`. It guards `/_vitehub/**` and every method under `/api/_vitehub/console/**`, including the RPC route and invocation actions. An unauthenticated browser visit opens `/_vitehub/sign-in`; the provider redirect starts only after the user selects its sign-in button. Console APIs return 401 without a session. The sign-in page and auth callback are excluded from the guard. The server file must provide a Better Auth database adapter and a secret. The host must place that database on durable storage. ViteHub runs Better Auth migrations before serving the first protected request. Set `migrate: false` only when your own startup process has applied the schema.
+
+An optional `vitehub/console/auth/client.ts` can provide Better Auth client plugins and a `setup` hook. ViteHub bundles it for the Console pages only. `setup` receives the client from `createAuthClient()`; use `loadAuthClient(client)` from `vite-hub/auth/vue` for members that are not calls, such as `$store`:
+
+```ts [vitehub/console/auth/client.ts]
+import { defineConsoleAuthClient } from 'vite-hub/console/auth/client'
+
+export default defineConsoleAuthClient({
+  plugins: [],
+  setup(client) {
+    // Add Console-only browser behavior here.
+  },
+})
+```
+
+Use `console.auth.server` or `console.auth.client` for a file in another location. An explicit path conflicts with the corresponding discovered file. Client code does not authorize requests.
+
+On Cloudflare, use `console: { auth: { provider: 'cloudflare-access' } }` with a Cloudflare Access application. See [Cloudflare](/docs/frameworks-hosts/cloudflare).
+
+### Use another authentication library
+
+Apps that use another authentication library set `auth: false` and give the Console an `authorize` function:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vitehub({
+    agent: true,
+    console: { auth: false, authorize: './server/console-authorize.ts' },
+    preset: 'node',
+  })],
+})
+```
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+import { readHostSession } from './session'
+
+export default defineConsoleAuthorize(async ({ request }) => {
+  const session = await readHostSession(request)
+  if (!session) return new Response('Sign in first.', { status: 401 })
+  return session.user.role === 'admin'
+})
+```
+
+`readHostSession()` is an example of your own session code. With `auth: false`, `authorize` receives only the Web `Request`. Keep your host middleware as a first layer if you already have one.
+
+### Limit a user to some sections
+
+`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data. With `signInPage`, a visit to a Console page also runs the access check, to send a user without a session to sign in.
+
+`authorize` returns one of these values:
+
+| Result | Effect |
+| --- | --- |
+| `true` | Allows every Console section. |
+| `{ sections: ['content'] }` | Allows only these section ids. An empty list returns `403`. |
+| `false` | Returns `403`. |
+| A `Response` | Returns that response, for example a `401` or a redirect. |
+
+Any other value returns `500`. With `auth: 'app'` and with session-based Console Auth, the context also has the signed-in `user`:
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ user }) => {
+  if (user?.role === 'admin') return true
+  if (user?.role === 'editor') return { sections: ['content'] }
+  return false
+})
+```
+
+Section ids are the ids in the Console URL, such as `env`, `connections`, `agents`, `usage`, `content`, `blob`, `databases`, `kv`, `workspaces`, `workflows`, `queues`, and `schedules`. Each Console route and RPC operation declares its section, and the server returns `403` for a section outside the list. Write actions follow the section that owns them: Env management needs `env`, Connections management needs `connections`, Agent Invocations and Channel replay need `agents`, Schedule runs need `schedules`, and Content saves and publishes need `content`. Content then checks `content.can()` for the signed-in user, so `{ sections: ['content'] }` gives an editor the section, and `defineContent({ authorize })` decides which collections and actions they get. The Console navigation shows only the allowed sections. That is a convenience. The server check is the security boundary.
+
+### How each mode checks a request
+
+Each Console data route checks access itself. The Console Auth middleware stays as a first layer in front of the routes.
+
+| Configuration | Check in each Console data route |
+| --- | --- |
+| `auth: false` | Allows the request. A production build and a production server log a warning. |
+| `auth: 'app'` | Checks the Primary Auth Session and every Auth access route that protects the Console. Returns `401` or `403`. |
+| `auth: { ... }` | Checks the Console Auth Session and its `authorize` callback with `withAuthorization()`. Returns `401` or `403`. It does not redirect to sign-in. |
+| `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
+| `authorize` | Runs after any of the checks above. It can reject the request or limit it to some sections. |
+
+All Console paths in this guide include the resolved Vite `base` pathname. With `base: '/portal/'`, host middleware that you keep as a first layer must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Policies for only the root routes do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`''` or `'./'`) use root routes. Primary Auth access routes must also include the prefix; built-in Console Auth applies it automatically.
+
+### Start Agent Invocations
+
+`invoke` lets the Console start Agent Invocations and run manual Schedules. It defaults to `true` on the development server and `false` in a production build. This applies to both Vite and Nuxt:
+
+```ts
+console: { auth: 'app', authorize: './server/console-authorize.ts', invoke: true }
+```
+
+Your access policy decides who can start invocations, because the invocation routes call it. A user also needs the `agents` section. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. Fixture mode always disables it.
+
+### Manage Connections in production
+
+On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build mounts the Connections section and its management routes only with `connections: { management: true }`:
+
+```ts
+vitehub({
+  connections: { management: true },
+  console: { auth: 'app', authorize: './server/console-authorize.ts' },
+  database: true,
+  preset: 'node',
+})
+```
+
+Every user that passes the Console access policy with the `connections` section can then manage every Connection. Restrict the policy to the people who own the provider accounts.
+
+Console RPC requests must come from the same origin. The RPC route rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the RPC route compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
+
+Browsers can omit both headers on HTTP origins. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. A foreign browser page cannot add this header without a CORS preflight, which the RPC route rejects. The built-in Console client adds it automatically. Server clients must add it when they send RPC calls without origin headers. The marker is not a credential. All requests still require the configured authentication and authorization.
+
+The `vitehub:console:agent-invocations` RPC operation accepts an Agent name, `method: 'POST'`, and a body typed as `ConsoleAgentInvocationInput` from `vite-hub/console`. The body requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
+
+```ts
+import { createMessage } from 'vite-hub/agent'
 import type { ConsoleAgentInvocationInput } from 'vite-hub/console'
 
 const body = {
