@@ -135,9 +135,9 @@ const comments = sqliteTable("vitehub_comments", {
 // SAFETY: CommentForgeTable mirrors the columns constructed here.
 // doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
 const commentForge = sqliteTable("vitehub_comment_forge", {
-  /** The comment that the row posts, or `summary:<repository>#<pull request>` for the summary comment. */
+  /** A comment id, `summary:<repository>#<pull request>`, or `cleanup:<repository>#<remote id>` for a pending delete. */
   id: text("id").primaryKey(),
-  /** Null for the summary comment. */
+  /** Null for summaries and cleanup rows, which survive deletion of the original thread. */
   threadId: text("thread_id"),
   repository: text("repository").notNull(),
   pullRequest: integer("pull_request").notNull(),

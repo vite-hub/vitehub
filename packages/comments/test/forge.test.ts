@@ -187,6 +187,27 @@ describe("forge sync", () => {
     expect(reply!.body).toContain("**Grace** replied on #⁠1:\n\n> Agreed.")
   })
 
+  it("attaches pending, posted, and failed forge state when looking up a comment", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    const held = github.holdNextCreate("comment")
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    const id = thread!.comments[0]!.id
+    await held.started
+    const [, pending] = await comments.getByComment(id)
+    held.release()
+    await comments.flush()
+    const [, posted] = await comments.getByComment(id)
+    github.failNextRequests(1)
+    await comments.edit(id, { body: "Edited." })
+    await comments.flush()
+    const [, failed] = await comments.getByComment(id)
+
+    expect(pending!.forge).toMatchObject({ state: "pending" })
+    expect(posted!.forge).toMatchObject({ state: "posted", url: expect.any(String) })
+    expect(failed!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403") })
+  })
+
   it("hides a resolved thread, shows it again when reopened, and keeps the summary current", async () => {
     const github = fakeGitHub()
     const comments = await forgeComments(github)
@@ -220,6 +241,29 @@ describe("forge sync", () => {
     await comments.flush()
     expect(github.calls.filter(call => call.startsWith("PATCH"))).toHaveLength(2)
     expect(github.bodies().join("\n")).toContain("Cut off at 24 characters.")
+  })
+
+  it.each(["resolve", "reopen"] as const)("exposes a rejected %s and clears the failure after retry", async (action) => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Visibility.", author: ada })
+    await comments.flush()
+    if (action === "reopen") {
+      await comments.resolve(thread!.id, { by: grace })
+      await comments.flush()
+    }
+    const posted = [...github.comments.values()][1]!
+    github.failNextRequests(1)
+    if (action === "resolve") await comments.resolve(thread!.id, { by: grace })
+    else await comments.reopen(thread!.id)
+    await comments.flush()
+
+    expect(posted.minimized).toBe(action === "reopen")
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("GraphQL"), url: expect.any(String) })
+    await comments.sync(thread!.id)
+    expect(posted.minimized).toBe(action === "resolve")
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "posted" })
+    expect((await comments.get(thread!.id))[1]!.forge).not.toHaveProperty("error")
   })
 
   it("deletes the comments of a deleted thread, and the summary with the last one", async () => {
@@ -350,6 +394,46 @@ describe("forge sync", () => {
     expect(rows).toHaveLength(remove ? 0 : 2)
     expect(rows.every(row => github.comments.has(Number(row.remoteId)))).toBe(true)
     if (!remove) expect(rows.map(row => row.remoteId)).toEqual(before.map(row => row.remoteId))
+  })
+
+  it.each([
+    { kind: "summary", remove: false },
+    { kind: "comment", remove: false },
+    { kind: "summary", remove: true },
+    { kind: "comment", remove: true },
+  ] as const)("retries failed cleanup of an expired $kind create (delete: $remove)", async ({ kind, remove }) => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const options = { forge: { provider: "github", fetch: github.fetch } } satisfies { forge: CommentsForgeOptions }
+    const first = defineComments(options)
+    const second = defineComments(options)
+    installComments(first, { database })
+    installComments(second, { database })
+    const held = github.holdNextCreate(kind, false)
+    const [, thread] = await first.create({ page: "/forecast", anchor, context: context(), body: "Late create.", author: ada })
+    await held.started
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000)
+    if (remove) {
+      await second.remove(thread!.id)
+      await second.flush()
+    }
+    else await second.sync(thread!.id)
+    github.failNextRequests(1)
+    held.release()
+    await first.flush()
+    clock.mockRestore()
+
+    expect(github.comments.size).toBe(remove ? 1 : 3)
+    const pending = await database.select().from(commentsSchema.vitehubCommentForge)
+    expect([...github.comments.keys()].every(id => pending.some(row => row.remoteId === String(id)))).toBe(true)
+    // A fresh isolate must find the cleanup even after the original thread and summary rows were deleted.
+    const retry = defineComments(options)
+    installComments(retry, { database })
+    await retry.sync(thread!.id)
+    expect(github.comments.size).toBe(remove ? 0 : 2)
+    const rows = await database.select().from(commentsSchema.vitehubCommentForge)
+    expect(rows).toHaveLength(remove ? 0 : 2)
+    expect(rows.every(row => github.comments.has(Number(row.remoteId)))).toBe(true)
   })
 
   it.each(["summary", "comment"] as const)("keeps the latest edit when an older %s PATCH finishes last in another isolate", async (kind) => {
