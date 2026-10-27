@@ -43,4 +43,11 @@ describe("AI gateway presets", () => {
     expect(env).toHaveBeenCalledWith("openrouter", "apiKey")
     await expect(resolveAiGatewayDriverRoute(anthropic({ apiKey: undefined }), "claude-code", {})).rejects.toMatchObject({ code: "GATEWAYS_R0002" })
   })
+
+  it("keeps Vercel OIDC as the Driver credential fallback", async () => {
+    vi.stubEnv("VITEHUB_VERCEL_API_KEY", undefined)
+    vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "oidc-token")
+    expect(await resolveAiGatewayDriverRoute(vercel(), "codex", {})).toMatchObject({ apiKey: "oidc-token" })
+  })
 })

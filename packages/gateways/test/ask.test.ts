@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { ask, cliproxy, cloudflare, defineAiGateway, typesafe, vercel } from "../src/index.ts"
+import { askAiGateway } from "../src/internal.ts"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -75,6 +76,34 @@ describe("gateway.ask()", () => {
     expect(sent.headers.get("authorization")).toBe("Bearer gateway-key")
     expect(sent.headers.get("ai-model-id")).toBe("typesafe-ai/jev")
     expect(sent.body).toMatchObject({ questions: { fits: { type: "boolean" } }, state: "Mercadona 23.10" })
+  })
+
+  it("uses provider-backed Vercel OIDC credentials without reading a host credential", async () => {
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "host-token")
+    vi.stubEnv("AI_GATEWAY_API_KEY", "host-key")
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => vercelAnswer())
+    const env = vi.fn(async (_preset: string, field: string) => field === "oidcToken" ? { unseal: () => "provider-token" } : undefined)
+    await expect(askAiGateway(vercel({ fetch }), "state", questions, { context: { env } })).resolves.toEqual(expected)
+    expect(request(fetch).headers.get("authorization")).toBe("Bearer provider-token")
+    expect(request(fetch).headers.get("ai-gateway-auth-method")).toBe("oidc")
+  })
+
+  it("prefers a Vercel API key over OIDC, even when their values match", async () => {
+    vi.stubEnv("AI_GATEWAY_API_KEY", "same-key")
+    vi.stubEnv("VERCEL_OIDC_TOKEN", "same-key")
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => vercelAnswer())
+    await vercel({ fetch }).ask("state", questions)
+    expect(request(fetch).headers.get("ai-gateway-auth-method")).toBe("api-key")
+    await expect(vercel({ apiKey: undefined, fetch }).ask("state", questions)).rejects.toMatchObject({ code: "GATEWAYS_R0002" })
+    expect(fetch).toHaveBeenCalledOnce()
+  })
+
+  it.each([undefined, async () => " "])("rejects an unresolved required header before sending a request", async (value) => {
+    const fetch = vi.fn<typeof globalThis.fetch>(async () => typesafeAnswer())
+    for (const preset of [typesafe, vercel]) {
+      await expect(preset({ apiKey: "key", fetch, headers: { "x-required": value } }).ask("state", questions)).rejects.toMatchObject({ code: "GATEWAYS_R0003" })
+    }
+    expect(fetch).not.toHaveBeenCalled()
   })
 
   it("asks TypeSafe through a Cloudflare AI Gateway custom provider", async () => {

@@ -199,7 +199,7 @@ describe("ask Driver", () => {
     await expect(runAgent(viaVercel, runtime(), { messages: [createMessage({ role: "user", text: "Win money" })] })).resolves.toEqual({ spam: true })
     const [, , vercelOptions] = askJev.mock.calls[0] ?? []
     expect(vercelOptions).toMatchObject({ baseURL: "https://ai-gateway.vercel.sh/v4/ai", model: "typesafe-ai/jev", provider: "vercel" })
-    expect(vercelOptions).not.toHaveProperty("apiKey")
+    expect(vercelOptions).toMatchObject({ apiKey: "oidc-token", headers: { "ai-gateway-auth-method": "oidc" } })
 
     const viaCloudflare = defineAgent({
       driver: { ask: { spam: ask.if("Is it spam?") }, gateway: cloudflare({ accountId: "account", apiKey: "tenant-key", gatewayId: "finance", token: "cf-token" }) },

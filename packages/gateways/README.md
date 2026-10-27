@@ -71,7 +71,9 @@ The answer types come from the questions:
 
 ## Credentials
 
-A preset reads each value that you do not pass when it sends a request. It reads `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table, from `process.env`. In a ViteHub application, it reads Server Env first.
+A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Agent Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
+
+Vercel keeps its credentials in separate Server Env fields: `vercel.apiKey` reads `AI_GATEWAY_API_KEY`, and `vercel.oidcToken` reads `VERCEL_OIDC_TOKEN`. The API key takes precedence; a token uses OIDC authentication even when an Env provider supplies it.
 
 A value that you pass replaces its variable. Pass the values when the application stores the credentials, for example one key for each tenant:
 
@@ -96,7 +98,7 @@ Cloudflare AI Gateway has no TypeSafe provider. `cloudflare()` reaches TypeSafe 
    curl https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-gateway/custom-providers \
      -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
      -H "Content-Type: application/json" \
-     -d '{"name":"TypeSafe","slug":"typesafe","base_url":"https://api.typesafe.ai"}'
+     -d '{"name":"TypeSafe","slug":"typesafe","base_url":"https://api.typesafe.ai","enable":true}'
    ```
 
 3. If the gateway is authenticated, create a gateway token in the gateway settings.

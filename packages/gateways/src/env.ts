@@ -30,7 +30,10 @@ export const aiGatewayEnv: Readonly<Record<AiGatewayEnvPreset, Readonly<Record<s
   openai: { apiKey: { names: ["OPENAI_API_KEY"], secret: true } },
   openrouter: { apiKey: { names: ["OPENROUTER_API_KEY"], secret: true } },
   typesafe: { apiKey: { names: ["TYPESAFE_API_KEY"], secret: true }, model: { names: ["TYPESAFE_DEFAULT_MODEL"] } },
-  vercel: { apiKey: { names: ["AI_GATEWAY_API_KEY", "VERCEL_OIDC_TOKEN"], secret: true } },
+  vercel: {
+    apiKey: { names: ["AI_GATEWAY_API_KEY"], secret: true },
+    oidcToken: { names: ["VERCEL_OIDC_TOKEN"], secret: true },
+  },
 }
 
 /** A field of a preset, such as `apiKey`. */

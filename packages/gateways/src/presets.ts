@@ -6,7 +6,7 @@ import { aiGatewayVendorNames, readAiGatewayEnv } from "./env.ts"
 import type { AskAnswers, AskQuestions } from "./ask.ts"
 import type { AiGatewayEnvFieldName, AiGatewayEnvPreset } from "./env.ts"
 import type { JevRequestContext, JevRoute } from "./jev.ts"
-import type { AiGateway, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewaySecret, AiGatewayUsage } from "./types.ts"
+import type { AiGateway, AiGatewayAsk, AiGatewayContext, AiGatewayDefinition, AiGatewaySealedSecret, AiGatewaySecret, AiGatewayUsage } from "./types.ts"
 
 /** Options shared by every gateway preset. */
 export interface AiGatewayPresetOptions {
@@ -108,15 +108,17 @@ interface JevAskSpec {
   apiKey: AiGatewaySecret
   baseURL: (context: AiGatewayContext) => Promise<string>
   fetch?: typeof globalThis.fetch
-  /** Header values that may resolve to nothing, such as the token of an open gateway. */
+  /** Caller-supplied headers must resolve to non-empty values. */
   headers?: Record<string, AiGatewaySecret>
+  /** Built-in headers that may resolve to nothing, such as the token of an open gateway. */
+  optionalHeaders?: Record<string, AiGatewaySecret>
   /** The variables that hold the key, for the fix of a rejected key. Undefined when the caller passed it. */
   keyEnv?: string
   label: string
   model: string | ((context: AiGatewayContext) => Promise<string>)
   protocol: JevRoute["protocol"]
-  /** Vercel: without its own key, advocaat signs in with VERCEL_OIDC_TOKEN. */
-  oidc?: boolean
+  /** Vercel: used only when no API key resolves. Keep the source separate from the credential value. */
+  oidcToken?: AiGatewaySecret
 }
 
 /** The route resolver of an ask gateway. ViteHub Agents call it with their Server Env context. */
@@ -127,14 +129,24 @@ type AskRouteResolver = (context: AiGatewayContext) => Promise<JevRoute>
 function jevRoute(name: string, spec: JevAskSpec): AskRouteResolver {
   return async (context) => {
       const resolvedKey = await resolveAiGatewaySecret(spec.apiKey, context)
-      // A Vercel OIDC token signs in as OIDC, not as an AI Gateway key.
-      const apiKey = spec.oidc && resolvedKey === globalThis.process?.env?.VERCEL_OIDC_TOKEN?.trim() ? undefined : resolvedKey
-      if (!apiKey && !spec.oidc) throw gatewayDiagnostics.GATEWAYS_R0002({ message: `[vitehub] Gateway "${name}" apiKey resolved to an empty value.` })
+      const oidcToken = resolvedKey ? undefined : await resolveAiGatewaySecret(spec.oidcToken, context)
+      const apiKey = resolvedKey ?? oidcToken
+      if (!apiKey) throw gatewayDiagnostics.GATEWAYS_R0002({ message: spec.keyEnv
+        ? `[vitehub] Gateway "${name}" needs an API key. Set ${spec.keyEnv}, or pass apiKey.`
+        : `[vitehub] Gateway "${name}" apiKey resolved to an empty value.` })
       const headers: Record<string, string> = {}
-      for (const [header, input] of Object.entries(spec.headers ?? {})) {
+      for (const [header, input] of Object.entries(spec.optionalHeaders ?? {})) {
         const value = await resolveAiGatewaySecret(input, context)
         if (value) headers[header] = value
       }
+      for (const [header, input] of Object.entries(spec.headers ?? {})) {
+        const value = await resolveAiGatewaySecret(input, context)
+        if (!value) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${name}" header "${header}" resolved to an empty value.` })
+        if (/[\r\n]/.test(value)) throw gatewayDiagnostics.GATEWAYS_R0003({ message: `[vitehub] Gateway "${name}" header "${header}" must not contain line breaks.` })
+        headers[header] = value
+      }
+      // advocaat accepts the token as apiKey; this header preserves OIDC authentication without mutating process.env.
+      if (oidcToken) headers["ai-gateway-auth-method"] = "oidc"
       return {
         ...(apiKey ? { apiKey } : {}),
         baseURL: await spec.baseURL(context),
@@ -198,7 +210,8 @@ function preset(definition: AiGatewayDefinition, options: AiGatewayPresetOptions
 
 /** Variables of the key, or undefined when the caller passed it. */
 function keyEnv(preset: "typesafe" | "vercel", options: { apiKey?: unknown } | undefined): string | undefined {
-  return options && Object.hasOwn(options, "apiKey") ? undefined : aiGatewayVendorNames(preset, "apiKey").join(" or ")
+  if (options && Object.hasOwn(options, "apiKey")) return undefined
+  return [...aiGatewayVendorNames(preset, "apiKey"), ...(preset === "vercel" ? aiGatewayVendorNames(preset, "oidcToken") : [])].join(" or ")
 }
 
 /**
@@ -273,20 +286,27 @@ export function openrouter(options?: AiGatewayPresetOptions): AiGateway<{ ask: f
  * `typesafe-ai/jev`. Reads `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN`.
  */
 export function vercel(options?: VercelGatewayOptions): AiGateway<{ ask: true }> {
+  const envSecret = (field: "apiKey" | "oidcToken"): AiGatewaySecret => async context => {
+    // SAFETY: Server Env supplies a string or a sealed secret for these fields.
+    return await readAiGatewayEnv(context, "vercel", field) as string | AiGatewaySealedSecret | undefined
+  }
+  const apiKey = envSecret("apiKey")
+  const oidcToken = envSecret("oidcToken")
+  const explicitKey = options && Object.hasOwn(options, "apiKey")
   const definition = preset({
     name: "vercel",
     baseURL: { "codex": "https://ai-gateway.vercel.sh/codex/v1", "claude-code": "https://ai-gateway.vercel.sh/claude-code" },
-    apiKey: apiKeyFromEnv("vercel"),
+    apiKey: async context => await resolveAiGatewaySecret(apiKey, context) ?? await resolveAiGatewaySecret(oidcToken, context),
   }, options)
   const route = jevRoute("vercel", {
-    apiKey: definition.apiKey,
+    apiKey: explicitKey ? definition.apiKey : apiKey,
     baseURL: async () => "https://ai-gateway.vercel.sh/v4/ai",
     ...(options?.fetch ? { fetch: options.fetch } : {}),
     ...(definition.headers ? { headers: definition.headers } : {}),
     ...(keyEnv("vercel", options) ? { keyEnv: keyEnv("vercel", options) } : {}),
     label: "Vercel AI Gateway",
     model: options?.model?.trim() || "typesafe-ai/jev",
-    oidc: !(options && Object.hasOwn(options, "apiKey")),
+    ...(!explicitKey ? { oidcToken } : {}),
     protocol: "vercel",
   })
   // SAFETY: createAiGateway attaches ask() for the route built above.
@@ -355,7 +375,7 @@ export function cloudflare(options: CloudflareGatewayOptions = {}): AiGateway<{ 
       slug: await value(context, "slug", options.slug),
     }),
     ...(options.fetch ? { fetch: options.fetch } : {}),
-    headers: { "cf-aig-authorization": async (context: AiGatewayContext) => {
+    optionalHeaders: { "cf-aig-authorization": async (context: AiGatewayContext) => {
       const resolved = await resolveAiGatewaySecret(token, context)
       return resolved ? `Bearer ${resolved}` : undefined
     } },
