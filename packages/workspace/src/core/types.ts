@@ -418,6 +418,8 @@ export interface WorkspaceOpenPullRequestOptions {
   draft?: boolean
   /** Delete the head ref when the pull request cannot be opened, so a failed publish leaves no branch behind. */
   deleteHeadOnFailure?: boolean
+  /** Atomically exclude overlapping open PRs from this prefix while creating the request, across Store instances. */
+  reservation?: { headPrefix: string, paths: string[] }
 }
 
 /** A file that both refs changed in different ways. Digests are the Store's (`history.digest`); null means deleted. */

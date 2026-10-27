@@ -121,6 +121,16 @@ describe("GitHub history commit", () => {
     expect(revision!.metadata).not.toHaveProperty("content")
   })
 
+  it("persists metadata when the file contents do not change", async () => {
+    const parent = fake.commit("main", { "posts/a.md": "a" })
+    const tree = fake.tree("main")
+    const metadata = { content: { bases: { "posts/a.md": textSha("reviewed") } } }
+    const revision = await history().commit({ ref: "main", ifHead: parent, changes: { put: { "posts/a.md": file("posts/a.md", "a") } }, message: "Review base", metadata })
+    expect(revision.id).not.toBe(parent)
+    expect(fake.tree("main")).toEqual(tree)
+    expect(await history().head({ ref: "main" })).toMatchObject({ id: revision.id, parentId: parent, message: "Review base", metadata })
+  })
+
   it("maps the published and draft refs to branches and back", async () => {
     const published = fake.commit("main", { "posts/a.md": "a" })
     const draft = fake.commit("vitehub/content", { "posts/a.md": "a2" })
@@ -324,6 +334,19 @@ describe("GitHub history commit", () => {
     expect(fake.head("main")).toBe(result?.id)
     expect(validate).toHaveBeenCalledTimes(1)
     expect(after).toHaveBeenCalledTimes(1)
+    expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it.each(["100755", "120000"])("applies same-byte merge normalization from Git mode %s", async (mode) => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("incoming", main, fake.tree("main"))
+    fake.commit("incoming", { "posts/a.md": { content: "changed", mode } })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const workspace = createWorkspace({ name: "content", store, rules: {
+      "**": { validate: input => ({ ...input, metadata: { ...input.metadata, gitMode: "100644" } }) },
+    } })
+    await workspace.history!.merge!({ from: "incoming", into: "main" })
+    expect(fake.tree("main").find(entry => entry.path === "posts/a.md")).toMatchObject({ mode: "100644", sha: textSha("changed") })
     expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
   })
 
