@@ -3,6 +3,7 @@ import { dirname, relative, resolve } from "node:path"
 
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { VITEHUB_SERVER_DIRS, resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { viteHubPageToolsBase } from "@vite-hub/internal/build/page-tools"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
 
@@ -217,7 +218,8 @@ export function hubRealtime(options: RealtimeVitePluginOptions = {}): RealtimeVi
       }
       nitro.features = { ...nitro.features, websocket: true }
       const kit = createNitroServerKit(nitro)
-      kit.addHandler({ handler: handlerFile, route: "/api/_vitehub/realtime/**" })
+      const { mount } = viteHubPageToolsBase(config)
+      kit.addHandler({ handler: handlerFile, route: `${mount}/api/_vitehub/realtime/**` })
       for (const plugin of contribution?.plugins ?? []) kit.addPlugin(plugin)
       Object.assign(nitro, kit.config)
       ;(config as UserConfig & { nitro?: NitroConfig }).nitro = nitro

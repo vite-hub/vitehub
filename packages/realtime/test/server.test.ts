@@ -76,6 +76,23 @@ function durableRealtimeRequest(exec: (query: string, ...bindings: unknown[]) =>
 }
 
 describe("realtime server handler", () => {
+  it.each(["", "/portal", "/nested/portal"])("accepts document and event connections below app base %s", async (base) => {
+    serverMocks.useWorkspace.mockReturnValue(workspaceFacade({
+      exists: vi.fn().mockResolvedValue(false),
+      readFile: vi.fn(),
+      stat: vi.fn().mockResolvedValue(undefined),
+    }))
+    const handler = createRealtimeHandler(realtimeRegistry())
+    // A document can itself contain the reserved route's segments; only the first prefix identifies the route.
+    for (const room of ["page.md", "%40workspace?workspace=events", "docs/api/_vitehub/realtime/page.md"]) {
+      const response = await handler.fetch(new Request(`https://example.com${base}/api/_vitehub/realtime/docs/${room}`, {
+        headers: { upgrade: "websocket" },
+      })) as Response & { crossws?: unknown }
+      expect(response.status).toBe(426)
+      expect(response.crossws).toBeDefined()
+    }
+  })
+
   it("rejects malformed encoded room paths", async () => {
     const handler = createRealtimeHandler(realtimeRegistry())
 

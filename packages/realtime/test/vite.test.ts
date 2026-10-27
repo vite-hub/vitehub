@@ -12,6 +12,24 @@ afterEach(async () => {
 })
 
 describe("hubRealtime", () => {
+  it.each([
+    { base: "/", nitro: {}, route: "/api/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: {}, route: "/portal/api/_vitehub/realtime/**" },
+    { base: "/portal/", nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
+    { base: "/nested/portal/", nitro: { baseURL: "/nested/" }, route: "/portal/api/_vitehub/realtime/**" },
+    { base: "/assets/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/") }, nitro: { baseURL: "/portal/" }, route: "/api/_vitehub/realtime/**" },
+  ])("mounts Realtime for $base with Nitro $nitro", async ({ base, define, nitro, route }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-vite-"))
+    tempDirs.push(root)
+    await mkdir(join(root, "server/realtime"), { recursive: true })
+    await writeFile(join(root, "server/realtime/comments.ts"), "export default {}\n")
+    const { hubRealtime } = await import("../src/vite.ts")
+    const config = { root, base, define, nitro }
+    const hook = hubRealtime({ authority: "memory" }).config as unknown as (config: Record<string, unknown>) => Promise<void>
+    await hook(config)
+    expect(config.nitro).toMatchObject({ handlers: [expect.objectContaining({ route })] })
+  })
+
   it("bundles the public Vue entry without server Node modules", async () => {
     const { build } = await import("vite")
     const root = await mkdtemp(join(tmpdir(), "vitehub-realtime-browser-"))
