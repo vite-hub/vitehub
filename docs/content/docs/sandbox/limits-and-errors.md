@@ -26,7 +26,7 @@ A Definition name and its payload select work. They are not a permission boundar
 Inspect that authority before execution when your policy depends on it:
 
 ```ts [server/sandbox-authority.ts]
-import { resolveSandboxTaskRunner } from '@vite-hub/sandbox-task'
+import { resolveSandboxTaskRunner } from '@vite-hub/sandbox/task'
 
 const runner = await resolveSandboxTaskRunner('release-notes')
 console.log(runner.executionAuthority)

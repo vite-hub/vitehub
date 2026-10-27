@@ -218,6 +218,12 @@
       "require": "./dist/build/nitro-cache-bypass.js",
       "default": "./dist/build/nitro-cache-bypass.js"
     },
+    "./build/nitro-workerd-dependencies": {
+      "types": "./dist/build/nitro-workerd-dependencies.d.ts",
+      "import": "./dist/build/nitro-workerd-dependencies.js",
+      "require": "./dist/build/nitro-workerd-dependencies.js",
+      "default": "./dist/build/nitro-workerd-dependencies.js"
+    },
     "./build/cloudflare": {
       "types": "./dist/build/cloudflare.d.ts",
       "import": "./dist/build/cloudflare.js",
@@ -348,7 +354,7 @@
   "scripts": {
     "build": "vp pack",
     "test": "vp run -t @vite-hub/internal#build && vp run -t @vite-hub/markdown-template#build && vp test --exclude test/vite-e2e-output.test.ts && vp test test/vite-e2e-output.test.ts && vp test --config vitest.workerd.config.ts",
-    "typecheck": "vp run --cache -t @vite-hub/internal#build && tsc --noEmit -p ./tsconfig.json"
+    "typecheck": "vp run --cache -t @vite-hub/internal#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json"
   },
   "dependencies": {
     "@standard-schema/spec": "catalog:runtime",

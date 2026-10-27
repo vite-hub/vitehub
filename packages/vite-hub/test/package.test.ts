@@ -156,9 +156,9 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/rate-limit/runtime/console",
-  "@vite-hub/sandbox-task/runtime/empty-registry",
-  "@vite-hub/sandbox-task/runtime/provider-loader",
-  "@vite-hub/sandbox-task/runtime/state",
+  "@vite-hub/sandbox/task/runtime/empty-registry",
+  "@vite-hub/sandbox/task/runtime/provider-loader",
+  "@vite-hub/sandbox/task/runtime/state",
   "@vite-hub/schedule/runtime/dev",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
@@ -209,7 +209,7 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 
   if (subpath === "./package.json") return "package metadata";
   if (packageName === "@vite-hub/cli") return "framework tooling";
-  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite)(?:\/|$)/.test(path))
+  if (/^(?:cli|mountx|nitro|nuxt|test|tsconfig|virtual|vite|task\/vite)(?:\/|$)/.test(path))
     return "integration or test tooling";
   if (/(?:^|\/)_?internal(?:\/|$)/.test(path)) return "internal implementation";
   if (/^(?:drivers|providers|sandbox\/providers)(?:\/|$)/.test(path))
@@ -220,6 +220,18 @@ function ownerOnlyReason(packageName: string, subpath: string): string | undefin
 }
 
 describe("framework package contract", () => {
+  it("imports from h3 only what h3 1 exports, because Nuxt 4 bundles h3 as its own h3 1", async () => {
+    const h3V1Exports = new Set(Object.keys(await import("h3-v1")));
+    const missing = globSync("dist/**/*.js", { cwd: packageRoot }).flatMap((file) => {
+      const source = readFileSync(`${packageRoot}/${file}`, "utf8");
+      return [...source.matchAll(/^import \{([^}]*)\} from "h3";/gm)]
+        .flatMap(([, names]) => names!.split(",").map(name => name.trim().split(/\s+as\s+/)[0]!))
+        .filter(name => name && !h3V1Exports.has(name))
+        .map(name => `${file}: ${name}`);
+    });
+    expect(missing).toEqual([]);
+  });
+
   it("keeps the root export intentionally small", () => {
     expect(Object.keys(framework)).toEqual(["vitehub"]);
   });

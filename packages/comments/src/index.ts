@@ -142,7 +142,7 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const current = store()
       if (!current) return notInstalled()
       const threadId = await current.threadOf(commentId)
-      const thread = threadId ? await current.get(threadId) : undefined
+      const [thread] = await withForge([threadId ? await current.get(threadId) : undefined].filter(found => found !== undefined))
       return thread ? [undefined, thread] : notFound(commentId)
     },
     async getByNumber(scope, number) {
@@ -172,7 +172,9 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const thread = await current.get(threadId)
       if (!thread) return notFound(threadId)
       if (thread.status === "resolved" && !replyOptions.allowResolved) return [commentsErrors.COMMENTS_RESOLVED(), undefined]
-      const comment = await current.reply(threadId, parsed.output)
+      const result = await current.reply(threadId, parsed.output, replyOptions)
+      if ("error" in result) return result.error === "resolved" ? [commentsErrors.COMMENTS_RESOLVED(), undefined] : notFound(threadId)
+      const { comment } = result
       await notify({ ...thread, comments: [...thread.comments, comment] }, comment)
       changed(threadId)
       return [undefined, comment]
@@ -180,18 +182,16 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
     async resolve(threadId, { by }) {
       const current = store()
       if (!current) return notInstalled()
-      if (!await current.get(threadId)) return notFound(threadId)
-      await current.setStatus(threadId, "resolved", by)
-      changed(threadId)
-      return [undefined, (await current.get(threadId))!]
+      const thread = await current.setStatus(threadId, "resolved", by)
+      if (thread) changed(threadId)
+      return thread ? [undefined, thread] : notFound(threadId)
     },
     async reopen(threadId) {
       const current = store()
       if (!current) return notInstalled()
-      if (!await current.get(threadId)) return notFound(threadId)
-      await current.setStatus(threadId, "open", null)
-      changed(threadId)
-      return [undefined, (await current.get(threadId))!]
+      const thread = await current.setStatus(threadId, "open", null)
+      if (thread) changed(threadId)
+      return thread ? [undefined, thread] : notFound(threadId)
     },
     async remove(threadId) {
       const current = store()

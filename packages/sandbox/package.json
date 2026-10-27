@@ -1,10 +1,14 @@
 {
   "name": "@vite-hub/sandbox",
   "version": "0.0.4",
-  "description": "Portable, isolated Sandboxes for ViteHub Agents and Sandbox Tasks.",
+  "description": "Portable, isolated Sandboxes for ViteHub Agents, and Sandbox Tasks that run named package projects in them.",
   "keywords": [
     "agent",
+    "cloudflare",
     "runtime",
+    "sandbox",
+    "vercel",
+    "vite",
     "vitehub"
   ],
   "homepage": "https://github.com/vite-hub/vitehub#readme",
@@ -23,6 +27,16 @@
   "type": "module",
   "sideEffects": false,
   "types": "./dist/index.d.ts",
+  "imports": {
+    "#vitehub-sandbox-task-provider-loader": {
+      "types": "./dist/task/runtime/provider-loader.d.ts",
+      "default": "./dist/task/runtime/provider-loader.js"
+    },
+    "#vitehub-sandbox-task-registry": {
+      "types": "./dist/task/runtime/empty-registry.d.ts",
+      "default": "./dist/task/runtime/empty-registry.js"
+    }
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -54,35 +68,96 @@
       "require": "./dist/ssh.js",
       "default": "./dist/ssh.js"
     },
-    "./package.json": "./package.json"
+    "./task": {
+      "types": "./dist/task/index.d.ts",
+      "import": "./dist/task/index.js",
+      "require": "./dist/task/index.js",
+      "default": "./dist/task/index.js"
+    },
+    "./task/runtime/empty-registry": {
+      "types": "./dist/task/runtime/empty-registry.d.ts",
+      "import": "./dist/task/runtime/empty-registry.js",
+      "require": "./dist/task/runtime/empty-registry.js",
+      "default": "./dist/task/runtime/empty-registry.js"
+    },
+    "./task/runtime/provider-loader": {
+      "types": "./dist/task/runtime/provider-loader.d.ts",
+      "import": "./dist/task/runtime/provider-loader.js",
+      "require": "./dist/task/runtime/provider-loader.js",
+      "default": "./dist/task/runtime/provider-loader.js"
+    },
+    "./task/runtime/state": {
+      "types": "./dist/task/runtime/state.d.ts",
+      "import": "./dist/task/runtime/state.js",
+      "require": "./dist/task/runtime/state.js",
+      "default": "./dist/task/runtime/state.js"
+    },
+    "./task/vite": {
+      "types": "./dist/task/vite.d.ts",
+      "import": "./dist/task/vite.js",
+      "require": "./dist/task/vite.js",
+      "default": "./dist/task/vite.js"
+    },
+    "./package.json": "./package.json",
+    "./_internal/task/runtime": {
+      "types": "./dist/task/index.d.ts",
+      "import": "./dist/task/index.js",
+      "require": "./dist/task/index.js",
+      "default": "./dist/task/index.js"
+    },
+    "./_internal/task/runtime/providers/cloudflare": {
+      "types": "./dist/task/runtime/providers/cloudflare.d.ts",
+      "import": "./dist/task/runtime/providers/cloudflare.js",
+      "require": "./dist/task/runtime/providers/cloudflare.js",
+      "default": "./dist/task/runtime/providers/cloudflare.js"
+    },
+    "./_internal/task/runtime/providers/vercel": {
+      "types": "./dist/task/runtime/providers/vercel.d.ts",
+      "import": "./dist/task/runtime/providers/vercel.js",
+      "require": "./dist/task/runtime/providers/vercel.js",
+      "default": "./dist/task/runtime/providers/vercel.js"
+    }
   },
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/sandbox#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/sandbox#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/sandbox#build && vp test"
   },
   "dependencies": {
     "@vite-hub/runtime": "workspace:*",
+    "esbuild": "catalog:tooling",
+    "local-pkg": "catalog:tooling",
+    "mlly": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "semver": "^7.8.5"
+    "pathe": "catalog:unjs",
+    "semver": "^7.8.5",
+    "unimport": "catalog:unjs",
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "@types/node": "catalog:tooling",
+    "@types/semver": "^7.8.0",
+    "@types/ssh2": "^1.15.6",
     "@vercel/sandbox": "catalog:sandbox",
+    "@vite-hub/internal": "workspace:*",
+    "ofetch": "catalog:unjs",
     "publint": "catalog:tooling",
+    "rollup": "catalog:tooling",
     "ssh2": "^1.17.0",
     "typescript": "catalog:tooling",
+    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling",
-    "@types/ssh2": "^1.15.6",
-    "@types/semver": "^7.8.0"
+    "zod": "catalog:runtime"
   },
   "peerDependencies": {
     "@cloudflare/sandbox": "catalog:sandbox",
     "ssh2": "^1.17.0",
-    "@vercel/sandbox": "catalog:sandbox"
+    "@vercel/sandbox": "catalog:sandbox",
+    "typescript": "^5.8.0 || ^6.0.0",
+    "vite": "catalog:vite-compat"
   },
   "peerDependenciesMeta": {
     "@cloudflare/sandbox": {
@@ -92,6 +167,12 @@
       "optional": true
     },
     "@vercel/sandbox": {
+      "optional": true
+    },
+    "typescript": {
+      "optional": true
+    },
+    "vite": {
       "optional": true
     }
   },

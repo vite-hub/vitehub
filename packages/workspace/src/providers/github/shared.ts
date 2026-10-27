@@ -7,6 +7,7 @@ import {
   forgeErrorStatus,
   forgeProvider,
   readForgeEnv,
+  withSignal,
 } from "@vite-hub/forge";
 import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
@@ -52,6 +53,8 @@ export interface GitHubFileUpdate {
 export interface GitHubRepository {
   /** `owner/repo`, for messages. */
   name: string;
+  /** Key pending blob reads by repository and credentials. */
+  blobReadKey: (sha: string) => string;
   provider: () => Promise<GitHubProvider>;
   ref: (provider: GitHubProvider) => GitHubRepoRef;
 }
@@ -116,6 +119,7 @@ export function connectGitHubRepository(repository: string, token: string): GitH
   let provider: Promise<GitHubProvider> | undefined;
   return {
     name: repository,
+    blobReadKey: (sha) => JSON.stringify([repository, token, sha]),
     provider: async () => {
       splitGitHubRepository(repository);
       return await (provider ||= forgeProvider({ fetch: requestGitHub, forge: "github", token, userAgent: "vitehub-workspace" }));
@@ -305,6 +309,12 @@ export function resolveGitHubTokenOption(
   return readGitHubEnvToken(env);
 }
 
+const githubBlobs = new Map<string, Uint8Array>();
+const githubBlobReads = new Map<string, Promise<Uint8Array>>();
+const githubBlobByteLimit = 32 * 1024 * 1024;
+const githubBlobFileLimit = 4 * 1024 * 1024;
+let githubBlobBytes = 0;
+
 /** The bytes of one remote file. A symlink is read by its blob, so the bytes are the link target and not the file it points at. */
 export async function readGitHubFile(
   repository: GitHubRepository,
@@ -312,11 +322,35 @@ export async function readGitHubFile(
   ref: string,
   signal?: AbortSignal,
 ): Promise<Uint8Array> {
-  return await githubRequest(repository, async (provider, repo) => {
-    // GitHub's Contents API truncates or returns empty content for large files.
-    // Read the blob by sha so regular files are complete as well as symlinks.
-    return await forgeBlob(provider, repo, entry.sha, { signal });
-  });
+  signal?.throwIfAborted();
+  const cached = githubBlobs.get(entry.sha);
+  if (cached) return cached.slice();
+
+  const readKey = repository.blobReadKey(entry.sha);
+  let read = githubBlobReads.get(readKey);
+  if (!read) {
+    read = githubRequest(repository, async (provider, repo) => {
+      // GitHub's Contents API truncates large files. Blob shas identify immutable bytes across repositories.
+      return await forgeBlob(provider, repo, entry.sha);
+    }).then(bytes => {
+      // Different request scopes can finish the same blob; retain and count it only once.
+      if (bytes.byteLength <= githubBlobFileLimit && !githubBlobs.has(entry.sha)) {
+        for (const [sha, oldest] of githubBlobs) {
+          if (githubBlobBytes + bytes.byteLength <= githubBlobByteLimit) break;
+          githubBlobs.delete(sha);
+          githubBlobBytes -= oldest.byteLength;
+        }
+        githubBlobs.set(entry.sha, bytes);
+        githubBlobBytes += bytes.byteLength;
+      }
+      return bytes;
+    }).finally(() => {
+      githubBlobReads.delete(readKey);
+    });
+    githubBlobReads.set(readKey, read);
+  }
+  // Cancellation stops this caller's wait, not a download shared with other readers.
+  return (await withSignal(read, signal)).slice();
 }
 
 export async function readGitHubArchive(repository: GitHubRepository, ref: string, signal?: AbortSignal): Promise<Uint8Array> {

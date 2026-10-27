@@ -783,7 +783,7 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
   const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   if (section.pages?.length) descriptor.pages = describePages(section)
   if (section.visit !== undefined) {
-    if (!/^\/(?!\/)/.test(section.visit)) throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} visit must be an app path that starts with one /.`)
+    if (!/^\/(?!\/)[^\\\r\n\t]*$/.test(section.visit)) throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} visit must be an app path that starts with one /.`)
     descriptor.visit = section.visit
   }
   return descriptor
