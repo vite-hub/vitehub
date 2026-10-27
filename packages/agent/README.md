@@ -108,7 +108,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
+Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `typesafeEnv({ provider })` sends Jev requests to the TypeSafe API (`"typesafe"`), Vercel AI Gateway (`"vercel"`), or TypeSafe through a Cloudflare AI Gateway custom provider (`"cloudflare"`). `jev()` from `@vite-hub/agent/gateways` asks the same questions outside an Agent; pass `{ provider, apiKey, cloudflare }` for credentials that the application stores. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-jev-through-a-gateway). `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
 
 ## Direct invocations
 

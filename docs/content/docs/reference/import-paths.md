@@ -23,7 +23,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
-| `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
+| `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers, and the `jev()` client for TypeSafe Jev through the TypeSafe API, Vercel AI Gateway, or Cloudflare AI Gateway. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |

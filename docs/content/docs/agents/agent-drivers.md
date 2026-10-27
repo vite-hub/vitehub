@@ -461,14 +461,16 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON values. Root numbers and booleans become text for the `advocaat` Entry contract. Numbers and booleans inside objects or arrays stay native. Score legends retain the original level descriptions.
 
-`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing API key fail the Invocation with a diagnostic before any request. With `typesafeEnv({ provider: 'vercel' })`, the key is `AI_GATEWAY_API_KEY`. On Vercel, `VERCEL_OIDC_TOKEN` also works.
+`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing API key fail the Invocation with `AGENT_R0934`, `AGENT_R0935`, or `AGENT_R0936` before any request. With `typesafeEnv({ provider: 'vercel' })`, the key is `AI_GATEWAY_API_KEY`. On Vercel, `VERCEL_OIDC_TOKEN` also works. See [Route Jev through a gateway](#route-jev-through-a-gateway) for Vercel AI Gateway and Cloudflare AI Gateway.
 
 Jev questions do not change state, so ViteHub retries a failed request up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. Other failures stop the Invocation at once:
 
 | Code | When | `status` | Also on the error |
 | --- | --- | --- | --- |
 | `AGENT_R1009` | The provider rejected the key with 401 or 403. The key is missing, expired, or not allowed. The `fix` names the variable to set. | `503` | `providerStatus`, `requestId`, `cause` |
-| `AGENT_R1010` | The provider still failed after three attempts. | `502` | `providerStatus`, `requestId`, `cause` | The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
+| `AGENT_R1010` | The provider still failed after three attempts. | `502` | `providerStatus`, `requestId`, `cause` |
+
+The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
 
 Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
 
@@ -482,6 +484,96 @@ Each question is a step in the Invocation trace, so the journal and the Console 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` in `agent:finish` and `usage.record` on `agent.invocation.finish` sum the token counts of all requests and name the model when every request used the same one. The Console usage and cost table reads this record, as it does for a Codex run. Add [`usage({ pricing })`](/docs/agents/capabilities/usage) to the Agent to price it.
 
 The `agent.tool.*` observations carry `tool.id` `ask:<key>`, `ask.key`, `ask.type`, `ask.batch.index`, `ask.batch.count`, and `ask.batch.size`. The shared state is `input.data` (or the prompt) on `agent.invocation.start`, and the answers are `result.output` on `agent.invocation.finish`. A metadata-only journal keeps `tool.input`, `tool.output`, `input.data`, and `result.output` only when `metadataContent` lists them; the Console journal lists them. No credentials or request headers are recorded.
+
+### Route Jev through a gateway
+
+`typesafeEnv({ provider })` selects where Jev requests go. The questions, answers, retries, traces, and usage records are the same for each route.
+
+| `provider` | Requests go to | Variables | Default model |
+| --- | --- | --- | --- |
+| `'typesafe'` (default) | `https://api.typesafe.ai/v1/systemone` | `TYPESAFE_API_KEY` | `jev-latest` |
+| `'vercel'` | `https://ai-gateway.vercel.sh/v4/ai/evaluation-model` | `AI_GATEWAY_API_KEY`, or `VERCEL_OIDC_TOKEN` on Vercel | `typesafe-ai/jev` |
+| `'cloudflare'` | `https://gateway.ai.cloudflare.com/v1/<account>/<gateway>/custom-<slug>/v1/systemone` | `TYPESAFE_API_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_AI_GATEWAY_ID`, optional `CLOUDFLARE_AI_GATEWAY_TOKEN` and `CLOUDFLARE_AI_GATEWAY_SLUG` | `jev-latest` |
+
+`TYPESAFE_DEFAULT_MODEL` overrides the model of each route. The provider is a build option. The values are optional during Env resolution, so a server that does not use Jev still starts. A missing value fails the request with `AGENT_R0936` and names the variable to set. A rejected key fails with `AGENT_R1009`, and its `fix` names the variables.
+
+#### Cloudflare AI Gateway
+
+Cloudflare AI Gateway has no built-in TypeSafe provider. It forwards the TypeSafe API through a [custom provider](https://developers.cloudflare.com/ai-gateway/configuration/custom-providers/) that you create once per Cloudflare account. The gateway then logs each Jev request and applies its own caching and rate limits.
+
+1. In the Cloudflare dashboard, go to **Compute & AI** > **AI Gateway** and create a gateway. Its name is the gateway ID.
+2. Go to **Custom Providers** and select **Add Custom Provider**. Set the slug to `typesafe` and the base URL to `https://api.typesafe.ai`.
+
+   You can also create the custom provider with the Cloudflare API:
+
+   ```sh
+   curl https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/ai-gateway/custom-providers \
+     -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"name":"TypeSafe","slug":"typesafe","base_url":"https://api.typesafe.ai"}'
+   ```
+
+3. If the gateway is authenticated, create a gateway token in the gateway settings.
+4. Select the route and set the variables:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  env: {
+    server: {
+      typesafe: typesafeEnv({ provider: 'cloudflare' }),
+    },
+  },
+  plugins: [vitehub()],
+})
+```
+
+```sh [.env]
+TYPESAFE_API_KEY=...
+CLOUDFLARE_ACCOUNT_ID=...
+CLOUDFLARE_AI_GATEWAY_ID=...
+# Only for an authenticated gateway. ViteHub sends it as `cf-aig-authorization`.
+CLOUDFLARE_AI_GATEWAY_TOKEN=...
+# Only when the custom provider slug is not `typesafe`.
+CLOUDFLARE_AI_GATEWAY_SLUG=...
+```
+
+The TypeSafe API key goes to TypeSafe through the gateway as `Authorization: Bearer <key>`. TypeSafe still bills the requests.
+
+### Ask Jev outside an Agent
+
+`jev()` from `vite-hub/agent/gateways` returns a client with the same questions and answers as `driver.ask`. Use it in a server route, a Queue, or a Schedule. Without options, it reads the `typesafe` Server Env group:
+
+```ts [server/api/label.post.ts]
+import { defineEventHandler, readBody } from 'h3'
+import { ask } from 'vite-hub/agent'
+import { jev } from 'vite-hub/agent/gateways'
+
+export default defineEventHandler(async (event) => {
+  const { text } = await readBody<{ text: string }>(event)
+  const answers = await jev().ask(text, {
+    label: ask.choice('Which label fits?', { invoice: 'Bills and receipts.', none: 'No label fits.' }),
+  })
+  return answers.label.choice
+})
+```
+
+Pass `provider` and the credentials when the application stores them, for example one key for each tenant. The client then uses only these values and does not read Server Env:
+
+```ts
+jev({ provider: 'typesafe', apiKey })
+jev({ provider: 'vercel', apiKey })
+jev({ provider: 'cloudflare', apiKey, cloudflare: { accountId, gatewayId, token, slug } })
+```
+
+| Option | Description |
+| --- | --- |
+| `provider` | `'typesafe'`, `'vercel'`, or `'cloudflare'`. Without it, the client reads `env.server.typesafe`. |
+| `apiKey` | The TypeSafe API key, or the AI Gateway API key for `'vercel'`. Required, except for `'vercel'` on Vercel. |
+| `cloudflare` | `accountId`, `gatewayId`, optional `token` for an authenticated gateway, and optional `slug` (default `typesafe`). |
+| `model` | Model ID. Default: `jev-latest`, or `typesafe-ai/jev` for `'vercel'`. With Server Env, `TYPESAFE_DEFAULT_MODEL` comes first. |
+| `fetch` | Custom fetch implementation. Default: `globalThis.fetch`. |
+
+`ask(state, questions, { signal, onUsage })` sends the questions in bounded requests and retries transient failures, as `driver.ask` does. `onUsage` receives the `model`, `provider`, and token `usage` of each request. It throws the same diagnostics. With explicit credentials, `AGENT_R0936` and `AGENT_R1009` name the `jev()` options instead of variables.
 
 ### Provider exit evidence
 

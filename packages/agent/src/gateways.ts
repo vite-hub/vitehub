@@ -6,6 +6,8 @@ import type { BuiltInGatewayEnv } from "./internal/gateway-env.ts"
 import type { AgentDriverGateway, AgentDriverGatewaySecret, AgentProviderCredentialContext } from "./types.ts"
 
 export type { AgentDriverGateway, AgentDriverGatewaySecret } from "./types.ts"
+export { jev } from "./jev.ts"
+export type { JevAskOptions, JevClient, JevCloudflareGateway, JevOptions, JevProvider } from "./jev.ts"
 
 /** Options shared by every gateway preset. */
 export interface AgentGatewayPresetOptions {

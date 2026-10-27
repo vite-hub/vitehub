@@ -24,7 +24,7 @@ icon: i-lucide-code-2
 | `SecretEnv` from `@vite-hub/env` or `@vite-hub/env/secret` | Represent Secret Env values that redact by default. |
 | `resolveServerEnv` from `@vite-hub/env` or `@vite-hub/env/server` | Resolve a server env registry manually. |
 | `openWorkflowEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Use the OpenWorkflow env preset. |
-| `typesafeEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Declare the TypeSafe Jev group for [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver). |
+| `typesafeEnv` from `@vite-hub/env` or `@vite-hub/env/presets` | Declare the TypeSafe Jev group for [`driver.ask`](/docs/agents/agent-drivers#use-an-ask-driver) and `jev()`, with the TypeSafe API, Vercel AI Gateway, or [Cloudflare AI Gateway](/docs/agents/agent-drivers#route-jev-through-a-gateway). |
 | `parseSchema` from `@vite-hub/env` or `@vite-hub/env/schema` | Parse Standard Schema-compatible values. |
 
 ## Use it at runtime

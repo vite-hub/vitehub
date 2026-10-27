@@ -20,6 +20,8 @@ const typesafeEnvHint = "Declare it in the Vite config with `env: { server: { ty
 
 export interface AskRequestContext {
   abortSignal?: AbortSignal
+  /** Explicit route and credentials from `jev()`. Without them, Jev reads the Server Env group `typesafe`. */
+  client?: JevClientOptions
   /** Passed to `useServerEnv()` so Cloudflare bindings resolve for this request. */
   event?: unknown
   /** Receives one `agent.tool.*` event per question and one `agent.usage.recorded` event per Jev request. */
@@ -51,8 +53,112 @@ function optionalString(value: unknown): string | undefined {
   return hasRuntimeType(resolved, "string") && resolved.trim() ? resolved.trim() : undefined
 }
 
+/** Where Jev requests go. Cloudflare AI Gateway forwards the TypeSafe API through a custom provider. */
+export type JevProvider = "typesafe" | "vercel" | "cloudflare"
+
+/** A Cloudflare AI Gateway with a custom provider whose base URL is `https://api.typesafe.ai`. */
+export interface JevCloudflareGateway {
+  /** Cloudflare account ID. */
+  accountId: string
+  /** AI Gateway ID. */
+  gatewayId: string
+  /** Custom provider slug. The gateway URL uses `custom-<slug>`. Default: `typesafe`. */
+  slug?: string
+  /** Gateway token of an authenticated gateway, sent as `cf-aig-authorization`. */
+  token?: string
+}
+
+/** Route and credentials as `jev()` receives them. Runtime values are checked before any request. */
+export interface JevClientOptions {
+  apiKey?: string
+  cloudflare?: Partial<JevCloudflareGateway>
+  fetch?: typeof globalThis.fetch
+  model?: string
+  provider?: JevProvider
+}
+
+/** One resolved route: the advocaat client options and the headers of each request. */
+interface JevRoute {
+  apiKey?: string
+  baseURL?: string
+  fetch?: typeof globalThis.fetch
+  headers?: Record<string, string>
+  /** The Server Env variables that hold the rejected credentials, or undefined for `jev()` options. */
+  keyEnv?: string
+  model?: string
+  provider: JevProvider
+}
+
+const jevProviderNames: Record<JevProvider, string> = {
+  cloudflare: "Cloudflare AI Gateway",
+  typesafe: "TypeSafe",
+  vercel: "Vercel AI Gateway",
+}
+
+/** The custom provider URL of a Cloudflare AI Gateway. The TypeSafe client appends `/v1/systemone`. */
+function cloudflareJevBaseURL(gateway: Pick<JevCloudflareGateway, "accountId" | "gatewayId" | "slug">): string {
+  const segment = (value: string) => encodeURIComponent(value.trim())
+  return `https://gateway.ai.cloudflare.com/v1/${segment(gateway.accountId)}/${segment(gateway.gatewayId)}/custom-${segment(gateway.slug?.trim() || "typesafe")}`
+}
+
+function jevProvider(value: unknown): JevProvider {
+  return value === "vercel" || value === "cloudflare" ? value : "typesafe"
+}
+
+/**
+ * Checks one route and builds its request options. `fromEnv` selects the names in diagnostics: Server Env variables,
+ * or `jev()` options.
+ */
+function jevRoute(settings: JevClientOptions, fromEnv: boolean): JevRoute {
+  const provider = jevProvider(settings.provider)
+  const apiKey = optionalString(settings.apiKey)
+  const model = optionalString(settings.model)
+  const fetch = settings.fetch
+  const shared = { ...(fetch ? { fetch } : {}), ...(model ? { model } : {}), provider } as const
+  if (provider === "vercel") {
+    // Without a key, advocaat uses VERCEL_OIDC_TOKEN, which only Vercel sets. Fail here with the variable to set.
+    if (!apiKey && !optionalString(globalThis.process?.env?.VERCEL_OIDC_TOKEN)) {
+      throw agentDiagnostics.AGENT_R0936({
+        message: fromEnv
+          ? `[vitehub] Jev requests through Vercel AI Gateway require AI_GATEWAY_API_KEY. Set it in the Server Env of this deployment. On Vercel, VERCEL_OIDC_TOKEN also works.`
+          : `[vitehub] jev({ provider: "vercel" }) requires apiKey, an AI Gateway API key. On Vercel, VERCEL_OIDC_TOKEN also works.`,
+      })
+    }
+    return { ...shared, ...(apiKey ? { apiKey } : {}), ...(fromEnv ? { keyEnv: "AI_GATEWAY_API_KEY" } : {}) }
+  }
+  if (!apiKey) {
+    throw agentDiagnostics.AGENT_R0936({
+      message: !fromEnv
+        ? `[vitehub] jev({ provider: "${provider}" }) requires apiKey, a TypeSafe API key.`
+        : provider === "cloudflare"
+          ? `[vitehub] Jev requests through Cloudflare AI Gateway require env.server.${typesafeEnvGroup}.apiKey, the TypeSafe API key that the gateway forwards. Set TYPESAFE_API_KEY.`
+          : `[vitehub] TypeSafe Jev requests require env.server.${typesafeEnvGroup}.apiKey. Set TYPESAFE_API_KEY, or use typesafeEnv({ provider: "vercel" }) with AI_GATEWAY_API_KEY.`,
+    })
+  }
+  if (provider === "typesafe") return { ...shared, apiKey, ...(fromEnv ? { keyEnv: "TYPESAFE_API_KEY" } : {}) }
+  const cloudflare = isRuntimeRecord(settings.cloudflare) ? settings.cloudflare : {}
+  const accountId = optionalString(cloudflare.accountId)
+  const gatewayId = optionalString(cloudflare.gatewayId)
+  if (!accountId || !gatewayId) {
+    const missing = [!accountId && (fromEnv ? "CLOUDFLARE_ACCOUNT_ID" : "cloudflare.accountId"), !gatewayId && (fromEnv ? "CLOUDFLARE_AI_GATEWAY_ID" : "cloudflare.gatewayId")].filter(Boolean).join(" and ")
+    throw agentDiagnostics.AGENT_R0936({
+      message: fromEnv
+        ? `[vitehub] Jev requests through Cloudflare AI Gateway require ${missing}. Set them in the Server Env of this deployment.`
+        : `[vitehub] jev({ provider: "cloudflare" }) requires ${missing}.`,
+    })
+  }
+  const token = optionalString(cloudflare.token)
+  return {
+    ...shared,
+    apiKey,
+    baseURL: cloudflareJevBaseURL({ accountId, gatewayId, slug: optionalString(cloudflare.slug) }),
+    ...(token ? { headers: { "cf-aig-authorization": `Bearer ${token}` } } : {}),
+    ...(fromEnv ? { keyEnv: "TYPESAFE_API_KEY or CLOUDFLARE_AI_GATEWAY_TOKEN" } : {}),
+  }
+}
+
 /** Reads `env.server.typesafe` through the generated Server Env module. */
-async function typesafeOptions(context: AskRequestContext) {
+async function typesafeOptions(context: AskRequestContext): Promise<JevRoute> {
   let module: Awaited<ReturnType<typeof importServerEnvModule>>
   try {
     module = await importServerEnvModule()
@@ -65,21 +171,28 @@ async function typesafeOptions(context: AskRequestContext) {
   if (!isRuntimeRecord(group)) {
     throw agentDiagnostics.AGENT_R0935({ message: `[vitehub] TypeSafe Jev requests read the Server Env group "${typesafeEnvGroup}", but it is not declared. ${typesafeEnvHint}` })
   }
-  const provider = group.provider === "vercel" ? "vercel" : "typesafe"
-  const apiKey = optionalString(group.apiKey)
-  if (!apiKey && provider === "typesafe") {
-    throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] TypeSafe Jev requests require env.server.${typesafeEnvGroup}.apiKey. Set TYPESAFE_API_KEY, or use typesafeEnv({ provider: "vercel" }) with AI_GATEWAY_API_KEY.` })
-  }
-  // Without a key, advocaat uses VERCEL_OIDC_TOKEN, which only Vercel sets. Fail here with the variable to set.
-  if (!apiKey && provider === "vercel" && !optionalString(globalThis.process?.env?.VERCEL_OIDC_TOKEN)) {
-    throw agentDiagnostics.AGENT_R0936({ message: `[vitehub] Jev requests through Vercel AI Gateway require AI_GATEWAY_API_KEY. Set it in the Server Env of this deployment. On Vercel, VERCEL_OIDC_TOKEN also works.` })
-  }
-  const model = optionalString(group.model)
-  return {
-    ...(apiKey ? { apiKey } : {}),
-    ...(model ? { model } : {}),
-    provider,
-  } as const
+  const cloudflare = isRuntimeRecord(group.cloudflare) ? group.cloudflare : {}
+  return jevRoute({
+    apiKey: optionalString(group.apiKey),
+    cloudflare: {
+      accountId: optionalString(cloudflare.accountId),
+      gatewayId: optionalString(cloudflare.gatewayId),
+      slug: optionalString(cloudflare.slug),
+      token: optionalString(cloudflare.token),
+    },
+    ...(context.client?.fetch ? { fetch: context.client.fetch } : {}),
+    model: optionalString(context.client?.model) ?? optionalString(group.model),
+    provider: jevProvider(group.provider),
+  }, true)
+}
+
+/** Explicit `jev()` credentials when it has a route, else the Server Env group. */
+async function jevRequestRoute(context: AskRequestContext): Promise<JevRoute> {
+  const client = context.client
+  if (!client || (client.provider === undefined && client.apiKey === undefined && client.cloudflare === undefined)) return await typesafeOptions(context)
+  const provider = jevProvider(client.provider)
+  // Explicit credentials never fall back to the process environment, including the model.
+  return jevRoute({ ...client, model: optionalString(client.model) ?? (provider === "vercel" ? "typesafe-ai/jev" : "jev-latest"), provider }, false)
 }
 
 function toEntry(value: unknown): AdvocaatEntry {
@@ -153,11 +266,12 @@ async function requestJev(
   advocaat: Advocaat,
   state: AdvocaatEntry,
   batch: Record<string, AdvocaatQuestion>,
-  options: Awaited<ReturnType<typeof typesafeOptions>> & { signal?: AbortSignal },
+  options: JevRoute & { signal?: AbortSignal },
 ): Promise<JevResponse> {
-  const { signal, ...client } = options
+  const { headers, keyEnv: _keyEnv, provider, signal, ...client } = options
   const wire: JevQuestions = Object.fromEntries(Object.entries(batch).map(([name, question]) => [name, toJevQuestion(question)]))
-  const result = await advocaat.typesafe(client).systemOne({ questions: wire, state }, { signal })
+  // Cloudflare AI Gateway forwards the TypeSafe protocol, so it uses the TypeSafe client at the gateway URL.
+  const result = await advocaat.typesafe({ ...client, provider: provider === "vercel" ? "vercel" : "typesafe" }).systemOne({ questions: wire, state }, { ...(headers ? { headers } : {}), signal })
   const answers: Record<string, unknown> = Object.create(null)
   for (const [name, answer] of Object.entries(result.answers)) {
     const question = batch[name]
@@ -215,9 +329,9 @@ async function requestJevWithRetry(
   advocaat: Advocaat,
   state: AdvocaatEntry,
   batch: Record<string, AdvocaatQuestion>,
-  options: Awaited<ReturnType<typeof typesafeOptions>> & { signal?: AbortSignal },
+  options: JevRoute & { signal?: AbortSignal },
 ): Promise<JevResponse> {
-  const provider = options.provider === "vercel" ? "Vercel AI Gateway" : "TypeSafe"
+  const provider = jevProviderNames[options.provider]
   for (let attempt = 0; ; attempt++) {
     try {
       return await requestJev(advocaat, state, batch, options)
@@ -227,8 +341,7 @@ async function requestJevWithRetry(
       const status = errorStatus(error)
       const details = { cause: error, providerStatus: status, requestId: errorRequestId(error) }
       if (status === 401 || status === 403) {
-        const env = options.provider === "vercel" ? "AI_GATEWAY_API_KEY" : "TYPESAFE_API_KEY"
-        throw Object.assign(agentDiagnostics.AGENT_R1009({ provider, status, env, cause: error }), { ...details, status: 503 })
+        throw Object.assign(agentDiagnostics.AGENT_R1009({ provider, status, env: options.keyEnv, cause: error }), { ...details, status: 503 })
       }
       // A failed fetch is surfaced as a TypeError without a status. Response
       // decoding and validation can also throw TypeError, but those are
@@ -458,7 +571,7 @@ export async function askJev<const Q extends AskQuestions>(context: AskRequestCo
   const entry = toEntry(state)
   const batches = jevQuestionBatches(entry, wire)
   const advocaat = await loadAdvocaat()
-  const options = await typesafeOptions(context)
+  const options = await jevRequestRoute(context)
   const output: Record<string, unknown> = Object.create(null)
   for (const [batchIndex, batch] of batches.entries()) {
     context.abortSignal?.throwIfAborted()

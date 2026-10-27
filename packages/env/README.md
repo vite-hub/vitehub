@@ -116,9 +116,9 @@ Presets return ordinary `env.server` declarations. Import them from `@vite-hub/e
 | Preset | Declares |
 | --- | --- |
 | `openWorkflowEnv()` | OpenWorkflow namespace, Postgres URL, schema, and worker concurrency. |
-| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`. `TYPESAFE_DEFAULT_MODEL` overrides the model. |
+| `typesafeEnv({ provider?, model? })` | TypeSafe Jev `provider`, Secret `apiKey`, and `model`. `"typesafe"` reads `TYPESAFE_API_KEY`; `"vercel"` reads the optional `AI_GATEWAY_API_KEY`; `"cloudflare"` reads `TYPESAFE_API_KEY` and `cloudflare.accountId` (`CLOUDFLARE_ACCOUNT_ID`), `cloudflare.gatewayId` (`CLOUDFLARE_AI_GATEWAY_ID`), the Secret `cloudflare.token` (`CLOUDFLARE_AI_GATEWAY_TOKEN`), and `cloudflare.slug` (`CLOUDFLARE_AI_GATEWAY_SLUG`, default `typesafe`). `TYPESAFE_DEFAULT_MODEL` overrides the model. |
 
-The preset allows a missing API key during Env resolution. The ask Driver requires `TYPESAFE_API_KEY` for the TypeSafe provider and reports `AGENT_R0936` when it is missing. The Vercel provider can use `VERCEL_OIDC_TOKEN` without an API key.
+The preset allows a missing API key, account, or gateway during Env resolution. The ask Driver and `jev()` require `TYPESAFE_API_KEY` for the TypeSafe and Cloudflare providers, and the account and gateway IDs for Cloudflare, and report `AGENT_R0936` when one is missing. The Vercel provider can use `VERCEL_OIDC_TOKEN` without an API key.
 
 `@vite-hub/agent` reads `typesafeEnv()` from the `typesafe` group for `driver.ask`:
 

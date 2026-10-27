@@ -1489,8 +1489,8 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1007: dynamicError,
     AGENT_R1008: dynamicError,
     AGENT_R1009: {
-      why: ({ provider, status, env }: { provider: string, status: number, env: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
-      fix: ({ env }: { provider: string, status: number, env: string }) => `Set or rotate ${env} in the Server Env of this deployment.`,
+      why: ({ provider, status }: { provider: string, status: number, env?: string }) => `[vitehub] The ${provider} Jev provider rejected the API key with HTTP ${status}. The key is missing, expired, or not allowed to call Jev.`,
+      fix: ({ env }: { provider: string, status: number, env?: string }) => env ? `Set or rotate ${env} in the Server Env of this deployment.` : "Pass a valid apiKey to jev(), or rotate the key.",
     },
     AGENT_R1010: {
       why: ({ provider, status, attempts }: { provider: string, status?: number, attempts: number }) => `[vitehub] The ${provider} Jev provider failed${status === undefined ? " to respond" : ` with HTTP ${status}`} after ${attempts} attempts.`,
