@@ -31,9 +31,47 @@ beforeEach(async () => {
 })
 
 afterEach(async () => {
+  vi.restoreAllMocks()
   await Promise.all(pending.splice(0))
   client.close()
   installComments(() => { throw new Error("not installed") })
+})
+
+it("scans past more than fifty hidden threads to fill a readable page", async () => {
+  setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || thread.messages[0]?.body === "visible" }))
+  const visible = await create(member, { ...input, body: "visible" })
+  for (let i = 0; i < 51; i++) await create()
+  expect(await call("comments.list", { limit: 1 })).toEqual({ ok: true, value: [visible] })
+})
+
+it("refuses ownership-based deletion when another author replies after authorization", async () => {
+  const store = setup(defineComments({ authorize: ({ action }) => action !== "delete" }))
+  const thread = await create()
+  const original = store.deleteThread.bind(store)
+  let pause!: () => void
+  let resume!: () => void
+  const paused = new Promise<void>(resolve => { pause = resolve })
+  const resumed = new Promise<void>(resolve => { resume = resolve })
+  vi.spyOn(store, "deleteThread").mockImplementationOnce(async (...args) => {
+    pause()
+    await resumed
+    return original(...args)
+  })
+  const deleting = call("comments.delete", { threadId: thread.id })
+  await paused
+  expect(await call("comments.reply", { body: "Keep my reply", threadId: thread.id }, admin)).toMatchObject({ ok: true })
+  resume()
+  expect(await deleting).toMatchObject({ ok: false, status: 403 })
+  expect((await store.getById(thread.id))?.messages).toHaveLength(2)
+})
+
+it("keeps insertion order and deletes only the reply when timestamps collide", async () => {
+  const store = setup(defineComments({ authorize: () => true }))
+  const message = { attachments: [], author: member, body: "First", id: "z-first", mentions: [], now: 1 }
+  const thread = await store.createThread({ ...message, anchor: { kind: "page" }, scope: "site", subject: page, threadId: "thread" })
+  const replied = await store.addMessage(thread.id, { ...message, body: "Reply", id: "a-reply" })
+  expect(replied.messages.map(entry => entry.id)).toEqual(["z-first", "a-reply"])
+  expect(await call("comments.delete", { messageId: "a-reply", threadId: thread.id })).toMatchObject({ ok: true, value: { messages: [{ id: "z-first" }] } })
 })
 
 function setup(definition: CommentsDefinition) {

@@ -280,7 +280,7 @@ function findQuote(text: string, anchor: TextAnchor): QuoteMatch | undefined {
   if (matches.length === 1) return matches[0]
   const needed = Math.min(minimumContext, anchor.prefix.length + anchor.suffix.length)
   const best = matches.reduce<QuoteMatch | undefined>((top, match) => (!top || match.score > top.score ? match : top), undefined)
-  return best && needed > 0 && best.score >= needed ? best : undefined
+  return best && needed > 0 && best.score >= needed && matches.filter(match => match.score === best.score).length === 1 ? best : undefined
 }
 
 function boundary(nodes: Text[], offset: number, end: boolean): { node: Text, offset: number } | undefined {
@@ -361,11 +361,16 @@ export function resolveAnchor(anchor: CommentAnchor, root: ParentNode = document
   const found = lookup(root, anchor.selector)
   if (anchor.kind === "text") {
     let best: TextResolution | undefined
+    let tied = false
     for (const element of found) {
       const resolution = resolveText(anchor, element)
-      if (resolution && (!best || resolution.score > best.score)) best = resolution
+      if (resolution && (!best || resolution.score > best.score)) {
+        best = resolution
+        tied = false
+      }
+      else if (resolution && resolution.score === best?.score) tied = true
     }
-    return best?.position ?? { detached: true }
+    return !tied && best ? best.position : { detached: true }
   }
   const element = found.length === 1 ? found[0] : undefined
   if (!element) return { detached: true }

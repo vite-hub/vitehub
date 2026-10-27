@@ -9,4 +9,5 @@ const pagePath = /^\/(?![/\\])[^\s\\?#]*$/
 
 export function isPagePath(value: string): boolean {
   return value.length <= maximumPagePathLength && pagePath.test(value)
+    && !new URL(value, "https://comments.invalid").pathname.startsWith("//")
 }

@@ -148,7 +148,8 @@ export interface CommentsStore {
   addMessage: (threadId: string, input: NewMessage) => Promise<CommentThread>
   editMessage: (threadId: string, messageId: string, input: { body: string, mentions: string[], now: number }) => Promise<CommentThread>
   deleteMessage: (threadId: string, messageId: string, now: number) => Promise<CommentThread>
-  deleteThread: (threadId: string) => Promise<void>
+  /** With `ownerId`, delete only if every message still belongs to that owner at mutation time. */
+  deleteThread: (threadId: string, ownerId?: string) => Promise<boolean>
   setStatus: (threadId: string, status: CommentStatus, by: CommentUser, now: number) => Promise<CommentThread>
   /**
    * The people that wrote in a thread, for a store without an Auth adapter. Only authors of threads that `canRead`
@@ -313,7 +314,17 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
     },
     async addMessage(threadId, input) {
       await one(threadId)
-      await together(target => [target.insert(messages).values(messageRow(threadId, input)), touching(target, threadId, input.now)])
+      await together(target => [
+        // Lock the thread before reading its messages. Deletion takes the same lock, and an insert after deletion
+        // selects no thread. This also serializes replies so their timestamps preserve insertion order.
+        touching(target, threadId, input.now),
+        target.insert(messages).select(sql`select
+          ${input.id}, ${threadId}, ${input.body}, ${input.author.id}, ${input.author.name ?? null}, ${input.author.image ?? null},
+          ${input.actor ? JSON.stringify(input.actor) : null}, ${JSON.stringify(input.mentions)}, ${JSON.stringify(input.attachments)},
+          (select case when max(${messages.createdAt}) >= ${input.now} then max(${messages.createdAt}) + 1 else ${input.now} end
+            from ${messages} where ${messages.threadId} = ${threadId}), null
+          from ${threads} where ${threads.id} = ${threadId}`),
+      ])
       return one(threadId)
     },
     async editMessage(threadId, messageId, input) {
@@ -329,8 +340,17 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
       await together(target => [target.delete(messages).where(and(eq(messages.id, messageId), eq(messages.threadId, threadId))), touching(target, threadId, now)])
       return one(threadId)
     },
-    async deleteThread(threadId) {
-      await together(target => [target.delete(messages).where(eq(messages.threadId, threadId)), target.delete(threads).where(eq(threads.id, threadId))])
+    async deleteThread(threadId, ownerId) {
+      await together(target => [
+        // Acquire the same thread lock as addMessage before checking ownership, including on Postgres where each
+        // statement sees a new snapshot after waiting for a concurrent reply's transaction to commit.
+        target.update(threads).set({ id: threadId }).where(eq(threads.id, threadId)),
+        target.delete(threads).where(and(eq(threads.id, threadId), ownerId === undefined ? undefined
+          : sql`not exists (select 1 from ${messages} where ${messages.threadId} = ${threadId} and ${messages.authorId} <> ${ownerId})`)),
+        target.delete(messages).where(and(eq(messages.threadId, threadId),
+          sql`not exists (select 1 from ${threads} where ${threads.id} = ${threadId})`)),
+      ])
+      return await find(threadId) === null
     },
     async setStatus(threadId, status, by, now) {
       await one(threadId)

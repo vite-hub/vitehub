@@ -32,7 +32,7 @@ export interface CommentsClientOptions {
   transport: CommentsTransport
   /** The signed-in user. The UI uses it for the "mine" filter and to know which messages the user may edit. */
   user?: CommentUser
-  /** What `refresh()` lists. For example `{ page: "/pricing" }`. */
+  /** What `refresh()` lists. For example `{ page: "/pricing" }`. Without an explicit limit, loads all pages. */
   query?: CommentListQuery
   /** Refresh when the window gets focus and the transport cannot push updates. Default `true`. */
   refreshOnFocus?: boolean
@@ -104,14 +104,25 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     status = "loading"
     notify()
     try {
-      const list = await transport.list(query)
+      const requested = { ...query }
+      const pageSize = requested.limit ?? 200
+      const list: CommentThread[] = []
+      let before = requested.before
+      while (true) {
+        const page = await transport.list({ ...requested, limit: pageSize, ...(before ? { before } : {}) })
+        if (current !== generation) return threads
+        list.push(...page)
+        if (requested.limit !== undefined || page.length < pageSize) break
+        const last = page.at(-1)!
+        before = { id: last.id, updatedAt: last.updatedAt }
+      }
       // A newer refresh, or a query change, makes this answer stale.
       if (current !== generation) return threads
       const next = new Map<string, CommentThread>()
       for (const thread of list) {
         const local = byId.get(thread.id)
         if (removed.has(thread.id)) continue
-        next.set(thread.id, local && local.updatedAt > thread.updatedAt ? local : thread)
+        next.set(thread.id, local && (changed.has(thread.id) || local.updatedAt > thread.updatedAt) ? local : thread)
       }
       // A thread that someone made or changed while the list was on its way is not in the list yet.
       for (const id of changed) {

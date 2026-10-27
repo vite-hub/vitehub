@@ -218,7 +218,7 @@ const list = defineOperation({
     const readable: CommentThread[] = []
     let before = input.before
     // Threads the caller may not read are left out, so ask again after them until the page is full or the threads end.
-    for (let round = 0; round < 50 && readable.length < limit; round++) {
+    while (readable.length < limit) {
       const threads = await who.runtime.store.list({ ...input, limit, ...(before ? { before } : {}), ...(who.user ? { userId: who.user.id } : {}) })
       const allowed = await mapLimit(threads, authorizeConcurrency, thread => permitted(who, "read", { thread }).catch(() => false))
       for (const [index, thread] of threads.entries()) {
@@ -344,11 +344,12 @@ const remove = defineOperation({
     const deletesThread = !target || target.id === found.messages[0]?.id
     // People delete their own messages, and a thread only when every message in it is theirs. Everything else, and every
     // Agent, needs the `delete` action.
-    const mine = (authorId: string) => who.user !== null && !who.actor && authorId === who.user.id
-    const owns = deletesThread ? found.messages.every(entry => mine(entry.author.id)) : mine(target.author.id)
+    const ownerId = who.user && !who.actor ? who.user.id : undefined
+    const owns = ownerId !== undefined && (deletesThread ? found.messages.every(entry => entry.author.id === ownerId) : target.author.id === ownerId)
     if (!owns) await allow(who, "delete", { thread: found })
     if (deletesThread) {
-      await who.runtime.store.deleteThread(found.id)
+      const deleted = await who.runtime.store.deleteThread(found.id, owns ? ownerId : undefined)
+      if (deleted === false) throw fail(commentsErrorDiagnostics.COMMENTS_R0009({ action: "delete" }), 403)
       return null
     }
     return who.runtime.store.deleteMessage(found.id, target.id, Date.now())

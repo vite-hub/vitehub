@@ -145,7 +145,7 @@ describe("createCommentsClient", () => {
   describe("races", () => {
     // A transport whose list answers when the test says so, with what the server knew when it was asked.
     function slowList() {
-      const store = createMemoryTransport({ user: ana })
+      const store = createMemoryTransport({ user: ana, now: () => 1 })
       const pending: Array<{ answer: () => void }> = []
       const transport = {
         ...store,
@@ -196,7 +196,6 @@ describe("createCommentsClient", () => {
       await vi.waitFor(() => expect(pending).toHaveLength(1))
 
       // The list was cut before the reply, and the reply comes back after it.
-      await new Promise(resolve => setTimeout(resolve, 5))
       await client.reply({ threadId: thread.id, body: "Second" })
       pending[0]!.answer()
       await loading
@@ -247,4 +246,20 @@ describe("createCommentsClient", () => {
       stop()
     })
   })
+})
+
+it("loads every page before marking the cache ready", async () => {
+  const store = createMemoryTransport({ user: ana })
+  const sample = await store.create({ subject, anchor, body: "First" })
+  const all = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 201 - i }))
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    const start = query.before ? all.findIndex(thread => thread.id === query.before?.id) + 1 : 0
+    return all.slice(start, start + (query.limit ?? 200))
+  })
+  const client = createCommentsClient({ transport: { ...store, list }, query: { page: subject.id } })
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.threads).toHaveLength(201)
+  expect(list).toHaveBeenCalledTimes(2)
+  expect(list.mock.calls[1]?.[0]).toMatchObject({ before: { id: "thread-199", updatedAt: 2 }, page: subject.id })
 })

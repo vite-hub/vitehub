@@ -18,6 +18,7 @@ import { runViteHubCli } from "@vite-hub/cli"
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { operationCell, operationLink } from "../src/console/runtime/client/operation-view.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -78,6 +79,7 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllEnvs()
   await Promise.all(pending.splice(0))
   installConsoleOperations([])
@@ -301,7 +303,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
 
   it("lets a development server without sign-in comment as the local developer", async () => {
     await setup()
-    vi.stubEnv("NODE_ENV", "development")
+    installConsoleDevelopment("/test/app", true)
     for (const mode of ["local", "open"] as const) {
       installConsoleAccess({ mode })
       const response = await handleConsoleRpcRequest(new Request("http://localhost:5173/_vitehub/rpc/__call", {
@@ -314,7 +316,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       expect(body.value.author).toEqual({ id: "local", name: "You" })
     }
     // Production never invents a user.
-    vi.stubEnv("NODE_ENV", "production")
+    installConsoleDevelopment("/test/app", false)
     installConsoleAccess({ mode: "open" })
     expect(await failure("comments.create", { anchor: { kind: "page" }, body: "x", subject: page })).toMatchObject({ code: "COMMENTS_R0012", status: 401 })
   })

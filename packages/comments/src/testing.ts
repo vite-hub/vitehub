@@ -120,7 +120,14 @@ function view(store: Store, user: CommentUser): MemoryTransport {
     as: other => view(store, other),
     reconnect: () => emit(store, { type: "reconnected" }),
     async list(query) {
-      return [...store.threads.values()].filter(item => matches(item, query)).sort((a, b) => a.n - b.n).map(copy)
+      const threads = [...store.threads.values()].filter(item => matches(item, query))
+      if (query.limit !== undefined || query.before) {
+        const before = query.before
+        return threads.filter(item => !before || item.updatedAt < before.updatedAt || item.updatedAt === before.updatedAt && item.id < before.id)
+          .sort((a, b) => b.updatedAt - a.updatedAt || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0))
+          .slice(0, query.limit ?? 200).map(copy)
+      }
+      return threads.sort((a, b) => a.n - b.n).map(copy)
     },
     async get(input) {
       const found = "id" in input
