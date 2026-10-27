@@ -1,7 +1,7 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows, operationCall, operationSection } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
-import { bindConsoleAccess } from "./access.ts"
+import { bindConsoleAccess, consoleOperationAccess } from "./access.ts"
 import { consoleAttachmentRequestBytes, consoleDocumentActionNames, maximumConsoleDocumentRequestBytes, maximumConsoleMediaRequestBytes, maximumConsoleRpcRequestBytes } from "./limits.ts"
 import { consoleRequestError } from "./request.ts"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
@@ -25,7 +25,9 @@ interface LegacyRequest {
   query?: Record<string, QueryValue>
 }
 
-function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: OperationContext): ConsoleRequestEvent {
+type ConsoleOperationContext = Omit<OperationContext, "access"> & { access: ConsoleAccess }
+
+function legacyEvent(route: string, method: "GET" | "POST", request: LegacyRequest, context: ConsoleOperationContext): ConsoleRequestEvent {
   const id = request.id ? `/${encodeURIComponent(request.id)}` : ""
   const url = new URL(`/api/_vitehub/console/${route}${id}`, "http://vitehub.local")
   for (const [key, value] of Object.entries(request.query ?? {})) {
@@ -44,8 +46,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     res: context.response ?? {},
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
-  // SAFETY: The Console RPC issues every context of a Console operation with the access that its check created.
-  return bindConsoleAccess(context.access as ConsoleAccess, event)
+  return bindConsoleAccess(context.access, event)
 }
 
 const text = v.string()
@@ -70,8 +71,18 @@ export const consoleOperationRequestBytes = {
 } as const
 
 // The handlers of these operations read the signed-in user themselves, when they need it.
-function defineConsoleOperation<Input, Output>(definition: OperationDefinition<Input, Output>): OperationDefinition<Input, Output> {
-  return defineOperation({ ...definition, user: false })
+function defineConsoleOperation<Input, Output>(definition: Omit<OperationDefinition<Input, Output>, "run"> & { run: (input: Input, context: ConsoleOperationContext) => Output | Promise<Output> }): OperationDefinition<Input, Output> {
+  return defineOperation({
+    ...definition,
+    user: false,
+    async run(input, context) {
+      const access = await consoleOperationAccess(context)
+      if (!operationAccessAllows(access, operationSection(definition, input), operationCall(definition, input))) {
+        throw consoleRequestError(403, "This Console access does not include this operation.")
+      }
+      return definition.run(input, { ...context, access })
+    },
+  })
 }
 
 const agentsList = defineConsoleOperation({
@@ -253,7 +264,7 @@ const mediaAction = defineConsoleOperation({
   // A read-only grant still browses the library.
   readOnlyWhen: ({ action }) => consoleMediaReadActions.has(action),
   name: "media.action",
-  run: async ({ action, body, section }, context) => (await import("./media.ts")).runConsoleMediaAction(section, action, body, context.access as ConsoleAccess),
+  run: async ({ action, body, section }, context) => (await import("./media.ts")).runConsoleMediaAction(section, action, body, context.access),
   section: input => input.section,
 })
 

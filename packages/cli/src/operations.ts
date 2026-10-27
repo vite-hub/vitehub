@@ -376,7 +376,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       const result = await callOperation({
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
-        roots: acceptedRoots(context.rootDir),
+        ...(parsed.url ? {} : { roots: acceptedRoots(context.rootDir) }),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         url: target,
       }, operation.name, parsed.input)
