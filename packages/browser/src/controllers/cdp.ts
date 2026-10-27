@@ -218,7 +218,10 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
             const methodListeners = listeners.get(method) ?? new Set()
             methodListeners.add(listener)
             listeners.set(method, methodListeners)
+            let active = true
             return () => {
+              if (!active) return
+              active = false
               methodListeners.delete(listener)
               if (methodListeners.size === 0) listeners.delete(method)
             }
