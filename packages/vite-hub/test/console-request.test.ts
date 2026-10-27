@@ -415,7 +415,7 @@ describe("Console requests", () => {
     ).resolves.toEqual({ auth: false, contributions: { queues }, scoped: false, sections: ["kv", "queues"] })
   })
 
-  it.each(["", "/admin"])("visits allowed sections at their root app paths with Console mount %s", async (mount) => {
+  it.each(["", "/admin"])("visits allowed sections under the app mount %s", async (mount) => {
     const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" }, visit: "/api/_vitehub/comments/session" }
     const hidden = { ...comments, id: "hidden", visit: "/api/hidden/session" }
     const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
@@ -426,7 +426,7 @@ describe("Console requests", () => {
     await expect(loadConsoleNavigation(base)).resolves.toMatchObject({ sections: ["comments"] })
     await loadConsoleNavigation(base)
     expect(fetch).toHaveBeenCalledTimes(2)
-    expect(fetch).toHaveBeenLastCalledWith("/api/_vitehub/comments/session", { credentials: "same-origin" })
+    expect(fetch).toHaveBeenLastCalledWith(`${mount}/api/_vitehub/comments/session`, { credentials: "same-origin" })
   })
 
   it("stops waiting for an RPC result when navigation is aborted", async () => {

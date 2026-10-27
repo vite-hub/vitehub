@@ -23,7 +23,8 @@ export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H
     if (user && id) return { ...user, id }
     const person = await access.identify({ event })
     // Cloudflare Access names the person by email. A Console without accounts makes a new guest id for each request.
-    if (person && !person.id.startsWith("guest-")) return { ...person }
+    const openGuest = person && !person.email && /^guest-[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/i.test(person.id)
+    if (person && !openGuest) return { ...person }
     const guest = guestFromHeaders(event.req.headers)
     return guest ? { ...guest } : { id: "guest:console", name: "Guest", guest: true }
   }

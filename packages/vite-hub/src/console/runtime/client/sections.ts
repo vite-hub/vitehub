@@ -59,12 +59,15 @@ export function resolveConsoleSectionDetails(
 
 /**
  * Requests the `visit` path of each section that this person may use, once per loaded Console, such as the Comments
- * session that turns comment mode on for the app's pages. Failures are ignored: the section page itself reports them.
+ * session that turns comment mode on for the app's pages. Paths use the app mount, as do its API handlers.
+ * Failures are ignored: the section page itself reports them.
  */
-function visitConsoleSections(navigation: ConsoleNavigation): void {
+function visitConsoleSections(base: string, navigation: ConsoleNavigation): void {
+  const marker = base.lastIndexOf("/api/_vitehub/console/")
+  const prefix = marker === -1 ? "" : base.slice(0, marker)
   for (const section of navigation.sections) {
     const visit = Object.hasOwn(navigation.contributions, section) ? navigation.contributions[section]?.visit : undefined
-    if (visit) void fetch(visit, { credentials: "same-origin" }).catch(() => undefined)
+    if (visit) void fetch(`${prefix}${visit}`, { credentials: "same-origin" }).catch(() => undefined)
   }
 }
 
@@ -75,7 +78,7 @@ export async function loadConsoleNavigation(base: string): Promise<ConsoleNaviga
       .then((value) => {
         navigationErrors.delete(base)
         const navigation = parseConsoleNavigation(value)
-        visitConsoleSections(navigation)
+        visitConsoleSections(base, navigation)
         for (const subscriber of navigationSubscribers.get(base) || []) subscriber(navigation)
         return navigation
       })

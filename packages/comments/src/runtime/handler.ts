@@ -231,6 +231,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }, { headers })
   }
 
+  async function permissions(user: CommentsUser | null, thread: CommentThread) {
+    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => comments.can({ user, action, thread })))
+    return { ...thread, can: { comment, resolve } }
+  }
+
+  async function respondThread(user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
+    return error ? failure(error) : json({ data: await permissions(user, thread) })
+  }
+
   async function thread(id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND" | "COMMENTS_NOT_INSTALLED">> {
     return await comments.get(id)
   }
@@ -317,14 +326,15 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [denied] = await access(event, "read")
+        const [denied, allowed] = await access(event, "read")
         if (denied) return failure(denied)
         const page = url.searchParams.get("page")
         const state = url.searchParams.get("status")
-        return respond(await comments.list({
+        const [error, threads] = await comments.list({
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
-        }))
+        })
+        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(allowed.user, thread))) })
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(event))
@@ -332,7 +342,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const [denied, allowed] = await access(event, "comment")
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return respond(await writes.create(allowed.grant, { ...parsed.output, author: allowed.author }))
+        return await respondThread(allowed.user, await writes.create(allowed.grant, { ...parsed.output, author: allowed.author }))
       }
     }
 
@@ -352,8 +362,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       if (method === "POST" && (action === "resolve" || action === "reopen")) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        if (action === "reopen") return respond(await writes.reopen(allowed.grant, id))
-        return respond(await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
+        if (action === "reopen") return await respondThread(allowed.user, await writes.reopen(allowed.grant, id))
+        return await respondThread(allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
       }
       if (method === "DELETE" && action === "comments" && parts[3]) {
         const commentId = decodeURIComponent(parts[3])
