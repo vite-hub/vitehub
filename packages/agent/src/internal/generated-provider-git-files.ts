@@ -6,6 +6,13 @@ import { promisify } from "node:util"
 
 const execute = promisify(execFile)
 
+export async function unmergedProviderGitFiles(root: string): Promise<Set<string>> {
+  const { stdout } = await execute("git", ["-C", root, "diff", "--name-only", "--diff-filter=U", "-z"], {
+    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_LITERAL_PATHSPECS: "1" },
+  })
+  return new Set(stdout.split("\0").filter(Boolean))
+}
+
 /** Keep invocation-owned files out of ordinary `git add -A` without changing the index content. */
 export async function protectGeneratedProviderGitFiles(root: string, paths: readonly string[]): Promise<() => Promise<void>> {
   if (!paths.length) return async () => undefined
@@ -17,6 +24,8 @@ export async function protectGeneratedProviderGitFiles(root: string, paths: read
   const names = [...new Set(paths.map(path => relative(root, path).replaceAll("\\", "/")))]
   if (names.some(name => /[\r\n]/.test(name))) throw new Error("Generated provider Git paths must not contain line breaks.")
   const entries = (await git(["ls-files", "-v", "-z", "--", ...names])).split("\0").filter(Boolean)
+  const conflicts = entries.filter(entry => entry[0]?.toUpperCase() === "M")
+  if (conflicts.length) throw new Error(`Cannot overwrite conflicted generated provider files: ${[...new Set(conflicts.map(entry => entry.slice(2)))].join(", ")}`)
   const trackedEntries = entries.filter(entry => entry[0]?.toUpperCase() !== "S")
   const originalSkipWorktree = new Map(trackedEntries.map(entry => [entry.slice(2), entry[0] === "S"]))
   const excludePath = resolve(root, (await git(["rev-parse", "--git-path", "info/exclude"])).trim())
@@ -30,7 +39,10 @@ export async function protectGeneratedProviderGitFiles(root: string, paths: read
   let excluded = false
   const restore = async () => {
     try {
+      const currentEntries = (await git(["ls-files", "-v", "-z", "--", ...originalSkipWorktree.keys()])).split("\0")
+      const restorable = new Set(currentEntries.filter(entry => /^[HhSs] /.test(entry)).map(entry => entry.slice(2)))
       for (const [name, skipWorktree] of originalSkipWorktree) {
+        if (!restorable.has(name)) continue
         await git(["update-index", skipWorktree ? "--skip-worktree" : "--no-skip-worktree", "--", name])
       }
     }

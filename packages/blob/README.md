@@ -1,10 +1,10 @@
 # @vite-hub/blob
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-config-646cff?style=flat-square">
-  <img alt="Storage" src="https://img.shields.io/badge/Blob-stores-0f766e?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
+  <img alt="Storage" src="https://comark-ui.onmax.me/badge.svg?label=Blob&amp;value=stores">
 </p>
 
 `@vite-hub/blob` gives server code one object-storage API across local files and hosted blob providers.

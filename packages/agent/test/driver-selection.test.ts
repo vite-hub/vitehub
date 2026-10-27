@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { claudeCodeDriver, codexDriver, createAgentInspectionMetadata, defineAgent, resolveAgentInspectionMetadata } from "../src/index.ts";
 import { normalizeAgentDriver } from "../src/internal/agent-driver.ts";
-import { cliproxy } from "../src/gateways.ts";
+import { cliproxy } from "@vite-hub/gateways";
 
 describe("built-in Agent Driver selection", () => {
   it("preserves and validates static provider exit callbacks", () => {

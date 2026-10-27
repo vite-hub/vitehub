@@ -87,7 +87,7 @@ export default defineConfig(async () => {
       import("@vite-hub/kv/vite"),
       import("@vite-hub/queue/vite"),
       import("@vite-hub/schedule/vite"),
-      import("@vite-hub/sandbox-task/vite"),
+      import("@vite-hub/sandbox/task/vite"),
       import("@vite-hub/workspace/vite"),
       import("@vite-hub/workflow/vite"),
     ])
@@ -215,7 +215,7 @@ export default defineConfig(async () => {
   }
 
   if (buildMode === VITEHUB_MODES.sandbox) {
-    const { hubSandboxTask } = await import("@vite-hub/sandbox-task/vite")
+    const { hubSandboxTask } = await import("@vite-hub/sandbox/task/vite")
     return {
       ...baseConfig,
       plugins: [hubSandboxTask()],

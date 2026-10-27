@@ -6,6 +6,7 @@ import {
   connectionActivitySchema,
   requestConnectionsManagement,
 } from "../client/connections-management";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; name: string }>();
 const events = ref<v.InferOutput<typeof connectionActivitySchema>["activity"]>([]);
@@ -55,7 +56,7 @@ onMounted(() => load());
         </div>
         <p class="break-all text-muted">{{ event.actor.kind }} · {{ event.actor.id }}</p>
         <time :datetime="event.timestamp" class="text-muted tabular-nums">{{
-          new Date(event.timestamp).toLocaleString()
+          consoleDateTime(event.timestamp)
         }}</time>
         <p v-if="event.traceId" class="break-all font-mono text-muted">Trace {{ event.traceId }}</p>
         <p v-if="event.invocationId" class="break-all font-mono text-muted">
