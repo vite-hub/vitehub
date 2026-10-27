@@ -208,11 +208,20 @@ describe("GitHub history commit", () => {
     expect(next.revisions.map(revision => revision.id)).toEqual(ids.slice(20))
   })
 
-  it("opens an older draft on a fresh store with its draft alias", async () => {
-    fake.commit("main", { "posts/a.md": "published" })
-    const old = await history({ refs: aliases }).commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
-    await history({ refs: aliases }).commit({ ref: "draft", ifHead: old.id, changes: { put: { "posts/b.md": file("posts/b.md", "next") } } })
-    expect((await history({ refs: aliases }).open(old.id)).revision.ref).toBe("draft")
+  it.each([
+    aliases,
+    { published: "main", draft: "published" },
+    { published: "draft", draft: "vitehub/content" },
+    { published: "draft", draft: "published" },
+  ])("keeps configured branches visible and opens older drafts ($published/$draft)", async (refs) => {
+    const published = fake.commit(refs.published, { "posts/a.md": "published" })
+    const old = await history({ refs }).commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    const draft = await history({ refs }).commit({ ref: "draft", ifHead: old.id, changes: { put: { "posts/b.md": file("posts/b.md", "next") } } })
+    expect((await history({ refs }).open(old.id)).revision.ref).toBe("draft")
+    await expect(history({ refs }).refs()).resolves.toEqual(expect.arrayContaining([
+      { name: "published", head: expect.objectContaining({ id: published, ref: "published" }) },
+      { name: "draft", head: expect.objectContaining({ id: draft.id, ref: "draft" }) },
+    ]))
   })
 
   it("keeps a branch head for a short time", async () => {

@@ -272,9 +272,8 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (refs?.draft === branch) return "draft"
     return branch
   }
-  // A branch that is named like an aliased ref would show as the same ref twice.
-  const hiddenBranch = (branch: string): boolean => (branch === "published" && Boolean(options.refs?.published) && options.refs?.published !== branch)
-    || (branch === "draft" && Boolean(options.refs?.draft) && options.refs?.draft !== branch)
+  // Hide a literal alias only when its reported ref resolves to another branch.
+  const hiddenBranch = (branch: string): boolean => toBranch(fromBranch(branch)) !== branch
   const heads = new Map<string, { expires: number, head: Promise<string | null> }>()
   const commitCache = new Map<string, GitHubCommit>()
   const treeCache = new Map<string, GitHubHistoryEntry[]>()
