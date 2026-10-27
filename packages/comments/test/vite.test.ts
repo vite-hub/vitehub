@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubComments } from "../src/vite.ts"
+import { hubComments, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 
@@ -62,6 +62,29 @@ describe("hubComments", () => {
       name: "comments",
     })])
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("const name = \"content\"")
+  })
+
+  it.each([
+    ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
+    ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
+    ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: chooseDatabase() })', undefined],
+    ['export const comments = defineComments({ database: "wrong", ...options })', undefined],
+    ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
+    ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
+  ])("reads only the effective exported Database option: %s", async (source, database) => {
+    const root = await project({ "server/comments.ts": source })
+    expect(await readCommentsDatabase(join(root, "server/comments.ts"))).toBe(database)
+    const plugin = hubComments()
+    await configure(plugin, root)
+    const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
+    expect(contributions).toHaveLength(1)
+    if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
+    else expect(contributions[0]).toHaveProperty("database", database)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`const name = ${JSON.stringify(database ?? null)}`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {
