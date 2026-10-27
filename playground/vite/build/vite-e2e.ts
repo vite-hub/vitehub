@@ -18,12 +18,12 @@ import { createCloudflareRateLimitBindings } from "../../../packages/rate-limit/
 import { discoverScheduleDefinitions } from "../../../packages/schedule/src/discovery.ts"
 import { getVercelSchedulePath } from "../../../packages/schedule/src/integrations/vercel.ts"
 import { readDefinitionCrons } from "../../../packages/schedule/src/internal/provider-output.ts"
-import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox-task/src/cloudflare.ts"
-import { resolveSandboxTaskProject } from "../../../packages/sandbox-task/src/project.ts"
-import { discoverServerSandboxTaskDefinitions } from "../../../packages/sandbox-task/src/discovery.ts"
-import { bundleSandboxTaskDefinition } from "../../../packages/sandbox-task/src/bundle.ts"
-import { resolveSandboxTaskFeatureConfig, sandboxTaskProviderRuntimeExport } from "../../../packages/sandbox-task/src/feature.ts"
-import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox-task/src/internal/shared/cloudflare-wrangler.ts"
+import { defaultCloudflareSandboxBinding, defaultCloudflareSandboxClassName, defaultCloudflareSandboxMigrationTag, configureCloudflareSandbox, writeCloudflareSandboxDockerfile } from "../../../packages/sandbox/src/task/cloudflare.ts"
+import { resolveSandboxTaskProject } from "../../../packages/sandbox/src/task/project.ts"
+import { discoverServerSandboxTaskDefinitions } from "../../../packages/sandbox/src/task/discovery.ts"
+import { bundleSandboxTaskDefinition } from "../../../packages/sandbox/src/task/bundle.ts"
+import { resolveSandboxTaskFeatureConfig, sandboxTaskProviderRuntimeExport } from "../../../packages/sandbox/src/task/feature.ts"
+import { finalizeCloudflareWranglerConfig } from "../../../packages/sandbox/src/task/internal/shared/cloudflare-wrangler.ts"
 import { normalizeWorkspaceOptions } from "../../../packages/workspace/src/config.ts"
 import { discoverViteWorkspaceDefinitions } from "../../../packages/workspace/src/build/discovery.ts"
 import { configureCloudflareArtifacts } from "../../../packages/workspace/src/integrations/cloudflare.ts"
@@ -44,7 +44,7 @@ import type { ResolvedBlobModuleOptions } from "../../../packages/blob/src/types
 import type { ResolvedDBViteConfig } from "../../../packages/database/src/types.ts"
 import type { ResolvedKVModuleOptions } from "../../../packages/kv/src/types.ts"
 import type { ResolvedQueueOptions } from "../../../packages/queue/src/types.ts"
-import type { AgentSandboxTaskConfig } from "../../../packages/sandbox-task/src/module-types.ts"
+import type { AgentSandboxTaskConfig } from "../../../packages/sandbox/src/task/module-types.ts"
 import type { ResolvedWorkspaceModuleOptions } from "../../../packages/workspace/src/core/types.ts"
 import type { ResolvedWorkflowOptions } from "../../../packages/workflow/src/types.ts"
 import type { Plugin } from "vite"
@@ -58,7 +58,7 @@ const kvPackageDir = resolve(packagesDir, "kv")
 const queuePackageDir = resolve(packagesDir, "queue")
 const rateLimitPackageDir = resolve(packagesDir, "rate-limit")
 const schedulePackageDir = resolve(packagesDir, "schedule")
-const sandboxTaskPackageDir = resolve(packagesDir, "sandbox-task")
+const sandboxPackageDir = resolve(packagesDir, "sandbox")
 const workspacePackageDir = resolve(packagesDir, "workspace")
 const workflowPackageDir = resolve(packagesDir, "workflow")
 const viteE2EProductName = "vite-e2e"
@@ -304,10 +304,10 @@ function renderScheduleRuntimeModule(file: string) {
 
 function renderSandboxTaskRuntimeModule(file: string) {
   return [
-    `export { defineSandboxTask } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxTaskPackageDir, "runtime/registry")))}`,
-    `export { runSandboxTask } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxTaskPackageDir, "runtime/public")))}`,
-    `export { readValidatedPayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxTaskPackageDir, "internal/shared/validation")))}`,
-    `export { readRequestPayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxTaskPackageDir, "internal/shared/request-payload")))}`,
+    `export { defineSandboxTask } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "task/runtime/registry")))}`,
+    `export { runSandboxTask } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "task/runtime/public")))}`,
+    `export { readValidatedPayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "task/internal/shared/validation")))}`,
+    `export { readRequestPayload } from ${JSON.stringify(createImportPath(file, resolvePackageRuntime(sandboxPackageDir, "task/internal/shared/request-payload")))}`,
     "",
   ].join("\n")
 }
@@ -669,7 +669,7 @@ function renderSandboxTaskRegistryModule(definitions: Array<{ name: string, file
 
 function renderSandboxTaskProviderLoaderModule(file: string, provider: "cloudflare" | "vercel") {
   const providerExport = sandboxTaskProviderRuntimeExport(provider)
-  const runtimeProviderFile = resolvePackageRuntime(sandboxTaskPackageDir, `runtime/providers/${provider}`)
+  const runtimeProviderFile = resolvePackageRuntime(sandboxPackageDir, `task/runtime/providers/${provider}`)
 
   return [
     `import { ${providerExport} as resolveTaskSandbox } from ${JSON.stringify(createImportPath(file, runtimeProviderFile))}`,
@@ -777,8 +777,8 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
 
   if (typeof options.sandbox !== "undefined") {
     const sandboxTaskRuntimeFile = resolve(generatedDir, "sandbox-runtime.mjs")
-    alias["@vite-hub/sandbox-task/runtime/state"] = resolve(sandboxTaskPackageDir, "src/runtime/state.ts")
-    alias["@vite-hub/sandbox-task"] = sandboxTaskRuntimeFile
+    alias["@vite-hub/sandbox/task/runtime/state"] = resolve(sandboxPackageDir, "src/task/runtime/state.ts")
+    alias["@vite-hub/sandbox/task"] = sandboxTaskRuntimeFile
     runtimeWrites.push(writeFile(sandboxTaskRuntimeFile, renderSandboxTaskRuntimeModule(sandboxTaskRuntimeFile), "utf8"))
   }
 
@@ -853,7 +853,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     alias["#vitehub-sandbox-task-registry"] = sandboxTaskRegistryFile
     for (const key of [
       "vitehub-sandbox-task-provider-loader",
-      "@vite-hub/sandbox-task/runtime/provider-loader",
+      "@vite-hub/sandbox/task/runtime/provider-loader",
       "virtual:vitehub-sandbox-task-provider-loader",
       "#vitehub-sandbox-task-provider-loader",
     ]) {
@@ -861,7 +861,7 @@ export async function prepareFeatureArtifacts(options: ViteE2EComposerOptions) {
     }
 
     if (sandboxTaskProvider === "cloudflare") {
-      alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxTaskPackageDir, "@cloudflare/sandbox")
+      alias["@cloudflare/sandbox"] = resolvePackageDependency(sandboxPackageDir, "@cloudflare/sandbox")
     }
   }
 
@@ -913,7 +913,7 @@ export function renderCloudflareEntry(file: string, options: ViteE2EComposerOpti
     `import { runWithWorkflowRuntimeEvent, setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
     `import { setRateLimitRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(rateLimitPackageDir, "src/runtime/state.ts")))}`,
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxTaskPackageDir, "src/runtime/state.ts")))}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/task/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
   ]
 
@@ -1069,7 +1069,7 @@ function renderVercelEntry(file: string, options: ViteE2EComposerOptions, artifa
     `import { setQueueRuntimeConfig, setQueueRuntimeRegistry, runWithQueueRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(queuePackageDir, "src/internal/runtime/state.ts")))}`,
     `import { setWorkflowRuntimeConfig, setWorkflowRuntimeRegistry, runWithWorkflowRuntimeEvent } from ${JSON.stringify(createImportPath(file, resolve(workflowPackageDir, "src/runtime/state.ts")))}`,
     `import { setBlobRuntimeConfig } from ${JSON.stringify(createImportPath(file, resolve(blobPackageDir, "src/runtime/state.ts")))}`,
-    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxTaskPackageDir, "src/runtime/state.ts")))}`,
+    `import { setSandboxTaskRuntimeConfig, setSandboxTaskRuntimeRegistry } from ${JSON.stringify(createImportPath(file, resolve(sandboxPackageDir, "src/task/runtime/state.ts")))}`,
     `import { setWorkspaceHostedStoreLoader, setWorkspaceRuntimeConfig, setWorkspaceRuntimeRegistry } from ${JSON.stringify(createImportPath(file, workspaceRuntimeState))}`,
     `import app from ${JSON.stringify(createImportPath(file, appEntry))}`,
   ]

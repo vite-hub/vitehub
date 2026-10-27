@@ -86,7 +86,7 @@ const definitions = {
     },
     {
       fields: [{ label: "Kind", value: "Package entry" }],
-      file: "node_modules/@vite-hub/sandbox-task/dist/providers/node.js",
+      file: "node_modules/@vite-hub/sandbox/dist/task/providers/node.js",
       name: "node",
       source: "server-sandbox-tasks",
     },

@@ -71,11 +71,11 @@ async function authUser(context: AgentCapabilityContext): Promise<OperationUser 
 async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
   const registry = options.registry ?? installedOperationRegistry()
   if (!registry) {
-    throw agentDiagnostics.AGENT_R1013({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
+    throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
   }
   for (const pattern of options.include) {
     if (!registry.list().some(operation => matches(pattern, operation.name))) {
-      throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] operations({ include }) names ${JSON.stringify(pattern)}, which matches no operation of this app.` })
+      throw agentDiagnostics.AGENT_R1014({ message: `[vitehub] operations({ include }) names ${JSON.stringify(pattern)}, which matches no operation of this app.` })
     }
   }
   // The operations see the user that the Actor stands for. `console.authorize` decides which sections that user may use.

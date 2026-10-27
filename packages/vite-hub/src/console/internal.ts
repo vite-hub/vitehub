@@ -140,7 +140,6 @@ export type ConsoleInvocationScope = {
   [consoleDocumentsRootKey]?: string
   [consoleSchedulesRegistryKey]?: ConsoleSchedulesByRoot
   [consoleSchedulesRootKey]?: string
-  [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
   [consoleAuthKey]?: ConsoleAuthMode | false
