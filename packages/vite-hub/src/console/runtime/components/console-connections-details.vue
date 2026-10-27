@@ -13,6 +13,7 @@ import {
 } from "../client/connections-management";
 import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{
@@ -148,7 +149,7 @@ onMounted(async () => {
           <dt class="text-muted">Connected</dt>
           <dd>
             <time :datetime="current.connectedAt" class="tabular-nums">{{
-              new Date(current.connectedAt).toLocaleString()
+              consoleDateTime(current.connectedAt)
             }}</time>
           </dd>
         </template>
@@ -156,23 +157,24 @@ onMounted(async () => {
           <dt class="text-muted">Refreshed</dt>
           <dd>
             <time :datetime="current.refreshedAt" class="tabular-nums">{{
-              new Date(current.refreshedAt).toLocaleString()
+              consoleDateTime(current.refreshedAt)
             }}</time>
           </dd>
         </template>
         <template v-if="current.credential === 'oauth2'">
           <dt class="text-muted">Granted scopes</dt>
-          <dd class="break-all font-mono text-xs">
-            {{ current.scopes.granted.join(" ") || "None" }}
+          <dd>
+            <ul v-if="current.scopes.granted.length" class="grid gap-1 font-mono text-xs [overflow-wrap:anywhere]">
+              <li v-for="scope in current.scopes.granted" :key="scope">{{ scope }}</li>
+            </ul>
+            <span v-else>None</span>
           </dd>
           <dt class="text-muted">Missing scopes</dt>
-          <dd
-            :class="[
-              'break-all font-mono text-xs',
-              current.scopes.missing.length ? 'text-error' : undefined,
-            ]"
-          >
-            {{ current.scopes.missing.join(" ") || "None" }}
+          <dd>
+            <ul v-if="current.scopes.missing.length" class="grid gap-1 font-mono text-xs text-error [overflow-wrap:anywhere]">
+              <li v-for="scope in current.scopes.missing" :key="scope">{{ scope }}</li>
+            </ul>
+            <span v-else>None</span>
           </dd>
         </template>
       </dl>

@@ -40,11 +40,11 @@ export function matchesCondition(
     }
   }
   const isCondition = (key: string) => key === "condition" || key === ":condition"
-  const guard = resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => isCondition(key))), renderData, { parseJson: true })
+  const guard = resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => isCondition(key))), renderData)
   if (Object.hasOwn(guard, "condition") && !guard.condition) return false
   const props = {
     ...guard,
-    ...resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => !isCondition(key))), renderData, { parseJson: true }),
+    ...resolveAttributes(Object.fromEntries(Object.entries(attributes).filter(([key]) => !isCondition(key))), renderData),
   }
   const has = (key: string) => Object.hasOwn(props, key)
   const operators = Object.keys(comparisons).filter(has)

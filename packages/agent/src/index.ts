@@ -2072,27 +2072,6 @@ export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
-export { ask } from "./ask.ts"
-export type {
-  AskAnswer,
-  AskAnswers,
-  AskChanceAnswer,
-  AskChanceCriteria,
-  AskChanceQuestion,
-  AskChoiceAnswer,
-  AskChoiceCriteria,
-  AskChoiceLabels,
-  AskChoiceQuestion,
-  AskEntry,
-  AskIfQuestion,
-  AskJson,
-  AskQuestion,
-  AskQuestions,
-  AskScoreAnswer,
-  AskScoreCriteria,
-  AskScoreQuestion,
-  AskSwitchQuestion,
-} from "./ask.ts"
 export {
   agentInvocationStreamRoute,
   createAgentInvocationStreamResponse,
@@ -9132,6 +9111,7 @@ export async function streamAgentInline<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  context = withAgentIdentityOwner(agent, context)
   return await executeAgentInvocation(agent, context, input, {
     kind: "stream",
     output: options.output || "events",

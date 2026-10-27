@@ -1,6 +1,6 @@
 import type { SandboxFileEntry } from "../index.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts";
-import { shellQuote } from "./remote.ts";
+import { shellQuote } from "./shell-quote.ts";
 import type { RuntimeSession } from "./session.ts";
 
 type CommandResult = Awaited<ReturnType<RuntimeSession["run"]>>;

@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defineHandler } from "h3"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader, consoleRpcMethods } from "../rpc.ts"
@@ -26,7 +26,7 @@ import consoleSectionsHandler from "./sections.get.ts"
 import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
 
-import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
+import type { H3Event } from "h3"
 import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../rpc.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -331,10 +331,11 @@ export async function handleConsoleRpcRequest(request: Request, context: Console
   return Response.json(body, { headers: responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
+// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
+const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
+  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
   // Each operation checks its own section.
-}, { anySection: true }))
+}, { anySection: true })
 
 export default consoleRpcHandler

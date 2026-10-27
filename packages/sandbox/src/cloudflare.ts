@@ -5,10 +5,10 @@ import {
   openRemoteSandbox,
   remoteSandboxPlan,
   resolveRemoteEnvironment,
-  shellQuote,
   snapshotStream,
 } from "./internal/remote.ts";
 import type { RuntimeProcess, RuntimeSession } from "./internal/session.ts";
+import { shellQuote } from "./internal/shell-quote.ts";
 import {
   cloudflareControlPlaneTimeout,
   cloudflareExecTimeout,

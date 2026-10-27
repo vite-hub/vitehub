@@ -3,13 +3,12 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "rootDir": "..",
-    "baseUrl": "../..",
     "paths": {
       "@vite-hub/kv": [
-        "packages/kv/src/index.ts"
+        "../../packages/kv/src/index.ts"
       ],
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     }
   },

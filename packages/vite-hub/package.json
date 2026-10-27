@@ -195,11 +195,11 @@
       "require": "./dist/_internal/rate-limit/runtime/console.js",
       "default": "./dist/_internal/rate-limit/runtime/console.js"
     },
-    "./_internal/sandbox-task/runtime/state": {
-      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox-task/runtime/state.js",
-      "require": "./dist/_internal/sandbox-task/runtime/state.js",
-      "default": "./dist/_internal/sandbox-task/runtime/state.js"
+    "./_internal/sandbox/task/runtime/state": {
+      "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox/task/runtime/state.js",
+      "require": "./dist/_internal/sandbox/task/runtime/state.js",
+      "default": "./dist/_internal/sandbox/task/runtime/state.js"
     },
     "./_internal/schedule": {
       "types": "./dist/_internal/schedule.d.ts",
@@ -350,12 +350,6 @@
       "import": "./dist/agent/eval.js",
       "require": "./dist/agent/eval.js",
       "default": "./dist/agent/eval.js"
-    },
-    "./agent/gateways": {
-      "types": "./dist/agent/gateways.d.ts",
-      "import": "./dist/agent/gateways.js",
-      "require": "./dist/agent/gateways.js",
-      "default": "./dist/agent/gateways.js"
     },
     "./agent/invocations/d1": {
       "types": "./dist/agent/invocations/d1.d.ts",
@@ -716,6 +710,12 @@
       "import": "./dist/env/server.js",
       "require": "./dist/env/server.js",
       "default": "./dist/env/server.js"
+    },
+    "./gateways": {
+      "types": "./dist/gateways.d.ts",
+      "import": "./dist/gateways.js",
+      "require": "./dist/gateways.js",
+      "default": "./dist/gateways.js"
     },
     "./kv": {
       "types": "./dist/kv.d.ts",
@@ -1200,11 +1200,11 @@
       "require": "./dist/presets/workspace.js",
       "default": "./dist/presets/workspace.js"
     },
-    "./sandbox-task": {
-      "types": "./dist/sandbox-task.d.ts",
-      "import": "./dist/sandbox-task.js",
-      "require": "./dist/sandbox-task.js",
-      "default": "./dist/sandbox-task.js"
+    "./sandbox/task": {
+      "types": "./dist/sandbox/task.d.ts",
+      "import": "./dist/sandbox/task.js",
+      "require": "./dist/sandbox/task.js",
+      "default": "./dist/sandbox/task.js"
     },
     "./sandbox/ssh": {
       "types": "./dist/sandbox/ssh.d.ts",
@@ -1246,7 +1246,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.dev.json && tsc --noEmit -p ./tsconfig.console.json",
+    "typecheck": "node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.dev.json && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
@@ -1270,6 +1270,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/presets": "workspace:*",
@@ -1278,7 +1279,6 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -1299,6 +1299,7 @@
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
+    "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow",
     "@internationalized/date": "^3.12.4",
@@ -1345,7 +1346,6 @@
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",
-    "typescript": "catalog:tooling",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",

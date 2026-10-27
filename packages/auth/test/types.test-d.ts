@@ -319,8 +319,7 @@ describe("Auth Console declarations", () => {
       },
     });
     // @ts-expect-error A numeric column cannot return strings.
-    defineAuth({
-      user: { additionalFields: { plan: { type: "string" } } },
+    defineAuth({ user: { additionalFields: { plan: { type: "string" } } },
       console: {
         columns: { count: { type: "number", label: "Count", read: () => ({ user: "two" }) } },
       },
