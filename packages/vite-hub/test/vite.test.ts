@@ -743,6 +743,7 @@ describe("vitehub", () => {
       "@vite-hub/content/vite",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
+      "vite-hub/nitro-workerd-dependencies",
       "vite-hub/types",
     ])
     expect((vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
