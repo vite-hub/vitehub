@@ -1,6 +1,6 @@
 /**
- * A script that ViteHub adds to the app's HTML pages, such as the Comments overlay. An owner package registers it when
- * the server starts, then calls `installViteHubPageTools(nitroApp)`.
+ * A script that ViteHub adds to the app's HTML pages, such as the Comments overlay. An owner package registers it with
+ * `registerViteHubPageTool(nitroApp, tool)` when the server starts, then calls `installViteHubPageTools(nitroApp)`.
  */
 export interface ViteHubPageTool {
   /** The owner, such as `comments`. The script tag has it in `data-vitehub-page-tool`. */
@@ -16,7 +16,7 @@ export interface ViteHubPageTool {
 }
 
 interface PageToolsState {
-  tools: Map<string, ViteHubPageTool>
+  tools: WeakMap<object, Map<string, ViteHubPageTool>>
   installed: WeakSet<object>
 }
 
@@ -26,19 +26,26 @@ const stateKey: unique symbol = Symbol.for("vitehub.page-tools")
 const scope = globalThis as typeof globalThis & { [stateKey]?: PageToolsState }
 
 function state(): PageToolsState {
-  return scope[stateKey] ??= { installed: new WeakSet(), tools: new Map() }
+  return scope[stateKey] ??= { installed: new WeakSet(), tools: new WeakMap() }
 }
 
-/** Registers a page tool. A second call with the same id replaces it, as in development reloads. */
-export function registerViteHubPageTool(tool: ViteHubPageTool): void {
-  state().tools.set(tool.id, tool)
+/** Registers a page tool for one Nitro app, before or after installation. The same id replaces only that app's tool. */
+export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool): void {
+  if (nitroApp === null || typeof nitroApp !== "object") return
+  const { tools } = state()
+  let registry = tools.get(nitroApp)
+  if (!registry) {
+    registry = new Map()
+    tools.set(nitroApp, registry)
+  }
+  registry.set(tool.id, tool)
 }
 
-/** The registered tools that want this request, in registration order. */
-function wantedTools(request: Request): ViteHubPageTool[] {
+/** The app's registered tools that want this request, in registration order. */
+function wantedTools(nitroApp: object, request: Request): ViteHubPageTool[] {
   const { pathname } = new URL(request.url)
   if (pathname.startsWith("/_vitehub") || pathname.startsWith("/api/")) return []
-  return [...state().tools.values()].filter(tool => tool.wants(request))
+  return [...state().tools.get(nitroApp)?.values() ?? []].filter(tool => tool.wants(request))
 }
 
 function scriptTag(tool: ViteHubPageTool, nonce?: string): string {
@@ -123,7 +130,7 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
 
 /**
  * Adds the registered page tools to the HTML pages of a Nitro app. Call it from each owner's Nitro plugin: it installs
- * once per app, whatever the number of calls. It reads the registry on each request, so plugin order does not matter.
+ * once per app, whatever the number of calls. It reads that app's registry on each request, so plugin order does not matter.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
  *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
@@ -138,7 +145,7 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   if (fetch instanceof Function) {
     Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request ? injectPageScripts(response, wantedTools(request)) : response
+      return response instanceof Response && request instanceof Request ? injectPageScripts(response, wantedTools(nitroApp, request)) : response
     })
     return
   }
@@ -147,7 +154,7 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   if (!(hook instanceof Function)) return
   Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
     const request = nitro2Request(context.event)
-    const tools = request ? wantedTools(request) : []
+    const tools = request ? wantedTools(nitroApp, request) : []
     if (tools.length === 0) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
@@ -158,6 +165,6 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request) response.body = injectPageScripts(response.body, wantedTools(request))
+    if (request) response.body = injectPageScripts(response.body, wantedTools(nitroApp, request))
   }])
 }

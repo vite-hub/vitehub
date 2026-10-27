@@ -49,7 +49,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
 
     // The page tools add the overlay script to HTML pages of requests in comment mode.
-    registerViteHubPageTool({ id: "comments", script: options.overlay, wants: wantsCommentMode })
+    registerViteHubPageTool(nitroApp, { id: "comments", script: options.overlay, wants: wantsCommentMode })
     installViteHubPageTools(nitroApp)
   }
 }

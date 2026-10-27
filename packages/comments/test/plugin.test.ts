@@ -5,14 +5,24 @@ import { defineComments } from "../src/index.ts"
 
 const overlayTag = "<script type=\"module\" src=\"/o.js\" data-vitehub-page-tool=\"comments\"></script>"
 
-function install(nitroApp: unknown): void {
+function install(nitroApp: unknown, overlay = "/o.js"): void {
   const warn = console.warn
   console.warn = () => {}
-  defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay: "/o.js" })(nitroApp)
+  defineCommentsPlugin({ comments: defineComments(), database: () => undefined, overlay })(nitroApp)
   console.warn = warn
 }
 
 describe("overlay injection", () => {
+  it("keeps each app's overlay URL when another app installs Comments", async () => {
+    const makeApp = () => ({ fetch: (_request: Request) => new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) })
+    const appA = makeApp()
+    const appB = makeApp()
+    install(appA)
+    install(appB, "/app-b.js")
+    expect(await (await appA.fetch(new Request("http://site.test/?comments"))).text()).toBe(`<body>Page${overlayTag}</body>`)
+    expect(await (await appB.fetch(new Request("http://site.test/?comments"))).text()).toBe(`<body>Page${overlayTag.replace("/o.js", "/app-b.js")}</body>`)
+  })
+
   it("asks for comment mode with ?comments or the hint cookie", () => {
     expect(wantsCommentMode(new Request("http://site.test/pricing?comments"))).toBe(true)
     expect(wantsCommentMode(new Request("http://site.test/", { headers: { cookie: "a=1; vitehub-comments=1" } }))).toBe(true)

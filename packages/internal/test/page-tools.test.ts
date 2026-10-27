@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { injectPageScripts, installViteHubPageTools, registerViteHubPageTool, scriptNonce } from "../src/runtime/page-tools.ts"
 
@@ -77,11 +77,29 @@ describe("injectPageScripts", () => {
 })
 
 describe("installViteHubPageTools on Nitro 3", () => {
+  it("keeps same-ID scripts and tool membership isolated between apps", async () => {
+    const appA = nitro3App()
+    const appB = nitro3App()
+    const appWithoutTools = nitro3App()
+    registerViteHubPageTool(appA, comments)
+    installViteHubPageTools(appA)
+    registerViteHubPageTool(appB, { ...comments, script: "/app-b.js" })
+    registerViteHubPageTool(appB, pill)
+    installViteHubPageTools(appB)
+    installViteHubPageTools(appWithoutTools)
+    const page = async (app: typeof appA) => app.fetch(new Request("http://site.test/?comments&pill"))
+    expect(await (await page(appA)).text()).toBe(`<html><body>Page${commentsTag}</body></html>`)
+    expect(await (await page(appB)).text()).toBe(`<html><body>Page${commentsTag.replace("/o.js", "/app-b.js")}${pillTag}</body></html>`)
+    const plain = await page(appWithoutTools)
+    expect(await plain.text()).toBe("<html><body>Page</body></html>")
+    expect(plain.headers.get("cache-control")).toBeNull()
+  })
+
   it("adds one tag per wanted tool in one pass, with one fetch wrapper", async () => {
     const app = nitro3App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, pill)
     installViteHubPageTools(app)
     const response = await app.fetch(new Request("http://site.test/?comments&pill"))
     expect(await response.text()).toBe(`<html><body>Page${commentsTag}${pillTag}</body></html>`)
@@ -94,13 +112,28 @@ describe("installViteHubPageTools on Nitro 3", () => {
     const wrapped = app.fetch
     installViteHubPageTools(app)
     expect(app.fetch).toBe(wrapped)
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     expect(await (await app.fetch(new Request("http://site.test/?comments"))).text()).toBe(`<html><body>Page${commentsTag}</body></html>`)
+  })
+
+  it("shares late registrations and one installation across bundled owners", async () => {
+    const app = nitro3App()
+    installViteHubPageTools(app)
+    const wrapped = app.fetch
+    vi.resetModules()
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.registerViteHubPageTool(app, comments)
+    otherOwner.installViteHubPageTools(app)
+    registerViteHubPageTool(app, pill)
+    installViteHubPageTools(app)
+    expect(app.fetch).toBe(wrapped)
+    expect(await (await app.fetch(new Request("http://site.test/?comments&pill"))).text()).toBe(`<html><body>Page${commentsTag}${pillTag}</body></html>`)
+    expect(app.calls).toBe(1)
   })
 
   it("adds nothing for a tool that does not want the request, and keeps the page cacheable", async () => {
     const app = nitro3App()
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     const response = await app.fetch(new Request("http://site.test/"))
     expect(await response.text()).toBe("<html><body>Page</body></html>")
@@ -109,8 +142,8 @@ describe("installViteHubPageTools on Nitro 3", () => {
 
   it("adds one tag when the same id is registered twice, with the last script", async () => {
     const app = nitro3App()
-    registerViteHubPageTool({ ...comments, script: "/old.js" })
-    registerViteHubPageTool(comments)
+    registerViteHubPageTool(app, { ...comments, script: "/old.js" })
+    registerViteHubPageTool(app, comments)
     installViteHubPageTools(app)
     expect(await (await app.fetch(new Request("http://site.test/?comments"))).text()).toBe(`<html><body>Page${commentsTag}</body></html>`)
   })
@@ -118,7 +151,7 @@ describe("installViteHubPageTools on Nitro 3", () => {
   it("never adds a tool to Console or API routes", async () => {
     const app = nitro3App()
     const seen: string[] = []
-    registerViteHubPageTool({ ...comments, wants: (request) => {
+    registerViteHubPageTool(app, { ...comments, wants: (request) => {
       seen.push(new URL(request.url).pathname)
       return true
     } })
@@ -131,10 +164,37 @@ describe("installViteHubPageTools on Nitro 3", () => {
 })
 
 describe("installViteHubPageTools on Nitro 2", () => {
+  it("isolates both hooks per app while sharing registrations and installation across bundled owners", async () => {
+    const appA = nitro2App()
+    const appB = nitro2App()
+    registerViteHubPageTool(appA, comments)
+    installViteHubPageTools(appA)
+    installViteHubPageTools(appB)
+    vi.resetModules()
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.registerViteHubPageTool(appB, { ...comments, script: "/app-b.js" })
+    otherOwner.registerViteHubPageTool(appB, pill)
+    otherOwner.installViteHubPageTools(appB)
+    otherOwner.installViteHubPageTools(appA)
+    const event = { web: { request: new Request("http://site.test/?comments&pill") } }
+    for (const [app, tags] of [[appA, commentsTag], [appB, commentsTag.replace("/o.js", "/app-b.js") + pillTag]] as const) {
+      expect(app.handlers.get("render:html")).toHaveLength(1)
+      expect(app.handlers.get("beforeResponse")).toHaveLength(1)
+      const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+      const html = { bodyAppend: [] as string[] }
+      render(html, { event })
+      expect(html.bodyAppend).toEqual([tags])
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) }
+      respond(event, response)
+      expect(await response.body.text()).toBe(`<body>Page${tags}</body>`)
+    }
+  })
+
   it("adds the scripts in Nuxt's render:html hook, and keeps that page out of shared caches", () => {
     const app = nitro2App()
-    registerViteHubPageTool(comments)
-    registerViteHubPageTool(pill)
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
     installViteHubPageTools(app)
     installViteHubPageTools(app)
     expect(app.handlers.get("render:html")).toHaveLength(1)
@@ -158,7 +218,7 @@ describe("installViteHubPageTools on Nitro 2", () => {
 
   it("adds the scripts to a page that a route returns as a Response, such as a prerendered file", async () => {
     const app = nitro2App()
-    registerViteHubPageTool({ ...comments, wants: request => Boolean(request.headers.get("cookie")?.includes("vitehub-comments=1")) })
+    registerViteHubPageTool(app, { ...comments, wants: request => Boolean(request.headers.get("cookie")?.includes("vitehub-comments=1")) })
     installViteHubPageTools(app)
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
     const send = (url: string, body: unknown, cookie = "") => {
