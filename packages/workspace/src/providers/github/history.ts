@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -32,6 +33,7 @@ import {
 
 import type {
   GitHubWorkspaceRefs,
+  WorkspaceMergeCommit,
   WorkspaceMergeConflict,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
@@ -576,16 +578,17 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       if (!isHistoryFileInput(file)) throw workspaceError(`[vitehub] Invalid history file content: ${path}.`)
       const bytes = new Uint8Array(contentToBytes(file.content))
       const current = state.files.get(path)
-      const mode = file.metadata?.gitMode === "120000" || file.metadata?.gitMode === "100755"
+      const mode = file.metadata?.gitMode === "120000" || file.metadata?.gitMode === "100755" || file.metadata?.gitMode === "100644"
         ? file.metadata.gitMode
         : current?.mode ?? "100644"
       if (current?.sha === await gitBlobSha(bytes) && current.mode === mode) continue
       updates.push({ bytes, fullPath: joinGitPath(options.root, path), mode })
     }
     if (!updates.length && !deletes.length) {
-      // `commitFiles()` cannot make an empty commit. A commit without changes keeps the current head.
-      if (state.branchExists) return await revision(ref, state.refSha, commitOptions.metadata)
-      throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
+      if (!state.branchExists) throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
+      // Metadata-only commits must persist their trailer, including a reviewed Content publish base.
+      // forgeCommitFiles() uses the Git database for this empty change set.
+      if (commitOptions.metadata === undefined) return await revision(ref, state.refSha)
     }
     const commitSha = await commitGitHubChanges({
       branch,
@@ -606,19 +609,15 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const repoPath = (repo: { owner: string, name: string }) => `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`
   const refPath = (branch: string) => branch.split("/").map(encodeURIComponent).join("/")
 
-  /** Branches that start with `prefix`, from the matching-refs endpoint, page by page. */
+  /** Matching refs are returned as one complete array; this endpoint does not support page parameters. */
   const matchingBranches = async (prefix: string): Promise<string[]> => await githubRequest(client, async (provider, repo) => {
-    const names: string[] = []
-    for (let page = 1; page <= 10; page++) {
-      const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`, { query: { per_page: 100, page } })
-      const items: unknown[] = Array.isArray(response.data) ? response.data : []
-      for (const item of items) {
-        const name: unknown = item !== null && typeof item === "object" ? Reflect.get(item, "ref") : undefined
-        if (nonEmptyString(name) && name.startsWith("refs/heads/")) names.push(name.slice("refs/heads/".length))
-      }
-      if (items.length < 100) break
+    const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`)
+    const names = new Set<string>()
+    for (const item of Array.isArray(response.data) ? response.data : []) {
+      const name: unknown = item !== null && typeof item === "object" ? Reflect.get(item, "ref") : undefined
+      if (nonEmptyString(name) && name.startsWith("refs/heads/")) names.add(name.slice("refs/heads/".length))
     }
-    return names
+    return [...names]
   }, "branch list")
 
   /** The open pull request whose head is `branch`, found by the head filter of the pulls endpoint. */
@@ -643,16 +642,17 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     }
   }, "pull request list")
 
+  const findPullRequests = async (prefix: string): Promise<WorkspacePullRequest[]> => {
+    const found = await Promise.all((await matchingBranches(prefix)).map(async branch => await openPullRequestOf(branch)))
+    return found.filter(entry => entry !== undefined).sort((left, right) => right.number - left.number)
+  }
+
   const pullRequests = async (listOptions?: { headPrefix?: string }): Promise<WorkspacePullRequest[]> => {
     // The branches that start with the prefix come first, so only they cost a pull request lookup.
     const prefix = listOptions?.headPrefix ?? ""
     if (!prefix) throw workspaceError("[vitehub] pullRequests() requires a headPrefix on the GitHub Store.")
     if (!pullRequestCache || pullRequestCache.expires <= Date.now() || pullRequestCache.prefix !== prefix) {
-      const value = (async () => {
-        const found = await Promise.all((await matchingBranches(prefix)).map(async branch => await openPullRequestOf(branch)))
-        // Newest first: the number only grows.
-        return found.filter(entry => entry !== undefined).sort((left, right) => right.number - left.number)
-      })()
+      const value = findPullRequests(prefix)
       pullRequestCache = { expires: Date.now() + githubHeadCacheMs, prefix, value }
       // A failed read is not kept.
       value.catch(() => {
@@ -670,8 +670,49 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const openPullRequest = async (pullRequest: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest> => {
     const head = resolveRef(pullRequest.head)
     const base = resolveRef(pullRequest.base)
+    const locks: string[] = []
     let created: Awaited<ReturnType<GitHubProvider["threads"]["create"]>>
     try {
+      if (pullRequest.reservation) {
+        if (!pullRequest.reservation.headPrefix) throw workspaceError("[vitehub] A pull request reservation requires a headPrefix.")
+        const paths = [...new Set(pullRequest.reservation.paths.map(normalizeHistoryPath))].sort()
+        const sha = await readCurrentHead(client, head.branch)
+        if (!sha) throw workspaceError(`[vitehub] Pull request branch does not exist: ${head.ref}.`)
+        // Ref creation is atomic on GitHub. Sorted per-document locks allow disjoint publishes to proceed.
+        for (const path of paths) {
+          const key = await gitBlobSha(new TextEncoder().encode(JSON.stringify([base.branch, joinGitPath(options.root, path)])))
+          const lock = `vitehub/reservations/${key}`
+          try {
+            await githubRequest(client, async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
+              body: { ref: `refs/heads/${lock}`, sha },
+            }))
+          }
+          catch (error) {
+            if (githubRequestStatus(error) === 422 && await readCurrentHead(client, lock)) {
+              throw workspaceConflict(`[vitehub] A publish is already opening a pull request for ${path}. Retry after it finishes.`, { details: { ref: "pull-request", path } })
+            }
+            throw error
+          }
+          locks.push(lock)
+        }
+        // Recheck without caches while holding the reservations; a different instance may have just opened a PR.
+        pullRequestCache = undefined
+        const requests = await findPullRequests(pullRequest.reservation.headPrefix)
+        const published = await readCurrentHead(client, base.branch)
+        const main = published ? await readFullTree(published) : new Map<string, { sha: string }>()
+        for (const request of requests) {
+          if (request.base !== base.ref || request.head === head.ref || !request.mergeBase) continue
+          const current = await readCurrentHead(client, resolveRef(request.head).branch)
+          if (!current) continue
+          const [branch, parent] = await Promise.all([readFullTree(current), readFullTree(request.mergeBase)])
+          for (const path of paths) {
+            const fullPath = joinGitPath(options.root, path)
+            const digest = branch.get(fullPath)?.sha
+            if (digest === parent.get(fullPath)?.sha || digest === main.get(fullPath)?.sha) continue
+            throw workspaceConflict(`[vitehub] An open pull request already publishes ${path}: #${request.number} (${request.url}). Merge or close it, then publish again.`, { details: { ref: "pull-request", path } })
+          }
+        }
+      }
       created = await githubRequest(client, async (provider, repo) => await provider.threads.create(repo, {
         kind: "pull_request",
         title: pullRequest.title,
@@ -685,6 +726,9 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       // The branch only existed for this pull request.
       if (pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
       throw error
+    }
+    finally {
+      await Promise.all(locks.map(async lock => await deleteBranch(lock).catch(() => undefined)))
     }
     const number = Number(created.ref.number)
     if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
@@ -806,10 +850,64 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return await revision(into.ref, sha, mergeOptions.metadata)
   }
 
+  /** Prepare on an isolated ref so a denied or invalid merge never changes the destination. */
+  const checkedMerge = async (mergeOptions: WorkspaceMergeOptions, check?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null> => {
+    if (!check) return await merge(mergeOptions)
+    const into = resolveRef(mergeOptions.into)
+    const expected = await readCurrentHead(client, into.branch)
+    if (!expected) throw workspaceError(`[vitehub] Cannot merge into ${into.ref}: the branch does not exist.`)
+    const temporary = `vitehub/merge/${randomUUID()}`
+    await githubRequest(client, async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
+      body: { ref: `refs/heads/${temporary}`, sha: expected },
+    }))
+    try {
+      const prepared = await merge({ ...mergeOptions, into: temporary, message: mergeOptions.message ?? `Merge ${mergeOptions.from} into ${into.ref}` })
+      if (!prepared) return null
+      // A branch merge also includes paths outside a rooted Workspace and excluded files. They cannot receive grants.
+      const [before, after] = await Promise.all([readFullTree(expected), readFullTree(prepared.id)])
+      for (const path of new Set([...before.keys(), ...after.keys()])) {
+        const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
+        if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) continue
+        if (before.get(path)?.sha !== after.get(path)?.sha || before.get(path)?.mode !== after.get(path)?.mode) {
+          throw workspaceError(`[vitehub] Cannot merge a change outside the Workspace file tree: ${path}.`)
+        }
+      }
+      const view = await open(prepared.id)
+      const entries = (await view.list("", { recursive: true })).filter(entry => entry.type === "file")
+      const files: Record<string, WorkspaceFile> = Object.create(null)
+      for (const entry of entries) {
+        files[entry.path] = { path: entry.path, content: await view.readFile(entry.path, { encoding: "binary" }), mediaType: entry.mediaType, metadata: entry.metadata }
+      }
+      return await check({ ref: into.ref, ifHead: expected, files, message: prepared.message, metadata: prepared.metadata }, async checked => {
+        // Validators may normalize bytes or Git modes. Keep their result before publishing the ref.
+        const changed = checked.changes !== undefined || !checked.files || Object.keys(checked.files).length !== entries.length
+          || (await Promise.all(entries.map(async entry => {
+            const file = checked.files?.[entry.path]
+            return !file || await gitBlobSha(contentToBytes(file.content)) !== entry.digest
+              || gitFileMode(file.metadata?.gitMode ?? entry.metadata?.gitMode) !== gitFileMode(entry.metadata?.gitMode)
+          }))).some(Boolean)
+        const result = changed ? await commit({ ...checked, ref: temporary, ifHead: prepared.id }) : prepared
+        const actual = await readCurrentHead(client, into.branch)
+        if (actual !== expected) {
+          heads.delete(into.branch)
+          throw historyConflict(into.ref, expected, actual)
+        }
+        await githubRequest(client, async (provider, repo) => await provider.request("PATCH", `${repoPath(repo)}/git/refs/heads/${refPath(into.branch)}`, {
+          body: { sha: result.id, force: false },
+        }))
+        heads.set(into.branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(result.id) })
+        return await revision(into.ref, result.id, result.metadata)
+      })
+    }
+    finally {
+      await deleteBranch(temporary)
+    }
+  }
+
   return {
     pullRequests,
     openPullRequest,
-    merge,
+    merge: checkedMerge,
     head: async (headOptions) => {
       const { branch, ref } = resolveRef(headOptions?.ref)
       const id = await readBranchHead(branch)

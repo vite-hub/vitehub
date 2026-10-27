@@ -40,8 +40,8 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string, token?: string | undefined } = {}) {
-  fake.commit("main", options.files ?? {
+async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string, seed?: boolean, token?: string | undefined } = {}) {
+  if (options.seed !== false) fake.commit("main", options.files ?? {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
     "content/posts/a.md": page("A"),
@@ -227,11 +227,115 @@ describe("Content on the GitHub store", () => {
       const main = fake.head("main")
       await expect(content.publish()).rejects.toMatchObject({
         code: "WORKSPACE_CONFLICT",
-        message: expect.stringContaining("Show the published version of each"),
+        message: expect.stringContaining("ifPublishedDigest"),
         details: { ref: "published", documents: [{ collection: "posts", id: "a", expected: a.digest, actual: textSha(page("A main")) }] },
       })
       expect(fake.head("main")).toBe(main)
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
+    })
+
+    it.each(["git", "workspace"])("keeps publish protection after a %s commit without Content metadata", async (writer) => {
+      const { posts, content, workspace } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      onMain({ "content/posts/a.md": page("A2"), "content/posts/c.md": page("C") })
+      if (writer === "git") {
+        fake.commit("vitehub/content", { "content/posts/d.md": page("D") })
+        vi.advanceTimersByTime(6_000)
+      }
+      else {
+        const history = useWorkspace(workspace as never, { mode: "write" }).history
+        await history.commit({ ref: "draft", ifHead: fake.head("vitehub/content")!, changes: { put: { "content/posts/d.md": page("D") } } })
+      }
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      // Check both direct publication and carrying recovered tracking into a subsequent Content save.
+      if (writer === "workspace") await posts.save("e", { data: { title: "E" }, body: "" })
+      expect((await content.publish()).documents.map(document => document.id)).toEqual(writer === "workspace" ? ["b", "d", "e"] : ["b", "d"])
+      expect((await posts.get("a"))?.data.title).toBe("A2")
+      expect((await posts.get("c"))?.data.title).toBe("C")
+    })
+
+    it("keeps the original conflict after a metadata-free draft commit", async () => {
+      const { posts, content, workspace } = await setup()
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main") })
+      const history = useWorkspace(workspace as never, { mode: "write" }).history
+      await history.commit({ ref: "draft", ifHead: fake.head("vitehub/content")!, changes: { put: { "content/posts/b.md": page("B") } } })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.head("main")).toBe(main)
+    })
+
+    it("refuses to publish a draft whose base cannot be established", async () => {
+      const { content } = await setup()
+      // An unrelated draft has no Content metadata or shared published revision.
+      fake.commit("vitehub/content", { "content/posts/b.md": page("B") })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", message: expect.stringContaining("cannot establish") })
+      expect(fake.head("main")).toBe(main)
+    })
+
+    it.each([true, false])("recovers with one save of the reviewed published version (previous draft edit: %s)", async (edited) => {
+      const { posts, content } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      if (edited) await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main", "Main body\n") })
+      // An existing draft edit stays conflicting. An untouched document first syncs the published edit.
+      const blind = await posts.save("a", { data: { title: "A blind" }, body: "" })
+      if (edited) await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+      const published = (await posts.get("a", { ref: "published" }))!
+      await posts.save("a", { data: { title: "A reviewed" }, body: published.body }, {
+        ifDigest: blind.digest,
+        ifPublishedDigest: published.digest,
+      })
+      await content.publish()
+      expect(await posts.get("a")).toMatchObject({ data: { title: "A reviewed" }, body: "Main body\n" })
+    })
+
+    it("records a reviewed base even when the saved draft bytes are unchanged", async () => {
+      const { posts, content } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      onMain({ "content/posts/a.md": page("A main") })
+      const published = (await posts.raw("a", { ref: "published" }))!
+      const rebased = await posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: published.digest })
+      expect(rebased.revision).not.toBe(draft.revision)
+      await content.publish()
+      expect((await posts.get("a"))?.data.title).toBe("A draft")
+    })
+
+    it("rejects recovery when the reviewed published document moved", async () => {
+      const { posts } = await setup()
+      const published = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main") })
+      const draft = fake.head("vitehub/content")
+      await expect(posts.save("a", { data: { title: "A reviewed" }, body: "" }, { ifPublishedDigest: published.digest }))
+        .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", expected: published.digest, actual: textSha(page("A main")) } })
+      expect(fake.head("vitehub/content")).toBe(draft)
+    })
+
+    it("checks the live published head before recording a reviewed base", async () => {
+      const { posts } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      const published = (await posts.raw("a", { ref: "published" }))!
+      // The read cache still holds the reviewed revision; the commit must check the live branch.
+      fake.commit("main", { "content/posts/a.md": page("A main") })
+      await expect(posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: published.digest }))
+        .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published" } })
+      expect(fake.head("vitehub/content")).toBe(draft.revision)
+    })
+
+    it("can acknowledge a published deletion and recreate the document", async () => {
+      const { posts, content } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      fake.commit("main", { "content/posts/a.md": null })
+      vi.advanceTimersByTime(6_000)
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+      expect(await posts.get("a", { ref: "published" })).toBeNull()
+      await posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: null })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "a", change: "add" }])
     })
 
     it("refuses to delete a document that was deleted or changed on main", async () => {
@@ -279,12 +383,55 @@ describe("Content on the GitHub store", () => {
       expect(fake.head("main")).toBe(main)
       expect(fake.pulls).toHaveLength(1)
       expect(fake.pulls[0]).toMatchObject({ base: "main", draft: false })
-      expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}$/)
+      expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}-[0-9a-f-]{36}$/)
       expect(fake.pulls[0]!.body).toContain("- `posts/b` (add)")
       const branch = fake.commits.get(fake.head(fake.pulls[0]!.head)!)!
       expect(branch.parents).toEqual([main])
       expect(branch.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
       expect(result.revision!.id).toBe(fake.head(fake.pulls[0]!.head))
+    })
+
+    it.each([false, true])("publishes disjoint documents from one draft in the same second (concurrent: %s)", async (concurrent) => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      const publish = (id: string) => content.publish({ collection: "posts", ids: [id] })
+      const results = concurrent ? await Promise.all([publish("b"), publish("c")]) : [await publish("b"), await publish("c")]
+      expect(results.map(result => result.pullRequest?.number)).toEqual([1, 2])
+      expect(new Set(fake.pulls.map(pull => pull.head)).size).toBe(2)
+    })
+
+    it.each(["same", "partial", "none"])("coordinates separate runtimes (overlap: %s)", async (overlap) => {
+      const first = await setup({ publish: "pr", database: false })
+      await first.posts.save("b", { data: { title: "B" }, body: "" })
+      await first.posts.save("c", { data: { title: "C" }, body: "" })
+      await first.posts.save("d", { data: { title: "D" }, body: "" })
+      const second = await setup({ publish: "pr", database: false, seed: false })
+      // Prime independent Store caches before either instance opens a PR.
+      await Promise.all([first.posts.status(), second.posts.status()])
+      const results = await Promise.allSettled([
+        first.content.publish({ collection: "posts", ids: overlap === "partial" ? ["b", "c"] : ["b"] }),
+        second.content.publish({ collection: "posts", ids: overlap === "partial" ? ["c", "d"] : [overlap === "same" ? "b" : "c"] }),
+      ])
+      expect(results.filter(result => result.status === "fulfilled")).toHaveLength(overlap === "none" ? 2 : 1)
+      expect(fake.pulls).toHaveLength(overlap === "none" ? 2 : 1)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toEqual([])
+      if (overlap !== "none") {
+        // The losing instance still has its stale preflight cache, so it must recheck under the shared reservation.
+        const loser = results[0]!.status === "fulfilled" ? second : first
+        await expect(loser.content.publish({ collection: "posts", ids: [overlap === "partial" ? "c" : "b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
+        expect(fake.pulls).toHaveLength(1)
+      }
+    })
+
+    it("checks Content validation before a direct history merge publishes a draft", async () => {
+      const { posts, workspace } = await setup({ publish: "pr" })
+      // SAFETY: Deliberately invalid runtime fields must stay draft-only even when a caller merges refs directly.
+      await posts.save("b", { data: { title: 123 as never }, body: "" })
+      const main = fake.head("main")
+      await expect(useWorkspace(workspace, { mode: "write" }).history.merge!({ from: "draft", into: "published" })).rejects.toThrow()
+      expect(fake.head("main")).toBe(main)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
     })
 
     it("returns the pull request from the Console publish action", async () => {
@@ -414,6 +561,28 @@ describe("Content on the GitHub store", () => {
         expect(result.pullRequest).toMatchObject({ number: 2 })
       })
 
+      it("recognizes its own publish after more than one page of later draft revisions", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.save("b", { data: { title: "B0" }, body: "" })
+        await content.publish()
+        for (let i = 1; i <= 35; i++) await posts.save("b", { data: { title: `B${i}` }, body: "" })
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        await posts.save("c", { data: { title: "C" }, body: "" })
+        await expect(content.publish()).resolves.toMatchObject({ pullRequest: { number: 2 } })
+      })
+
+      it("recognizes its own deletion when the draft recreated the document", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.remove("a")
+        await content.publish()
+        await posts.save("a", { data: { title: "Recreated" }, body: "" })
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        await posts.save("c", { data: { title: "C" }, body: "" })
+        await expect(content.publish()).resolves.toMatchObject({ pullRequest: { number: 2 }, documents: expect.arrayContaining([{ collection: "posts", id: "a", change: "add" }]) })
+      })
+
       it("shows the merged publish in the published history of the document", async () => {
         const { posts, content } = await setup({ publish: "pr" })
         await posts.save("b", { data: { title: "B1" }, body: "" })
@@ -424,6 +593,18 @@ describe("Content on the GitHub store", () => {
         expect(revisions).toHaveLength(1)
         expect(fake.commits.get(revisions[0]!.id)!.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
       })
+    })
+
+    it.each([false, true])("keeps an independent historical published state conflicting (deletion: %s)", async (deletion) => {
+      const { posts, content } = await setup({ publish: "pr" })
+      fake.commit("main", { "content/posts/a.md": deletion ? null : page("Old") })
+      fake.commit("main", { "content/posts/a.md": page("Base") })
+      await posts.save("a", { data: { title: "Draft" }, body: "" })
+      fake.commit("main", { "content/posts/a.md": deletion ? null : page("Old") })
+      vi.advanceTimersByTime(6_000)
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.pulls).toHaveLength(0)
     })
 
     it("keeps syncing other documents while one conflicts with the published branch", async () => {
