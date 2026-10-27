@@ -1,5 +1,5 @@
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
-import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
+import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
@@ -3447,21 +3447,28 @@ async function* runProvider<
       else providerSandboxHomeFiles[".codex/AGENTS.md"] = instructions
     }
     else if (instructions && materializeInstructions) {
+      const unmergedInstructions = pullRequestRoot || preparedWorkspace?.projectRoot
+        ? await unmergedProviderGitFiles(providerCwd)
+        : new Set<string>()
       const promptFileInstructions = options.provider === "claude-code" && preserveNativeInstructions && provenanceInstructions
         ? provenanceInstructions
         : instructions
       if (options.provider === "claude-code") {
         // Deliver generated instructions once, without Claude's native @path imports.
         // Preserve native instruction files when only adding source provenance.
-        if (!preserveNativeInstructions) {
+        if (!preserveNativeInstructions && !unmergedInstructions.has("CLAUDE.md")) {
           generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "CLAUDE.md"), ""))
         }
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
-      } else {
+      } else if (!unmergedInstructions.has("AGENTS.md") || codexDeveloperInstructions === undefined) {
         // With developer instructions, an empty AGENTS.md still hides the native file, as before.
-        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
-        if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
+        // A conflict is source work for the Agent. Codex reads its override first, so
+        // generated instructions can remain separate while AGENTS.md is repaired.
+        const instructionName = unmergedInstructions.has("AGENTS.md") ? "AGENTS.override.md" : "AGENTS.md"
+        if (unmergedInstructions.has(instructionName)) throw new Error(`Cannot replace conflicted provider instructions: ${instructionName}`)
+        const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, instructionName), codexDeveloperInstructions === undefined ? instructions : "")
+        if (instructionName === "AGENTS.md" && preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
           generated.appendedContent = `${generated.content.length ? "\n\n" : ""}${provenanceInstructions}`
         }
