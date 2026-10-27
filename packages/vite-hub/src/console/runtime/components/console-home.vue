@@ -151,11 +151,22 @@ async function checkSession(asked: boolean): Promise<void> {
     checking.value = false;
   }
   if (asked) stillSignedOut.value = signedOut.value;
+  checkIfReturned();
 }
 
-// People sign in in another tab, so the Console checks again when this tab is shown or focused again.
+// People sign in in another tab, so the Console checks again when this tab is shown or focused again. A return while a
+// request is in flight waits for its answer, because that request may have left before the sign-in.
+let returnedDuringRequest = false;
 function checkOnReturn(): void {
-  if (signedOut.value && document.visibilityState === "visible") void checkSession(false);
+  if (document.visibilityState !== "visible") return;
+  if (loading.value || checking.value) returnedDuringRequest = true;
+  else if (signedOut.value) void checkSession(false);
+}
+
+function checkIfReturned(): void {
+  if (!returnedDuringRequest) return;
+  returnedDuringRequest = false;
+  if (signedOut.value) void checkSession(false);
 }
 
 async function openSection(routeName: string): Promise<void> {
@@ -171,7 +182,7 @@ async function openSession(agentName: string, invocation: string): Promise<void>
 
 onMounted(() => {
   lastSection.value = readLastConsoleSection();
-  void loadSections();
+  void loadSections().then(checkIfReturned);
   document.addEventListener("visibilitychange", checkOnReturn);
   window.addEventListener("focus", checkOnReturn);
 });

@@ -128,6 +128,25 @@ describe("signed-out Console", () => {
     finally { app.unmount() }
   })
 
+  it("checks again when the person came back while the first request was still waiting for its answer", async () => {
+    let answerFirst: (error: unknown) => void = () => {}
+    mocks.requestConsole.mockImplementationOnce(() => new Promise((_resolve, reject) => { answerFirst = reject }))
+    mocks.requestConsole.mockResolvedValue({ auth: false, projectName: "demo", sections: ["kv"] })
+    const tab = stubDocument()
+    const { app, root } = mount(ConsoleHome, {
+      agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/in-flight/sections",
+    })
+    try {
+      await vi.waitFor(() => expect(mocks.requestConsole).toHaveBeenCalledTimes(1))
+      // The person signed in elsewhere and comes back before the request that left earlier answers 401.
+      tab.show()
+      answerFirst(new ConsoleRequestError(401))
+      await vi.waitFor(() => expect(root.textContent).toContain("demo"))
+      expect(mocks.requestConsole).toHaveBeenCalledTimes(2)
+    }
+    finally { app.unmount() }
+  })
+
   it("keeps the Overview error and its retry for failures other than sign-in", async () => {
     mocks.requestConsole.mockRejectedValue(new ConsoleRequestError(503))
     const { app, buttons, root } = mount(ConsoleHome, {
