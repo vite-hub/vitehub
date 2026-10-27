@@ -48,6 +48,36 @@ it("preserves a rate interval longer than one timer", async () => {
   expect(starts).toEqual([0, delayMs])
 })
 
+it.each([
+  { wait: "retry", clockJumpMs: 60_000 },
+  { wait: "retry", clockJumpMs: -60_000 },
+  { wait: "rate", clockJumpMs: 60_000 },
+  { wait: "rate", clockJumpMs: -60_000 },
+])("preserves a long $wait wait when the wall clock jumps by $clockJumpMs ms", async ({ wait, clockJumpMs }) => {
+  const scheduler = createRequestScheduler()
+  const waitMs = delayMs * 2
+  const policy = scheduler.resolve("items", wait === "retry"
+    ? { retry: { attempts: 2, delayMs: waitMs } }
+    : { rate: { intervalMs: waitMs } })
+  const starts: number[] = []
+  const dispatch = async () => {
+    starts.push(performance.now())
+    return new Response("ok", { status: wait === "retry" && starts.length === 1 ? 503 : 200 })
+  }
+  if (wait === "rate") await scheduler.send(policy, {}, dispatch)
+  const sent = scheduler.send(policy, {}, dispatch)
+  await vi.advanceTimersByTimeAsync(delayMs - 1)
+  expect(starts).toEqual([0])
+  vi.setSystemTime(Date.now() + clockJumpMs)
+  await vi.advanceTimersByTimeAsync(delayMs - 1)
+  expect(starts).toEqual([0])
+  await vi.advanceTimersByTimeAsync(1)
+  expect(starts).toEqual([0])
+  await vi.advanceTimersByTimeAsync(1)
+  expect(starts).toEqual([0, waitMs])
+  expect((await sent).status).toBe(200)
+})
+
 it("cancels a long retry wait without sending another request", async () => {
   const scheduler = createRequestScheduler()
   const policy = scheduler.resolve("items", { retry: { attempts: 2, delayMs } })
@@ -55,7 +85,7 @@ it("cancels a long retry wait without sending another request", async () => {
   const dispatch = vi.fn(async () => new Response("retry", { status: 503 }))
   const sent = scheduler.send(policy, { signal: caller.signal }, dispatch)
   const outcome = sent.then(() => "completed", error => error)
-  await vi.advanceTimersByTimeAsync(10)
+  await vi.advanceTimersByTimeAsync(delayMs - 1)
   caller.abort("stopped")
   expect(await outcome).toBe("stopped")
   expect(dispatch).toHaveBeenCalledTimes(1)

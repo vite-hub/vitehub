@@ -37,10 +37,11 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
       clearTimeout(timer)
       reject(signal?.reason)
     }
-    const deadline = Date.now() + ms
+    // A relative wait must not change when the system clock is corrected.
+    const deadline = performance.now() + ms
     // Timers overflow above the signed 32-bit limit and run almost immediately.
     const wake = () => {
-      const remaining = deadline - Date.now()
+      const remaining = deadline - performance.now()
       if (remaining > 0) {
         timer = setTimeout(wake, Math.min(remaining, MAX_TIMER_MS))
         return
