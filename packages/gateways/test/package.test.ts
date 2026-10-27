@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 
 import { describe, expect, it } from "vitest"
@@ -39,5 +40,12 @@ describe("published gateways package", () => {
       console.log("ok")
     `, entry], { encoding: "utf8", timeout: 15_000 })
     expect(output.trim()).toBe("ok")
+  })
+
+  it("documents itself on npm: the README links only to absolute URLs and its own headings", () => {
+    const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8")
+    const links = [...readme.matchAll(/\]\(([^)]+)\)/g)].map(match => match[1]!)
+    expect(links.filter(link => !/^(?:https:\/\/|#)/.test(link))).toEqual([])
+    for (const heading of ["## Presets", "## Credentials", "## Cloudflare AI Gateway", "## Custom gateways", "## Errors"]) expect(readme).toContain(heading)
   })
 })
