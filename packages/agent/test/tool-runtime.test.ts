@@ -3,6 +3,7 @@ import { createExecutionBudget } from "@vite-hub/runtime"
 import { executionBudgetOverride, markExecutionBudgetHandled } from "@vite-hub/runtime/internal/execution-budget"
 import { inspectAgentTools } from "../src/tool-inspection.ts"
 import { applyAgentToolPolicies, copyToolWithOverrides, withAgentToolExecutionBudget, withAgentToolStepReporting, withJsonCompatibleToolOutputs } from "../src/tool-runtime.ts"
+import type { AgentToolExecutionContext } from "../src/types.ts"
 
 describe("tool execution budgets", () => {
   it("spends one Invocation tool-call budget for generic Capability tools", async () => {
@@ -54,9 +55,8 @@ describe("tool execution budgets", () => {
     // A budget-owned executor charges its own budget, or the active budget that a reusing Invocation passes.
     const tool = {
       name: "shell",
-      execute: vi.fn(async (_input: unknown, context?: Record<PropertyKey, unknown>) => {
-        // SAFETY: tool-runtime passes the active ExecutionBudget under this internal key.
-        const override = context?.[executionBudgetOverride] as typeof activeBudget | undefined
+      execute: vi.fn(async (_input: unknown, context?: AgentToolExecutionContext & { [executionBudgetOverride]?: typeof activeBudget }) => {
+        const override = context?.[executionBudgetOverride]
         ;(override ?? ownedBudget).recordToolCall()
         return "ok"
       }),

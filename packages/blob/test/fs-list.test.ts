@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -48,17 +48,17 @@ it("hashes only the files in each requested page", async () => {
   expect(cursor).toBeUndefined()
 })
 
-it("does not read file contents for a zero limit", async () => {
+it.each([false, true])("does not read file contents for a zero limit (folded: %s)", async (folded) => {
   const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-list-"))
   directories.push(base)
   await writeFile(join(base, "one.txt"), "one")
-  const page = await createDriver({ base, driver: "fs" }).list({ limit: 0 })
+  const page = await createDriver({ base, driver: "fs" }).list({ folded, limit: 0 })
 
   expect(page).toMatchObject({ blobs: [], cursor: expect.any(String), hasMore: true })
   expect(readFile).not.toHaveBeenCalled()
 })
 
-it("does not skip the next key when a selected file disappears", async () => {
+it.each([false, true])("does not skip the next key when a selected file disappears (folded: %s)", async (folded) => {
   const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-list-"))
   directories.push(base)
   await writeFile(join(base, "a.txt"), "a")
@@ -69,9 +69,39 @@ it("does not skip the next key when a selected file disappears", async () => {
     return fs.stat(path, { bigint: true })
   })
 
-  const first = await driver.list({ limit: 1 })
-  const second = await driver.list({ limit: 1, cursor: first.cursor })
+  const first = await driver.list({ folded, limit: 1 })
+  const second = await driver.list({ folded, limit: 1, cursor: first.cursor })
 
   expect([...first.blobs, ...second.blobs].map(blob => blob.pathname)).toContain("b.txt")
   expect(second.hasMore).toBe(false)
+})
+
+it("reads only the direct blobs selected for each folded page", async () => {
+  const base = await mkdtemp(join(tmpdir(), "vitehub-blob-fs-folded-"))
+  directories.push(base)
+  await mkdir(join(base, "a-folder"))
+  const nested = Array.from({ length: 16 }, (_, index) => `a-folder/${index}.txt`)
+  const direct = ["b.txt", "c.txt"]
+  const names = [...nested, ...direct]
+  const bytes = Buffer.alloc(64 * 1024, "x")
+  await Promise.all(names.map(name => writeFile(join(base, name), bytes)))
+  const paths = new Set(names.map(name => join(base, name)))
+  const driver = createDriver({ base, driver: "fs" })
+  let cursor: string | undefined
+
+  for (let index = 0; index < direct.length; index++) {
+    vi.mocked(readFile).mockClear()
+    const page = await driver.list({ cursor, folded: true, limit: 1 })
+    expect(page.blobs).toEqual([expect.objectContaining({
+      httpEtag: `"${createHash("sha256").update(bytes).digest("hex")}"`,
+      pathname: direct[index],
+      size: bytes.length,
+    })])
+    expect(page.folders).toEqual(index === 0 ? ["a-folder/"] : [])
+    expect(page.hasMore).toBe(index === 0)
+    const payloadReads = vi.mocked(readFile).mock.calls.filter(([path]) => paths.has(String(path)))
+    expect(payloadReads).toHaveLength(1)
+    cursor = page.cursor
+  }
+  expect(cursor).toBeUndefined()
 })

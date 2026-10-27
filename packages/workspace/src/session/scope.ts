@@ -14,13 +14,9 @@ function pathIntersectsSessionScope(path: string, paths: string[] | undefined): 
   return pathInSessionScope(path, paths) || Boolean(paths?.some(scope => scope.startsWith(`${path}/`)))
 }
 
-function mkdirPathInSessionScope(path: string, paths: string[] | undefined): boolean {
-  return pathInSessionScope(path, paths) || Boolean(paths?.some(scope => scope.startsWith(`${path}/`)))
-}
-
 export function assertPathInSessionScope(path: string, paths: string[] | undefined, options: { masked?: boolean, mkdir?: boolean } = {}) {
   const valid = options.mkdir
-    ? mkdirPathInSessionScope(path, paths)
+    ? pathIntersectsSessionScope(path, paths)
     : pathInSessionScope(path, paths)
   if (!valid) {
     throw workspaceError(options.masked

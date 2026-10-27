@@ -125,7 +125,9 @@ function probeAvif(bytes: Uint8Array): ImageProbe | undefined {
   let height = 0
   let rotation = 0
   const containers = new Set(["meta", "iprp", "ipco"])
-  function walk(start: number, end: number) {
+  const pending = [{ start: 0, end: bytes.length }]
+  for (let range = pending.pop(); range; range = pending.pop()) {
+    const { start, end } = range
     let offset = start
     while (offset + 8 <= end) {
       let size = u32be(bytes, offset)
@@ -136,7 +138,7 @@ function probeAvif(bytes: Uint8Array): ImageProbe | undefined {
         header = 16
       }
       if (size === 0) size = end - offset
-      if (size < header || offset + size > end) return
+      if (size < header || offset + size > end) break
       if (type === "ispe" && size >= header + 12) {
         const boxWidth = u32be(bytes, offset + header + 4)
         const boxHeight = u32be(bytes, offset + header + 8)
@@ -150,12 +152,14 @@ function probeAvif(bytes: Uint8Array): ImageProbe | undefined {
       }
       else if (containers.has(type)) {
         // `meta` is a full box: version and flags precede its children.
-        walk(offset + header + (type === "meta" ? 4 : 0), offset + size)
+        // Resume siblings after the children to preserve file order without recursion.
+        if (offset + size < end) pending.push({ start: offset + size, end })
+        pending.push({ start: offset + header + (type === "meta" ? 4 : 0), end: offset + size })
+        break
       }
       offset += size
     }
   }
-  walk(0, bytes.length)
   return rotation % 2 === 1 ? result("avif", height, width) : result("avif", width, height)
 }
 

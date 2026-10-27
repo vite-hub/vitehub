@@ -2379,6 +2379,51 @@ describe("Agent Invocations", () => {
     })
   })
 
+  it.each([
+    [`Object(false)`, { type: "Boolean", value: false }],
+    [`Object(5)`, { type: "Number", value: 5 }],
+    [`Object("one")`, { type: "String", value: "one" }],
+    [`Object(9n)`, { type: "BigInt", value: "9" }],
+    [`Object(2n ** 63n)`, { type: "BigInt", value: "9223372036854775808" }],
+    [`Object(NaN)`, { type: "Number", value: null }],
+    [`Object(Infinity)`, { type: "Number", value: null }],
+    [`Object(-0)`, { type: "Number", value: -0 }],
+    [`new Proxy(Object(false), {})`, "[unsupported Object]"],
+    [`new Proxy(Object(5), {})`, "[unsupported Object]"],
+    [`new Proxy(Object("one"), {})`, "[unsupported Object]"],
+    [`new Proxy(Object(9n), {})`, "[unsupported BigInt]"],
+    [`Object(Symbol("excluded"))`, "[unsupported Symbol]"],
+    [`({ [Symbol.toStringTag]: "Boolean" })`, "[unsupported Boolean]"],
+    [`({ [Symbol.toStringTag]: "Number" })`, "[unsupported Number]"],
+    [`({ [Symbol.toStringTag]: "String" })`, "[unsupported String]"],
+    [`({ [Symbol.toStringTag]: "BigInt" })`, "[unsupported BigInt]"],
+  ])("preserves boxed primitive recognition for foreign %s without calling valueOf", async (expression, expected) => {
+    const value: object = runInNewContext(expression)
+    const valueOf = vi.fn(() => { throw new Error("Custom valueOf must not run") })
+    Object.defineProperty(value, "valueOf", { value: valueOf })
+    const store = createMemoryAgentInvocationStore()
+    await store.create({
+      createdAt: "2026-08-27T00:00:00.000Z",
+      id: "boxed-primitive",
+      observations: [],
+      status: "running",
+      traceId: "boxed-primitive-trace",
+      updatedAt: "2026-08-27T00:00:00.000Z",
+    })
+    const invocations = defineAgentInvocations({
+      store,
+      redact: observation => ({ ...observation, payload: { value, visibility: "public" } }),
+    })
+    await invocations.appendObservation("boxed-primitive", {
+      name: "workspace.materialized",
+      type: "lifecycle",
+    }, { id: "boxed-observation" })
+    expect((await invocations.get("boxed-primitive"))?.observations[0]?.payload).toEqual({
+      value: expected, visibility: "public",
+    })
+    expect(valueOf).not.toHaveBeenCalled()
+  })
+
   it("serializes public Blob, File, and boxed primitive payload values before persistence", async () => {
     const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
     const journal = await bindAgentInvocations(invocations, runtime("remaining-structured-public-payload"))

@@ -1,3 +1,4 @@
+import { Validator } from "@cfworker/json-schema"
 import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
@@ -11,7 +12,7 @@ import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
 
 /** MCP revisions that this server answers, newest first. It speaks the stateless JSON subset of Streamable HTTP. */
-export const viteHubMcpProtocolVersions: readonly string[] = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"]
+export const viteHubMcpProtocolVersions: readonly string[] = ["2025-11-25", "2025-06-18"]
 
 const maximumBodyBytes = 256 * 1_024
 const headers = { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" }
@@ -66,6 +67,10 @@ async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Respons
   const method = text(message?.method)
   if (!message || message.jsonrpc !== "2.0" || !method) return rpcError(null, -32600, "The body is not one JSON-RPC message.", 400)
   const id = idOf(message.id)
+  const version = request.headers.get("mcp-protocol-version")
+  if (method !== "initialize" && version !== null && !viteHubMcpProtocolVersions.includes(version)) {
+    return rpcError(id, -32600, "Unsupported MCP-Protocol-Version. Initialize with a supported revision.", 400)
+  }
   // A notification, such as `notifications/initialized`, gets no answer.
   if (!("id" in message)) return new Response(null, { headers, status: 202 })
   const params = record(message.params) ?? {}
@@ -95,9 +100,13 @@ async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Respons
     case "tools/call": {
       const tool = allowedTools(access).find(candidate => candidate.name === params.name)
       if (!tool) return rpcError(id, -32602, `Unknown tool: ${String(params.name)}. Call tools/list for the tools this user may use.`)
+      const input = params.arguments === undefined ? {} : record(params.arguments)
+      if (!input) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: expected an object.`)
       try {
+        const validation = new Validator(tool.inputSchema, "2020-12").validate(input)
+        if (!validation.valid) return rpcError(id, -32602, `Invalid arguments for ${tool.name}: ${validation.errors.map(error => error.error).join("; ")}`)
         const user = await readConsoleAccessUser(access)
-        const result = await tool.call(record(params.arguments) ?? {}, { user: user ? { ...user } : null, event })
+        const result = await tool.call(input, { user: user ? { ...user } : null, event })
         return reply(id, {
           content: [{ type: "text", text: result.text }],
           ...(result.structured ? { structuredContent: result.structured } : {}),
