@@ -22,7 +22,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=3"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=4"
 
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"
@@ -78,6 +78,7 @@ export interface ViteHubPageToolInfo {
    * app base: the session route adds the base. A full URL stays as it is.
    */
   script: string
+  lazy?: boolean
 }
 
 /** The answer of `GET /_vitehub/page/session`. */
@@ -95,6 +96,7 @@ function readTool(value: unknown): ViteHubPageToolInfo | undefined {
   const script = text(Reflect.get(value, "script"))
   if (!id || !script) return undefined
   const tool: ViteHubPageToolInfo = { id, label: text(Reflect.get(value, "label")) ?? id, icon: text(Reflect.get(value, "icon")) ?? "", script }
+  if (Reflect.get(value, "lazy") === true) tool.lazy = true
   const hotkey = text(Reflect.get(value, "hotkey"))
   if (hotkey) tool.hotkey = hotkey
   return tool

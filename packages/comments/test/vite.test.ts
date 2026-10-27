@@ -86,7 +86,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=3\")")
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=4\")")
     // A second owner, such as the Console, sees the loader and adds no other.
     expect(transform(plugin, page!)).toBeUndefined()
   })

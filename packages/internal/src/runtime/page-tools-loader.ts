@@ -1,3 +1,5 @@
+import { createViteHubPageWindow } from "./page-tools-window.ts"
+import type { ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 /**
  * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/session`
  * which tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
@@ -24,6 +26,10 @@ export interface ViteHubPageToolContext {
   signal: AbortSignal
   /** True when the page URL has `?vitehub=<this tool id>`. */
   open: boolean
+  createWindow(options: Omit<ViteHubPageWindowOptions, "signal">): ViteHubPageWindow
+  openTool(id: string, path?: string): Promise<boolean>
+  onOpen(handler: (path?: string) => void): void
+  beforeExit(check: () => boolean): void
   /**
    * Turns the page tools off for this browser: clears the hint cookie and the query, stops every tool, and removes the
    * pill. The pill's exit button calls it, so a tool does not draw its own.
@@ -45,10 +51,10 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // The pill takes its colors from `color-scheme`, which the loader sets from the page, and the page's font. The tools in
 // its segments inherit both. Each visible segment ends with a short divider.
 const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;font-size:13px;line-height:1.5;color:light-dark(#3f3f46,#e4e4e7);-webkit-font-smoothing:antialiased}
-div{--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
-::slotted(*){display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
+div{max-width:calc(100vw - 24px);overflow-x:auto;--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
 ::slotted([hidden]){display:none!important}
-button{all:unset;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
+button{all:unset;flex-shrink:0;position:sticky;right:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
 button:hover{background:light-dark(#0000000d,#ffffff0f);color:light-dark(#18181b,#fafafa)}
 :focus-visible{outline:2px solid #2563eb;outline-offset:2px}`
 
@@ -123,7 +129,10 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const open = new URLSearchParams(location.search).get(viteHubPageToolsQuery)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
+  const exitChecks: Array<() => boolean> = []
   const exit = () => {
+    if (exitChecks.some(check => !check())) return
+    for (const tool of session.tools) remember(tool.id, false)
     document.cookie = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
     const url = new URL(location.href)
     if (url.searchParams.has(viteHubPageToolsQuery)) {
@@ -134,25 +143,72 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     pillController.abort()
   }
   const pill = mountPill(session.tools, exit, pillController.signal)
+  const windows = new Map<string, ViteHubPageWindow>()
+  const windowKey = (id: string) => `vitehub-open:${options.session ?? viteHubPageSessionUrl(import.meta.url)}:${id}`
+  const remember = (id: string, value: boolean) => { try { sessionStorage.setItem(windowKey(id), String(value)) } catch {} }
+  const restored = (id: string) => { try { return sessionStorage.getItem(windowKey(id)) === "true" } catch { return false } }
+  const activators = new Map<string, (path?: string) => Promise<boolean>>()
+  const openTool = async (id: string, path?: string) => await activators.get(id)?.(path) ?? false
   const started = await Promise.all(session.tools.map(async (tool, index) => {
     const { signal } = controllers[index]!
     const bar = document.createElement("vitehub-tool")
     bar.slot = tool.id
     pill.append(bar)
-    try {
-      const start = startOf(await load(tool.script))
-      if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
-      if (signal.aborted) return undefined
-      const cleanup = start({ tool, bar, signal, open: tool.id === open, exit })
-      if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
-      if (cleanup instanceof Function) signal.addEventListener("abort", () => cleanup(), { once: true })
-      return tool
+    let activate: ((path?: string) => void) | undefined
+    let starting: Promise<boolean> | undefined
+    let mounted = false
+    const run = (path?: string): Promise<boolean> => {
+      if (mounted) { activate?.(path); return Promise.resolve(true) }
+      if (starting) return starting.then(ok => { if (ok) activate?.(path); return ok })
+      starting = (async () => {
+        try {
+          bar.setAttribute("aria-busy", "true")
+          const start = startOf(await load(tool.script))
+          if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
+          if (signal.aborted) return false
+          bar.replaceChildren()
+          const cleanup = start({
+            beforeExit: check => exitChecks.push(check), tool, bar, signal,
+            open: tool.lazy === true || tool.id === open, exit,
+            createWindow: options => {
+              const window = createViteHubPageWindow({ ...options, signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
+              const retained = { ...window, show() {
+                for (const [id, other] of windows) if (id !== tool.id) other.hide()
+                remember(tool.id, true)
+                window.show()
+              } }
+              windows.set(tool.id, retained)
+              return retained
+            }, openTool,
+            onOpen: handler => { activate = handler },
+          })
+          mounted = true
+          if (path) activate?.(path)
+          if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
+          if (cleanup instanceof Function) signal.addEventListener("abort", () => cleanup(), { once: true })
+          return true
+        }
+        catch (error) {
+          console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
+          if (tool.lazy) {
+            launch.textContent = `Retry ${tool.label}`
+            launch.title = "The tool could not load. Try again."
+          }
+          else bar.remove()
+          return false
+        }
+        finally { bar.removeAttribute("aria-busy"); starting = undefined }
+      })()
+      return starting
     }
-    catch (error) {
-      bar.remove()
-      console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
-      return undefined
-    }
+    const launch = document.createElement("button")
+    launch.type = "button"
+    launch.textContent = tool.label
+    launch.style.cssText = "font:inherit;color:inherit;background:transparent;border:0;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer"
+    launch.addEventListener("click", () => void run())
+    activators.set(tool.id, run)
+    if (tool.lazy && tool.id !== open && !restored(tool.id)) { bar.append(launch); return tool }
+    return await run() ? tool : undefined
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()

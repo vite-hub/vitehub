@@ -27,7 +27,7 @@ function tool(id: string, people: string[]): ViteHubPageTool {
 
 const comments = tool("comments", ["ada", "ben"])
 const pill = { ...tool("console", ["ada"]), hotkey: "k" }
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=4\" data-vitehub-page-tools></script>"
 
 /** A Nitro 3 app whose fetch returns one HTML page, and counts its calls. */
 function nitro3App(html = "<html><body>Page</body></html>") {
@@ -88,7 +88,7 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers({ "content-security-policy": "script-src-elem 'nonce-elem'; script-src 'nonce-other'" }))).toBe("elem")
     expect(scriptNonce(new Headers())).toBeUndefined()
     const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
-    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=3\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=4\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
   })
 
   it("appends the loader to HTML without a body tag, and leaves other responses alone", async () => {
@@ -168,6 +168,30 @@ describe("installViteHubPageTools on Nitro 2", () => {
     const html = { bodyAppend: [] as string[] }
     render(html, { event: { node: { req: { url: "/?vitehub", headers: {} }, res: { setHeader() {}, getHeader: () => "script-src 'self' 'strict-dynamic' 'nonce-n1'" } } } })
     expect(html.bodyAppend[0]).toContain("nonce=\"n1\"")
+  })
+
+  it("injects buffered HTML once and clears stale cache metadata", () => {
+    const app = nitro2App()
+    registerViteHubPageTool(comments)
+    installViteHubPageTools(app)
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+    const headers = new Map<string, string>([["content-type", "text/html"], ["content-length", "26"], ["etag", "old"]])
+    const event = { node: {
+      req: { url: "/guide/", headers: { cookie: "vitehub-tools=1" } },
+      res: { getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: string) => headers.set(key, value), removeHeader: (key: string) => headers.delete(key) },
+    } }
+    const response = { body: new TextEncoder().encode("<body>Page</body>") as unknown }
+    respond(event, response)
+    expect(response.body).toBe(`<body>Page${loaderTag}</body>`)
+    expect(headers.has("content-length")).toBe(false)
+    expect(headers.has("etag")).toBe(false)
+    expect(headers.get("cache-control")).toBe("private, no-store")
+    respond(event, response)
+    expect(response.body).toBe(`<body>Page${loaderTag}</body>`)
+    headers.set("content-type", "image/png")
+    const binary = { body: new Uint8Array([1, 2, 3]) }
+    respond(event, binary)
+    expect(binary.body).toEqual(new Uint8Array([1, 2, 3]))
   })
 
   it("adds the loader to a page that a route returns as a Response, such as a prerendered file", async () => {

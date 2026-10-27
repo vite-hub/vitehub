@@ -201,7 +201,7 @@ interface Nitro2Event {
   web?: { request?: Request }
   node?: {
     req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
-    res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
+    res?: { statusCode?: number, removeHeader?: (name: string) => void, setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
 
@@ -238,7 +238,7 @@ export interface ViteHubPageToolsInstallOptions {
  * It reads the registry on each request, so plugin order does not matter.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls. The tag uses `options.base`.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
- *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets. The tag uses the base of
+ *   as a `Response`, string, or uncompressed byte buffer, including prerendered files. The tag uses the base of
  *   the request.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
@@ -270,9 +270,27 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     res?.setHeader?.("cache-control", "private, no-store")
   }])
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
-    if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
     const base = nitro2Base(event)
-    if (request && wantsLoader(request, base)) response.body = injectPageToolsLoader(response.body, base)
+    if (!request || !wantsLoader(request, base)) return
+    if (response.body instanceof Response) {
+      response.body = injectPageToolsLoader(response.body, base)
+      return
+    }
+    const res = event.node?.res
+    const type = res?.getHeader?.("content-type")
+    if (typeof type !== "string" || !type.toLowerCase().startsWith("text/html")) return
+    if (res?.getHeader?.("content-encoding") || res?.statusCode === 204 || res?.statusCode === 304) return
+    const body = response.body
+    if (typeof body !== "string" && !(body instanceof Uint8Array)) return
+    const html = typeof body === "string" ? body : new TextDecoder().decode(body)
+    if (html.includes(viteHubPageToolsMarker)) return
+    const policy = res?.getHeader?.("content-security-policy")
+    const tag = loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined)
+    const end = html.toLowerCase().lastIndexOf("</body>")
+    response.body = end < 0 ? html + tag : html.slice(0, end) + tag + html.slice(end)
+    res?.removeHeader?.("content-length")
+    res?.removeHeader?.("etag")
+    res?.setHeader?.("cache-control", "private, no-store")
   }])
 }

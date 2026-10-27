@@ -72,8 +72,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=3")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=3")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=4")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=4")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -177,4 +177,44 @@ describe("readViteHubPageSession", () => {
     })
     expect(readViteHubPageSession(null)).toEqual({ tools: [] })
   })
+})
+
+describe("lazy tools", () => {
+  it("imports a tool on demand only once", async () => {
+    page("/?vitehub")
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    expect(load).not.toHaveBeenCalled()
+    const launch = document.querySelector<HTMLButtonElement>("vitehub-tool button")!
+    launch.click()
+    launch.click()
+    await vi.waitFor(() => expect(started).toHaveLength(1))
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(started[0]!.open).toBe(true)
+  })
+})
+
+// A failed network import must not strand the only entry into the editor.
+it("retries a lazy import and honors the editor exit guard", async () => {
+  page("/?vitehub")
+  session({ tools: [{ ...consoleTool, lazy: true }] })
+  let allowExit = false
+  const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({
+    default(context: ViteHubPageToolContext) {
+      context.bar.append(document.createElement("button"))
+      context.beforeExit(() => allowExit)
+    },
+  })
+  await loadViteHubPageTools({ load })
+  const launch = document.querySelector<HTMLButtonElement>("vitehub-tool button")!
+  launch.click()
+  await vi.waitFor(() => expect(launch.textContent).toBe("Retry Console"))
+  launch.click()
+  await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+  pill().exit.click()
+  expect(document.querySelector("vitehub-pill")).not.toBeNull()
+  allowExit = true
+  pill().exit.click()
+  expect(document.querySelector("vitehub-pill")).toBeNull()
 })

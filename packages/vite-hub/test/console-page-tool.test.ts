@@ -115,7 +115,7 @@ describe("the Console Nitro configuration", () => {
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=3\")")
+      expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=4\")")
       expect(transform(page!)).toBeUndefined()
     }
     finally {
