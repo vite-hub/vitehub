@@ -72,10 +72,12 @@ function summary(thread: CommentThread): Record<string, unknown> {
 /**
  * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
  * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
- * A configured `identify` takes precedence over either session. Replies and resolves show that user as the author.
+ * With a request event, a configured `identify` takes precedence over either session. Without an event, the tools
+ * use the checked `context.user` directly. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
   async function userFor(context: ViteHubMcpToolContext): Promise<CommentsUser | null> {
+    if (context.event === undefined || context.event === null) return commentsUser(context.user)
     // SAFETY: The MCP transport passes its request event to owner identity readers.
     return resolveCommentsUser(comments, context.event as H3Event, options.session ?? (async () => commentsUser(context.user)))
   }

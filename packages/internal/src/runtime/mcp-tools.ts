@@ -15,10 +15,10 @@ export interface ViteHubMcpToolResult {
 
 /** The checked caller of a tool. */
 export interface ViteHubMcpToolContext {
-  /** The Console user of the request, with every field, or null for a Console without accounts. */
+  /** The checked user, with every field, or null for a caller without accounts. */
   user: Record<string, unknown> | null
-  /** The request event, for owners that read more from it. */
-  event: unknown
+  /** The request event, when available, for owners that resolve request identity. */
+  event?: unknown
 }
 
 /**

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { commentsMcpTools } from "../src/runtime/mcp.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
@@ -16,7 +16,7 @@ function event(headers: Record<string, string> = {}): H3Event {
 async function setup(options: DefineCommentsOptions = {}) {
   const comments = await createComments(options)
   const tools = Object.fromEntries(commentsMcpTools(comments).map(tool => [tool.name, tool]))
-  const call = (name: string, input: Record<string, unknown>, user: Record<string, unknown> | null = { id: "ben", name: "Ben", role: "editor" }) => tools[name]!.call(input, { user, event: undefined })
+  const call = (name: string, input: Record<string, unknown>, user: Record<string, unknown> | null = { id: "ben", name: "Ben", role: "editor" }) => tools[name]!.call(input, { user })
   return { comments, tools, call }
 }
 
@@ -50,6 +50,33 @@ describe("Comments MCP tools", () => {
     expect((await tool.call({}, { user: { id: "other" }, event: request })).isError).toBeUndefined()
     expect(seen).toEqual([ada, ada, ada, ada])
     expect((await tool.call({}, { user: ada, event: event() })).isError).toBe(true)
+  })
+
+  it("uses the checked custom-server user without a request event", async () => {
+    const seen: unknown[] = []
+    const identify = vi.fn(({ event }: { event: H3Event }) => event.req.headers.get("x-person") === "ada" ? ada : null)
+    const session = vi.fn(async () => ada)
+    const comments = await createComments({
+      identify,
+      authorize: ({ user }) => { seen.push(user); return user?.role === "editor" },
+    })
+    const tools = commentsMcpTools(comments, { session })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Fix this", author: ada })
+    const user = { id: "ben", name: "Ben", role: "editor" }
+    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
+    for (const [index, tool] of tools.entries()) {
+      expect((await tool.call(inputs[index]!, { user })).isError).toBeUndefined()
+    }
+    const [, after] = await comments.get(thread!.id)
+    expect(after?.comments.at(-1)?.author).toEqual({ id: "ben", name: "Ben" })
+    expect(after?.resolvedBy).toEqual({ id: "ben", name: "Ben" })
+    expect((await tools[3]!.call({ id: thread!.id, resolved: false }, { user })).isError).toBeUndefined()
+    expect(seen).toEqual(Array(5).fill(user))
+    for (const [index, tool] of tools.entries()) {
+      expect((await tool.call(inputs[index]!, { user: null })).isError).toBe(true)
+    }
+    expect(identify).not.toHaveBeenCalled()
+    expect(session).not.toHaveBeenCalled()
   })
 
   it("preserves the Console session's Cloudflare person and chosen guest", async () => {
