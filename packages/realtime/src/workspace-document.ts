@@ -94,8 +94,8 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       if (context.authority === "cloudflare" && (await resolveWorkspaceStoreTarget(workspace))?.provider === "memory") {
         throw new HTTPError({ status: 501, message: "Durable realtime rooms require a durable Workspace Store." })
       }
-      const current = ifDigest ? await workspace.fs.stat(documentId) : undefined
       try {
+        const current = ifDigest ? await workspace.fs.stat(documentId) : undefined
         await workspace.fs.writeFile(documentId, document.body, {
           ifDigest,
           mediaType: current?.mediaType,
@@ -104,7 +104,9 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
         })
       }
       catch (error) {
-        if (isWorkspaceConflict(error)) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
+        const shape = getViteHubErrorShape(error)
+        const deleted = ifDigest !== null && shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined
+        if (isWorkspaceConflict(error) || deleted) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
         throw error
       }
       // Workspace hooks may normalize the file; the room merges the stored form.
