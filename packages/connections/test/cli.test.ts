@@ -13,7 +13,7 @@ function cli(test = createTestRuntime()) {
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
   return {
     output,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
@@ -30,7 +30,7 @@ describe("vitehub connections", () => {
   it("contributes the connections namespace", () => {
     const [namespace] = createConnectionsCliContributor().namespaces
     expect(namespace?.name).toBe("connections")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "set-key", "activity", "approvals", "revoke"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "export", "import", "models", "set-key", "activity", "approvals", "revoke"])
   })
 
   it("connects through a loopback callback", async () => {
@@ -141,7 +141,7 @@ describe("vitehub connections", () => {
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
-    const options = { fetch: async () => Response.json({ connections: [{ name: "mail" }] }) }
+    const options = { openBrowser: false as const, fetch: async () => Response.json({ connections: [{ name: "mail" }] }) }
     expect(await runConnectionsCli("list", [], context, options)).toBe(1)
     expect(output.stderr).toContain("invalid Connections response")
     expect(output.stdout).toBe("")

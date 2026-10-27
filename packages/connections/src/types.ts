@@ -38,6 +38,7 @@ export type ConnectionValue = string | (() => string | undefined | Promise<strin
 /** OAuth token endpoint response. */
 export interface ConnectionTokenResponse {
   access_token: string
+  earliest_refresh_at?: number
   expires_in?: number
   id_token?: string
   refresh_token?: string
@@ -281,10 +282,30 @@ export interface ConnectionLoginDefinition<
   scopes?: readonly string[]
 }
 
+/** A ChatGPT plan grant. Its credentials are used only by the Agent runtime. */
+export interface ConnectionChatGPTProvider {
+  readonly kind: "chatgpt"
+  readonly id: "chatgpt"
+  readonly appName: string
+  readonly appVersion: string
+  readonly api: string
+  readonly apis?: never
+  readonly mcp?: never
+  readonly requests?: never
+}
+
+export interface ConnectionChatGPTDefinition {
+  provider: ConnectionChatGPTProvider
+  /** Name each Agent that can use the plan with `{ read: true }`. */
+  access: Readonly<Record<string, { read?: boolean }>>
+  api?: never
+  scopes?: never
+}
+
 export type ConnectionDefinition<
   TApis extends object = object,
   TSelection extends ConnectionApiSelection<TApis> = ConnectionApiSelection<TApis>,
-> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection>
+> = ConnectionOAuthDefinition<TApis, TSelection> | ConnectionApiKeyDefinition<TApis, TSelection> | ConnectionLoginDefinition<TApis, TSelection> | ConnectionChatGPTDefinition
 
 /**
  * One definition for several Connections of the same kind, such as one per tenant. Each instance is a
@@ -422,6 +443,12 @@ export interface ConnectionActionInfo {
 
 export interface ConnectionInspection {
   account?: ConnectionAccount
+  expiresAt?: string
+  chatgpt?: {
+    clientId?: string
+    hostId: string
+    plan: "enabled" | "disabled"
+  }
   actions: ConnectionActionInfo[]
   connectedAt?: string
   /** `oauth2` Connections connect through the provider. `api-key` Connections store a key that an admin sets. */

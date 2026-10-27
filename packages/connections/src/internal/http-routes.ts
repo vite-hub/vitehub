@@ -1,4 +1,5 @@
 import * as v from "valibot";
+import { chatgptTransfers } from "./chatgpt-transfer.ts";
 
 import { resolvePublicUrl } from "@vite-hub/runtime";
 import { isViteHubSecretEqual } from "@vite-hub/internal/secret";
@@ -27,10 +28,15 @@ const actionSchema = v.variant("action", [
   v.object({ action: v.literal("authorize"), name, redirectUri: v.pipe(v.string(), v.url()) }),
   v.object({
     action: v.literal("complete"),
-    code: v.pipe(v.string(), v.minLength(1), v.maxLength(4096)),
+    code: v.optional(v.pipe(v.string(), v.minLength(1), v.maxLength(4096))),
+    clientId: v.optional(id),
+    error: v.optional(id),
     state: id,
   }),
   v.object({ action: v.literal("revoke"), name }),
+  v.object({ action: v.literal("chatgpt-export"), name }),
+  v.object({ action: v.literal("chatgpt-import"), name, credential: v.unknown() }),
+  v.object({ action: v.literal("chatgpt-models"), name }),
   v.object({
     action: v.literal("set-key"),
     key: v.pipe(v.string(), v.minLength(1), v.maxLength(8192)),
@@ -191,8 +197,6 @@ const connect: ConnectionsRoute = {
   },
 };
 
-const PROVIDER_ERROR = /^[\w.-]{1,64}$/;
-
 const callback: ConnectionsRoute = {
   id: "callback",
   method: "GET",
@@ -206,16 +210,9 @@ const callback: ConnectionsRoute = {
     const state = url.searchParams.get("state");
     const code = url.searchParams.get("code");
     const providerError = url.searchParams.get("error");
-    if (providerError) {
-      if (providerError === "access_denied")
-        return failure("Connection cancelled", "The provider did not grant access.", 400, "CONNECTIONS_AUTHORIZATION_CANCELLED");
-      // Only a short error code from the provider reaches the page, never its free text.
-      const reported = PROVIDER_ERROR.test(providerError) ? ` with ${providerError}` : "";
-      return failure("Connection failed", `The provider stopped the authorization${reported}.`, 502, "CONNECTIONS_PROVIDER_FAILED");
-    }
     // The state must come from a start request in this browser, by the same manager.
     // `complete()` consumes the state and checks the manager that started the flow.
-    if (!state || !code || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
+    if (!state || (!code && !providerError) || !isViteHubSecretEqual(state, readCookie(access.request, STATE_COOKIE)))
       return failure(
         "Connection failed",
         "The authorization response does not match this browser.",
@@ -224,10 +221,10 @@ const callback: ConnectionsRoute = {
       );
     let result: Awaited<ReturnType<ConnectionsRuntime["complete"]>>;
     try {
-      result = await runtime().complete({ actor: access.actor, code, state });
+      result = await runtime().complete({ actor: access.actor, code: code ?? undefined, error: providerError ?? undefined, clientId: url.searchParams.get("client_id") ?? undefined, state });
     } catch (error) {
       if (!isConnectionError(error)) throw error;
-      return failure("Connection failed", error.message, errorStatus(error), error.code);
+      return failure(error.code === "CONNECTIONS_AUTHORIZATION_CANCELLED" ? "Connection cancelled" : "Connection failed", error.message, errorStatus(error), error.code);
     }
     const response = page({
       message: `${result.name} is connected${result.account?.email ? ` as ${result.account.email}` : ""}.`,
@@ -283,8 +280,21 @@ const action: ConnectionsRoute = {
         );
       case "complete":
         return json({
-          connection: await connections.complete({ actor, code: input.code, state: input.state }),
+          connection: await connections.complete({ actor, code: input.code, error: input.error, clientId: input.clientId, state: input.state }),
         });
+      case "chatgpt-export":
+      case "chatgpt-import": {
+        const url = new URL(request.url);
+        if (url.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(url.hostname)) {
+          return json({ error: managementErrorBody("CONNECTIONS_FORBIDDEN", "Credential transfer requires HTTPS or a loopback host.") }, 403);
+        }
+        const transfer = chatgptTransfers(connections);
+        return input.action === "chatgpt-export"
+          ? json({ credential: await transfer.export({ actor, name: input.name }) })
+          : json({ connection: await transfer.import({ actor, name: input.name, credential: input.credential }) });
+      }
+      case "chatgpt-models":
+        return json({ models: await chatgptTransfers(connections).models({ actor, name: input.name }) });
       case "revoke":
         return json({ connection: await connections.revoke({ actor, name: input.name }) });
       case "set-key":
