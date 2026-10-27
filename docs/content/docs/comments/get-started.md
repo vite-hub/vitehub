@@ -9,7 +9,7 @@ icon: i-lucide-rocket
 
 ## Add vitehub()
 
-Comments live in your Database. `vitehub()` turns the Database on when `server/comments.ts` exists and you left `database` unset, and it adds the default Database Definition when the app has none. Add the Console so you can see the threads:
+Comments live in your Database. `vitehub()` turns the Database on when `server/comments.ts` exists and you left `database` unset, and it adds the default Database Definition when the app has none. Add the Console to serve the production operation RPC and inspect the threads:
 
 ```ts [vite.config.ts]
 import { defineConfig } from 'vite'

@@ -78,6 +78,8 @@ export default defineComments({
 
 ## Overlay
 
+In production, enable `console` with your access policy to serve the operation RPC that the overlay needs. With `console` omitted, the overlay runs only in development. With `console: false`, it is disabled in both modes.
+
 `vitehub({ comments: { overlay } })` controls the comment UI that [the loader](/docs/comments/get-started#the-overlay) puts on your pages.
 
 | Option | Type | Default | Description |

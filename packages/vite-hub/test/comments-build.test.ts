@@ -119,6 +119,33 @@ describe("Comments in a built Nitro 3 app", () => {
     }
   }, 240_000)
 
+  it.each([undefined, false] as const)("omits the production overlay when console is %s", async (console) => {
+    const root = await createProject({
+      "index.html": "<!doctype html><html><body><main>ok</main></body></html>",
+      "package.json": JSON.stringify({ name: "comments-no-rpc", private: true, type: "module" }),
+      "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
+      "server/routes/ssr.ts": "export default () => new Response('<html><body>Rendered</body></html>', { headers: { 'content-type': 'text/html' } })\n",
+    })
+    process.chdir(root)
+    const { nitro } = await import("nitro/vite")
+    const builder = await createBuilder({
+      cacheDir: `${root}.vite-cache`, logLevel: "silent", root,
+      plugins: [vitehub({ console, preset: "node" }), nitro()],
+    })
+    await builder.buildApp()
+    const server = await startBuiltServer(root, {})
+    try {
+      for (const path of ["/", "/ssr"]) {
+        const response = await server.fetch(path)
+        expect(response.status).toBe(200)
+        expect(await response.text()).not.toContain("/_vitehub/comments/loader.")
+      }
+      const entries = await readdir(join(root, ".output/public/_vitehub/comments")).catch(() => [])
+      expect(entries).toEqual([])
+    }
+    finally { server.close() }
+  }, 240_000)
+
   it("fails the build with COMMENTS_B0001 when the app sets database: false, and leaves apps without comments alone", async () => {
     const root = await createProject({
       "package.json": JSON.stringify({ name: "comments-no-database", private: true, type: "module" }),

@@ -1259,10 +1259,10 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     },
   }))
   // Comment tables, operations, and the runtime plugin, when the app has `server/comments.ts`. Inert without it.
-  const overlayAssets = options.comments?.overlay === false ? undefined : commentsOverlayAssets()
+  const overlayAssets = options.console === false || options.comments?.overlay === false ? undefined : commentsOverlayAssets()
   plugins.push(hubComments({
     ...options.comments,
-    ...(overlayAssets ? { overlayAssets, overlayEdit: usesCmsPreset } : {}),
+    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCmsPreset } : {}),
     auth: Boolean(options.auth),
     imports: {
       auth: "vite-hub/auth/server",

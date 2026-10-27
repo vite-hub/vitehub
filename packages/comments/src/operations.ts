@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { builtinCommentSubjects } from "./define.ts"
@@ -405,7 +405,7 @@ const session = defineOperation({
     // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
     const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action, { subject: input.subject }).catch(() => false) : Promise.resolve(false)
     const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
-    return { canRead, canWrite: canRead && canWrite && who.user !== null, user: who.user }
+    return { canRead, canWrite: canRead && canWrite && operationAccessAllows(context.access, "comments", { kind: "write" }), user: personOf(who.user) }
   },
   section: "comments",
 })

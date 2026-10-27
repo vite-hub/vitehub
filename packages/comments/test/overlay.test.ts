@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 import { defineComments, validateCommentsDefinition } from "../src/define.ts"
 import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware, scriptNonce } from "../src/overlay.ts"
-import { hubComments } from "../src/vite.ts"
+import { commentsNitroPluginPath, hubComments } from "../src/vite.ts"
 
 const roots: string[] = []
 
@@ -24,7 +24,7 @@ async function project(): Promise<string> {
   return root
 }
 
-type ConfigHook = (config: Record<string, unknown>) => Promise<void>
+type ConfigHook = (config: Record<string, unknown>, env?: { command: "serve" | "build" }) => Promise<void>
 const configHook = (plugin: ReturnType<typeof hubComments>) => (plugin.config && "handler" in plugin.config ? plugin.config.handler : plugin.config) as unknown as ConfigHook
 const indexHtml = (plugin: ReturnType<typeof hubComments>) => {
   const hook = plugin.transformIndexHtml
@@ -286,6 +286,19 @@ describe("the Nitro middleware", () => {
 })
 
 describe("hubComments overlay", () => {
+  it.each(["serve", "build"] as const)("matches the host RPC availability in %s mode", async (command) => {
+    const root = await project()
+    const plugin = hubComments({ overlayAssets: assets, overlayDevOnly: true })
+    const config = { root }
+    await configHook(plugin)(config, { command })
+    expect(indexHtml(plugin)("<body>Hi</body>").includes("comments/loader.")).toBe(command === "serve")
+    const nitro = Reflect.get(config, "nitro")
+    expect(nitro.handlers?.length ?? 0).toBe(command === "serve" ? 1 : 0)
+    expect(nitro.publicAssets?.length ?? 0).toBe(command === "serve" ? 1 : 0)
+    const runtime = await readFile(join(root, commentsNitroPluginPath), "utf8")
+    expect(runtime.includes("overlayUrl")).toBe(command === "serve")
+  })
+
   it("injects the loader into index.html, and into nothing without the assets, the file, or when it is off", async () => {
     const root = await project()
     const plugin = hubComments({ overlayAssets: assets })

@@ -141,6 +141,23 @@ it("checks overlay session permissions for the requested subject", async () => {
   expect(authorize).not.toHaveBeenCalled()
 })
 
+it.each([
+  ["all", true], [["comments"], true], [["comments:read"], false],
+] as const)("reports session write access for %j grants", async (sections, canWrite) => {
+  setup(defineComments({ authorize: () => true }))
+  const result = await runOperation(registry, "comments.session", { subject: page }, {
+    access: { mode: "auth", sections }, user: member,
+    development: false, surface: "console", request: new Request("https://example.com/"),
+  })
+  expect(result).toMatchObject({ ok: true, value: { canRead: true, canWrite } })
+})
+
+it("returns only the public session identity", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const result = await call("comments.session", { subject: page }, { ...member, image: "/ana.png", secret: "private" })
+  expect(result).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: member.id, name: member.name, image: "/ana.png" } } })
+})
+
 it("checks read access before searching mention suggestions", async () => {
   const definition = defineComments({ authorize: ({ action }) => action !== "read" })
   const store = setup(definition)

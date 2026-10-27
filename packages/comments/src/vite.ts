@@ -77,6 +77,8 @@ export interface HubCommentsOptions {
   overlay?: false | CommentsOverlayOptions
   /** The prebuilt loader and overlay. `vite-hub` supplies them. Without them there is no overlay. */
   overlayAssets?: CommentsOverlayAssets
+  /** The host provides the operation RPC only during development. */
+  overlayDevOnly?: boolean
   /**
    * Whether the app can edit the page behind a URL, which shows the overlay's Edit button. `vite-hub` passes a check
    * for the Content cms preset. Without it the overlay never asks `content.resolve`, which an app with no Content does
@@ -232,7 +234,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   const discover = () => findCommentsEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
-  const assets = options.overlay === false ? undefined : options.overlayAssets
+  let assets = options.overlay === false ? undefined : options.overlayAssets
   const overlayOptions: CommentsOverlayOptions = options.overlay || {}
   let mount = ""
   let edit = false
@@ -252,7 +254,8 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
     enforce: "post",
     config: {
       order: "pre",
-      async handler(config) {
+      async handler(config, env) {
+        assets = options.overlay === false || (options.overlayDevOnly && env?.command !== "serve") ? undefined : options.overlayAssets
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as CommentsPluginConfig
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
@@ -272,7 +275,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
           // The URL carries the version, so the files may be cached for good.
           const served = { baseURL: `${mount}${overlayRoute}`, dir: assets.dir, fallthrough: false, maxAge: 60 * 60 * 24 * 365 }
           const existing = Reflect.get(kit.config, "publicAssets")
-          Reflect.set(kit.config, "publicAssets", [...(Array.isArray(existing) ? existing.filter(asset => asset?.dir !== assets.dir) : []), served])
+          Reflect.set(kit.config, "publicAssets", [...(Array.isArray(existing) ? existing.filter(asset => asset?.dir !== served.dir) : []), served])
         }
         Reflect.set(config, "nitro", kit.config)
       },
