@@ -8,7 +8,7 @@ import { installConsoleDevelopment } from "../src/console/runtime/server/develop
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
-import { callOperation, installedOperationRegistry, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { callOperation, installedOperationRegistry, operationRootHeader, parseOperationInput, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 // A plugin of the app contributes this operation, as `@vite-hub/content` contributes `content.*`.
@@ -100,6 +100,29 @@ describe("operations that run app code", () => {
 })
 
 describe("contributed operations over the Console RPC", () => {
+  it("rejects an unconfirmed CLI call when server normalization makes it destructive", async () => {
+    let dryRun = true
+    const run = vi.fn(input => input)
+    const operation = defineOperation({
+      description: "Normalize a fixture.", input: v.object({ dryRun: v.optional(v.boolean(), () => dryRun) }),
+      kind: "destructive", name: "fixture.normalized", readOnlyWhen: input => input.dryRun, run, section: "fixture",
+    })
+    installConsoleOperations([{ operations: [operation] }])
+    // The CLI's local default says this call only reads; the server's default changes later.
+    expect(await parseOperationInput(operation, {})).toEqual({ dryRun: true })
+    dryRun = false
+    const denied = await call(operation.name, {}, { "x-vitehub-surface": "cli", "x-vitehub-confirmation": "required" })
+    await expect(denied.json()).resolves.toMatchObject({ ok: false, status: 409, code: "INTERNAL_R0026", fix: expect.stringContaining("--yes") })
+    expect(run).not.toHaveBeenCalled()
+    const confirmed = await call(operation.name, {}, { "x-vitehub-surface": "cli", "x-vitehub-confirmation": "confirmed" })
+    await expect(confirmed.json()).resolves.toMatchObject({ ok: true, value: { dryRun: false } })
+    expect(run).toHaveBeenCalledOnce()
+    // The Console and the Content CLI adapter retain their own confirmation flow.
+    expect((await call(operation.name)).status).toBe(200)
+    expect((await call(operation.name, {}, { "x-vitehub-surface": "cli" })).status).toBe(200)
+    expect((await call(operation.name, { dryRun: true }, { "x-vitehub-surface": "cli", "x-vitehub-confirmation": "required" })).status).toBe(200)
+  })
+
   it("refuses another project's mutation before invoking its handler", async () => {
     const mutate = vi.fn(() => "changed")
     installConsoleProjectRoot("/work/other")

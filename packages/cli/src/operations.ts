@@ -433,15 +433,18 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       const resolved = resolveTarget(parsed, context)
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
+      let confirmed = parsed.yes
       // A call that only reads, such as a dry run, needs no confirmation.
       if (operation.kind === "destructive" && !parsed.yes && !reads) {
         if (!(process.stdin.isTTY && process.stderr.isTTY) || !await confirm(operation, target)) {
           return writeFailure(failureOf(cliErrorDiagnostics.CLI_R0004({ message: `${operation.name} changes or removes data and was not confirmed.` })), parsed, context)
         }
+        confirmed = true
       }
-      // Send the original input: the server applies defaults and transforms once, just as the confirmation check did.
+      // The server parses the original input once and verifies confirmation against that result.
       const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
       const result = dispatch ?? await callOperation({
+        confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
         ...(parsed.url ? {} : { roots: acceptedRoots(context.rootDir) }),

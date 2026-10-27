@@ -93,6 +93,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    INTERNAL_R0026: {
+      why: "The server parsed a destructive operation that the CLI did not confirm.",
+      fix: "Review the operation, then run it again with --yes to confirm the change.",
+    },
     INTERNAL_C0001: dynamicError,
     INTERNAL_C0002: dynamicError,
     INTERNAL_R0001: dynamicError,
