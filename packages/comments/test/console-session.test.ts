@@ -34,8 +34,15 @@ describe("commentsConsoleSession", () => {
     await expect(session(event())).resolves.toEqual({ id: "ada@vitehub.dev", email: "ada@vitehub.dev", name: "ada@vitehub.dev" })
   })
 
+  it("preserves a verified Cloudflare email starting with guest- even with browser guest headers", async () => {
+    const person = { id: "guest-reviewer@example.com", email: "guest-reviewer@example.com", name: "guest-reviewer@example.com" }
+    const session = commentsConsoleSession(access({ allowed: true, person }))
+    await expect(session(event())).resolves.toEqual(person)
+    await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben" }))).resolves.toEqual(person)
+  })
+
   it("gives a guest for a Console without accounts, and the name the guest chose", async () => {
-    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-1234", name: "Guest" } }))
+    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-12345678-1234-4123-8123-123456789abc", name: "Guest" } }))
     await expect(session(event())).resolves.toEqual({ id: "guest:console", name: "Guest", guest: true })
     await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
   })

@@ -59,7 +59,8 @@ export function resolveConsoleSectionDetails(
 
 /**
  * Requests the `visit` path of each section that this person may use, once per loaded Console, such as the Comments
- * session that turns comment mode on for the app's pages. Failures are ignored: the section page itself reports them.
+ * session that turns comment mode on for the app's pages. Paths use the app mount, as do its API handlers.
+ * Failures are ignored: the section page itself reports them.
  */
 function visitConsoleSections(base: string, navigation: ConsoleNavigation): void {
   const marker = base.lastIndexOf("/api/_vitehub/console/")

@@ -2176,6 +2176,8 @@ describe("ViteHub Nuxt integration", () => {
     await production.runNitroConfigHook(nitroOptions(production.nuxt))
 
     const config = nitroOptions(production.nuxt)
+    expect(production.nuxt.options.vite).toHaveProperty("__vitehubAppBaseURL", "/portal/")
+    expect(mocks.objectHook).toHaveBeenCalledWith(expect.objectContaining({ __vitehubAppBaseURL: "/portal/" }), expect.anything())
     expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
     expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
   })
