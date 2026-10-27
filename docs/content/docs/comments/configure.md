@@ -215,6 +215,8 @@ Give `database` a string that says where the database is. The string names a var
 | `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the directory that the server starts in. |
 | `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` for one with a token. |
 
+On Node, the runtime variables can also contain a `file:` location. Comments chooses the connector for the server's runtime, so the file path stays out of the build. Workers support D1 and remote libSQL databases.
+
 On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
 
 When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.

@@ -351,10 +351,10 @@ async function writeDefaultDefinition(directory: string, imports: CommentsImport
 async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve"): Promise<StandaloneDatabase> {
   const where = options.database || undefined
   // Fails the build on a location that Comments cannot use.
-  parseDatabaseLocation(where, "comments")
+  const location = parseDatabaseLocation(where, "comments")
   if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
-  if (command !== "serve") return { ...(where ? { where } : {}), node: Boolean(where?.startsWith("file:")) }
-  if (where?.startsWith("file:")) return { where, node: true }
+  if (command !== "serve") return { ...(where ? { where } : {}), node: location.kind === "file" }
+  if (location.kind === "file") return { where, node: true }
   const data = resolve(projectRoot, ".vitehub/data")
   await mkdir(data, { recursive: true })
   // Threads written on this computer stay out of Git.
@@ -492,14 +492,23 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
+        const pluginInput = { definition, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) }
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) })),
+          writeFile(plugin, renderCommentsPlugin(pluginInput)),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         if (standalone) await addD1Binding(projectRoot, kit.config, standalone.where)
+        if (standalone && env.command === "build") {
+          const modules = Array.isArray(kit.config.modules) ? [...kit.config.modules] : []
+          // Nitro resolves the preset and its Node support after Vite config hooks. Runtime variables may name files.
+          modules.push(async (nitro: { options: { node: boolean } }) => {
+            await writeFile(plugin, renderCommentsPlugin({ ...pluginInput, standalone: { ...standalone, node: nitro.options.node } }))
+          })
+          kit.config.modules = modules
+        }
         kit.addHandler({ handler, route: `${commentsRoute}/**` })
         kit.addPlugin(plugin)
         const nitro = kit.config

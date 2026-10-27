@@ -8,7 +8,7 @@ export type DatabaseLocation =
   | { kind: "url", url: string }
   | { kind: "file", path: string }
 
-const remoteSchemes = /^(?:libsql|https?|wss?):\/\//i
+const remoteSchemes = /^(?:libsql|https?):\/\//i
 export const postgresSchemes = /^postgres(?:ql)?:\/\//i
 
 /**

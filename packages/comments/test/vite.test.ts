@@ -1,14 +1,16 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
-import { afterEach, describe, expect, it } from "vitest"
+import { createNitro } from "nitro/builder"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { comments, componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
+import type { NitroConfig } from "nitro/types"
 
 const roots: string[] = []
 
@@ -26,10 +28,11 @@ async function configure(plugin: Plugin, root: string, command: ConfigEnv["comma
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
-  return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }>, cloudflare?: { wrangler?: { d1_databases?: unknown[] } } } | undefined
+  return Reflect.get(config, "nitro") as NitroConfig | undefined
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
@@ -149,6 +152,41 @@ describe("comments() without vite-hub", () => {
     await configure(comments({ database: "env:COMMENTS_DATABASE_URL" })[0] as Plugin, root, "serve")
     expect(await plugin()).toContain(`connectDatabase("env:COMMENTS_DATABASE_URL", { name: "comments", setup: commentsTables, fallback: ${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)} })`)
   })
+
+  it.each([undefined, "env:COMMENTS_DATABASE_URL", ":memory:"])("opens runtime-selected files in generated Node output (%s)", async (database) => {
+    const root = await project({ "package.json": "{\"type\":\"module\"}" })
+    await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+    await symlink(join(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/comments"), "dir")
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    const nitro = await createNitro({ ...config, rootDir: root, dev: false, preset: "node-server", compatibilityDate: "2026-10-27" })
+    await nitro.close()
+    // Supply the file only after generation: neither its path nor its token belongs in the build.
+    const file = `file:${join(root, "data/comments.sqlite")}`
+    vi.stubEnv("DATABASE_URL", database === undefined ? file : "")
+    vi.stubEnv("COMMENTS_DATABASE_URL", file)
+    const generated = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    const source = await readFile(generated, "utf8")
+    expect(source).not.toContain(file)
+    const { default: install } = await import(pathToFileURL(generated).href)
+    install(null)
+    const { comments: definition } = await import(pathToFileURL(join(root, ".vitehub/nitro/comments/definition.mjs")).href)
+    const [error, threads] = await definition.list({ page: "/" })
+    expect(error).toBeUndefined()
+    expect(threads).toEqual([])
+    expect(source).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
+  }, 30_000)
+
+  it.each([undefined, "env:COMMENTS_DATABASE_URL", "d1:COMMENTS", "file:./data/comments.sqlite"])("keeps the Node connector out of generated Worker output (%s)", async (database) => {
+    const root = await project({ "package.json": "{}" })
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    const nitro = await createNitro({ ...config, rootDir: root, dev: false, preset: "cloudflare-module", compatibilityDate: "2026-10-27" })
+    expect(nitro.options.node).toBe(false)
+    await nitro.close()
+    const source = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(source).toContain("from \"@vite-hub/comments/runtime/connect\"")
+    expect(source).not.toContain("runtime/connect/node")
+    expect(source).not.toContain("node:sqlite")
+  }, 30_000)
 
   it("adds the D1 binding to the Wrangler config, unless the app's wrangler.jsonc has it", async () => {
     const root = await project({ "package.json": "{}" })

@@ -90,6 +90,10 @@ describe("database locations", () => {
     expect(authTokenVariable("DATABASE_URL")).toBe("DATABASE_AUTH_TOKEN")
     expect(authTokenVariable("COMMENTS_DB")).toBe("COMMENTS_DB_AUTH_TOKEN")
   })
+
+  it.each(["ws://db.test/app", "wss://db.test/app"])("rejects %s before it reaches the HTTP driver", (where) => {
+    expect(() => parseDatabaseLocation(where)).toThrow(expect.objectContaining({ code: "DATABASE_UNSUPPORTED_URL" }))
+  })
 })
 
 describe("connectDatabase", () => {

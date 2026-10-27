@@ -269,6 +269,8 @@ export const db = connectDatabase('env:NOTES_DATABASE_URL', {
 | `'libsql://…'`, `'https://…'` | That libSQL URL. A token in it ends up in the build. |
 | `'file:./data/app.sqlite'` | A SQLite file, opened with Node's built-in `node:sqlite`. Import `connectDatabase()` from `@vite-hub/database/connect/node` for it. Workers have no files. |
 
+Remote connections use libSQL over HTTP; `ws://` and `wss://` locations are unsupported.
+
 The variables and bindings are read on each query, so a Worker gets the bindings of its request. `setup` runs once for each database before its first query, and again on the next query when it fails, so write statements that are safe to repeat, such as `CREATE TABLE IF NOT EXISTS`. `fallback` is a second location to use when the first finds nothing, such as a SQLite file on the development server.
 
 Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) when a query finds no database, and [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url) for a location it cannot use. Drizzle wraps them in its query error, as `error.cause`. Postgres is not supported yet.
