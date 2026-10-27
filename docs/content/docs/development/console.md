@@ -213,6 +213,8 @@ export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 
 ViteHub checks for an Auth Session first. A missing session returns `401`. Then it calls `authorize` with the request and the signed-in `user`. The `role` field is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist that the app already uses.
 
+The Console page itself loads without a session. Its Overview then asks the user to sign in and offers **Check again**. When the tab becomes visible again, the Console checks again by itself, so a user who signs in in another tab does not need to reload the Console.
+
 You can instead guard the Console with access routes in the Auth Definition. Without `authorize`, the Auth Definition must have an access route with an `authorize` callback for `/_vitehub/**` and for `GET /api/_vitehub/console/status`. With the Usage section, it also needs one for `GET /api/_vitehub/console/usage`. Otherwise ViteHub stops with `VITE_HUB_B0006`, in every environment:
 
 ```ts [server/auth.ts]
