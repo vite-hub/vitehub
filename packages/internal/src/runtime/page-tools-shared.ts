@@ -27,6 +27,9 @@ export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=4"
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"
 
+/** The generated SPA check's opening tag, so the server can replace it under a response CSP. */
+export const viteHubPageToolsInlineStart: string = `<script type="module" ${viteHubPageToolsMarker}>`
+
 /**
  * The path of an app base, without the trailing slash: `/portal/` and `https://cdn.example/portal/` give `/portal`.
  * The root and relative bases (`""`, `"./"`) give `""`. The Console mounts its routes with the same rule.
