@@ -175,6 +175,10 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
       if (sharedReason instanceof ExecutionBudgetExceededError) throw sharedReason
       state.sharedController.signal.throwIfAborted()
     }
+    if (!node.disposed && limits.deadlineAt !== undefined && Date.now() >= limits.deadlineAt) {
+      controller.abort(new DOMException("Execution budget timed out: deadline exceeded.", "TimeoutError"))
+      controller.signal.throwIfAborted()
+    }
     if (!Number.isFinite(amount) || amount < 0) throw new RangeError(`[vitehub] Execution budget ${counter} amount must be a finite non-negative number.`)
     const next = state.usage[counter] + amount
     const limit = limitFor(counter, limits)

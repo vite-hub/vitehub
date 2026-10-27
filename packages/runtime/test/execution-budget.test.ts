@@ -3,6 +3,35 @@ import { describe, expect, it, vi } from "vitest"
 import { createExecutionBudget, ExecutionBudgetExceededError } from "../src/index.ts"
 
 describe("ExecutionBudget", () => {
+  describe.each(["root", "child"] as const)("%s deadline before timer delivery", (kind) => {
+    it.each(["consume", "recordInputBytes", "recordOutputBytes", "recordRetry", "recordToolCall"] as const)("rejects %s without charging usage", (operation) => {
+      vi.useFakeTimers()
+      const deadlineAt = Date.now() + 1_000
+      const root = createExecutionBudget(kind === "root" ? { deadlineAt } : {})
+      const budget = kind === "root" ? root : root.child({ deadlineAt })
+      const descendant = budget.child()
+      try {
+        // Moving the clock does not deliver the pending deadline timer.
+        vi.setSystemTime(deadlineAt)
+        expect(budget.signal.aborted).toBe(false)
+        const charge = () => {
+          if (operation === "consume") budget.consume("toolCalls")
+          else budget[operation](1)
+        }
+
+        expect(charge).toThrow("deadline exceeded")
+        expect(budget.signal.reason).toMatchObject({ name: "TimeoutError" })
+        expect(descendant.signal.reason).toBe(budget.signal.reason)
+        expect(root.snapshot().usage).toEqual({ inputBytes: 0, outputBytes: 0, retries: 0, toolCalls: 0 })
+        if (kind === "child") expect(() => root.recordToolCall()).not.toThrow()
+      }
+      finally {
+        root.dispose()
+        vi.useRealTimers()
+      }
+    })
+  })
+
   it("chains long root and child deadlines without timer overflow", () => {
     vi.useFakeTimers()
     try {
@@ -179,8 +208,11 @@ describe("ExecutionBudget", () => {
       expect(vi.getTimerCount()).toBe(0)
 
       external.abort(new Error("late cancellation"))
+      vi.setSystemTime(Date.now() + 3_000)
       expect(budget.signal.aborted).toBe(false)
       expect(child.signal.aborted).toBe(false)
+      expect(() => budget.recordToolCall()).not.toThrow()
+      expect(() => child.recordToolCall()).not.toThrow()
     }
     finally {
       vi.useRealTimers()
