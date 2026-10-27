@@ -223,7 +223,7 @@ const nitroRuntimeResolverNames = new Set([
 
 const nitroConfigResolvedNames = new Set([
   ...nitroRuntimeResolverNames,
-  "@vite-hub/sandbox-task/vite",
+  "@vite-hub/sandbox/task/vite",
 ])
 
 function pluginResolveIdHandler(plugin: Plugin): HookHandler<NonNullable<Plugin["resolveId"]>> | undefined {

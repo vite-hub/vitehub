@@ -6,7 +6,9 @@ navigation.group: Chat
 icon: i-lucide-blocks
 ---
 
-`MessageParts` renders the `parts` array of an AI SDK `UIMessage`. Text uses `Markdown`. Reasoning, tool calls, and sources render as lines in one [Trace](/docs/ui/trace) per run of consecutive parts. Files use [Attachment](/docs/ui/attachment) or image previews. Use it inside custom message layouts, or replace one part type with a slot.
+`MessageParts` renders the `parts` array of an AI SDK `UIMessage`. Text uses `Markdown`. Reasoning, tool calls, and sources render as lines in one trace per run of consecutive parts. Images open a preview, and other files are links. Use it inside custom message layouts, or replace one part type with a slot.
+
+The parts come from [comark-chat](https://comark-ui.onmax.me/chat), which renders the same message in Vue, React, and Svelte. ViteHub adds its `Markdown`, with math and the typeset styles, its image preview, and its colors.
 
 ::component-preview{name="MessagePartsExample"}
 ::
@@ -31,20 +33,20 @@ import { MessageParts } from "@vite-hub/ui";
 
 ## Composition
 
-The root is a `div` with `data-slot="message-parts"`. Consecutive reasoning, tool, and source parts share one `Trace`, so the steps of a turn read as one list. A part from the `part` slot ends the current `Trace`.
+The root is a `div` with `data-slot="message-parts"`. Consecutive reasoning, tool, and source parts share one trace list, so the steps of a turn read as one list. A part from the `part` slot ends the current trace.
 
 ```text
-MessageParts (data-slot="message-parts")
+MessageParts (data-slot="message-parts", class="vh-message-parts cht")
 ├── Markdown, for each text part
-├── Trace, for each run of reasoning, tool, and source parts
-│   ├── TraceCollapsible, for reasoning
-│   │   └── Markdown
-│   ├── TraceCollapsible, for a tool call
-│   │   └── CodeBlock, for the input, output, and error
-│   └── TraceLine, for a source
-├── Attachment or image preview, for each file part
+├── ul.cht-trace, for each run of reasoning, tool, and source parts
+│   ├── li.cht-step, a details element for reasoning, with its Markdown
+│   ├── li.cht-step, a details element for a tool call, with its input, output, and error
+│   └── li.cht-step, a link for a source
+├── Image preview or file link, for each file part
 └── step and fallback slots
 ```
+
+Each step has `data-kind` (`reasoning`, `tool`, or `source`) and `data-status` (`running`, `waiting`, `error`, or `done`). The colors come from the `--comark-*` tokens, which ViteHub sets from its own on `.vh-message-parts`.
 
 ## Features
 
@@ -59,10 +61,10 @@ MessageParts (data-slot="message-parts")
 | Part                                 | Default rendering                                          |
 | ------------------------------------ | ---------------------------------------------------------- |
 | `text`                               | Streaming-aware Markdown through `Markdown`.               |
-| `reasoning`                          | A Trace line, Thinking while it streams and Thought after, that expands into the reasoning text. |
-| `tool-*`, `dynamic-tool`             | A Trace line with the tool title, and Running or Failed beside it, that expands into small Code Blocks for the input, output, and error. |
-| `file`                               | Image preview for images. An Attachment that opens or downloads other files. |
-| `source-url`, `source-document`      | A Trace line that links to the source, or the document title. |
+| `reasoning`                          | A trace line, Thinking while it streams and Thought after, that expands into the reasoning text. |
+| `tool-*`, `dynamic-tool`             | A trace line with the tool title and its state beside it, that expands into the input, output, and error. |
+| `file`                               | Image preview for images. A link that opens or downloads other files. |
+| `source-url`, `source-document`      | A trace line that links to the source, or the document title. |
 | `step-start`                         | Nothing, unless you use the `step` slot.                   |
 | `data-*` and other types             | Nothing, unless you use the `fallback` slot.               |
 
@@ -70,7 +72,7 @@ File and source links open only `http:` and `https:` URLs. A `data:` file URL is
 
 ## Tool States
 
-A tool part is running in the `input-streaming`, `input-available`, and `approval-requested` states. It failed in the `output-error` and `output-denied` states. A finished tool shows only its title. The body shows the input, then the output, then the error text, when each one exists.
+A tool part shows Running in the `input-streaming`, `input-available`, and `approval-responded` states, and Needs approval in `approval-requested`. It shows Failed in `output-error` and Denied in `output-denied`. A finished tool shows only its title. The body shows the input, then the output, then the error text, when each one exists.
 
 ::component-preview{name="MessagePartsToolStatesExample"}
 ::
@@ -84,7 +86,7 @@ Render application data parts, for example `data-deploy`, through the `fallback`
 
 ## Files and Sources
 
-Images open an expanded preview. Other files are download links. Source URLs open in a new tab.
+Images open an expanded preview. Other files are links, and a named `data:` file downloads. Source URLs open in a new tab.
 
 ::component-preview{name="MessagePartsFilesExample"}
 ::
@@ -92,6 +94,7 @@ Images open an expanded preview. Other files are download links. Source URLs ope
 ## Accessibility
 
 - Image previews are buttons. The expanded view closes with Escape and returns focus to the thumbnail.
+- Reasoning and tool calls are native `details` elements, so their summaries open with Enter and Space.
 - Links to external sources open in a new tab with `rel="noreferrer"`.
 
 ## API Reference
@@ -109,11 +112,12 @@ Renders the parts of one message in order.
 
 #### Slots
 
-Every slot receives `{ part, index }`.
+Every slot receives `{ part, index }` and what comark-chat read from the part, for example `title`, `state`, and `values` for a tool. A slot that renders nothing for a part keeps the default.
 
 | Slot        | Description                                                              |
 | ----------- | ------------------------------------------------------------------------ |
 | `part`      | Runs first for every part. Return content to replace the default output. |
+| `markdown`  | Receives `{ value, streaming }` and replaces the Markdown of text and reasoning parts. |
 | `text`      | Replaces `text` parts.                                                   |
 | `reasoning` | Replaces `reasoning` parts.                                              |
 | `tool`      | Replaces `tool-*` and `dynamic-tool` parts.                              |

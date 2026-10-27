@@ -4,7 +4,7 @@ import { join } from "node:path"
 import * as v from "valibot"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { writeViteHubDevServerFile } from "@vite-hub/internal/cli"
-import { createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
+import { type AnyOperation, createOperationRegistry, defineOperation, operationExpectedRootsHeader, operationRootHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 
 import { runViteHubCli } from "../src/index.ts"
 
@@ -71,8 +71,8 @@ function stream() {
 const operationList = [list, remove, failing, rich]
 
 // A dev server that runs the operations of the fixture plugin.
-function server(origin = "http://localhost:5173", headers: Record<string, string> = {}) {
-  const registry = createOperationRegistry([{ operations: operationList }])
+function server(origin = "http://localhost:5173", headers: Record<string, string> = {}, operations: readonly AnyOperation[] = operationList) {
+  const registry = createOperationRegistry([{ operations }])
   return vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
     expect(String(url)).toBe(`${origin}/_vitehub/rpc/__call`)
@@ -126,6 +126,38 @@ describe("generated operation commands", () => {
     const dryRun = await run(["reports", "delete", "r1", "--dry-run"])
     expect(dryRun.code).toBe(0)
     expect(JSON.parse(String(dryRun.fetch.mock.calls[0]![1]!.body)).input).toEqual({ dryRun: true, id: "r1" })
+  })
+
+  it("reports missing nested input before calling readOnlyWhen", async () => {
+    const readOnlyWhen = vi.fn((input: { options: { dryRun: boolean } }) => input.options.dryRun)
+    const operation = defineOperation({ description: "Validate nested input.", kind: "destructive", section: "reports", name: "reports.nested", input: v.object({ options: v.object({ dryRun: v.boolean() }) }), readOnlyWhen, run: input => input })
+    const result = await run(["reports", "nested", "--json"], { operations: [operation] })
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout).error.code).toBe("INTERNAL_R0022")
+    expect(readOnlyWhen).not.toHaveBeenCalled()
+    expect(result.fetch).not.toHaveBeenCalled()
+  })
+
+  it("uses defaults and transforms for confirmation without transforming the request twice", async () => {
+    const operation = defineOperation({
+      description: "Normalize input before confirmation.",
+      kind: "destructive",
+      section: "reports",
+      name: "reports.normalized",
+      input: v.object({ options: v.optional(v.object({ dryRun: v.pipe(v.boolean(), v.transform(value => !value)) }), { dryRun: false }) }),
+      readOnlyWhen: input => input.options.dryRun,
+      run: input => input,
+    })
+    const fetch = server("http://localhost:5173", {}, [operation])
+    const result = await run(["reports", "normalized"], { operations: [operation], fetch })
+    expect(result.code).toBe(0)
+    expect(JSON.parse(result.stdout)).toEqual({ options: { dryRun: true } })
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body)).input).toEqual({})
+  })
+
+  it.each(["inspect", "provision"])("diagnoses a generated command in the reserved %s namespace", async namespace => {
+    const operation = defineOperation({ ...list, name: "reports.custom", cli: { namespace } })
+    await expect(run([namespace, "custom"], { operations: [operation] })).rejects.toMatchObject({ code: "INTERNAL_R0020", message: expect.stringContaining("reserved") })
   })
 
   it("prints the code, message, and fix of a failure, and exits with 1", async () => {

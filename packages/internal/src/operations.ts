@@ -172,6 +172,9 @@ function checkDefinition(definition: unknown): void {
 
 /** The default limit of a call, in bytes. */
 export const defaultRequestBytes: number = 64 * 1_024
+/** CLI namespaces owned by built-in commands. */
+export const reservedOperationNamespaces: readonly string[] = ["inspect", "provision"]
+
 /** Input keys that the generated CLI commands read themselves. */
 export const reservedOperationFlags: readonly string[] = ["input", "json", "timeout", "url", "yes"]
 
@@ -308,6 +311,9 @@ export function createOperationRegistry(sources: Iterable<{ operations: readonly
   const commands = new Map<string, AnyOperation>()
   for (const operation of operations) {
     const { command, namespace } = operationCliPath(operation)
+    if (reservedOperationNamespaces.includes(namespace)) {
+      throw invalidDefinition(operation.name, `the CLI namespace ${JSON.stringify(namespace)} is reserved for built-in commands. Set cli.namespace to another name.`)
+    }
     const key = `${namespace} ${command}`
     const other = commands.get(key)
     if (other) {

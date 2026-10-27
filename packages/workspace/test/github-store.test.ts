@@ -67,6 +67,7 @@ function syncFake() {
 }
 
 beforeEach(() => {
+  vi.resetModules()
   requests.length = 0
   fake = createFakeGitHub()
   fake.respond(request => request.path === malformedResponsePath ? jsonResponse(malformedResponse) : undefined)
