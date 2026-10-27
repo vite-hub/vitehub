@@ -904,7 +904,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   let mergedKey: string | undefined
   let conflictKey: string | undefined
 
-  /** Only the draft's first-parent history since its recorded base/sync can identify its own publishes. */
+  /** Follow draft history across syncs that preserve this document, stopping at its imported published baseline. */
   async function draftHeld(path: string, digest: string | null | undefined, head: WorkspaceRevision): Promise<boolean> {
     const retained = await history()
     let revision: WorkspaceRevision | undefined = head
@@ -917,7 +917,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if ((opened.files.get(path) ?? null) === (digest ?? null)) matched = true
       // An ordinary Git commit may have no metadata. Keep walking until the recorded boundary is known.
       const content = revision.metadata?.content
-      if (content && typeof content === "object" && "action" in content && content.action === "sync") return matched
+      if (content && typeof content === "object" && "action" in content && content.action === "sync") {
+        const parent: OpenedRevision | undefined = revision.parentId ? await openRevision(revision.parentId) : undefined
+        if (!parent || parent.files.get(path) !== opened.files.get(path)) return matched
+        // An unrelated sync must not hide a version still waiting in a publish PR.
+        boundary = undefined
+        revision = parent.revision
+        continue
+      }
       if (boundary && matched) return true
       revision = revision.parentId ? (await retained.open(revision.parentId)).revision : undefined
     }

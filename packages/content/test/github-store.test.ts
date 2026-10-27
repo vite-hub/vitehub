@@ -607,6 +607,26 @@ describe("Content on the GitHub store", () => {
         expect(result.pullRequest).toMatchObject({ number: 2 })
       })
 
+      it("recognizes its pending publish across unrelated draft syncs", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.save("b", { data: { title: "B1" }, body: "" })
+        await content.publish()
+        await posts.save("b", { data: { title: "B2" }, body: "" })
+        for (const title of ["A2", "A3"]) {
+          fake.commit("main", { "content/posts/a.md": page(title) })
+          vi.advanceTimersByTime(6_000)
+          await posts.save("c", { data: { title }, body: "" })
+          expect((await posts.raw("a", { ref: "draft" }))!.text).toContain(title)
+        }
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        await expect(content.publish()).resolves.toMatchObject({
+          pullRequest: { number: 2 },
+          documents: expect.arrayContaining([{ collection: "posts", id: "b", change: "update" }]),
+        })
+        expect((await posts.raw("b", { ref: "draft" }))!.text).toContain("B2")
+      })
+
       it("recognizes its own publish after more than one page of later draft revisions", async () => {
         const { posts, content } = await setup({ publish: "pr" })
         await posts.save("b", { data: { title: "B0" }, body: "" })
@@ -650,6 +670,20 @@ describe("Content on the GitHub store", () => {
       vi.advanceTimersByTime(6_000)
       await posts.save("b", { data: { title: "B" }, body: "" })
       await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.pulls).toHaveLength(0)
+    })
+
+    it("does not treat inherited history before a document sync as its own publish", async () => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      fake.commit("main", { "content/posts/a.md": page("A2") })
+      vi.advanceTimersByTime(6_000)
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      expect((await posts.raw("a", { ref: "draft" }))!.text).toContain("A2")
+      await posts.save("a", { data: { title: "Draft" }, body: "" })
+      fake.commit("main", { "content/posts/a.md": page("A") })
+      vi.advanceTimersByTime(6_000)
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "a" }] } })
       expect(fake.pulls).toHaveLength(0)
     })
 
