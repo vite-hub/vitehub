@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { Message } from "chat"
+import { Chat, Message } from "chat"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
@@ -117,7 +117,7 @@ interface Fixture {
   /** The route handler that the generated webhook route calls, asked for the signed history. */
   history: (threadId: string) => Promise<Response>
   state: StateAdapter
-  recover: (placeholder?: "edit" | "failed-edit", legacy?: boolean) => Promise<void>
+  recover: (placeholder?: "edit" | "failed-edit", legacy?: boolean, retryFailure?: boolean) => Promise<void>
   say: (id: number, text: string, extra?: Partial<TelegramMessage>, chat?: number) => Promise<void>
 }
 
@@ -136,6 +136,7 @@ interface FixtureOptions {
   cache?: boolean
   content?: boolean
   identity?: AgentChatOptions["identity"]
+  secretToken?: false
   /** `libsql` (the default) and `cloudflare` are durable. `memory` uses the in-process State of the route. */
   state?: "cloudflare" | "libsql" | "memory"
   /** Sets `channels.telegram.transcripts`. */
@@ -165,7 +166,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
         stream: false,
         ...(options.identity ? { identity: options.identity } : {}),
         ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
-        webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: "history-secret" } },
+        webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: options.secretToken ?? "history-secret" } },
       }),
     ],
     driver: { run: () => ({ text: `reply ${++turn}` }) },
@@ -184,19 +185,39 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   })
   return {
     adapter,
-    async recover(placeholder, legacy = false) {
+    async recover(placeholder, legacy = false, retryFailure = false) {
       const message = adapter.messages.find(message => !message.author.isBot)!
       const key = `chat:support:${channel}:vitehub:interrupted-chat`
       await state!.set(key, {
         interrupted: {
           agentName: "support", runId: "interrupted", threadId: message.threadId,
-          message: { ...message.toJSON(), id: `${message.id}${interruptedChatRetrySuffix}` },
+          message: { ...message.toJSON(), id: retryFailure ? message.id : `${message.id}${interruptedChatRetrySuffix}` },
           startedAt: new Date(Date.now() - 1_000).toISOString(),
           ...(legacy ? {} : { transcriptUserKey: message.userKey ?? null }),
           ...(placeholder ? { placeholderId: "restart-placeholder" } : {}),
         },
       })
       if (placeholder === "failed-edit") adapter.editMessage.mockRejectedValueOnce(new Error("placeholder deleted"))
+      if (retryFailure) {
+        const failure = new Error("retry dispatch failed")
+        const dispatch = vi.spyOn(Chat.prototype, "processMessage").mockRejectedValueOnce(failure)
+        const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined)
+        const stop = handler.resume({ ...routeOptions, webhookState: state, recoverInterruptedBefore: Date.now() })
+        try {
+          await vi.waitFor(() => expect(consoleError.mock.calls.some(call => call.includes(failure))).toBe(true))
+          await stop()
+          await vi.waitFor(async () => {
+            const saved = await state!.get<Record<string, { recoveryToken?: string }>>(key)
+            expect(saved?.interrupted).toBeDefined()
+            expect(saved?.interrupted).not.toHaveProperty("recoveryToken")
+          })
+        }
+        finally {
+          await stop()
+          dispatch.mockRestore()
+          consoleError.mockRestore()
+        }
+      }
       const stop = handler.resume({ ...routeOptions, webhookState: state, recoverInterruptedBefore: Date.now() })
       try {
         await vi.waitFor(async () => expect(await state!.get(key)).toBeNull(), { timeout: 5_000 })
@@ -350,6 +371,22 @@ describe("Channel conversation operations", () => {
     expect(result.messages.filter(message => message.text === "hello")).toHaveLength(1)
     const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
     expect(exported.text).toContain("The server restarted twice")
+  })
+
+  it.each([undefined, "edit", "failed-edit"] as const)("does not repeat a restart notice after retry dispatch fails (%s)", async (delivery) => {
+    const chat = await fixture({ cache: false, window: 0, identity: ({ author }) => `account:${author.userId}`, secretToken: false })
+    await chat.say(1, "hello")
+    await chat.recover(delivery, false, true)
+    const notice = "The server restarted while I was working on this. I'll retry it automatically."
+    const posts = chat.adapter.postMessage.mock.calls.filter(([, text]) => String(text).includes(notice))
+    const edits = chat.adapter.editMessage.mock.calls.filter(([, , text]) => String(text).includes(notice))
+    expect(posts).toHaveLength(delivery === "edit" ? 0 : 1)
+    expect(edits).toHaveLength(delivery ? 1 : 0)
+    const result = await conversation()
+    expect(result.messages.filter(message => message.text.includes(notice))).toHaveLength(1)
+    expect(result.messages.some(message => message.text === "reply 2")).toBe(true)
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
+    expect(parseArchive(exported.text).messages.filter(message => message.text.includes(notice))).toHaveLength(1)
   })
 
   it("recovers transcript identity for restart records from before identity was persisted", async () => {

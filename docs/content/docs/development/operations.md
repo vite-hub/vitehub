@@ -103,6 +103,8 @@ pnpm vitehub reports list acme --url https://app.example.com --json
 
 See [Run any operation](/docs/development/cli#run-any-operation) for `--json`, `--yes`, `--url`, and the credentials. An operation of `kind: 'destructive'` asks for confirmation, or needs `--yes`.
 
+Confirmation uses the schema's defaults and transforms. If the server parses the input as destructive after the CLI treated it as a read, the call fails with `INTERNAL_R0026`. Review the call and run it again with `--yes`.
+
 A flag is made from each key of the input schema. The keys `url`, `timeout`, `json`, `yes`, and `input` are reserved for the CLI, and defining one fails with `INTERNAL_R0020`. Two operations that map to the same `vitehub <namespace> <command>` fail the build with `INTERNAL_B0049`; set `cli.namespace` or `cli.command` on one of them.
 
 To call an operation from an agent, add the capability:
@@ -146,6 +148,7 @@ The core raises these codes:
 | `INTERNAL_R0023` | The access does not include the section of the operation, or only reads it (`'<section>:read'`) and the call writes. |
 | `INTERNAL_R0024` | The CLI could not reach the app. |
 | `INTERNAL_R0025` | A dev server answered for another project. |
+| `INTERNAL_R0026` | The server parsed a destructive call that the generated CLI command did not confirm. Review the call and pass `--yes`. |
 | `INTERNAL_B0048` | Two operations have the same name. |
 | `INTERNAL_B0049` | Two operations are the same CLI command. |
 

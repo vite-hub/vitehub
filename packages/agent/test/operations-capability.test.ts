@@ -3,6 +3,7 @@ import * as v from "valibot"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { operations } from "../src/capabilities.ts"
+import { applyAgentToolPolicies } from "../src/tool-runtime.ts"
 
 import type { AgentActor, AgentCapabilityDefinition, AgentToolDefinition } from "../src/types.ts"
 
@@ -84,7 +85,7 @@ describe("operations capability", () => {
   })
 
   it("asks for approval of write and destructive operations by default, and as approve says", async () => {
-    const decide = async (capability: AgentCapabilityDefinition, name: string, input: unknown = {}) => {
+    const decide = async (capability: AgentCapabilityDefinition, name: string, input: unknown = { id: "a" }) => {
       const policy = (await tools(capability))[name]!.policy
       return policy instanceof Function ? await policy({ input, name }) : policy
     }
@@ -124,6 +125,35 @@ describe("operations capability", () => {
     if (!(policy instanceof Function)) throw new Error("expected a policy function")
     expect(await policy({ input: { dryRun: true, id: "a" }, name: "demo_remove" })).toBe("allow")
     expect(await policy({ input: { id: "a" }, name: "demo_remove" })).toBe("require-approval")
+  })
+
+  it("uses schema defaults and transforms once for approval and execution", async () => {
+    let parses = 0
+    const normalized = defineOperation({
+      description: "Normalize a dry run.", input: v.object({ options: v.optional(v.object({ dryRun: v.pipe(v.boolean(), v.transform(() => ++parses === 1)) }), { dryRun: false }) }),
+      kind: "destructive", name: "demo.normalized", readOnlyWhen: input => input.options.dryRun, run: input => input, section: "demo",
+    })
+    const resolved = applyAgentToolPolicies(await tools(operations({ include: ["demo.normalized"], registry: createOperationRegistry([{ operations: [normalized] }]) })))!
+    await expect(resolved.demo_normalized!.execute!({}, {})).resolves.toEqual({ options: { dryRun: true } })
+    expect(parses).toBe(1)
+  })
+
+  it("returns invalid nested input as a coded result before evaluating readOnlyWhen", async () => {
+    const nested = defineOperation({
+      description: "Validate a dry run.", input: v.object({ options: v.object({ dryRun: v.boolean() }) }),
+      kind: "destructive", name: "demo.nested", readOnlyWhen: input => input.options.dryRun, run: input => input, section: "demo",
+    })
+    const resolved = applyAgentToolPolicies(await tools(operations({ include: ["demo.nested"], registry: createOperationRegistry([{ operations: [nested] }]) })))!
+    await expect(resolved.demo_nested!.execute!({}, {})).resolves.toMatchObject({ ok: false, error: { code: "INTERNAL_R0022" } })
+  })
+
+  it("requires approval when a transform turns a raw dry run into a write", async () => {
+    const normalized = defineOperation({
+      description: "Normalize a write.", input: v.object({ dryRun: v.pipe(v.boolean(), v.transform(value => !value)) }),
+      kind: "destructive", name: "demo.normalized", readOnlyWhen: input => input.dryRun, run: input => input, section: "demo",
+    })
+    const resolved = applyAgentToolPolicies(await tools(operations({ include: ["demo.normalized"], registry: createOperationRegistry([{ operations: [normalized] }]) })))!
+    await expect(resolved.demo_normalized!.execute!({ dryRun: true }, {})).rejects.toMatchObject({ code: "APPROVAL_REQUIRED" })
   })
 
   it("offers only the operations of sections that console.authorize allows for the user", async () => {

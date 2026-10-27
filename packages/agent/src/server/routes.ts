@@ -6044,6 +6044,8 @@ interface InterruptedChatRecord {
   channelId?: string
   message: ReturnType<Message["toJSON"]>
   placeholderId?: string
+  /** A failed retry dispatch must not deliver or record this recovery notice again. */
+  recoveryNoticeId?: string
   /** Durable, one-shot replay reservation. It must never expire into another dispatch. */
   recoveryToken?: string
   runId: string
@@ -6227,9 +6229,10 @@ async function resumeInterruptedChatInvocation(options: {
   chat: Chat
   chatOptions: AgentChatOptions | undefined
   record: InterruptedChatRecord
+  persistNotice: (messageId: string) => Promise<void>
   waitUntil: ViteAgentRouteRuntimeContext["waitUntil"]
 }): Promise<boolean> {
-  const { adapter, adapterName, agent, agentName, chat, chatOptions, record, waitUntil } = options
+  const { adapter, adapterName, agent, agentName, chat, chatOptions, persistNotice, record, waitUntil } = options
   if (!isRecord(record) || !isRuntimeString(record.threadId) || !isRecord(record.message) || !isRuntimeString(record.message.id)) return false
   // SAFETY: Agent Definitions expose the invocation journal; only its optional summary reader is used.
   const invocations = isRecord(agent) && isRecord(agent.invocations) ? agent.invocations as { getSummary?: (id: string) => unknown } : undefined
@@ -6242,7 +6245,7 @@ async function resumeInterruptedChatInvocation(options: {
   const thread = chat.thread(record.threadId)
   const exhausted = Boolean(record.recoveryToken) || interruptedChatRetryAttempt(record.message.id) >= 1
   const notice = await interruptedChatFallbackText(chatOptions, thread, message, exhausted ? "exhausted" : "pending")
-  if (notice) {
+  if (notice && !record.recoveryNoticeId) {
     const recorder = transcriptRecorders.get(chat)
     let userKey = record.transcriptUserKey
     if (recorder && userKey === undefined) {
@@ -6254,11 +6257,12 @@ async function resumeInterruptedChatInvocation(options: {
       }
       catch { userKey = null }
     }
-    const edited = isRuntimeString(record.placeholderId)
-      ? await Promise.resolve(adapter.editMessage(record.threadId, record.placeholderId, notice)).then(() => true, () => false)
-      : false
-    const messageId = edited ? record.placeholderId : (await thread.post(notice)).id
+    const editedId = isRuntimeString(record.placeholderId)
+      ? await Promise.resolve(adapter.editMessage(record.threadId, record.placeholderId, notice)).then(() => record.placeholderId, () => undefined)
+      : undefined
+    const messageId = editedId ?? (await thread.post(notice)).id
     await recorder?.outbound(adapter, record.threadId, messageId, notice, userKey ?? null)
+    await persistNotice(messageId)
   }
   if (exhausted) return true
   const retry = Message.fromJSON({
@@ -6323,7 +6327,17 @@ async function resumeInterruptedChatInvocations(
         claimed = true
       })
       if (!claimed) return
-      const accepted = await resumeInterruptedChatInvocation({ adapter, adapterName, agent, agentName, chat, chatOptions, record, waitUntil: context.waitUntil })
+      const accepted = await resumeInterruptedChatInvocation({
+        adapter, adapterName, agent, agentName, chat, chatOptions, record, waitUntil: context.waitUntil,
+        async persistNotice(messageId) {
+          // Keep the delivered id when a failed dispatch below releases its replay reservation.
+          record.recoveryNoticeId = messageId
+          await updateInterruptedChatIndex(state.state, state.titleKeyPrefix, (current) => {
+            if (current[record.runId]?.recoveryToken !== recoveryToken) throw new Error("Interrupted chat recovery no longer owns this record.")
+            current[record.runId] = { ...current[record.runId], recoveryNoticeId: messageId }
+          })
+        },
+      })
         .catch(error => console.error("[vitehub] Interrupted chat invocation could not be resumed.", error))
       await updateInterruptedChatIndex(state.state, state.titleKeyPrefix, (current) => {
         // The retry's admission or another startup may already own this record.

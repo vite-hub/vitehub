@@ -14328,7 +14328,9 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
       expect(prompts[1]).toContain("[Retry after interruption]")
       expect(prompts[1]).toContain("review the pull request")
-      expect([...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
+      const noticeCalls = [...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()
+      if (scenario === "retry failure") expect(noticeCalls).not.toContainEqual(expect.stringContaining(restartNotice))
+      else expect(noticeCalls).toContainEqual(expect.stringContaining(restartNotice))
       if (scenario === "second restart") {
         await drainInlineChatInvocations({ timeoutMs: 0 })
       }
