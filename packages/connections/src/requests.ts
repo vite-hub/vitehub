@@ -3,6 +3,7 @@ import type { ConnectionRequestPolicy } from "./types.ts"
 const DEFAULT_ATTEMPTS = 3
 const DEFAULT_DELAY_MS = 250
 const DEFAULT_METHODS = ["GET", "HEAD", "OPTIONS"]
+const MAX_TIMER_MS = 2 ** 31 - 1
 
 /** One request schedule and one 429 pause, shared by every Connection in the bucket. */
 interface Bucket {
@@ -36,10 +37,18 @@ function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
       clearTimeout(timer)
       reject(signal?.reason)
     }
-    const timer = setTimeout(() => {
+    const deadline = Date.now() + ms
+    // Timers overflow above the signed 32-bit limit and run almost immediately.
+    const wake = () => {
+      const remaining = deadline - Date.now()
+      if (remaining > 0) {
+        timer = setTimeout(wake, Math.min(remaining, MAX_TIMER_MS))
+        return
+      }
       signal?.removeEventListener("abort", onAbort)
       resolve()
-    }, ms)
+    }
+    let timer = setTimeout(wake, Math.min(ms, MAX_TIMER_MS))
     signal?.addEventListener("abort", onAbort, { once: true })
   })
 }
