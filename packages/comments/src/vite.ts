@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -87,7 +88,40 @@ const defaultImports: CommentsImports = {
  */
 export async function readCommentsDatabase(file: string): Promise<string | undefined> {
   const source = await readFile(file, "utf8").catch(() => "")
-  return /\bdatabase\s*:\s*["'`]([\w-]+)["'`]/.exec(source)?.[1]
+  const module = scanModule(source, file)
+  if (module.errors.length) return
+  const bindings = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
+    if (statement.declaration?.type === "VariableDeclaration") {
+      for (const declaration of statement.declaration.declarations) {
+        if (declaration.id.type === "Identifier" && declaration.id.name === "comments") bindings.add(declaration.id.name)
+      }
+    }
+    for (const specifier of statement.specifiers) {
+      const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      if (name === "comments" && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
+    }
+  }
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration") continue
+    for (const binding of declaration.declarations) {
+      if (binding.id.type !== "Identifier" || !bindings.has(binding.id.name) || !binding.init) continue
+      const call = unwrapExpression(binding.init)
+      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineComments") continue
+      const options = argumentExpression(call.arguments[0])
+      if (options?.type !== "ObjectExpression") return
+      for (const property of objectProperties(options).reverse()) {
+        // A later spread or dynamic key may replace an earlier Database option.
+        if (property.key === undefined) return
+        if (property.key !== "database") continue
+        if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
+        return staticString(property.value)
+      }
+      return
+    }
+  }
 }
 
 /** The directory of the prebuilt overlay script in this package. */
@@ -151,7 +185,7 @@ export function componentNames(file: string): string[] {
  * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
  */
 export async function readCommentsComponents(root: string, limit = 5000, resolvedComponents: readonly CommentsComponent[] = []): Promise<Record<string, string[]>> {
-  const components: Record<string, string[]> = {}
+  const components: Record<string, string[]> = Object.create(null)
   let count = 0
   async function walk(directory: string, depth: number): Promise<void> {
     if (depth > 12 || count >= limit) return
@@ -171,7 +205,7 @@ export async function readCommentsComponents(root: string, limit = 5000, resolve
     }
   }
   await walk(root, 0)
-  const resolvedNames: Record<string, string[]> = {}
+  const resolvedNames: Record<string, string[]> = Object.create(null)
   for (const component of resolvedComponents) {
     const file = relative(root, component.filePath).split(sep).join("/")
     // Nuxt's registry also includes library components and generated placeholders, which are not project sources.

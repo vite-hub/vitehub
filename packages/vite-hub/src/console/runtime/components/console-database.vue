@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { TableColumn } from "@nuxt/ui";
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, h, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleDatabaseRelationship, ConsoleDatabaseTable } from "./console-database-model";
@@ -62,10 +62,15 @@ const selectedTable = computed(
     database.value?.tables.find((table) => table.name === routeTable.value) ??
     database.value?.tables[0],
 );
-const columns = computed<TableColumn<Record<string, string>>[]>(() =>
+// SQL NULL renders as a dimmed italic marker, so it does not look like the text "NULL".
+const columns = computed<TableColumn<Record<string, string | null>>[]>(() =>
   (selectedTable.value?.columns ?? []).map((column) => ({
     accessorKey: column.key,
     header: column.name,
+    cell: ({ getValue }) => {
+      const value = getValue<string | null>();
+      return value === null ? h("span", { class: "italic text-dimmed" }, "NULL") : value;
+    },
   })),
 );
 const tableRows = computed(() =>
@@ -73,7 +78,7 @@ const tableRows = computed(() =>
     Object.fromEntries(
       (selectedTable.value?.columns ?? []).map((column) => {
         const cell = row[column.key];
-        return [column.key, cell ? `${cell.value}${cell.truncated ? "…" : ""}` : "NULL"];
+        return [column.key, cell && cell.kind !== "null" ? `${cell.value}${cell.truncated ? "…" : ""}` : null];
       }),
     ),
   ),
@@ -432,11 +437,12 @@ onBeforeUnmount(() => {
             :loading="loading"
             sticky="header"
             :ui="{
-              base: 'min-w-max',
-              th: 'whitespace-nowrap border-r border-default font-mono last:border-r-0',
+              base: 'w-max min-w-full',
+              thead: 'bg-default',
+              th: 'whitespace-nowrap border-r border-default font-mono font-normal last:border-r-0',
               td: 'max-w-72 truncate whitespace-nowrap border-r border-default font-mono text-xs last:border-r-0',
               tr: 'border-b border-default hover:bg-elevated/50',
-              empty: 'py-12 text-[13px] text-muted',
+              empty: 'h-40 border-r-0 text-center text-[13px] text-muted',
             }"
           >
             <template #empty>
@@ -445,7 +451,8 @@ onBeforeUnmount(() => {
           </UTable>
         </div>
         <footer class="flex h-10 shrink-0 items-center gap-3 border-t border-default px-4 text-xs text-muted tabular-nums">
-          <span>{{ pageStart }}–{{ pageEnd }} of {{ database.total }} {{ database.total === 1 ? "row" : "rows" }}</span>
+          <span v-if="database.total">{{ pageStart }}–{{ pageEnd }} of {{ database.total }} {{ database.total === 1 ? "row" : "rows" }}</span>
+          <span v-else>0 rows</span>
           <span class="hidden text-dimmed sm:inline">{{ selectedTable.columns.length }} {{ selectedTable.columns.length === 1 ? "column" : "columns" }}</span>
           <div class="ml-auto flex items-center gap-0.5">
             <UTooltip text="Previous page">

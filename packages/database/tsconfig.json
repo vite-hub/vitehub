@@ -6,10 +6,9 @@
       "node",
       "vitest/globals"
     ],
-    "baseUrl": "../..",
     "paths": {
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     }
   },

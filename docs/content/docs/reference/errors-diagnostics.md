@@ -207,7 +207,7 @@ For Env, inspect the `ENV_*` code first. Its code set and public messages are fi
 ```bash [Terminal]
 pnpm vitehub provision run --provider cloudflare --dry-run
 find .vitehub -maxdepth 4 -type f | sort
-pnpm --filter @vite-hub/sandbox-task test
+pnpm --filter @vite-hub/sandbox test
 ```
 
 ### Rate Limit diagnostics

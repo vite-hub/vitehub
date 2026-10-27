@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
+import { componentNames, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 
@@ -82,6 +82,26 @@ describe("hubComments", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
   })
 
+  it("maps filenames that are inherited object keys through Comments configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/constructor.vue": "<template />",
+      "app/components/toString.vue": "<template />",
+    })
+    expect(await readCommentsComponents(root)).toEqual({
+      constructor: ["app/components/constructor.vue"],
+      toString: ["app/components/toString.vue"],
+    })
+    await configure(hubComments(), root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"constructor\":[\"app/components/constructor.vue\"]")
+  })
+
+  it("maps resolved component names that are inherited object keys", async () => {
+    const root = await project({ "widgets/Card.vue": "<template />" })
+    const components = await readCommentsComponents(root, 5000, [{ pascalName: "constructor", filePath: join(root, "widgets/Card.vue") }])
+    expect(components.constructor).toEqual(["widgets/Card.vue"])
+  })
+
   it("uses resolved Nuxt names, including configured directories and mode suffixes, before and after configuration", async () => {
     const root = await project({
       "server/comments.ts": "export const comments = defineComments()",
@@ -137,6 +157,29 @@ describe("hubComments", () => {
       name: "comments",
     })])
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("const name = \"content\"")
+  })
+
+  it.each([
+    ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
+    ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
+    ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: chooseDatabase() })', undefined],
+    ['export const comments = defineComments({ database: "wrong", ...options })', undefined],
+    ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
+    ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
+  ])("reads only the effective exported Database option: %s", async (source, database) => {
+    const root = await project({ "server/comments.ts": source })
+    expect(await readCommentsDatabase(join(root, "server/comments.ts"))).toBe(database)
+    const plugin = hubComments()
+    await configure(plugin, root)
+    const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
+    expect(contributions).toHaveLength(1)
+    if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
+    else expect(contributions[0]).toHaveProperty("database", database)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`const name = ${JSON.stringify(database ?? null)}`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {

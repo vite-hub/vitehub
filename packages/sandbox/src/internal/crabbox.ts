@@ -771,7 +771,6 @@ function createCrabboxSession(state: CrabboxSessionState, sessionId: string | un
   let retryDestroy = false;
   const session = {
     defaultWorkingDirectory: state.root,
-    description: "Crabbox session.",
     id: sessionId || randomUUID(),
     inspectionConcurrency: 1,
     ports: [0],

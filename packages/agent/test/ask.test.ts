@@ -2,7 +2,7 @@ import { runInNewContext } from "node:vm"
 
 import { describe, expect, it, vi } from "vitest"
 
-import { ask } from "../src/ask.ts"
+import { ask } from "@vite-hub/gateways"
 
 const invalidKeys: unknown[] = [
   "", " \t\n", undefined, null, 0, false, 1n, Symbol("key"),

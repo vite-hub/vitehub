@@ -289,7 +289,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       {
-        name: "@vite-hub/sandbox-task/vite",
+        name: "@vite-hub/sandbox/task/vite",
         config: mocks.sandboxTaskHook,
       },
       {
@@ -610,9 +610,9 @@ describe("ViteHub Nuxt integration", () => {
 
   it("installs Nitro modules owned by replayed ViteHub plugins", async () => {
     const setup = vi.fn()
-    const nitroModule = { name: "@vite-hub/sandbox-task/provider-runtime", setup }
+    const nitroModule = { name: "@vite-hub/sandbox/task/provider-runtime", setup }
     mocks.vitehub.mockReturnValue([{
-      name: "@vite-hub/sandbox-task/vite",
+      name: "@vite-hub/sandbox/task/vite",
       nitro: nitroModule,
     }])
     const { nuxt, runNitroConfigHook } = createNuxt()
@@ -635,7 +635,7 @@ describe("ViteHub Nuxt integration", () => {
     })
     mocks.vitehub.mockReturnValue([
       {
-        name: "@vite-hub/sandbox-task/vite",
+        name: "@vite-hub/sandbox/task/vite",
         config: mocks.sandboxTaskHook,
         configResolved,
       },
@@ -2044,6 +2044,68 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it.each([
+    { base: "/", replay: false },
+    { base: "/portal/", replay: false },
+    { base: "/", replay: true },
+    { base: "/portal/", replay: true },
+  ])("runs the Nuxt Console sign-in middleware before app Auth ($base, replay: $replay)", async ({ base, replay }) => {
+    const mount = base.replace(/\/$/, "")
+    const authDefinition = "/tmp/vitehub-nuxt/custom-server/auth.ts"
+    await mkdir(resolve(authDefinition, ".."), { recursive: true })
+    await writeFile(authDefinition, `
+      export default defineAuth({
+        access: { routes: [
+          { route: "${mount}/_vitehub/**", authorize: authorizeConsole },
+          { route: "${mount}/api/_vitehub/console/**", authorize: authorizeConsole },
+        ] },
+      })
+    `)
+    const authHandler = { handler: "/tmp/app-auth.js", middleware: true, route: "/**" }
+    mocks.vitehub.mockReturnValue([
+      mocks.vitehub(),
+      {
+        name: "@vite-hub/auth/vite",
+        config(config: { nitro?: { handlers?: Array<{ handler: string }> } }) {
+          return {
+            nitro: {
+              ...config.nitro,
+              handlers: [authHandler, ...(config.nitro?.handlers ?? []).filter(handler => handler.handler !== authHandler.handler)],
+            },
+          }
+        },
+      },
+    ])
+    const production = createNuxt(false)
+    Object.assign(production.nuxt.options, { app: { baseURL: base } })
+    production.nuxt.options.nitro = { handlers: [authHandler] }
+    try {
+      await viteHubNuxtModule({ auth: true, console: { auth: "app", signInPage: "/sign-in" }, preset: "node" }, production.nuxt)
+      const config = replay ? { handlers: [authHandler] } : nitroOptions(production.nuxt)
+      if (replay) {
+        await production.runNitroConfigHook(config)
+        await production.runNitroConfigHook(config)
+      }
+      // SAFETY: The Nuxt module produces Nitro handler records; the assertions check their ordering and routes.
+      const handlers = config.handlers as Array<{ handler: string; middleware?: boolean; route: string }>
+      const signIn = handlers.filter(handler => handler.handler.endsWith("/server/sign-in.js"))
+      expect(signIn).toHaveLength(2)
+      expect(signIn).toEqual(expect.arrayContaining([
+        expect.objectContaining({ middleware: true, route: `${mount}/_vitehub` }),
+        expect.objectContaining({ middleware: true, route: `${mount}/_vitehub/**` }),
+      ]))
+      for (const handler of signIn) {
+        expect(handlers.indexOf(handler)).toBeLessThan(handlers.findIndex(candidate => candidate.handler === authHandler.handler))
+      }
+      expect(handlers).toContainEqual(expect.objectContaining({ route: `${mount}/_vitehub/rpc/**` }))
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain('signInPage: "/sign-in"')
+    }
+    finally {
+      await production.runCloseHook()
+      await rm(authDefinition, { force: true })
+    }
+  })
+
   it("rejects Connections in production Nuxt applications", async () => {
     const production = createNuxt(false)
 
@@ -2492,7 +2554,7 @@ describe("ViteHub Nuxt integration", () => {
       expect.objectContaining({ name: "vite-hub/deployment-preset" }),
       expect.objectContaining({ name: "@vite-hub/agent/vite" }),
       existingQueuePlugin,
-      expect.objectContaining({ name: "@vite-hub/sandbox-task/vite" }),
+      expect.objectContaining({ name: "@vite-hub/sandbox/task/vite" }),
       expect.objectContaining({ name: "@vite-hub/workflow/vite" }),
       existingPlugin,
       expect.objectContaining({ name: "@vite-hub/env/vite" }),
