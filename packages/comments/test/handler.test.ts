@@ -136,7 +136,7 @@ describe("Comments API", () => {
       })
       const response: unknown = await Reflect.apply(handler, undefined, [{ node: { req }, context: {} }])
       if (!(response instanceof Response)) throw new TypeError("Expected a Response")
-      return await response.json() as { data?: any }
+      return await response.json() as { data?: unknown }
     }
     const created = await send("POST", "/threads", { page: "/", anchor, body: "From Nuxt 4" })
     expect(created.data).toMatchObject({ page: "/", createdBy: { id: "ada" } })
