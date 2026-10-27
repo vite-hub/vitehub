@@ -105,7 +105,9 @@ export function workspaceDocument(workspaceName: string): RealtimeWorkspaceDocum
       }
       catch (error) {
         const shape = getViteHubErrorShape(error)
-        const deleted = ifDigest !== null && shape?.code === "WORKSPACE_NOT_FOUND" && shape.details?.name === undefined
+        // Workspace deletion and missing revisions share this code; only absent paths are document conflicts.
+        const deleted = ifDigest !== null && shape?.code === "WORKSPACE_NOT_FOUND"
+          && shape.message.startsWith("[vitehub] Workspace path does not exist:")
         if (isWorkspaceConflict(error) || deleted) throw new RealtimeDocumentConflict("The document changed in Workspace after this realtime room loaded it.")
         throw error
       }
