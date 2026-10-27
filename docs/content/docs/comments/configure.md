@@ -126,7 +126,7 @@ export default defineEventHandler(async (event) => {
 
 ## Choose the Database
 
-Comments adds two tables, `vitehub_comment_threads` and `vitehub_comments`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
 
 To use another Database, give its name:
 
