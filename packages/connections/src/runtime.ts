@@ -668,7 +668,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
           let response = await call(token)
           // An API key has no refresh token. The admin replaces a rejected key.
           if (response.status === 401 && !isApiKeyProvider(context.definition.provider)) {
-            await response.body?.cancel().catch(() => undefined)
+            // Cancellation may never settle; it must not block token refresh.
+            void response.body?.cancel().catch(() => undefined)
             token = await refresh(context.name, context.definition, token.accessToken, true)
             response = await call(token)
           }

@@ -3,13 +3,14 @@ import { expect, it, vi } from "vitest"
 import { createConnectionsRuntime } from "../src/runtime.ts"
 import { ACCESS_TOKEN, connect, createTestRuntime, mailConnection } from "./helpers.ts"
 
-it.each(["retry", "cancel-fails", "refresh-fails"] as const)("releases the discarded OAuth response before refreshing (%s)", async (scenario) => {
+it.each(["retry", "cancel-fails", "cancel-pending", "refresh-fails"] as const)("starts releasing the discarded OAuth response before refreshing (%s)", async (scenario) => {
   const test = createTestRuntime()
   await connect(test)
   const events: string[] = []
   const cancel = vi.fn(() => {
     events.push("cancel")
     if (scenario === "cancel-fails") throw new Error("Response cleanup failed")
+    if (scenario === "cancel-pending") return new Promise<void>(() => {})
   })
   const unauthorized = new Response(new ReadableStream({ cancel }), { status: 401 })
   const runtime = createConnectionsRuntime({
