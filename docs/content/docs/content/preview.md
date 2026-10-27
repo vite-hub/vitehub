@@ -6,7 +6,7 @@ navigation.order: 8
 icon: i-lucide-eye
 ---
 
-A preview cookie makes one browser read the `draft` ref through your real pages. Requests without it keep reading `published`, and the site shows no editing UI. The ViteHub Console content editor sets the cookie for its preview frame. You can also set it from your own route.
+A preview cookie makes one browser read the `draft` ref through your real pages. Requests without it keep reading `published`, and the site shows no editing UI. Your app sets the cookie from its own route. The ViteHub Console content editor does not set it.
 
 ## Enable preview
 
