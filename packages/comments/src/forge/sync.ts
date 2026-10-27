@@ -1,8 +1,8 @@
-import { and, eq, inArray, isNotNull } from "drizzle-orm"
+import { and, eq, inArray, isNotNull, isNull } from "drizzle-orm"
 
 import { commentsSchema } from "../database.ts"
 import { createGitHubClient, GitHubRequestError } from "./github.ts"
-import { renderComment, renderSummary } from "./render.ts"
+import { commentMarker, renderComment, renderSummary, summaryMarker } from "./render.ts"
 
 import type { CommentsDatabase, CommentsStore } from "../store.ts"
 import type { Comment, CommentForgeLink, CommentsForgeOptions, CommentsForgeTarget, CommentThread } from "../types.ts"
@@ -93,8 +93,35 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     }
     if (!existing.error && existing.updatedAt > now - claimTimeout) return false
     const claimed = await database.update(links).set({ error: null, updatedAt: now })
-      .where(and(eq(links.id, id), eq(links.updatedAt, existing.updatedAt))).returning({ id: links.id })
+      .where(and(eq(links.id, id), isNull(links.remoteId), eq(links.updatedAt, existing.updatedAt))).returning({ id: links.id })
     return claimed.length > 0
+  }
+
+  /** A claimed row may have reached GitHub before its creator died or lost the response. Never blindly repost it. */
+  async function recover(existing: LinkRow, token: () => Promise<string>): Promise<(LinkRow & { remoteId: string }) | undefined> {
+    const marker = existing.threadId === null ? summaryMarker : commentMarker(existing.threadId, existing.id)
+    const posted = await github.findComment(await token(), existing.repository, existing.pullRequest, marker)
+    if (!posted) return
+    const values = { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: digest(posted.body), error: null }
+    await save(existing.id, values)
+    return { ...existing, ...values }
+  }
+
+  async function removeLink(existing: LinkRow, token: () => Promise<string>): Promise<void> {
+    let current = existing
+    if (!current.remoteId) {
+      // Keep an active creator's row until it can save the remote identity and observe the deletion itself.
+      if (!await claim(current.id, current, current)) return
+      try {
+        current = await recover(current, token) ?? current
+      }
+      catch (error) {
+        await save(current.id, { error: message(error) })
+        throw error
+      }
+    }
+    if (current.remoteId) await github.deleteComment(await token(), current.repository, current.remoteId)
+    await database.delete(links).where(eq(links.id, current.id))
   }
 
   async function target(thread: CommentThread): Promise<CommentsForgeTarget | undefined> {
@@ -129,11 +156,17 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     }
     if (!await claim(comment.id, existing, { threadId: thread.id, ...at })) return
     try {
+      const recovered = existing ? await recover(existing, appToken) : undefined
+      if (recovered) {
+        await syncComment(thread, comment, recovered, at, appToken)
+        return
+      }
       const own = await authorToken(comment)
       let postedAs: "author" | "app" = own ? "author" : "app"
       let body = renderComment(thread, comment, postedAs)
       let posted
       try {
+        await save(comment.id, { postedAs })
         posted = await github.createComment(own ?? await appToken(), at.repository, at.pullRequest, body)
       }
       catch (error) {
@@ -141,6 +174,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
         if (!own || !(error instanceof GitHubRequestError && (error.status === 401 || error.status === 403 || error.status === 404))) throw error
         postedAs = "app"
         body = renderComment(thread, comment, postedAs)
+        await save(comment.id, { postedAs })
         posted = await github.createComment(await appToken(), at.repository, at.pullRequest, body)
       }
       await save(comment.id, { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: digest(body), postedAs, error: null })
@@ -162,8 +196,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       let appToken: string | undefined
       const token = async () => appToken ??= await github.appToken(at.repository)
       if (!threads.length) {
-        if (existing?.remoteId) await github.deleteComment(await token(), at.repository, existing.remoteId)
-        if (existing) await database.delete(links).where(eq(links.id, id))
+        if (existing) await removeLink(existing, token)
         return
       }
       const body = renderSummary({
@@ -182,6 +215,14 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
       if (!await claim(id, existing, { threadId: null, ...at })) return
       try {
+        const recovered = existing ? await recover(existing, token) : undefined
+        if (recovered) {
+          if (recovered.digest !== hash) {
+            await github.updateComment(await token(), at.repository, recovered.remoteId, body)
+            await save(id, { digest: hash, error: null })
+          }
+          return
+        }
         const posted = await github.createComment(await token(), at.repository, at.pullRequest, body)
         await save(id, { remoteId: posted.id, nodeId: posted.nodeId, url: posted.url, digest: hash, postedAs: "app", error: null })
       }
@@ -193,7 +234,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
   }
 
   async function syncThread(threadId: string): Promise<void> {
-    const thread = await store.get(threadId)
+    let thread = await store.get(threadId)
     const rows = await rowsOfThread(threadId)
     const at = rows[0] ? { repository: rows[0].repository, pullRequest: rows[0].pullRequest } : thread ? await target(thread) : undefined
     if (!at) return
@@ -205,13 +246,15 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       await syncSummary(at, thread).catch(error => console.warn("[vitehub] Comments could not post the pull request summary:", error))
     }
 
+    // Another isolate may have removed the thread while the summary was being posted.
+    thread = await store.get(threadId)
     const live = new Set(thread?.comments.map(comment => comment.id) ?? [])
     for (const gone of rows.filter(item => !live.has(item.id))) {
-      if (gone.remoteId) await github.deleteComment(await token(), at.repository, gone.remoteId)
-      await database.delete(links).where(eq(links.id, gone.id))
+      await removeLink(gone, token)
     }
     if (thread) {
       for (const comment of thread.comments) {
+        if (await store.threadOf(comment.id) !== threadId) continue
         await syncComment(thread, comment, rows.find(item => item.id === comment.id), at, token)
       }
       // GitHub has no resolved state for a pull request comment, so a resolved thread hides its first comment.
@@ -226,6 +269,12 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
           console.warn(`[vitehub] Comments could not ${resolved ? "hide" : "show"} the comment of thread ${thread.id}:`, error)
         }
       }
+    }
+    // A deletion in another isolate can arrive while a comment POST is in flight. Its claim was retained above.
+    const latest = await store.get(threadId)
+    const remaining = new Set(latest?.comments.map(comment => comment.id) ?? [])
+    for (const gone of (await rowsOfThread(threadId)).filter(item => !remaining.has(item.id))) {
+      await removeLink(gone, token)
     }
     await syncSummary(at)
   }

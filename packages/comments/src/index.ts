@@ -214,10 +214,9 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       const current = store()
       if (!current) return notInstalled()
       if (!v.is(scopeSchema, scope)) return [undefined, { removed: 0 }]
-      const synced = runtimes.get(comments)?.forge ? await current.list({ scope, limit: 500 }) : []
       const removed = await current.removeScope(scope)
-      for (const thread of synced) changed(thread.id)
-      return [undefined, { removed }]
+      for (const threadId of removed) changed(threadId)
+      return [undefined, { removed: removed.length }]
     },
     async can(context) {
       if (!options.authorize) return context.user !== null
