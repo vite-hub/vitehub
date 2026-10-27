@@ -1766,7 +1766,7 @@ details.vh-invocation-event > .vh-invocation-event__summary:hover {
 
 .vh-invocation-error__details {
   color: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   margin-block-start: 0.45rem;
 }
 
@@ -2468,8 +2468,24 @@ summary.vh-invocation-inspector__group-heading:focus-visible,
 }
 
 .vh-invocation-session__timestamp { display: block; color: var(--vh-ui-muted); font-size: 0.6875rem; margin-block: 0.5rem; font-variant-numeric: tabular-nums; text-align: center; }
-.vh-invocation-error { margin-block: 0.75rem; min-width: 0; }
-.vh-invocation-error__message { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+.vh-invocation-error {
+  background: color-mix(in oklab, var(--ui-error) 6%, var(--ui-bg));
+  border: 1px solid color-mix(in oklab, var(--ui-error) 22%, transparent);
+  border-radius: 0.5rem;
+  color: var(--ui-text);
+  display: grid;
+  font-size: 0.75rem;
+  gap: 0.625rem;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  line-height: 1.25rem;
+  margin-block: 0.75rem;
+  min-width: 0;
+  padding: 0.75rem;
+}
+.vh-invocation-error__icon { color: var(--ui-error); height: 1rem; margin-block-start: 0.125rem; stroke: currentColor; stroke-width: 2; width: 1rem; }
+.vh-invocation-error__body { display: grid; gap: 0.125rem; min-width: 0; }
+.vh-invocation-error__title { color: var(--ui-error); font-weight: 500; margin: 0; }
+.vh-invocation-error__message { margin: 0; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .vh-invocation-error__recovery { margin-block-start: 0.5rem; }
 .vh-invocation-error__details pre, .vh-invocation-inspector__settings pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .vh-invocation-inspector__settings { padding: 0.5rem; font-size: 0.75rem; }

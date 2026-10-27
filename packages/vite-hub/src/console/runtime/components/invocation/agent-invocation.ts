@@ -138,18 +138,21 @@ function payloadPreview(value: unknown, text: string): string {
   return compact.length > 112 ? `${compact.slice(0, 111)}…` : compact || "Empty payload";
 }
 
+// A plain element, not UAlert, so the error looks the same in the standalone Console and in hosts that register Nuxt UI.
 function invocationError(error: NonNullable<AgentInvocationView["error"]>) {
-  const description = () => [
-    h("p", { class: "vh-invocation-error__message", title: error.message }, error.message),
-    error.fix ? h("p", { class: "vh-invocation-error__recovery" }, error.fix) : null,
-    diagnosticDetails(error),
-  ];
   const title = error.name && error.name !== "Error" ? error.name : "Run failed";
-  const Alert = getCurrentInstance()?.appContext.components.UAlert;
-  return Alert ? h(Alert, {
-    class: "vh-invocation-error", color: "error", variant: "subtle", icon: "i-lucide-circle-alert", title,
-    ui: { title: "text-xs", description: "text-xs", root: "p-3" },
-  }, { description }) : h("div", { class: "vh-invocation-error", role: "alert" }, [h("strong", title), ...description()]);
+  return h("div", { class: "vh-invocation-error", role: "alert" }, [
+    h("svg", { class: "vh-invocation-error__icon", "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [
+      h("circle", { cx: "12", cy: "12", r: "9" }),
+      h("path", { d: "M12 8v4m0 4h.01", "stroke-linecap": "round" }),
+    ]),
+    h("div", { class: "vh-invocation-error__body" }, [
+      h("p", { class: "vh-invocation-error__title" }, title),
+      h("p", { class: "vh-invocation-error__message", title: error.message }, error.message),
+      error.fix ? h("p", { class: "vh-invocation-error__recovery" }, error.fix) : null,
+      diagnosticDetails(error),
+    ]),
+  ]);
 }
 
 function invocationTimestamp(invocation: AgentInvocationView) {
