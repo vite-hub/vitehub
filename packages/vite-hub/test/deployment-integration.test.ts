@@ -256,7 +256,7 @@ describe("built-in deployment preset integration", () => {
       await mkdir(join(root, "server", "agents"), { recursive: true })
       await writeFile(join(root, "server", "agents", "dev.ts"), [
         `import { defineAgent } from "vite-hub/agent"`,
-        `import { cliproxy, cloudflareAccess } from "vite-hub/agent/gateways"`,
+        `import { cliproxy, cloudflareAccess } from "vite-hub/gateways"`,
         `export default defineAgent({ driver: { kind: "codex", gateway: cliproxy({ headers: cloudflareAccess() }) } })`,
       ].join("\n"))
       const config = await resolveConfig({

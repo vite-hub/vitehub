@@ -1,4 +1,3 @@
-import { isRuntimeString } from "./internal/runtime-value.ts"
 
 /** A JSON value that TypeSafe Jev can read. */
 export type AskJson = string | number | boolean | null | AskJson[] | { [key: string]: AskJson }
@@ -140,7 +139,7 @@ function each<T, Q extends AskQuestion>(
   const questions: Record<string, Q> = Object.create(null)
   for (const item of items) {
     const key = options.key(item)
-    if (!isRuntimeString(key) || !key.trim()) {
+    if (typeof key !== "string" || !key.trim()) {
       throw new TypeError("ask.each keys must be non-empty strings")
     }
     if (Object.hasOwn(questions, key)) {
@@ -152,7 +151,7 @@ function each<T, Q extends AskQuestion>(
 }
 
 /**
- * Builds TypeSafe Jev questions for `defineAgent({ driver: { ask } })`.
+ * Builds TypeSafe Jev questions for `gateway.ask()` and `defineAgent({ driver: { ask } })`.
  * Each builder returns a plain question object. The Driver sends questions in deterministic sequential batches when needed; the combined serialized shared state and each question must fit below 30,000 bytes, including request overhead.
  */
 export const ask: {

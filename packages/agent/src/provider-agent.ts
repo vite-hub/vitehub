@@ -67,7 +67,7 @@ import type {
   AgentProviderStatus,
   AgentProviderCredentialResolver,
   AgentProviderReadinessCheck,
-  AgentDriverGateway,
+  AiGateway,
   AgentProviderEnvironment,
   AgentProviderEnvironmentResolver,
   AgentProviderLaunchCommand,
@@ -116,7 +116,7 @@ export interface ProviderAgentAdapterOptions<
   env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
   execution?: { attachments?: { maxBytes?: number } }
   /** LLM proxy or gateway for model requests. It replaces `credentials`. */
-  gateway?: AgentDriverGateway
+  gateway?: AiGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string

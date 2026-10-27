@@ -351,12 +351,6 @@
       "require": "./dist/agent/eval.js",
       "default": "./dist/agent/eval.js"
     },
-    "./agent/gateways": {
-      "types": "./dist/agent/gateways.d.ts",
-      "import": "./dist/agent/gateways.js",
-      "require": "./dist/agent/gateways.js",
-      "default": "./dist/agent/gateways.js"
-    },
     "./agent/invocations/d1": {
       "types": "./dist/agent/invocations/d1.d.ts",
       "import": "./dist/agent/invocations/d1.js",
@@ -716,6 +710,12 @@
       "import": "./dist/env/server.js",
       "require": "./dist/env/server.js",
       "default": "./dist/env/server.js"
+    },
+    "./gateways": {
+      "types": "./dist/gateways.d.ts",
+      "import": "./dist/gateways.js",
+      "require": "./dist/gateways.js",
+      "default": "./dist/gateways.js"
     },
     "./kv": {
       "types": "./dist/kv.d.ts",
@@ -1270,6 +1270,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
     "@vite-hub/env": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
     "@vite-hub/kv": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/presets": "workspace:*",
