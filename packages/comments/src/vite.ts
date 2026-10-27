@@ -17,6 +17,7 @@ import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, comm
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { NitroModule, NitroOptions } from "nitro/types"
 import type { Plugin, PluginOption, UserConfig } from "vite"
 import type { CommentBuild } from "./types.ts"
 
@@ -89,6 +90,7 @@ export interface CommentsRealtimeContributionContext {
 }
 
 export type CommentsVitePlugin = Plugin & {
+  nitro?: NitroModule
   api: {
     /**
      * The `comments` Realtime Definition of the page presence rooms, for `hubRealtime({ contribute })`. Realtime calls
@@ -347,14 +349,6 @@ async function writeDefaultDefinition(directory: string, imports: CommentsImport
   return file
 }
 
-/** Whether `vite dev` runs the server in workerd: Nitro's dev runner of its Cloudflare presets. */
-function runsInWorkerd(config: UserConfig): boolean {
-  const nitro = Object(Reflect.get(config, "nitro"))
-  const runner: unknown = Object(nitro.devServer).runner
-  if (runner) return runner === "miniflare"
-  return /^cloudflare/.test(String(nitro.preset || process.env.NITRO_PRESET || process.env.SERVER_PRESET || ""))
-}
-
 /**
  * The storage of `comments()`. A build connects to the `database` option, else to what it finds at runtime. The
  * development server uses `.vitehub/data/comments.sqlite`, unless the option is a file, or a variable that is set. In
@@ -381,17 +375,17 @@ async function standaloneDatabase(projectRoot: string, options: CommentsOptions,
  * Adds the D1 binding of `database: "d1:NAME"` to the Wrangler config of the build, unless the app's Wrangler file has
  * it. Without an id, `wrangler deploy` creates the database.
  */
-async function addD1Binding(projectRoot: string, nitro: Record<string, unknown>, where: string | undefined): Promise<void> {
+async function addD1Binding(projectRoot: string, nitro: NitroOptions, where: string | undefined): Promise<void> {
   if (!where?.startsWith("d1:")) return
   const binding = where.slice(3)
   for (const file of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
     const source = await readFile(join(projectRoot, file), "utf8").catch(() => "")
     if (new RegExp(`["']?binding["']?\\s*[:=]\\s*["']${binding}["']`).test(source)) return
   }
-  const cloudflare: Record<string, unknown> = Object(nitro.cloudflare ?? {})
-  const wrangler: Record<string, unknown> = Object(cloudflare.wrangler ?? {})
-  const bindings: unknown[] = Array.isArray(wrangler.d1_databases) ? wrangler.d1_databases : []
-  if (bindings.some(entry => Object(entry).binding === binding)) return
+  const cloudflare = nitro.cloudflare ?? {}
+  const wrangler = cloudflare.wrangler ?? {}
+  const bindings = wrangler.d1_databases ?? []
+  if (bindings.some(entry => entry.binding === binding)) return
   nitro.cloudflare = { ...cloudflare, wrangler: { ...wrangler, d1_databases: [...bindings, { binding, database_name: "comments" }] } }
 }
 
@@ -434,6 +428,18 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
 
   return {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
+    nitro: options.standalone ? {
+      async setup(nitro) {
+        if (!projectRoot || !options.standalone) return
+        // Nitro has resolved plugin options, config files and preset defaults before installing modules.
+        const runner = nitro.options.devServer.runner || process.env.NITRO_DEV_RUNNER || "node-worker"
+        const standalone = await standaloneDatabase(projectRoot, options.standalone, nitro.options.dev ? "serve" : "build", runner === "miniflare")
+        const directory = resolve(projectRoot, ".vitehub/nitro/comments")
+        const definition = discover() ?? join(directory, "definition.mjs")
+        await writeFile(join(directory, "plugin.mjs"), renderCommentsPlugin({ definition, imports, standalone }))
+        await addD1Binding(projectRoot, nitro.options, standalone.where)
+      },
+    } : undefined,
     api: {
       async contributeRealtime(context) {
         const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
@@ -492,7 +498,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
     enforce: "pre",
     config: {
-      async handler(config, env) {
+      async handler(config) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
@@ -504,17 +510,16 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }
         await mkdir(directory, { recursive: true })
         const definition = discover() ?? await writeDefaultDefinition(directory, imports)
-        const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command, env.command === "serve" && runsInWorkerd(config)) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, ...(standalone === undefined ? {} : { standalone }) })),
+          // Standalone storage waits for Nitro's resolved dev runner in the module setup above.
+          options.standalone ? undefined : writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        if (standalone) await addD1Binding(projectRoot, kit.config, standalone.where)
         kit.addHandler({ handler, route: `${commentsRoute}/**` })
         kit.addPlugin(plugin)
         const nitro = kit.config

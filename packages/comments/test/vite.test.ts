@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
+import { createNitro } from "nitro/builder"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { comments, componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
@@ -26,6 +27,11 @@ async function configure(plugin: Plugin, root: string, command: ConfigEnv["comma
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...(nitro ? { nitro } : {}) }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
+  if (plugin.nitro) {
+    const instance = await createNitro({ ...config.nitro, rootDir: root, dev: command === "serve", modules: [plugin.nitro] })
+    await instance.close()
+    return instance.options
+  }
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }>, cloudflare?: { wrangler?: { d1_databases?: unknown[] } } } | undefined
 }
 
@@ -127,7 +133,7 @@ describe("comments() without vite-hub", () => {
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
     const root = await project({ "package.json": "{}" })
     const nitro = await configure(standalone(), root, "serve")
-    expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
+    expect(nitro?.handlers).toContainEqual({ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") })
     expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
