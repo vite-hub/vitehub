@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -32,6 +33,7 @@ import {
 
 import type {
   GitHubWorkspaceRefs,
+  WorkspaceMergeCommit,
   WorkspaceMergeConflict,
   WorkspaceMergeOptions,
   WorkspaceOpenPullRequestOptions,
@@ -606,19 +608,15 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const repoPath = (repo: { owner: string, name: string }) => `/repos/${encodeURIComponent(repo.owner)}/${encodeURIComponent(repo.name)}`
   const refPath = (branch: string) => branch.split("/").map(encodeURIComponent).join("/")
 
-  /** Branches that start with `prefix`, from the matching-refs endpoint, page by page. */
+  /** Matching refs are returned as one complete array; this endpoint does not support page parameters. */
   const matchingBranches = async (prefix: string): Promise<string[]> => await githubRequest(client, async (provider, repo) => {
-    const names: string[] = []
-    for (let page = 1; page <= 10; page++) {
-      const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`, { query: { per_page: 100, page } })
-      const items: unknown[] = Array.isArray(response.data) ? response.data : []
-      for (const item of items) {
-        const name: unknown = item !== null && typeof item === "object" ? Reflect.get(item, "ref") : undefined
-        if (nonEmptyString(name) && name.startsWith("refs/heads/")) names.push(name.slice("refs/heads/".length))
-      }
-      if (items.length < 100) break
+    const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`)
+    const names = new Set<string>()
+    for (const item of Array.isArray(response.data) ? response.data : []) {
+      const name: unknown = item !== null && typeof item === "object" ? Reflect.get(item, "ref") : undefined
+      if (nonEmptyString(name) && name.startsWith("refs/heads/")) names.add(name.slice("refs/heads/".length))
     }
-    return names
+    return [...names]
   }, "branch list")
 
   /** The open pull request whose head is `branch`, found by the head filter of the pulls endpoint. */
@@ -806,10 +804,63 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     return await revision(into.ref, sha, mergeOptions.metadata)
   }
 
+  /** Prepare on an isolated ref so a denied or invalid merge never changes the destination. */
+  const checkedMerge = async (mergeOptions: WorkspaceMergeOptions, check?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null> => {
+    if (!check) return await merge(mergeOptions)
+    const into = resolveRef(mergeOptions.into)
+    const expected = await readCurrentHead(client, into.branch)
+    if (!expected) throw workspaceError(`[vitehub] Cannot merge into ${into.ref}: the branch does not exist.`)
+    const temporary = `vitehub/merge/${randomUUID()}`
+    await githubRequest(client, async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
+      body: { ref: `refs/heads/${temporary}`, sha: expected },
+    }))
+    try {
+      const prepared = await merge({ ...mergeOptions, into: temporary, message: mergeOptions.message ?? `Merge ${mergeOptions.from} into ${into.ref}` })
+      if (!prepared) return null
+      // A branch merge also includes paths outside a rooted Workspace and excluded files. They cannot receive grants.
+      const [before, after] = await Promise.all([readFullTree(expected), readFullTree(prepared.id)])
+      for (const path of new Set([...before.keys(), ...after.keys()])) {
+        const workspacePath = options.root ? (path.startsWith(`${options.root}/`) ? path.slice(options.root.length + 1) : undefined) : path
+        if (workspacePath !== undefined && visibleWorkspacePath(workspacePath)) continue
+        if (before.get(path)?.sha !== after.get(path)?.sha || before.get(path)?.mode !== after.get(path)?.mode) {
+          throw workspaceError(`[vitehub] Cannot merge a change outside the Workspace file tree: ${path}.`)
+        }
+      }
+      const view = await open(prepared.id)
+      const entries = (await view.list("", { recursive: true })).filter(entry => entry.type === "file")
+      const files: Record<string, WorkspaceFile> = Object.create(null)
+      for (const entry of entries) {
+        files[entry.path] = { path: entry.path, content: await view.readFile(entry.path, { encoding: "binary" }), mediaType: entry.mediaType, metadata: entry.metadata }
+      }
+      return await check({ ref: into.ref, ifHead: expected, files, message: prepared.message, metadata: prepared.metadata }, async checked => {
+        // Validators may normalize bytes. Keep their result on top of the prepared merge before publishing the ref.
+        const changed = checked.changes !== undefined || !checked.files || Object.keys(checked.files).length !== entries.length
+          || (await Promise.all(entries.map(async entry => {
+            const file = checked.files?.[entry.path]
+            return !file || await gitBlobSha(contentToBytes(file.content)) !== entry.digest
+          }))).some(Boolean)
+        const result = changed ? await commit({ ...checked, ref: temporary, ifHead: prepared.id }) : prepared
+        const actual = await readCurrentHead(client, into.branch)
+        if (actual !== expected) {
+          heads.delete(into.branch)
+          throw historyConflict(into.ref, expected, actual)
+        }
+        await githubRequest(client, async (provider, repo) => await provider.request("PATCH", `${repoPath(repo)}/git/refs/heads/${refPath(into.branch)}`, {
+          body: { sha: result.id, force: false },
+        }))
+        heads.set(into.branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(result.id) })
+        return await revision(into.ref, result.id, result.metadata)
+      })
+    }
+    finally {
+      await deleteBranch(temporary)
+    }
+  }
+
   return {
     pullRequests,
     openPullRequest,
-    merge,
+    merge: checkedMerge,
     head: async (headOptions) => {
       const { branch, ref } = resolveRef(headOptions?.ref)
       const id = await readBranchHead(branch)

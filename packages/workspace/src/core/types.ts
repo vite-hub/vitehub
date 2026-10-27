@@ -484,7 +484,14 @@ export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, Worksp
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 
-export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
+/** Run the Workspace commit policy on a prepared merge before the Store advances its destination ref. */
+export type WorkspaceMergeCommit = (
+  options: WorkspaceStoreHistoryCommitOptions,
+  apply: (checked: WorkspaceStoreHistoryCommitOptions) => Promise<WorkspaceRevision>,
+) => Promise<WorkspaceRevision>
+
+export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<WorkspaceHistoryExtensions, "merge"> {
+  merge?(options: WorkspaceMergeOptions, commit?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null>
   commit(options: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 

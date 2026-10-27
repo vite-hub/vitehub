@@ -74,7 +74,7 @@ class WorkspaceSourceWriteGrant {
 export type { WorkspaceSourceWriteGrant }
 
 export interface WorkspaceSourceView {
-  requireHistoryGrants(history: WorkspaceStoreHistory): (grants: readonly WorkspaceSourceWriteGrant[], options: Parameters<WorkspaceStoreHistory["commit"]>[0]) => ReturnType<WorkspaceStoreHistory["commit"]>
+  requireHistoryGrants(history: WorkspaceStoreHistory, apply?: WorkspaceStoreHistory["commit"]): (grants: readonly WorkspaceSourceWriteGrant[], options: Parameters<WorkspaceStoreHistory["commit"]>[0]) => ReturnType<WorkspaceStoreHistory["commit"]>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   /** Rejects Source-backed paths. Returns a write grant bound to the normalized path. */
@@ -751,7 +751,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   return {
-    requireHistoryGrants(history) {
+    requireHistoryGrants(history, apply = options => history.commit(options)) {
       return async (grants, options) => {
         return await withWorkspaceStoreMutation(store, async () => {
           const ref = normalizeHistoryRef(options.ref)
@@ -802,7 +802,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               if (!unchanged) await assertWritableCurrentPath(entry.path)
             }
           }
-          return await history.commit({ ...options, ref })
+          return await apply({ ...options, ref })
         })
       }
     },

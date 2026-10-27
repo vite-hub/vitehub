@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks"
+import { randomUUID } from "node:crypto"
 
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
@@ -615,8 +616,8 @@ function pullRequestTitle(message: string): string {
   return line.length > 200 ? `${line.slice(0, 199)}…` : line || "Publish Content documents"
 }
 
-/** How many draft revisions of a document `draftHeld()` reads. */
-const draftLineageLimit = 30
+/** How many draft revisions of a document `draftHeld()` reads per page. */
+const draftLineagePageSize = 30
 
 /** Publish branches of `publish: 'pr'` start with this. */
 const publishBranchPrefix = "vitehub/publish/"
@@ -835,15 +836,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   let mergedKey: string | undefined
   let conflictKey: string | undefined
 
-  /** Whether the draft held `digest` of `path` in its recent history, as when its own publish put it on `published`. */
+  /** Whether the draft held `digest` of `path` in its history, as when its own publish put it on `published`. */
   async function draftHeld(path: string, digest: string | null | undefined): Promise<boolean> {
-    if (digest === null || digest === undefined) return false
+    if (digest === undefined) return false
     const retained = await history()
     // Merges and squashes keep no trailer, so the draft's own history is the record of what it published.
-    const page = await retained.list({ ref: "draft", path, limit: draftLineageLimit })
-    for (const revision of page.revisions) {
-      if ((await openRevision(revision)).files.get(path) === digest) return true
-    }
+    let cursor: string | undefined
+    do {
+      const page = await retained.list({ ref: "draft", path, limit: draftLineagePageSize, cursor })
+      for (const revision of page.revisions) {
+        if (((await openRevision(revision)).files.get(path) ?? null) === digest) return true
+      }
+      cursor = page.cursor
+    } while (cursor)
     return false
   }
 
@@ -1629,7 +1634,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         }
         // The branch starts from the published head that the changes were checked against.
         const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14)
-        const branch = `${publishBranchPrefix}${draftHead.id.slice(0, 7)}-${stamp}`
+        const branch = `${publishBranchPrefix}${draftHead.id.slice(0, 7)}-${stamp}-${randomUUID()}`
         const revision = await contentPublishes.run(true, () => retained.commit({
           ref: branch,
           ifHead: null,

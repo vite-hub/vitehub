@@ -271,12 +271,32 @@ describe("Content on the GitHub store", () => {
       expect(fake.head("main")).toBe(main)
       expect(fake.pulls).toHaveLength(1)
       expect(fake.pulls[0]).toMatchObject({ base: "main", draft: false })
-      expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}$/)
+      expect(fake.pulls[0]!.head).toMatch(/^vitehub\/publish\/[0-9a-f]{7}-\d{14}-[0-9a-f-]{36}$/)
       expect(fake.pulls[0]!.body).toContain("- `posts/b` (add)")
       const branch = fake.commits.get(fake.head(fake.pulls[0]!.head)!)!
       expect(branch.parents).toEqual([main])
       expect(branch.tree.some(entry => entry.path === "content/posts/b.md")).toBe(true)
       expect(result.revision!.id).toBe(fake.head(fake.pulls[0]!.head))
+    })
+
+    it.each([false, true])("publishes disjoint documents from one draft in the same second (concurrent: %s)", async (concurrent) => {
+      const { posts, content } = await setup({ publish: "pr" })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      await posts.save("c", { data: { title: "C" }, body: "" })
+      const publish = (id: string) => content.publish({ collection: "posts", ids: [id] })
+      const results = concurrent ? await Promise.all([publish("b"), publish("c")]) : [await publish("b"), await publish("c")]
+      expect(results.map(result => result.pullRequest?.number)).toEqual([1, 2])
+      expect(new Set(fake.pulls.map(pull => pull.head)).size).toBe(2)
+    })
+
+    it("checks Content validation before a direct history merge publishes a draft", async () => {
+      const { posts, workspace } = await setup({ publish: "pr" })
+      // SAFETY: Deliberately invalid runtime fields must stay draft-only even when a caller merges refs directly.
+      await posts.save("b", { data: { title: 123 as never }, body: "" })
+      const main = fake.head("main")
+      await expect(useWorkspace(workspace, { mode: "write" }).history.merge!({ from: "draft", into: "published" })).rejects.toThrow()
+      expect(fake.head("main")).toBe(main)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
     })
 
     it("returns the pull request from the Console publish action", async () => {
@@ -404,6 +424,28 @@ describe("Content on the GitHub store", () => {
           { collection: "posts", id: "c", change: "add" },
         ])
         expect(result.pullRequest).toMatchObject({ number: 2 })
+      })
+
+      it("recognizes its own publish after more than one page of later draft revisions", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.save("b", { data: { title: "B0" }, body: "" })
+        await content.publish()
+        for (let i = 1; i <= 35; i++) await posts.save("b", { data: { title: `B${i}` }, body: "" })
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        await posts.save("c", { data: { title: "C" }, body: "" })
+        await expect(content.publish()).resolves.toMatchObject({ pullRequest: { number: 2 } })
+      })
+
+      it("recognizes its own deletion when the draft recreated the document", async () => {
+        const { posts, content } = await setup({ publish: "pr" })
+        await posts.remove("a")
+        await content.publish()
+        await posts.save("a", { data: { title: "Recreated" }, body: "" })
+        fake.mergePullRequest(1, method)
+        vi.advanceTimersByTime(6_000)
+        await posts.save("c", { data: { title: "C" }, body: "" })
+        await expect(content.publish()).resolves.toMatchObject({ pullRequest: { number: 2 }, documents: expect.arrayContaining([{ collection: "posts", id: "a", change: "add" }]) })
       })
 
       it("shows the merged publish in the published history of the document", async () => {
