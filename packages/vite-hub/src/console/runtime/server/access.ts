@@ -1,7 +1,8 @@
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
+import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
-import { consoleRequestError, consoleRequestURL, type ConsoleRequestEvent } from "./request.ts"
+import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
 import type { AgentActor } from "@vite-hub/agent"
@@ -15,9 +16,9 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `cloudflare-access`: the Cloudflare Access application token.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open", authorize?: ConsoleAuthorize }
+  | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
@@ -79,15 +80,52 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("user" in policy && policy.user !== undefined && typeof policy.user !== "function") {
     throw new TypeError("[vitehub] Console access user reader must be a function.")
   }
-  if (policy.mode === "open" && !policy.authorize && !developmentRuntime() && !scope[openWarningKey]) {
+  if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
+    throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
+  }
+  if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
   }
   scope[policyKey] = Object.freeze({ ...policy })
 }
 
-function developmentRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "development"
+/** Whether a value stays a path on the same origin after URL normalization. */
+export function isConsoleSignInPage(value: unknown): value is string {
+  // doctor-disable-next-line typescript/strict/no-runtime-typeof -- The value comes from configuration or generated output.
+  if (typeof value !== "string" || !/^\/(?!\/)[^\\\s]*$/.test(value)) return false
+  // Dot segments can turn a single-slash input into a network-path reference when serialized.
+  return !new URL(value, "http://vitehub.local").pathname.startsWith("//")
+}
+
+/** The sign-in page of the installed policy, under the application mount of a Console path. */
+export function consoleSignInPage(pathname: string): string | undefined {
+  const policy = scope[policyKey]
+  const page = policy && "signInPage" in policy ? policy.signInPage : undefined
+  if (!page) return undefined
+  const normalized = new URL(page, "http://vitehub.local")
+  const mounted = `${consoleMountBase(pathname)}${normalized.pathname}${normalized.search}${normalized.hash}`
+  return isConsoleSignInPage(mounted) ? mounted : undefined
+}
+
+/**
+ * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
+ * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
+ * does not read a page, or the access check does not answer `401`.
+ */
+export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise<Response | undefined> {
+  const url = consoleRequestURL(event)
+  const page = consoleSignInPage(url.pathname)
+  const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
+  if (!page || (method !== "GET" && method !== "HEAD")) return undefined
+  const access = await checkConsoleAccess(event)
+  if (!isRuntimeResponse(access) || access.status !== 401) return undefined
+  const target = new URL(page, url)
+  target.searchParams.set("redirect", `${url.pathname}${url.search}`)
+  return new Response(null, {
+    headers: { "cache-control": "no-store", location: `${target.pathname}${target.search}${target.hash}`, "x-robots-tag": "noindex, nofollow" },
+    status: 302,
+  })
 }
 
 /** Build the standard Fetch request passed to Console authorization and runtime contexts. */
@@ -185,7 +223,7 @@ async function checkConsoleAccess(event: ConsoleRequestEvent, options: { user?: 
   if (!policy) return rejection(500, "CONSOLE_ACCESS_NOT_CONFIGURED", "Console access is not configured. The generated Console output did not install an access policy.")
   let user: ConsoleUser | undefined
   if (policy.mode === "local") {
-    if (!developmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
+    if (!isConsoleDevelopmentRuntime()) return rejection(403, "CONSOLE_DEVELOPMENT_ONLY")
   }
   else if (policy.mode === "open") {
     // open access intentionally performs no authentication

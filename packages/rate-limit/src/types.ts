@@ -23,11 +23,10 @@ export interface RequireRateLimitOptions extends RateLimitPolicy {
   key?: string
 }
 
-export interface RateLimitRequestEvent {
-  readonly req: {
-    readonly headers: { get: (name: string) => string | null }
-  }
-}
+/** A server request event: an H3 2 event, as in Nitro 3, or an H3 1 event, as in Nuxt 4. */
+export type RateLimitRequestEvent =
+  | { readonly req: { readonly headers: { get: (name: string) => string | null } } }
+  | { readonly node: { readonly req: { readonly headers: Readonly<Record<string, string | string[] | undefined>> } } }
 
 export interface ResolvedRateLimitPolicy {
   readonly enforcement: RateLimitEnforcement

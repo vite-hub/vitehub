@@ -113,6 +113,19 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
+### Open the Console in DevTools
+
+On a development server, the Console is also a **ViteHub Console** entry in the DevTools of your app:
+
+| App | Where |
+| --- | --- |
+| Nuxt | A tab in Nuxt DevTools 3 and 4. |
+| Vite with [`@vitejs/devtools`](https://devtools.vite.dev) | An entry in the Vite DevTools dock, which Devframe renders. |
+
+The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
+
+With independent Console Auth, the sign-in button opens authentication in the main browser page. Open DevTools again after signing in.
+
 `console: true` is not valid. ViteHub stops with an error that names `auth: false` and `auth: 'app'`. A `console` object without `auth` also fails.
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
@@ -212,6 +225,16 @@ export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 ```
 
 ViteHub checks for an Auth Session first. A missing session returns `401`. Then it calls `authorize` with the request and the signed-in `user`. The `role` field is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist that the app already uses.
+
+Set `signInPage` to the path of your sign-in page, so the Console can send users there:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts', signInPage: '/sign-in' }
+```
+
+A visit to a Console page without a session then goes to `/sign-in?redirect=%2F_vitehub%2Fauth`, where the `redirect` query parameter is the Console page that the user asked for. Return there after sign-in, and accept only paths on your own origin. When a session ends while the Console is open, the Console shows **Sign in**, which opens the same page. The path is relative to the app's origin; ViteHub adds the mount base of an app mounted below `/`. `auth: false` with an `authorize` that returns a `401` uses `signInPage` in the same way. Console Auth has its own sign-in page, `/_vitehub/sign-in`, and does not take `signInPage`.
+
+Without `signInPage`, the Console page loads without a session. Its Overview then asks the user to sign in and offers **Check again**. When the tab becomes visible again, the Console checks again by itself, so a user who signs in in another tab does not need to reload the Console.
 
 You can instead guard the Console with access routes in the Auth Definition. Without `authorize`, the Auth Definition must have an access route with an `authorize` callback for `/_vitehub/**` and for `GET /api/_vitehub/console/status`. With the Usage section, it also needs one for `GET /api/_vitehub/console/usage`. Otherwise ViteHub stops with `VITE_HUB_B0006`, in every environment:
 
@@ -336,7 +359,7 @@ export default defineConsoleAuthorize(async ({ request }) => {
 
 ### Limit a user to some sections
 
-`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data.
+`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data. With `signInPage`, a visit to a Console page also runs the access check, to send a user without a session to sign in.
 
 `authorize` returns one of these values:
 

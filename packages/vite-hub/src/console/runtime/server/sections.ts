@@ -7,6 +7,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 export { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess } from "./access.ts"
 export { installConsolePageTool } from "./page-tool.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"
+export { installConsoleDevelopment } from "./development.ts"
 
 export function installConsoleSections(projectRoot: string, sections: readonly ConsoleSectionId[], independentAuth: ConsoleAuthMode | false = false): readonly ConsoleSectionId[] {
   return installConsoleSectionScope(projectRoot, sections, undefined, independentAuth)

@@ -6,7 +6,7 @@ import { createWorkflowError } from "../errors.ts"
 import { getCloudflareWorkflowBindingName } from "../integrations/cloudflare.ts"
 import { getVercelWorkflowName } from "../integrations/vercel.ts"
 
-import { runWorkflowHandler } from "./execute.ts"
+import { runSerializedWorkflowHandler } from "./execute.ts"
 import { getOpenWorkflowRun, runOpenWorkflow } from "./openworkflow.ts"
 import { runWorkflowProviderOperation, safeWorkflowName } from "./provider-operation.ts"
 import { getWorkflowRunState, getWorkflowRuntimeRegistry, loadWorkflowDefinition, setWorkflowRun } from "./state.ts"
@@ -228,7 +228,7 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           id,
           metadata: run.error,
           provider: config.provider,
-          result: run.result,
+          result: isSerializedResponse(run.result) ? deserializeResponse(run.result) : run.result,
           status: run.status,
         }
       }
@@ -246,13 +246,13 @@ function inlineAdapter(config: ResolvedWorkflowOptions): WorkflowRuntimeAdapter 
           metadata: existing.error ?? (config.provider === "vercel" ? { mode: "inline", workflow: getVercelWorkflowName(name) } : undefined),
           payload: existing.payload as TPayload | undefined,
           provider: config.provider,
-          result: existing.result as TResult | undefined,
+          result: (isSerializedResponse(existing.result) ? deserializeResponse(existing.result) : existing.result) as TResult | undefined,
           status: existing.status === "running" ? "queued" : existing.status,
         }
       }
       resolveDispatchObserver(event)?.()
       const run = Promise.resolve()
-        .then(() => runWorkflowHandler({
+        .then(() => runSerializedWorkflowHandler({
           id,
           name,
           payload,

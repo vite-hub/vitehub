@@ -17,13 +17,21 @@ type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, 
  * such as Nuxt, cannot change how the Console looks. Nitro adds the application base to these routes.
  */
 export function addConsolePageHandlers(
-  nitro: { handlers?: Array<{ handler: string; route: string }>, publicAssets?: NitroPublicAsset[] },
+  nitro: { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
   consoleRuntimeRoot: string,
   base?: string,
+  signInPage?: string,
 ): void {
   const page = join(consoleRuntimeRoot, "server/page.get.js")
+  const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
   const assets = join(consoleRuntimeRoot, "public/console")
-  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page)
+  const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
+  if (signInPage) {
+    // Run before primary app Auth can reject an HTML page visit, including after Nitro config replay.
+    for (const suffix of ["/_vitehub", "/_vitehub/**"]) {
+      handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, suffix) })
+    }
+  }
   for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, route: mountPath(base, suffix) })
   nitro.handlers = handlers
   nitro.publicAssets = [
