@@ -218,7 +218,10 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
             const methodListeners = listeners.get(method) ?? new Set()
             methodListeners.add(listener)
             listeners.set(method, methodListeners)
+            let active = true
             return () => {
+              if (!active) return
+              active = false
               methodListeners.delete(listener)
               if (methodListeners.size === 0) listeners.delete(method)
             }
@@ -228,8 +231,15 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
             if (socket.readyState !== 1) throw browserProviderError("cdp", "send a command without an open connection")
             return await new Promise<TResult>((resolve, reject) => {
               const id = ++nextId
+              const message = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })
               pending.set(id, { reject, resolve: value => resolve(value as TResult) })
-              socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }))
+              try {
+                socket.send(message)
+              }
+              catch (error) {
+                pending.delete(id)
+                reject(error)
+              }
             })
           },
         },
