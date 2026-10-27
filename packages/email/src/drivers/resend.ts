@@ -75,6 +75,7 @@ async function readResponseText(
   if (signal.aborted) {
     signal.removeEventListener("abort", abortRead);
     void reader.cancel().catch(() => {});
+    reader.releaseLock();
     throw signal.reason ?? new DOMException("aborted", "AbortError");
   }
   const timeout = setTimeout(() => {
@@ -106,6 +107,7 @@ async function readResponseText(
   } finally {
     clearTimeout(timeout);
     signal.removeEventListener("abort", abortRead);
+    reader.releaseLock();
   }
 }
 
