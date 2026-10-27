@@ -25,14 +25,17 @@ vi.mock("../src/console/runtime/components/console-search.vue", () => ({ default
 
 import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { loadConsoleNavigation } from "../src/console/runtime/client/sections"
+import { consoleSignInURL } from "../src/console/runtime/client/sign-in"
 import ConsoleHome from "../src/console/runtime/components/console-home.vue"
 import ConsoleRail from "../src/console/runtime/components/console-rail.vue"
 
 const slot = defineComponent({ setup: (_props, { slots }) => () => h("div", slots.default?.()) })
 const stubs: Record<string, Component> = {
   UButton: defineComponent({
-    props: { label: String, loading: Boolean, onClick: Function },
-    setup: props => () => h("button", { "data-button": props.label, "data-loading": props.loading, onClick: props.onClick }, props.label),
+    props: { label: String, loading: Boolean, onClick: Function, to: String },
+    setup: props => () => props.to
+      ? h("a", { href: props.to }, props.label)
+      : h("button", { "data-button": props.label, "data-loading": props.loading, onClick: props.onClick }, props.label),
   }),
   UDashboardNavbar: defineComponent({ props: { title: String }, setup: props => () => h("h1", props.title) }),
   UDashboardPanel: defineComponent({ setup: (_props, { slots }) => () => h("div", [slots.header?.(), slots.body?.()]) }),
@@ -58,10 +61,12 @@ function mount(component: Component, props: Record<string, unknown>) {
 
 const signedOut = () => Promise.reject(new ConsoleRequestError(401))
 
-/** A document whose visibility the test sets. The Overview reads only these members of it. */
-function stubDocument(): { show: () => void } {
+/** A document whose visibility the test sets, with the sign-in page meta tag of a Console page. The Overview reads only these members. */
+function stubDocument(signInPage?: string): { show: () => void } {
   const target = new EventTarget()
-  const document = Object.assign(target, { visibilityState: "hidden" })
+  const meta = { getAttribute: (name: string) => (name === "content" ? signInPage : null) }
+  const querySelector = (selector: string) => (signInPage && selector === 'meta[name="vitehub-console-sign-in"]' ? meta : null)
+  const document = Object.assign(target, { querySelector, visibilityState: "hidden" })
   vi.stubGlobal("document", document)
   return {
     show: () => {
@@ -101,6 +106,24 @@ describe("signed-out Console", () => {
       await vi.waitFor(() => expect(root.textContent).toContain("demo"))
       expect(root.textContent).not.toContain("Sign in to use the Console")
       expect(root.querySelector('button[aria-label="Open KV"]')).not.toBeNull()
+    }
+    finally { app.unmount() }
+  })
+
+  it("links the signed-out Overview to the sign-in page that the Console page names, with the way back", async () => {
+    mocks.requestConsole.mockImplementation(signedOut)
+    stubDocument("/sign-in")
+    vi.stubGlobal("window", Object.assign(new EventTarget(), { location: new URL("http://vitehub.local/portal/_vitehub/?from=mail") }))
+    const { app, root } = mount(ConsoleHome, {
+      agentsBase: "/agents", definitionsBase: "/definitions", kvBase: "/kv", searchBase: "/search", sectionsBase: "/sign-in-page/sections",
+    })
+    try {
+      await vi.waitFor(() => expect(root.querySelector("h2")?.textContent).toBe("Sign in to use the Console"))
+      expect(root.textContent).toContain("You are not signed in, or your session ended.")
+      expect(root.textContent).not.toContain("come back to this tab")
+      const links = [...root.querySelectorAll("a")].map(link => [link.textContent, link.getAttribute("href")])
+      expect(links).toEqual([["Sign in", "/sign-in?redirect=%2Fportal%2F_vitehub%2F%3Ffrom%3Dmail"]])
+      expect(root.querySelector('[data-button="Check again"]')).toBeNull()
     }
     finally { app.unmount() }
   })
@@ -145,5 +168,16 @@ describe("signed-out Console", () => {
       expect(buttons()).toContain("Retry loading primitives")
     }
     finally { app.unmount() }
+  })
+
+  it("links only to a sign-in page on the Console's origin, and keeps that page's own query", () => {
+    const page = (content: string | null) => ({
+      document: { querySelector: () => (content === null ? null : { getAttribute: () => content }) },
+      location: { origin: "http://vitehub.local", pathname: "/_vitehub/kv", search: "?store=cache" },
+    })
+    expect(consoleSignInURL(page("/?signin=1"))).toBe("/?signin=1&redirect=%2F_vitehub%2Fkv%3Fstore%3Dcache")
+    for (const content of [null, "", "sign-in", "//evil.example/sign-in", "https://evil.example/sign-in"]) {
+      expect(consoleSignInURL(page(content))).toBeUndefined()
+    }
   })
 })

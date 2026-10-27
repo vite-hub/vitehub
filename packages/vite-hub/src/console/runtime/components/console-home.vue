@@ -19,6 +19,7 @@ import {
 } from "../sections";
 import { isConsoleSignInRequired, requestConsole } from "../client/request";
 import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails } from "../client/sections";
+import { consoleSignInURL } from "../client/sign-in";
 import { recentTimestamp } from "../client/time";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleMark from "./console-mark.vue";
@@ -117,6 +118,8 @@ async function loadRecentSessions(): Promise<void> {
 const signedOut = computed(() => !loading.value && !availableSections.value.length && isConsoleSignInRequired(error.value));
 const checking = ref(false);
 const stillSignedOut = ref(false);
+// With a sign-in page, the Console sends the person there and back. Without one, it asks them to sign in elsewhere.
+const signInURL = computed(() => (signedOut.value ? consoleSignInURL({ document, location: window.location }) : undefined));
 
 /** A quiet load keeps the current page on screen while it runs, so the signed-out state does not flash a skeleton. */
 async function loadSections(quiet = false): Promise<void> {
@@ -207,9 +210,20 @@ onBeforeUnmount(() => {
           </span>
           <h2 id="console-home-signed-out" class="mt-4 text-base font-semibold text-balance text-highlighted">Sign in to use the Console</h2>
           <p class="mt-1.5 max-w-sm text-sm text-pretty text-muted">
-            You are not signed in, or your session ended. Sign in, then come back to this tab.
+            {{ signInURL ? "You are not signed in, or your session ended." : "You are not signed in, or your session ended. Sign in, then come back to this tab." }}
           </p>
           <UButton
+            v-if="signInURL"
+            class="mt-5"
+            color="neutral"
+            size="sm"
+            icon="i-lucide-log-in"
+            label="Sign in"
+            :to="signInURL"
+            external
+          />
+          <UButton
+            v-else
             class="mt-5"
             color="neutral"
             variant="outline"

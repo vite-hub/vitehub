@@ -18,7 +18,8 @@ import { createConnectionsRuntime } from "@vite-hub/connections/server"
 import { bindConsoleAccess, consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
-import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleOptions } from "../src/console/vite.ts"
+import consolePageHandler from "../src/console/runtime/server/page.get.ts"
+import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -427,6 +428,14 @@ describe("generated Console access", () => {
     expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user })')
   })
 
+  it("installs the sign-in page of app Auth in the generated plugin", async () => {
+    const plugin = await generatedPlugin({
+      console: { auth: "app", signInPage: "/sign-in" },
+      resolveAuthConfig: () => appAuth([{ authorize: true, route: "/_vitehub/**" }, { authorize: true, method: "GET", route: "/api/_vitehub/console/**" }]),
+    }, "build")
+    expect(plugin).toContain('installConsoleAccess({ mode: "auth", check: vitehubConsoleAppAccess.check, user: vitehubConsoleAppAccess.user, signInPage: "/sign-in" })')
+  })
+
   it("accepts exact GET rules for the registered Console API endpoints", async () => {
     const plugin = await generatedPlugin({
       console: { auth: "app" },
@@ -525,5 +534,61 @@ describe("Realtime rooms from Console access", () => {
     installConsoleAccess({ mode: "auth", check: async () => new Response(null, { status: 401 }) })
     await expect(consoleRealtimeAccess("content").identify({ event: event() })).resolves.toBeNull()
     await expect(consoleRealtimeAccess("content").identify({ event: "not an event" })).resolves.toBeNull()
+  })
+})
+
+describe("Console sign-in page", () => {
+  const visit = (path: string, method = "GET"): ConsoleRequestEvent => ({ method, req: new Request(`http://vitehub.local${path}`, { headers: { accept: "text/html" }, method }) })
+  const signedOut = () => new Response(JSON.stringify({ error: "Unauthorized." }), { status: 401 })
+
+  it("accepts a path on the app's origin for app Auth and open access only", () => {
+    expect(resolveConsoleOptions({ auth: "app", signInPage: "/sign-in" })).toMatchObject({ signInPage: "/sign-in" })
+    expect(resolveConsoleOptions({ auth: false, authorize: "authorize.ts", signInPage: "/?signin=1" })).toMatchObject({ signInPage: "/?signin=1" })
+    for (const signInPage of ["sign-in", "//evil.example/sign-in", "https://evil.example/sign-in", "/sign in", "/a\\b", 1]) {
+      expect(() => resolveConsoleOptions({ auth: "app", signInPage })).toThrow("console.signInPage must be a path on the app's origin")
+    }
+    expect(() => resolveConsoleOptions({ auth: { provider: "github" }, signInPage: "/sign-in" })).toThrow("Console Auth has its own sign-in page")
+    expect(() => installConsoleAccess({ mode: "open", signInPage: "//evil.example" })).toThrow("must be a path on the same origin")
+  })
+
+  it("installs the app's sign-in page, and the one of Console Auth", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-sign-in-"))
+    try {
+      expect(resolveConsoleAccessBuild({ auth: "app", signInPage: "/sign-in" }, { root })).toEqual({ mode: "auth", signInPage: "/sign-in" })
+      expect(resolveConsoleAccessBuild({ auth: false, signInPage: "/sign-in" }, { root })).toEqual({ mode: "open", signInPage: "/sign-in" })
+      const handlers = { auth: true as const, middleware: join(root, "middleware.mjs") }
+      expect(resolveConsoleAccessBuild({ auth: {} }, { handlers, root })).toMatchObject({ mode: "auth", signInPage: "/_vitehub/sign-in" })
+      expect(resolveConsoleAccessBuild({ auth: { provider: "cloudflare-access" } }, { handlers: { ...handlers, auth: "cloudflare-access" }, root }))
+        .not.toHaveProperty("signInPage")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it("sends a signed-out page visit to the sign-in page and back", async () => {
+    installConsoleAccess({ mode: "open", authorize: signedOut, signInPage: "/sign-in?from=console" })
+    const response = await consolePageHandler(visit("/_vitehub/auth?tab=users"))
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe("/sign-in?from=console&redirect=%2F_vitehub%2Fauth%3Ftab%3Dusers")
+
+    const mounted = await consolePageHandler(visit("/portal/_vitehub"))
+    expect(mounted.headers.get("location")).toBe("/portal/sign-in?from=console&redirect=%2Fportal%2F_vitehub")
+  })
+
+  it("serves the page with a link to the sign-in page to a signed-in visitor, and to one the policy rejects", async () => {
+    for (const authorize of [() => true, () => false]) {
+      installConsoleAccess({ mode: "open", authorize, signInPage: "/sign-in" })
+      const response = await consolePageHandler(visit("/_vitehub/auth"))
+      expect(response.status).toBe(200)
+      await expect(response.text()).resolves.toContain('<meta name="vitehub-console-sign-in" content="/sign-in">')
+    }
+  })
+
+  it("serves the page without a sign-in link when the policy names no sign-in page", async () => {
+    installConsoleAccess({ mode: "open", authorize: signedOut })
+    const response = await consolePageHandler(visit("/_vitehub/auth"))
+    expect(response.status).toBe(200)
+    await expect(response.text()).resolves.not.toContain("vitehub-console-sign-in")
   })
 })

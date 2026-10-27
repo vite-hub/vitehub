@@ -226,7 +226,15 @@ export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
 
 ViteHub checks for an Auth Session first. A missing session returns `401`. Then it calls `authorize` with the request and the signed-in `user`. The `role` field is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist that the app already uses.
 
-The Console page itself loads without a session. Its Overview then asks the user to sign in and offers **Check again**. When the tab becomes visible again, the Console checks again by itself, so a user who signs in in another tab does not need to reload the Console.
+Set `signInPage` to the path of your sign-in page, so the Console can send users there:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts', signInPage: '/sign-in' }
+```
+
+A visit to a Console page without a session then goes to `/sign-in?redirect=%2F_vitehub%2Fauth`, where the `redirect` query parameter is the Console page that the user asked for. Return there after sign-in, and accept only paths on your own origin. When a session ends while the Console is open, the Console shows **Sign in**, which opens the same page. The path is relative to the app's origin; ViteHub adds the mount base of an app mounted below `/`. `auth: false` with an `authorize` that returns a `401` uses `signInPage` in the same way. Console Auth has its own sign-in page, `/_vitehub/sign-in`, and does not take `signInPage`.
+
+Without `signInPage`, the Console page loads without a session. Its Overview then asks the user to sign in and offers **Check again**. When the tab becomes visible again, the Console checks again by itself, so a user who signs in in another tab does not need to reload the Console.
 
 You can instead guard the Console with access routes in the Auth Definition. Without `authorize`, the Auth Definition must have an access route with an `authorize` callback for `/_vitehub/**` and for `GET /api/_vitehub/console/status`. With the Usage section, it also needs one for `GET /api/_vitehub/console/usage`. Otherwise ViteHub stops with `VITE_HUB_B0006`, in every environment:
 
@@ -351,7 +359,7 @@ export default defineConsoleAuthorize(async ({ request }) => {
 
 ### Limit a user to some sections
 
-`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data.
+`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data. With `signInPage`, a visit to a Console page also runs the access check, to send a user without a session to sign in.
 
 `authorize` returns one of these values:
 
