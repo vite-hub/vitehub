@@ -147,6 +147,10 @@ class CommentsOverlay extends HTMLElement {
   private lastCursor = 0
   private readonly cleanups: Array<() => void> = []
 
+  private get active() {
+    return this.isConnected && !this.context?.signal.aborted
+  }
+
   async connectedCallback() {
     this.shadow.append(h("style", {}, overlayStyles), this.root)
     this.root.append(this.layer, this.cursors, this.floating)
@@ -165,6 +169,7 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => style.remove())
 
     const [error, session] = await api.session()
+    if (!this.active) return
     if (error || !session.can.read) {
       // The page tools session allowed the overlay, so this is an error or a change of access since then.
       this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
@@ -175,6 +180,7 @@ class CommentsOverlay extends HTMLElement {
     this.listen()
     this.renderToolbar()
     await this.load()
+    if (!this.active) return
     this.joinRoom()
     this.openFromHash()
   }
@@ -336,6 +342,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private async navigated() {
+    if (!this.active) return
     const page = normalizeCommentPage(location.pathname)
     if (page === this.page) return
     this.page = page
@@ -366,7 +373,7 @@ class CommentsOverlay extends HTMLElement {
   private async load() {
     const page = this.page
     const [error, threads] = await api.threads(page)
-    if (page !== this.page) return
+    if (!this.active || page !== this.page) return
     if (error) {
       this.showToast(error.why, "error")
       return
@@ -383,7 +390,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private joinRoom() {
-    if (!this.session?.realtime) return
+    if (!this.active || !this.session?.realtime) return
     const guest = readGuest()
     const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : this.session.user ?? undefined)
     const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })

@@ -142,8 +142,11 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
       if (signal.aborted) return undefined
       const cleanup = start({ tool, bar, signal, open: tool.id === open, exit })
       if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
-      if (cleanup instanceof Function) signal.addEventListener("abort", () => cleanup(), { once: true })
-      return tool
+      if (cleanup instanceof Function) {
+        if (signal.aborted) cleanup()
+        else signal.addEventListener("abort", () => cleanup(), { once: true })
+      }
+      return signal.aborted ? undefined : tool
     }
     catch (error) {
       bar.remove()

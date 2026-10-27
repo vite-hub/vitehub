@@ -16,10 +16,10 @@ const policyKey = Symbol.for("vitehub.console.access")
 const pageToolsKey = Symbol.for("vitehub.page-tools")
 
 /** The tools that the page tools session allows for one page request under a Console access policy. */
-async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Record<string, string> = {}) {
+async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Record<string, string> = {}, assetsBase?: string) {
   if (policy) installConsoleAccess(policy)
   else Reflect.deleteProperty(globalThis, policyKey)
-  installConsolePageTool({})
+  installConsolePageTool({}, assetsBase)
   const request = new Request("http://site.test/_vitehub/page/session", { headers })
   const response = await pageSessionHandler({ method: "GET", req: request })
   const body: unknown = await response.json()
@@ -77,7 +77,12 @@ describe("the Console page tool", () => {
 })
 
 describe("the Console Nitro configuration", () => {
-  it("serves the page tools session and loader in an app without Comments", async () => {
+  it.each([
+    ["/", "/_vitehub/assets"],
+    ["/portal/", "/portal/_vitehub/assets"],
+    ["https://site.test/portal/", "/portal/_vitehub/assets"],
+    ["./", "/_vitehub/assets"],
+  ])("aligns the registered tool script with the Console asset mount under %s", async (base, assetsBase) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -85,13 +90,17 @@ describe("the Console Nitro configuration", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { nitro?: { handlers: Array<{ handler: string, route: string }>, publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { root }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base, root }
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: "/_vitehub/page/session" })
       expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/runtime[/\\]page$/) }))
+      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: assetsBase, dir: expect.stringMatching(/public[/\\]console$/) }))
       // The generated Console plugin registers the `console` page tool when the Nitro app starts.
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain("export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp) }")
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, ${JSON.stringify(assetsBase)}) }`)
+      await expect(sessionTools({ mode: "open" }, {}, assetsBase)).resolves.toMatchObject({
+        body: { tools: [{ id: "console", script: `${assetsBase}/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__` }] },
+      })
     }
     finally {
       await rm(root, { force: true, recursive: true })
