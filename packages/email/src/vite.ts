@@ -1,3 +1,4 @@
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import * as v from "valibot"
 import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
@@ -491,6 +492,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
     async config(config, env) {
       // Nuxt replays this hook with the host command. Tests and older callers can omit `env`, which means build.
       command = env?.command
+      await installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/email/operations")
       serverDirs = (config as typeof config & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS] ?? serverDirs
       const configRecord = config as Record<string, unknown>
       const hosting = resolveHost({ hosting: internalOptions.hosting, nitro: configRecord.nitro })
@@ -566,6 +568,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       disposeEmailOutbox(outboxRuntimeId)
     },
     configureServer(server) {
+      publishStandaloneOperationServer(server)
       server.watcher.add(templatesRoots)
       server.watcher.add([...watchFiles])
       let refreshPending = false

@@ -57,3 +57,5 @@ const preview = defineEmailOperation<{ data?: Record<string, unknown>, template:
 export const emailOperations: readonly AnyOperation[] = [outboxList, outboxShow, outboxClear, preview]
 
 export type { EmailOutboxList, EmailOutboxMessage, EmailPreview }
+
+export { createStandaloneOperationHandler } from "@vite-hub/internal/operations-dev"

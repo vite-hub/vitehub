@@ -74,3 +74,5 @@ const del = defineKVOperation<{ key: string, store?: string }, KVDevDeleteResult
 export const kvOperations: readonly AnyOperation[] = [list, get, has, set, del]
 
 export type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult, KVDevSetResult }
+
+export { createStandaloneOperationHandler } from "@vite-hub/internal/operations-dev"

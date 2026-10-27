@@ -40,3 +40,5 @@ const reset = defineRateLimitOperation<{ key: string, name: string }, RateLimitR
 export const rateLimitOperations: readonly AnyOperation[] = [peek, reset]
 
 export type { RateLimitPeekInspection, RateLimitResetInspection }
+
+export { createStandaloneOperationHandler } from "@vite-hub/internal/operations-dev"

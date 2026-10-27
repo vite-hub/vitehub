@@ -1,3 +1,4 @@
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 
@@ -414,20 +415,24 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         }
       },
     },
-    config(config, env) {
-      command = env.command
-      blob = config.blob ?? blob
-      const configuredNitro = (config as { nitro?: unknown }).nitro
-      const cloudflare = isNitroCloudflareHost(configuredNitro)
-      const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
-      const nitro = mergeNitroBlobConfig(
-        configuredNitro,
-        blobConfig.blob ? blobConfig.blob.serve : undefined,
-        cloudflare,
-        hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
-      )
-      const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
-      ;(config as { nitro?: unknown }).nitro = composedNitro
+    config: {
+      order: "pre",
+      handler(config, env) {
+        command = env.command
+        blob = config.blob ?? blob
+        const configuredNitro = (config as { nitro?: unknown }).nitro
+        const cloudflare = isNitroCloudflareHost(configuredNitro)
+        const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+        const nitro = mergeNitroBlobConfig(
+          configuredNitro,
+          blobConfig.blob ? blobConfig.blob.serve : undefined,
+          cloudflare,
+          hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
+        )
+        const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
+        ;(config as { nitro?: unknown }).nitro = composedNitro
+        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/blob/operations")
+      },
     },
     async configResolved(config) {
       resolved = config
@@ -464,6 +469,7 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       )
     },
     configureServer(server) {
+      publishStandaloneOperationServer(server)
       if (!runtimeConfig?.blob || !runtimeConfig.blob.serve?.authorize) return
       // SAFETY: ViteHub hosts add the optional shared server directories to the resolved Vite config.
       const serverDirs = (server.config as ResolvedConfig & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

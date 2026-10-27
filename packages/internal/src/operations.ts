@@ -592,5 +592,5 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   }
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
-  return await callOperation({ env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), roots, ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+  return await callOperation({ env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
 }

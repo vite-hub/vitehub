@@ -1,3 +1,4 @@
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import { resolve } from "node:path"
 
 import { getViteMode } from "@vite-hub/internal/build/mode"
@@ -152,23 +153,27 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
         }],
       }),
     },
-    config(config, env) {
-      rateLimit = config.rateLimit ?? rateLimit
-      const configuredNitro = (config as { nitro?: unknown }).nitro
-      projectRoot = resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: rateLimit.projectRoot })
-      const configuredProvider = resolveProvider(rateLimit, env?.command ?? "serve", configuredNitro, true)
-      if (configuredProvider) provider = configuredProvider
-      collectDeclarations()
-      const nitro = mergeNitroConfig(
-        config,
-        configuredNitro,
-        declarations,
-        resolveRateLimitNamespace(rateLimit.namespace),
-        configuredProvider,
-        resolveHost({ nitro: configuredNitro }) === "cloudflare",
-        projectRoot,
-      )
-      ;(config as { nitro?: unknown }).nitro = nitro
+    config: {
+      order: "pre",
+      handler(config, env) {
+        rateLimit = config.rateLimit ?? rateLimit
+        const configuredNitro = (config as { nitro?: unknown }).nitro
+        projectRoot = resolveViteHubProjectRoot(config.root || process.cwd(), { projectRoot: rateLimit.projectRoot })
+        const configuredProvider = resolveProvider(rateLimit, env?.command ?? "serve", configuredNitro, true)
+        if (configuredProvider) provider = configuredProvider
+        collectDeclarations()
+        const nitro = mergeNitroConfig(
+          config,
+          configuredNitro,
+          declarations,
+          resolveRateLimitNamespace(rateLimit.namespace),
+          configuredProvider,
+          resolveHost({ nitro: configuredNitro }) === "cloudflare",
+          projectRoot,
+        )
+        ;(config as { nitro?: unknown }).nitro = nitro
+        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/rate-limit/operations")
+      },
     },
     async configResolved(config) {
       resolved = config
@@ -192,6 +197,9 @@ export function hubRateLimit(options: RateLimitVitePluginOptions = {}): RateLimi
       const pluginFile = resolve(projectRoot, generatedNitroPlugin)
       const runtimeConfig = { provider } satisfies RateLimitRuntimeConfig
       await writeFileIfChanged(pluginFile, renderRuntimeInstaller(runtimeConfig, importBase))
+    },
+    configureServer(server) {
+      publishStandaloneOperationServer(server)
     },
     configEnvironment(name, config) {
       if (!isServerEnvironment(name, config)) return

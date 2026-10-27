@@ -1,4 +1,4 @@
-import { resolve } from "node:path"
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 
 import {
   KV_VIRTUAL_CONFIG_ID,
@@ -272,10 +272,11 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
     },
     config: {
       order: "pre",
-      handler(config) {
+      handler(config, env) {
         configuredOptions = config.kv ?? options
         projectRoot = resolveViteHubProjectRoot(config.root || process.cwd())
         nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces, readProvisionStateSync(projectRoot))
+        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/kv/operations")
       },
     },
     configResolved: {
@@ -292,6 +293,9 @@ export function hubKv(options?: KVModuleOptions): KVVitePlugin {
           nitroOwned = configureNitroCloudflareKV(config, options, ownedNitroNamespaces, provisionState)
         }
       },
+    },
+    configureServer(server) {
+      publishStandaloneOperationServer(server)
     },
     configEnvironment: {
       order: "pre",

@@ -343,6 +343,18 @@
       "import": "./dist/dispatch.js",
       "require": "./dist/dispatch.js",
       "default": "./dist/dispatch.js"
+    },
+    "./operations-vite": {
+      "types": "./dist/operations-vite.d.ts",
+      "import": "./dist/operations-vite.js",
+      "require": "./dist/operations-vite.js",
+      "default": "./dist/operations-vite.js"
+    },
+    "./operations-dev": {
+      "types": "./dist/operations-dev.d.ts",
+      "import": "./dist/operations-dev.js",
+      "require": "./dist/operations-dev.js",
+      "default": "./dist/operations-dev.js"
     }
   },
   "scripts": {

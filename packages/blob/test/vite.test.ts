@@ -191,7 +191,7 @@ describe("hubBlob", () => {
   it("preserves Nitro inline-all policy", () => {
     const plugin = hubBlob({ driver: "fs", base: ".cache/blob" })
     const config = { nitro: { externals: { inline: true, trace: false } } }
-    ;(plugin.config as (config: unknown, env: unknown) => void)(config, { command: "build" })
+    ;((typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as (config: unknown, env: unknown) => void)(config, { command: "build" })
     expect(config.nitro.externals).toEqual({ inline: true, trace: false })
   })
 
@@ -245,7 +245,7 @@ describe("hubBlob", () => {
   it("registers Nitro runtime setup without Blob serving", async () => {
     const root = await temporaryDirectory("vitehub-blob-nitro-runtime-")
     const plugin = hubBlob({ driver: "fs", base: ".runtime/blob" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const userConfig = {
       nitro: {
@@ -253,7 +253,7 @@ describe("hubBlob", () => {
       },
     }
 
-    expect(config(userConfig, { command: "build" })).toBeUndefined()
+    expect(await config(userConfig, { command: "build" })).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         plugins: ["server/plugin.ts", ".vitehub/nitro/blob/plugin.ts"],
@@ -264,7 +264,7 @@ describe("hubBlob", () => {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
       },
     }
-    expect(config(existingPluginConfig, { command: "build" })).toBeUndefined()
+    expect(await config(existingPluginConfig, { command: "build" })).toBeUndefined()
     expect(existingPluginConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],
@@ -288,7 +288,7 @@ describe("hubBlob", () => {
   it("resolves generated paths while a framework replays Blob config", () => {
     const root = process.cwd()
     const plugin = hubBlob({ driver: "fs" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = {
       [VITEHUB_NITRO_CONFIG_CONTEXT]: true,
       nitro: {},
@@ -311,7 +311,7 @@ describe("hubBlob", () => {
       driver: "cloudflare-r2",
       serve: true,
     })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const generatedPlugin = ".vitehub/nitro/blob/plugin.ts"
     const generatedMiddleware = ".vitehub/nitro/blob/middleware.ts"
@@ -635,7 +635,7 @@ describe("hubBlob", () => {
         assetsAlias: { binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" },
       },
     })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const userConfig = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
 
@@ -684,7 +684,7 @@ describe("hubBlob", () => {
 
   it("contributes R2 bindings from the Cloudflare Nitro preset", () => {
     const plugin = hubBlob({ bucketName: "vitehub-blob", driver: "cloudflare-r2" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = { nitro: { preset: "cloudflare-module" } }
 
     config(userConfig, { command: "build" })
@@ -701,7 +701,7 @@ describe("hubBlob", () => {
         archive: { binding: "ARCHIVE", bucketName: "archive", driver: "cloudflare-r2" },
       },
     })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = { nitro: { preset: "cloudflare-module" } }
 
     config(userConfig, { command: "build" })
@@ -715,7 +715,7 @@ describe("hubBlob", () => {
 
   it("rejects a wrangler R2 binding in another jurisdiction", () => {
     const plugin = hubBlob({ bucketName: "assets", driver: "cloudflare-r2", jurisdiction: "eu" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const userConfig = {
       nitro: {
         cloudflare: { wrangler: { r2_buckets: [{ binding: "BLOB", bucket_name: "assets" }] } },
@@ -809,7 +809,7 @@ describe("hubBlob", () => {
     process.env.VITEHUB_HOSTING = "cloudflare"
     try {
       const plugin = hubBlob()
-      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
       const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
       const value = { nitro: {}, build: { outDir: "dist" }, plugins: [{ name: "nitro:main" }], root }
 
@@ -878,7 +878,7 @@ describe("hubBlob", () => {
     const root = await temporaryDirectory("vitehub-blob-cloudflare-dev-")
     try {
       const plugin = hubBlob({ bucketName: "assets", driver: "cloudflare-r2" })
-      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
       const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
       const value = { nitro: { preset: "cloudflare-module" }, build: { outDir: "dist" }, plugins: [{ name: "nitro:main" }], root }
 
@@ -905,7 +905,7 @@ describe("hubBlob", () => {
   it("uses final Nitro ownership when the resolved preset changes", { timeout: 30_000 }, async () => {
     const root = await temporaryDirectory("vitehub-blob-final-nitro-host-")
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const value = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
 
@@ -926,7 +926,7 @@ describe("hubBlob", () => {
 
   it("does not yield Cloudflare output to a non-Cloudflare Nitro host", async () => {
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const value = {
       nitro: { cloudflare: { wrangler: { routes: ["example.com/*"] } }, preset: "vercel" },
       plugins: [{ name: "nitro:main" }],
@@ -940,7 +940,7 @@ describe("hubBlob", () => {
   it("removes an early R2 contribution when the final Nitro host changes", async () => {
     const root = await temporaryDirectory("vitehub-blob-final-nitro-cleanup-")
     const plugin = hubBlob({ binding: "ASSETS", bucketName: "assets", driver: "cloudflare-r2" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => void | Promise<void>
     const value = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }], root }
 
@@ -954,7 +954,7 @@ describe("hubBlob", () => {
 
   it("does not contribute R2 bindings for non-R2 stores", () => {
     const config = (plugin: ReturnType<typeof hubBlob>, value: Record<string, unknown>) =>
-      (plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
+      ((typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown)(value, { command: "build" })
     const fsOnCloudflare = { nitro: { preset: "cloudflare_module" }, plugins: [{ name: "nitro:main" }] }
     config(hubBlob({ base: ".vitehub/data/blob", driver: "fs" }), fsOnCloudflare)
     expect(fsOnCloudflare).not.toHaveProperty("nitro.cloudflare.wrangler.r2_buckets")
@@ -989,10 +989,10 @@ describe("hubBlob", () => {
 
   it("registers an opt-in Nitro serving route", async () => {
     const plugin = hubBlob({ serve: true })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
 
     const userConfig = {}
-    expect(config(userConfig, { command: "serve" })).toBeUndefined()
+    expect(await config(userConfig, { command: "serve" })).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         plugins: [".vitehub/nitro/blob/plugin.ts"],

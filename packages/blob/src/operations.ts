@@ -92,3 +92,5 @@ const variants = defineBlobOperation<{ pathname: string, store?: string }, BlobD
 export const blobOperations: readonly AnyOperation[] = [list, head, get, put, del, media, variants]
 
 export type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevListResult, BlobDevMediaResult, BlobDevPutResult, BlobDevVariantsResult }
+
+export { createStandaloneOperationHandler } from "@vite-hub/internal/operations-dev"

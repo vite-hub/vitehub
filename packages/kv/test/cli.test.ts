@@ -401,12 +401,11 @@ describe("vitehub kv", () => {
 })
 
 describe("hubKv", () => {
-  it("contributes the kv operations and the CLI namespace, and no dev route", async () => {
+  it("contributes the kv operations and the CLI namespace", async () => {
     const plugin = hubKv()
     expect(plugin.vitehub.cli).toEqual(expect.any(Function))
     expect(plugin.vitehub.operations).toEqual([expect.objectContaining({ export: "kvOperations", module: "@vite-hub/kv/operations" })])
     const operations = await plugin.vitehub.operations[0]!.load!() as Array<{ name: string }>
     expect(operations.map(operation => operation.name)).toEqual(["kv.list", "kv.get", "kv.has", "kv.set", "kv.del"])
-    expect(plugin.configureServer).toBeUndefined()
   })
 })

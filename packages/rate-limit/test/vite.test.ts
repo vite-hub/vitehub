@@ -54,7 +54,7 @@ describe("hubRateLimit", () => {
     await writeFile(join(root, "first.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "upload", { limit: 1, window: "1m" })\n')
     await writeFile(join(root, "second.ts"), 'import { requireRateLimit } from "@vite-hub/rate-limit"\nrequireRateLimit(event, "upload", { limit: 2, window: "1m" })\n')
     const plugin = hubRateLimit({ provider: "memory" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "serve" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "serve" }) => void
 
     expect(() => config({ root }, { command: "serve" }))
       .toThrow(/Conflicting Rate Limit policies[\s\S]*first\.ts:2:1[\s\S]*second\.ts:2:1/)
@@ -65,7 +65,7 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const plugin = hubRateLimit({ namespace: "vite-test" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = {
       nitro: {
@@ -75,7 +75,7 @@ describe("hubRateLimit", () => {
       root,
     }
 
-    expect(config(userConfig, { command: "build" })).toBeUndefined()
+    expect(await config(userConfig, { command: "build" })).toBeUndefined()
     expect(userConfig.nitro).toMatchObject({
       cloudflare: {
         wrangler: {
@@ -99,7 +99,7 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const plugin = hubRateLimit()
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
 
     expect(() => config({ nitro: { preset: "cloudflare-module" }, root }, { command: "build" })).toThrow("requires rateLimit.namespace")
   })
@@ -109,7 +109,7 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: "." })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
 
     expect(() => config({ nitro: {}, root }, { command: "build" })).not.toThrow()
@@ -132,13 +132,13 @@ describe("hubRateLimit", () => {
     roots.push(root)
     await writeCloudflareDeclaration(root)
     const memoryPlugin = hubRateLimit({ provider: "memory" })
-    const memoryConfig = memoryPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const memoryConfig = (typeof memoryPlugin.config === "function" ? memoryPlugin.config : memoryPlugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const memoryUserConfig = { nitro: { preset: "cloudflare-module" }, root }
     memoryConfig(memoryUserConfig, { command: "build" })
     expect(memoryUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
 
     const vercelPlugin = hubRateLimit({ namespace: "vite-test", provider: "cloudflare" })
-    const vercelConfig = vercelPlugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
+    const vercelConfig = (typeof vercelPlugin.config === "function" ? vercelPlugin.config : vercelPlugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => void
     const vercelUserConfig = { nitro: { preset: "vercel" }, root }
     vercelConfig(vercelUserConfig, { command: "build" })
     expect(vercelUserConfig.nitro).not.toHaveProperty("cloudflare.wrangler.ratelimits")
@@ -152,7 +152,7 @@ describe("hubRateLimit", () => {
     process.env[environmentVariable] = "cloudflare"
     try {
       const plugin = hubRateLimit({ namespace: "vite-test" })
-      const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+      const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
       const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
       const userConfig = { nitro: {}, root }
 
@@ -175,7 +175,7 @@ describe("hubRateLimit", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-nitro-late-declaration-"))
     roots.push(root)
     const plugin = hubRateLimit({ namespace: "vite-test" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" }) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = { nitro: { preset: "cloudflare-module" }, root }
 
@@ -190,7 +190,7 @@ describe("hubRateLimit", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-vite-"))
     roots.push(root)
     const plugin = hubRateLimit({ namespace: "vite-test", projectRoot: ".", provider: "cloudflare" })
-    const config = plugin.config as unknown as (config: Record<string, unknown>) => unknown
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>) => unknown
     const configResolved = plugin.configResolved as (config: unknown) => Promise<void>
     const userConfig = {
       nitro: {
@@ -200,7 +200,7 @@ describe("hubRateLimit", () => {
       rateLimit: { projectRoot: ".", provider: "memory" },
       root,
     }
-    expect(config(userConfig)).toBeUndefined()
+    expect(await config(userConfig)).toBeUndefined()
     expect(userConfig).toMatchObject({
       nitro: {
         handlers: [
@@ -244,15 +244,14 @@ describe("hubRateLimit", () => {
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "middleware.ts"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
-  it("adds no Nitro route or handler for the operations", async () => {
+  it("leaves operation RPC installation to the root integration", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-rate-limit-operations-"))
     roots.push(root)
     const plugin = hubRateLimit({ importBase: "vite-hub/_internal/rate-limit" } as never)
-    const config = plugin.config as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
-    const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root }
-    expect(config(serveConfig, { command: "serve" })).toBeUndefined()
+    const config = (typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as unknown as (config: Record<string, unknown>, env: { command: "build" | "serve" }) => unknown
+    const serveConfig: Record<string, unknown> = { nitro: { baseURL: "/app/" }, root, plugins: [plugin, { name: "vite-hub/dependencies" }] }
+    expect(await config(serveConfig, { command: "serve" })).toBeUndefined()
     expect(serveConfig.nitro).toMatchObject({ baseURL: "/app/", handlers: [] })
-    expect(plugin.configureServer).toBeUndefined()
 
     await (plugin.configResolved as (config: unknown) => Promise<void>)({ build: { outDir: "dist" }, command: "serve", plugins: [], resolve: { alias: [] }, root } as never)
     await expect(access(join(root, ".vitehub", "nitro", "rate-limit", "dev-handler.ts"))).rejects.toMatchObject({ code: "ENOENT" })
