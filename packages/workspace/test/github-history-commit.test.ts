@@ -117,6 +117,16 @@ describe("GitHub history commit", () => {
     expect(revision!.metadata).not.toHaveProperty("content")
   })
 
+  it("persists metadata when the file contents do not change", async () => {
+    const parent = fake.commit("main", { "posts/a.md": "a" })
+    const tree = fake.tree("main")
+    const metadata = { content: { bases: { "posts/a.md": textSha("reviewed") } } }
+    const revision = await history().commit({ ref: "main", ifHead: parent, changes: { put: { "posts/a.md": file("posts/a.md", "a") } }, message: "Review base", metadata })
+    expect(revision.id).not.toBe(parent)
+    expect(fake.tree("main")).toEqual(tree)
+    expect(await history().head({ ref: "main" })).toMatchObject({ id: revision.id, parentId: parent, message: "Review base", metadata })
+  })
+
   it("maps the published and draft refs to branches and back", async () => {
     const published = fake.commit("main", { "posts/a.md": "a" })
     const draft = fake.commit("vitehub/content", { "posts/a.md": "a2" })

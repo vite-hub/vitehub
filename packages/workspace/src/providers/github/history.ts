@@ -578,9 +578,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       updates.push({ bytes, fullPath: joinGitPath(options.root, path), mode })
     }
     if (!updates.length && !deletes.length) {
-      // `commitFiles()` cannot make an empty commit. A commit without changes keeps the current head.
-      if (state.branchExists) return await revision(ref, state.refSha, commitOptions.metadata)
-      throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
+      if (!state.branchExists) throw workspaceError(`[vitehub] GitHub history commit cannot create ref "${ref}" without a file change.`)
+      // Metadata-only commits must persist their trailer, including a reviewed Content publish base.
+      // forgeCommitFiles() uses the Git database for this empty change set.
+      if (commitOptions.metadata === undefined) return await revision(ref, state.refSha)
     }
     const commitSha = await commitGitHubChanges({
       branch,

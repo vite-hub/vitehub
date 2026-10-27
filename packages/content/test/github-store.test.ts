@@ -224,6 +224,110 @@ describe("Content on the GitHub store", () => {
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
     })
 
+    it.each(["git", "workspace"])("keeps publish protection after a %s commit without Content metadata", async (writer) => {
+      const { posts, content, workspace } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      onMain({ "content/posts/a.md": page("A2"), "content/posts/c.md": page("C") })
+      if (writer === "git") {
+        fake.commit("vitehub/content", { "content/posts/d.md": page("D") })
+        vi.advanceTimersByTime(6_000)
+      }
+      else {
+        const history = useWorkspace(workspace as never, { mode: "write" }).history
+        await history.commit({ ref: "draft", ifHead: fake.head("vitehub/content")!, changes: { put: { "content/posts/d.md": page("D") } } })
+      }
+      expect(await posts.status("a")).toMatchObject({ state: "published" })
+      // Check both direct publication and carrying recovered tracking into a subsequent Content save.
+      if (writer === "workspace") await posts.save("e", { data: { title: "E" }, body: "" })
+      expect((await content.publish()).documents.map(document => document.id)).toEqual(writer === "workspace" ? ["b", "d", "e"] : ["b", "d"])
+      expect((await posts.get("a"))?.data.title).toBe("A2")
+      expect((await posts.get("c"))?.data.title).toBe("C")
+    })
+
+    it("keeps the original conflict after a metadata-free draft commit", async () => {
+      const { posts, content, workspace } = await setup()
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main") })
+      const history = useWorkspace(workspace as never, { mode: "write" }).history
+      await history.commit({ ref: "draft", ifHead: fake.head("vitehub/content")!, changes: { put: { "content/posts/b.md": page("B") } } })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a" }] } })
+      expect(fake.head("main")).toBe(main)
+    })
+
+    it("refuses to publish a draft whose base cannot be established", async () => {
+      const { content } = await setup()
+      // An unrelated draft has no Content metadata or shared published revision.
+      fake.commit("vitehub/content", { "content/posts/b.md": page("B") })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", message: expect.stringContaining("cannot establish") })
+      expect(fake.head("main")).toBe(main)
+    })
+
+    it.each([true, false])("recovers with one save of the reviewed published version (previous draft edit: %s)", async (edited) => {
+      const { posts, content } = await setup()
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      if (edited) await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main", "Main body\n") })
+      // A blind save must not acknowledge the published change.
+      const blind = await posts.save("a", { data: { title: "A blind" }, body: "" })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+      const published = (await posts.get("a", { ref: "published" }))!
+      await posts.save("a", { data: { title: "A reviewed" }, body: published.body }, {
+        ifDigest: blind.digest,
+        ifPublishedDigest: published.digest,
+      })
+      await content.publish()
+      expect(await posts.get("a")).toMatchObject({ data: { title: "A reviewed" }, body: "Main body\n" })
+    })
+
+    it("records a reviewed base even when the saved draft bytes are unchanged", async () => {
+      const { posts, content } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      onMain({ "content/posts/a.md": page("A main") })
+      const published = (await posts.raw("a", { ref: "published" }))!
+      const rebased = await posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: published.digest })
+      expect(rebased.revision).not.toBe(draft.revision)
+      await content.publish()
+      expect((await posts.get("a"))?.data.title).toBe("A draft")
+    })
+
+    it("rejects recovery when the reviewed published document moved", async () => {
+      const { posts } = await setup()
+      const published = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" })
+      onMain({ "content/posts/a.md": page("A main") })
+      const draft = fake.head("vitehub/content")
+      await expect(posts.save("a", { data: { title: "A reviewed" }, body: "" }, { ifPublishedDigest: published.digest }))
+        .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", expected: published.digest, actual: textSha(page("A main")) } })
+      expect(fake.head("vitehub/content")).toBe(draft)
+    })
+
+    it("checks the live published head before recording a reviewed base", async () => {
+      const { posts } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      const published = (await posts.raw("a", { ref: "published" }))!
+      // The read cache still holds the reviewed revision; the commit must check the live branch.
+      fake.commit("main", { "content/posts/a.md": page("A main") })
+      await expect(posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: published.digest }))
+        .rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published" } })
+      expect(fake.head("vitehub/content")).toBe(draft.revision)
+    })
+
+    it("can acknowledge a published deletion and recreate the document", async () => {
+      const { posts, content } = await setup()
+      const input = { data: { title: "A draft" }, body: "" }
+      const draft = await posts.save("a", input)
+      fake.commit("main", { "content/posts/a.md": null })
+      vi.advanceTimersByTime(6_000)
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+      expect(await posts.get("a", { ref: "published" })).toBeNull()
+      await posts.save("a", input, { ifDigest: draft.digest, ifPublishedDigest: null })
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "a", change: "add" }])
+    })
+
     it("refuses to delete a document that was deleted or changed on main", async () => {
       const { posts, content } = await setup()
       await posts.remove("a")
