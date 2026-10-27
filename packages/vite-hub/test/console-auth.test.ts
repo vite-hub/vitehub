@@ -455,12 +455,12 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("runs the generated guard only for Console requests", async () => {
+  it.each(["/", "/portal/"])("runs the generated guard only for Console requests under %s", async (mountBaseURL) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-guard-"))
     try {
       const server = resolve(root, "server.ts")
       await writeFile(server, 'export default { authorize: () => true, signIn: { provider: "github" } }')
-      const handlers = await writeConsoleAuthHandlers(root, { server })
+      const handlers = await writeConsoleAuthHandlers(root, { server }, mountBaseURL)
       const bundled = await build({
         bundle: true,
         entryPoints: [handlers.middleware],
@@ -494,6 +494,9 @@ describe("independent Console Auth", () => {
         expect(await guard.default({ url: new URL("https://example.com/api/app") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/api/_vitehub/console/auth/callback/github") })).toBeUndefined()
         expect(await guard.default({ url: new URL("https://example.com/_vitehub/sign-in") })).toBeUndefined()
+        for (const path of ["_vitehub/page/session", "_vitehub/page/assets/loader.js?v=1"]) {
+          expect(await guard.default({ url: new URL(`https://example.com${mountBaseURL}${path}`) })).toBeUndefined()
+        }
         expect((await guard.default({ url: new URL("https://example.com/_vitehub") }))?.status).toBe(401)
         const apiURL = "https://example.com/api/_vitehub/console/status"
         expect((await guard.default({ url: new URL(apiURL), req: new Request(apiURL, { headers: { accept: "text/html" } }) }))?.status).toBe(401)
@@ -511,6 +514,9 @@ describe("independent Console Auth", () => {
           ["/_vitehub/rpc/__call", 0, false],
           ["/api/app", "withAuthorization", undefined],
         ])
+        for (const path of ["_vitehub/page/session-extra", "_vitehub/page/assets-extra/loader.js"]) {
+          expect((await guard.default({ url: new URL(`https://example.com${mountBaseURL}${path}`) }))?.status).toBe(401)
+        }
       }
       finally {
         Reflect.deleteProperty(globalThis, Symbol.for("test.console.auth.calls"))
