@@ -13,6 +13,8 @@ import type {
   AuthConsoleMutation,
   AuthConsoleQuery,
 } from "@vite-hub/auth/console";
+
+import { consoleDateTime } from "./time";
 import { ConsoleRequestError } from "./request";
 
 type AuthResults = {
@@ -57,9 +59,7 @@ export async function changeAuthConsole(base: string, input: AuthConsoleMutation
 }
 export const authDate = (value: string | null) =>
   value
-    ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(
-        new Date(value),
-      )
+    ? consoleDateTime(value)
     : "Unknown";
 export const authFieldValue = (value: unknown) =>
   value === null || value === undefined

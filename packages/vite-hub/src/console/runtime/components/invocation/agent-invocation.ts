@@ -159,8 +159,8 @@ function invocationTimestamp(invocation: AgentInvocationView) {
   return h("time", {
     class: "vh-invocation-session__timestamp",
     datetime: date.toISOString(),
-    title: date.toLocaleString(undefined, { dateStyle: "full", timeStyle: "long" }),
-  }, date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }));
+    title: date.toLocaleString("en", { dateStyle: "full", timeStyle: "long" }),
+  }, date.toLocaleString("en", { dateStyle: "medium", timeStyle: "short" }));
 }
 
 function diagnosticDetails(error: NonNullable<AgentInvocationView["error"]>) {
@@ -454,7 +454,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
   if (!value || !Number.isFinite(Date.parse(value))) return;
   const date = new Date(value);
   if (!mounted) return { short: date.toISOString(), title: date.toISOString(), value };
-  const time = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(date);
+  const time = new Intl.DateTimeFormat("en", { hour: "numeric", minute: "2-digit" }).format(date);
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
   const startOfMessageDay = new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const dayDifference = Math.round((startOfToday - startOfMessageDay) / 86_400_000);
@@ -464,7 +464,7 @@ function messageTimestamp(activity: InvocationActivity, now: Date, mounted: bool
     ? time
     : dayDifference === 1
       ? `Yesterday at ${time}`
-      : `${new Intl.DateTimeFormat(undefined, dateOptions).format(date)} ${time}`;
+      : `${new Intl.DateTimeFormat("en", dateOptions).format(date)} ${time}`;
   return {
     short,
     title: new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(date),
