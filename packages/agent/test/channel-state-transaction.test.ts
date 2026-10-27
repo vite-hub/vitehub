@@ -70,14 +70,22 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
           }
           if (payload.kind === "dispatch") return Response.json(await context.dispatch(payload.items, { queue: true, trigger: "record" }))
           try {
+            if (hooks.cycle) {
+              return Response.json(await context.pull({
+                fetch(cursor) {
+                  hooks.fetches.push(cursor)
+                  return { items: [], more: true, next: cursor === "A" ? "B" : "A" }
+                },
+                initialCursor: "A",
+                key: "log-cursor",
+                signal: hooks.signal,
+                trigger: "record",
+              }))
+            }
             return Response.json(await context.pull({
-              fetch(cursor: number | string) {
+              fetch(cursor) {
                 hooks.fetches.push(cursor)
-                if (hooks.cycle) {
-                  const next = cursor === "A" ? "B" : "A"
-                  return { items: [], more: true, next }
-                }
-                if (hooks.page && typeof cursor === "number") return hooks.page(cursor)
+                if (hooks.page) return hooks.page(cursor)
                 const page = hooks.log.filter(change => change.seq >= cursor).slice(0, 2)
                 async function* items() {
                   for (const change of page) yield changeItem(change)
@@ -85,7 +93,7 @@ function createAgent(hooks: Hooks, prefix: { channelState?: string }, run: (cont
                 const next = cursor + page.length
                 return { first: hooks.gapAt === cursor ? cursor + 1 : cursor, items: items(), more: next <= hooks.log.length, next }
               },
-              initialCursor: hooks.cycle ? "A" : 1,
+              initialCursor: 1,
               key: "log-cursor",
               signal: hooks.signal,
               trigger: "record",

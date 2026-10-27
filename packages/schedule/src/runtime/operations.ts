@@ -182,7 +182,7 @@ export interface ScheduleRunResult {
 }
 
 export async function runScheduleRuns(input: { id: string, limit?: number }): Promise<ScheduleRunsResult> {
-  return await attempt(async () => ({ runs: await listScheduleRuns(input.id, input.limit === undefined ? {} : { limit: input.limit }) }))
+  return await attempt(async () => ({ runs: await listScheduleRuns(input.id, { limit: input.limit ?? 100 }) }))
 }
 
 export async function runScheduleAttempts(input: { id: string }): Promise<ScheduleAttemptsResult> {

@@ -1,5 +1,7 @@
-/* Pin the Tailwind layer order, so utility classes on a part override its defaults below and Tailwind's base styles do not. */
-@layer theme, base, components, utilities;
+/* Pin the layer order, so utility classes on a part override its defaults below, and those override comark-chat's and Tailwind's base styles. */
+@layer theme, base, comark, components, utilities;
+/* comark-chat also adds these on mount; importing them keeps server-rendered messages from shifting. */
+@import "comark-chat/style.css";
 
 :root {
   --vh-ui-radius: var(--ui-radius, 0.5rem);
@@ -132,11 +134,15 @@
   color: var(--vh-ui-text);
 }
 
+/* comark-chat draws message parts with the `--comark-*` tokens, so they take ViteHub's colors. */
 .vh-message-parts {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  min-width: 0;
+  --comark-accent: var(--vh-ui-bg-elevated);
+  --comark-background: var(--vh-ui-bg);
+  --comark-border: var(--vh-ui-border);
+  --comark-font: inherit;
+  --comark-foreground: var(--vh-ui-text);
+  --comark-muted: var(--vh-ui-muted);
+  --comark-ring: var(--vh-ui-ring);
 }
 
 .vh-typeset {
@@ -2018,16 +2024,6 @@ button.vh-agent-tool-list__count:focus-visible {
 
   [data-slot="prompt-input-spacer"] {
     flex: 1;
-  }
-
-  [data-slot="message-parts"] [data-slot="trace-collapsible-content-inner"] {
-    font-size: 0.8125rem;
-  }
-
-  .vh-message-parts__tool {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
   }
 }
 

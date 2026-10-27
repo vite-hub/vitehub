@@ -892,8 +892,10 @@ function publishDevServer(server: ViteDevServer): void {
   if (!http) return
   const root = resolve(server.config.root)
   const write = () => {
-    const url = server.resolvedUrls?.local[0]
-    if (!url) return
+    const address = http.address()
+    if (!address || typeof address === "string") return
+    const host = address.address === "::" || address.address === "0.0.0.0" ? "localhost" : address.family === "IPv6" ? `[${address.address}]` : address.address
+    const url = server.resolvedUrls?.local[0] ?? `${server.config.server.https ? "https" : "http"}://${host}:${address.port}${server.config.base}`
     try {
       writeViteHubDevServerFile(root, { root, url })
     }

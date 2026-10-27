@@ -65,6 +65,24 @@ describe("schedule operations", () => {
     expect(await call("runs", {})).toMatchObject({ ok: false, status: 400 })
   })
 
+  it("limits omitted run queries to the newest 100 records before reading the store", async () => {
+    const store = createMemoryScheduleRunStore()
+    const listRuns = vi.spyOn(store, "listRuns")
+    setScheduleRunStore(store)
+    for (let index = 0; index < 101; index++) {
+      await runDigest(new Date(now.getTime() + index * 86_400_000))
+    }
+
+    const result = await call("runs", { id: "digest" })
+    expect(result.ok).toBe(true)
+    if (!result.ok) throw new Error("Expected runs.")
+    const runs = (result.value as { runs: Array<{ scheduledAt: string }> }).runs
+    expect(runs).toHaveLength(100)
+    expect(runs[0]?.scheduledAt).toBe(new Date(now.getTime() + 100 * 86_400_000).toISOString())
+    expect(runs.at(-1)?.scheduledAt).toBe(new Date(now.getTime() + 86_400_000).toISOString())
+    expect(listRuns).toHaveBeenCalledWith({ scheduleId: "digest", limit: 100 })
+  })
+
   it("redact error names and response status text", async () => {
     await runDigest(new Date("2026-05-22T09:00:00.000Z"), () => {
       const error = new Error("safe message")
@@ -103,7 +121,7 @@ describe("schedule operations", () => {
     setScheduleRunStore({ ...createMemoryScheduleRunStore(), listRuns })
 
     expect(await call("runs", { id: "digest" })).toMatchObject({ code: "SCHEDULE_HISTORY_INCOMPLETE", ok: false, status: 503 })
-    expect(listRuns).toHaveBeenCalledWith({ scheduleId: "digest" })
+    expect(listRuns).toHaveBeenCalledWith({ scheduleId: "digest", limit: 100 })
   })
 
   it("run a manual Static Schedule Definition from the installed registry and record the run", async () => {

@@ -749,10 +749,10 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
+  const roots = parsed.url ? undefined : projectRoots(context.rootDir)
   // The dev server of this project, never a guessed port. Another project may use 5173.
   if (!parsed.url) {
-    const roots = projectRoots(context.rootDir)
-    const found = findViteHubDevServerUrl(roots, context.env)
+    const found = findViteHubDevServerUrl(roots ?? [], context.env)
     if (!found) {
       const error = contentErrorDiagnostics.CONTENT_R0015({ message: `No dev server is running for ${context.rootDir}.` })
       return writeFailure(parsed, context, { code: "CONTENT_R0015", fix: Reflect.get(error, "fix") as string, message: error.message })
@@ -764,7 +764,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       env: context.env,
       fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
       ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
-      roots: projectRoots(context.rootDir),
+      ...(roots ? { roots } : {}),
       url: parsed.url,
     }, `content.${operation}`, input)
     if (!result.ok) {

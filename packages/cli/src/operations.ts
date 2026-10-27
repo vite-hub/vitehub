@@ -5,8 +5,8 @@ import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
-import { redactInspectionText } from "@vite-hub/internal/inspect"
-import { callOperation, collectOperationContributions, createOperationRegistry, operationCliPath, operationInputJsonSchema, operationsOf } from "@vite-hub/internal/operations"
+import { isSecretInspectionKey, redactInspectionText, redactedInspectionValue } from "@vite-hub/internal/inspect"
+import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
@@ -389,8 +389,8 @@ async function callDispatch(operation: string, route: string, url: string, input
   }
   let json: unknown
   try {
-    // Redact free text before formatters or JSON output, without truncating operation results.
-    json = text ? JSON.parse(text, (_key, value: unknown) => typeof value === "string" ? redactInspectionText(value) : value) : undefined
+    // Share inspection's secret-key policy without its output size limits.
+    json = text ? JSON.parse(text, (key, value: unknown) => isSecretInspectionKey(key) ? redactedInspectionValue : typeof value === "string" ? redactInspectionText(value) : value) : undefined
   }
   catch {
     json = undefined
@@ -423,21 +423,28 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         context.stdout.write(helpOf(operation, flags))
         return 0
       }
+      let reads: boolean
+      try {
+        reads = operationCall(operation, await parseOperationInput(operation, parsed.input)).readOnly === true
+      }
+      catch (error) {
+        return writeFailure(failureOf(error), parsed, context)
+      }
       const resolved = resolveTarget(parsed, context)
       if ("failure" in resolved) return writeFailure(resolved.failure, parsed, context)
       const target = resolved.target
       // A call that only reads, such as a dry run, needs no confirmation.
-      const reads = operation.readOnlyWhen?.(parsed.input as never) === true
       if (operation.kind === "destructive" && !parsed.yes && !reads) {
         if (!(process.stdin.isTTY && process.stderr.isTTY) || !await confirm(operation, target)) {
           return writeFailure(failureOf(cliErrorDiagnostics.CLI_R0004({ message: `${operation.name} changes or removes data and was not confirmed.` })), parsed, context)
         }
       }
+      // Send the original input: the server applies defaults and transforms once, just as the confirmation check did.
       const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
       const result = dispatch ?? await callOperation({
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
-        roots: acceptedRoots(context.rootDir),
+        ...(parsed.url ? {} : { roots: acceptedRoots(context.rootDir) }),
         ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
         url: target,
       }, operation.name, parsed.input)

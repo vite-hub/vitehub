@@ -11,6 +11,7 @@ import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
 import { hubKv } from "@vite-hub/kv/vite";
 import { hubQueue } from "@vite-hub/queue/vite";
+import { hubRateLimit } from "@vite-hub/rate-limit/vite";
 import { hubWorkflow } from "@vite-hub/workflow/vite";
 import { hubSchedule } from "@vite-hub/schedule/vite";
 import { hubWorkspace } from "@vite-hub/workspace/vite";
@@ -78,6 +79,7 @@ describe("CLI documentation contract", () => {
       emailPlugin,
       hubKv(),
       hubQueue(),
+      hubRateLimit(),
       schedulePlugin,
       workflowPlugin,
       workspacePlugin,

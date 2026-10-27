@@ -5,6 +5,7 @@ import { consoleMountBase } from "../console-route.ts"
 import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
+import type { OperationContext } from "@vite-hub/internal/operations"
 import type { ConsoleAuthorize, ConsoleUser } from "../../auth.ts"
 import type { AgentActor } from "@vite-hub/agent"
 import type { ConsoleSectionId } from "../sections.ts"
@@ -434,6 +435,34 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
 
 export function consoleRouteScope(route: unknown): ConsoleRouteScope | undefined {
   return typeof route === "function" ? routeScopes.get(route) : undefined
+}
+
+/** Adapt an in-process agent call by checking the installed policy for its user. HTTP callers still need a Console grant. */
+export async function consoleOperationAccess(context: OperationContext): Promise<ConsoleAccess> {
+  // SAFETY: The private grant registry proves this access came from the Console check.
+  if (consoleAccessGrant.isValid(context.access)) return context.access as ConsoleAccess
+  const policy = scope[policyKey]
+  if (!policy || context.surface !== "agent" || context.access.mode !== "agent") {
+    throw consoleRequestError(403, "This Console access was not created by the access check.")
+  }
+  let allowed: ConsoleAccess["sections"] = "all"
+  if (policy.mode !== "local" && policy.authorize) {
+    const request = new Request("http://vitehub.local/_vitehub/rpc/__call", { method: "POST" })
+    const result = await policy.authorize({ request, ...(context.user ? { user: context.user } : {}) })
+    if (result !== true) {
+      const sections = authorizedSections(result)
+      if (!sections?.length) throw consoleRequestError(403, "This user cannot use Console operations.")
+      allowed = sections
+    }
+  }
+  const candidates = context.access.sections === "all" ? allowed : context.access.sections
+  const checked = { mode: policy.mode, sections: allowed }
+  const sections = candidates === "all" ? "all" : candidates.flatMap((entry) => {
+    const section = entry.endsWith(":read") ? entry.slice(0, -5) : entry
+    if (!operationAccessAllows(checked, section)) return []
+    return [entry.endsWith(":read") || !operationAccessAllows(checked, section, { kind: "write" }) ? `${section}:read` : section]
+  })
+  return consoleAccessGrant.issue(policy.mode, { mode: policy.mode, sections, ...(context.user ? { user: context.user } : {}) })
 }
 
 /**
