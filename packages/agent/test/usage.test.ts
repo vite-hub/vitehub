@@ -19,6 +19,58 @@ function modelsDevCatalog(provider: string, model: string, cost: Record<string, 
 
 describe("usage Capability", () => {
   it.each([
+    { cost: 0, usd: "0" },
+    { cost: -0, usd: "0" },
+    { cost: 1.23456789, usd: "1.23456789" },
+    { cost: 0.1 + 0.2, usd: "0.30000000000000004" },
+    { cost: 1e-6, usd: "0.000001" },
+    { cost: 1e-7, usd: "0.0000001" },
+    { cost: 1.23456789e-7, usd: "0.000000123456789" },
+    { cost: 1e20, usd: "100000000000000000000" },
+    { cost: 1e21, usd: "1000000000000000000000" },
+  ])("preserves provider cost $cost as decimal USD", async ({ cost, usd }) => {
+    const { usage: usageCapability } = await import("../src/capabilities.ts")
+    const { defineAgent, runAgent } = await import("../src/index.ts")
+    const pricing = vi.fn()
+    const agent = defineAgent({
+      capabilities: [usageCapability({ pricing })],
+      driver: { run: () => ({
+        text: "ok",
+        providerMetadata: { openai: { usage: { cost } } },
+        usage: { inputTokens: 1, outputTokens: 0, totalTokens: 1 },
+      }) },
+    })
+
+    await expect(runAgent(agent, runtime(), { prompt: "hello" })).resolves.toMatchObject({
+      usageRecord: { cost: { display: `$${usd}`, estimated: false, source: "provider", usd } },
+    })
+    expect(pricing).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    { input: 0, usd: "0" },
+    { input: -0, usd: "0" },
+    { input: 1.23456789, usd: "0.00000370370367" },
+    { input: 0.1 + 0.2, usd: "0.00000090000000000000012" },
+    { input: 1e-6, usd: "0.000000000003" },
+    { input: 1e-7, usd: "0.0000000000003" },
+    { input: 1.23456789e-7, usd: "0.000000000000370370367" },
+    { input: 1e20, usd: "300000000000000" },
+    { input: 1e21, usd: "3000000000000000" },
+  ])("prices tokens at $input USD per million without rounding", async ({ input, usd }) => {
+    const { modelsDevPricing } = await import("../src/capabilities.ts")
+    const pricing = modelsDevPricing({
+      fetch: vi.fn(async () => Response.json(modelsDevCatalog("openai", "custom", { input, output: 0 }))),
+    })
+
+    await expect(pricing({
+      model: "custom",
+      provider: "openai",
+      usage: { inputTokens: 3, outputTokens: 0, totalTokens: 3 },
+    })).resolves.toEqual({ display: `~$${usd}`, estimated: true, source: "models.dev", usd })
+  })
+
+  it.each([
     { code: "AGENT_R0903", response: () => new Response(null, { status: 503 }) },
     { code: "AGENT_R0904", response: () => Response.json(null) },
   ])("identifies pricing catalog failures with $code", async ({ code, response }) => {

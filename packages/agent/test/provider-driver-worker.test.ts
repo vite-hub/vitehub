@@ -79,6 +79,21 @@ describe("provider Agent Drivers in Worker builds", () => {
     expect(usesProviderAgentDriver(source, parseTypeScript, agentFile)).toBe(false)
   })
 
+  it.each([
+    `agent["codexDriver"]()`,
+    `agent["claudeCodeDriver"]()`,
+    `agent.title({ driver: "codex" })`,
+    `agent.progressSummary({ driver: "codex" })`,
+    `defineAgent({ capabilities: [capabilities["title"]({ driver: "codex" })] })`,
+    `defineAgent({ capabilities: [capabilities["progressSummary"]({ driver: "codex" })] })`,
+    `defineAgent({ capabilities: [capabilities.codexDriver({ driver: "codex" })] })`,
+    `defineAgent({ capabilities: [capabilities.claudeCodeDriver({ driver: "codex" })] })`,
+  ])("ignores computed or unrelated namespace calls in %s", async (call) => {
+    const source = `import { defineAgent } from "@vite-hub/agent"; import * as agent from "@vite-hub/agent"; import * as capabilities from "@vite-hub/agent/capabilities"; ${call}`
+    expect(usesProviderAgentDriver(source, parseTypeScript, agentFile)).toBe(false)
+    await expect(transformServerModule(source, ["workerd", "worker"])).resolves.toBeUndefined()
+  })
+
   it("detects value imports in mixed preset specifiers", () => {
     expect(usesProviderAgentDriver(`import { type WorkspaceOptions, workspace } from "@acme/presets/workspace"`, parseTypeScript, agentFile)).toBe(true)
   })

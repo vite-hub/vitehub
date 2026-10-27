@@ -1,3 +1,4 @@
+import { boxedPrimitive } from "./internal/boxed-primitive.ts"
 import type { OpenTelemetryLogRecordView, OpenTelemetrySpanView } from "@vite-hub/runtime"
 
 import type { AgentRuntimeConfig, AgentTelemetry, AgentTelemetryExportContext, MaybePromise } from "./types.ts"
@@ -33,23 +34,6 @@ function consumeOtlpBinaryBudget(budget: OtlpEncodingBudget, byteLength: number)
     throw agentDiagnostics.AGENT_R0859({ message: "OTLP/HTTP JSON telemetry batch exceeds the bounded binary budget." })
   }
   budget.binaryBytesRemaining -= byteLength
-}
-
-function boxedPrimitive(value: unknown): { type: string, value: bigint | boolean | number | string } | undefined {
-  if (!value || !hasRuntimeType(value, "object")) return
-  for (const [type, unwrap] of [
-    ["Boolean", () => Boolean.prototype.valueOf.call(value)],
-    ["Number", () => Number.prototype.valueOf.call(value)],
-    ["String", () => String.prototype.valueOf.call(value)],
-    ["BigInt", () => BigInt.prototype.valueOf.call(value)],
-  ] as const) {
-    try {
-      return { type, value: unwrap() }
-    }
-    catch {
-      // Try the next intrinsic wrapper.
-    }
-  }
 }
 
 function isDate(value: unknown): value is Date {

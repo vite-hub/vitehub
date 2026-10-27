@@ -49,7 +49,7 @@ const integrationMocks = vi.hoisted(() => ({
   resolveAuthViteConfig: vi.fn(),
   hubQueue: vi.fn(() => ({ name: "@vite-hub/queue/vite" })),
   hubRateLimit: vi.fn(() => ({ name: "@vite-hub/rate-limit/vite" })),
-  hubSandboxTask: vi.fn(() => ({ name: "@vite-hub/sandbox-task/vite" })),
+  hubSandboxTask: vi.fn(() => ({ name: "@vite-hub/sandbox/task/vite" })),
   hubSchedule: vi.fn(() => ({ name: "@vite-hub/schedule/vite" })),
   hubWorkflow: vi.fn(() => ({ name: "@vite-hub/workflow/vite" })),
   hubWorkspace: vi.fn(() => ({ name: "@vite-hub/workspace/vite" })),
@@ -101,7 +101,7 @@ vi.mock("@vite-hub/kv/vite", () => ({
 }))
 vi.mock("@vite-hub/queue/vite", () => ({ hubQueue: integrationMocks.hubQueue, queueConsoleSection: integrationMocks.consoleSection("queues") }))
 vi.mock("@vite-hub/rate-limit/vite", () => ({ hubRateLimit: integrationMocks.hubRateLimit, rateLimitConsoleSection: integrationMocks.consoleSection("rate-limits") }))
-vi.mock("@vite-hub/sandbox-task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks") }))
+vi.mock("@vite-hub/sandbox/task/vite", () => ({ hubSandboxTask: integrationMocks.hubSandboxTask, sandboxTaskConsoleSection: integrationMocks.consoleSection("sandbox-tasks") }))
 vi.mock("@vite-hub/schedule/vite", () => ({ hubSchedule: integrationMocks.hubSchedule, scheduleConsoleSection: integrationMocks.consoleSection("schedules") }))
 vi.mock("@vite-hub/workflow/vite", () => ({
   discoverWorkflowDefinitions: integrationMocks.discoverWorkflowDefinitions,
@@ -727,7 +727,7 @@ describe("vitehub", () => {
       "vite-hub/error-log",
       "@vite-hub/env/vite",
       "@vite-hub/auth/vite",
-      "@vite-hub/sandbox-task/vite",
+      "@vite-hub/sandbox/task/vite",
       "vite-hub/agent-invocations",
       "@vite-hub/agent/vite",
       "@vite-hub/channels/vite",
@@ -745,10 +745,11 @@ describe("vitehub", () => {
       "@vite-hub/comments/vite",
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
+      "vite-hub/nitro-workerd-dependencies",
       "vite-hub/types",
     ])
     expect((vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
-    expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox-task/vite")
+    expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox/task/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node" }))).toContain("@vite-hub/workflow/vite")
     expect(pluginNames(vitehub({ agent: true, preset: "node", workflow: false }))).not.toContain("@vite-hub/workflow/vite")
 
@@ -808,7 +809,7 @@ describe("vitehub", () => {
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
-      providerImportSpecifier: "vite-hub/sandbox-task",
+      providerImportSpecifier: "vite-hub/sandbox/task",
     })
     expect(integrationMocks.hubSchedule).toHaveBeenLastCalledWith({
       importBase: "vite-hub/_internal/schedule",
@@ -1002,15 +1003,15 @@ describe("vitehub", () => {
 
     expect(integrationMocks.hubAgent).toHaveBeenLastCalledWith(expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandboxTask: "vite-hub/sandbox-task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox-task/runtime/state",
+        sandboxTask: "vite-hub/sandbox/task",
+        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
     expect(integrationMocks.hubWorkflow).toHaveBeenLastCalledWith({}, expect.objectContaining({
       workspaceDependencyRuntimeImports: {
-        sandboxTask: "vite-hub/sandbox-task",
-        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox-task/runtime/state",
+        sandboxTask: "vite-hub/sandbox/task",
+        sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
         shellWorkspace: "vite-hub/shell/workspace",
       },
     }))
@@ -1130,17 +1131,17 @@ describe("vitehub", () => {
 
   it("resolves provider facades after framework aliasing", async () => {
     const plugin = dependencyPlugin({ preset: "vercel", sandboxTask: true })
-    const frameworkSandboxTaskFacade = pluginAliases(plugin)["vite-hub/sandbox-task"]
+    const frameworkSandboxTaskFacade = pluginAliases(plugin)["vite-hub/sandbox/task"]
     const sandboxTaskAliases = providerAliasesFromCall(integrationMocks.hubSandboxTask.mock.calls.at(-1))
     const providerSandboxTaskFacade = "/app/.vitehub/sandbox-task/provider.mjs"
 
-    sandboxTaskAliases["@vite-hub/sandbox-task"] = providerSandboxTaskFacade
-    sandboxTaskAliases["vite-hub/sandbox-task"] = providerSandboxTaskFacade
+    sandboxTaskAliases["@vite-hub/sandbox/task"] = providerSandboxTaskFacade
+    sandboxTaskAliases["vite-hub/sandbox/task"] = providerSandboxTaskFacade
 
     const resolveId = plugin.resolveId
     if (!isCallable(resolveId)) throw new TypeError("Expected the framework dependency resolver.")
-    expect(await resolveId.call(pluginContext, "vite-hub/sandbox-task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
-    expect(await resolveId.call(pluginContext, "@vite-hub/sandbox-task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
+    expect(await resolveId.call(pluginContext, "vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
+    expect(await resolveId.call(pluginContext, "@vite-hub/sandbox/task", "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, frameworkSandboxTaskFacade, "/app/server.ts", pluginResolveOptions)).toBe(providerSandboxTaskFacade)
     expect(await resolveId.call(pluginContext, "@vite-hub/kv/runtime/upstash-driver", "/app/server.ts", pluginResolveOptions)).toBeUndefined()
   })
@@ -1163,7 +1164,7 @@ describe("vitehub", () => {
     expect(aliases).not.toHaveProperty("@vite-hub/kv/runtime/upstash-driver")
     expect(aliases["vite-hub/_internal/agent/server/registry"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/registry\.js$/)
     expect(aliases["vite-hub/_internal/agent/server/internal"]).toMatch(/packages\/vite-hub\/dist\/_internal\/agent\/server\/internal\.js$/)
-    expect(aliases["vite-hub/_internal/sandbox-task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox-task\/runtime\/state\.js$/)
+    expect(aliases["vite-hub/_internal/sandbox/task/runtime/state"]).toMatch(/packages\/vite-hub\/dist\/_internal\/sandbox\/task\/runtime\/state\.js$/)
     expect(aliases["vite-hub/shell/workspace"]).toMatch(/packages\/vite-hub\/dist\/shell\/workspace\.js$/)
   })
 

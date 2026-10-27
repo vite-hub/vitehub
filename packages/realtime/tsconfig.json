@@ -4,10 +4,9 @@
     "forceConsistentCasingInFileNames": true,
     "lib": ["ESNext", "DOM"],
     "rootDir": "..",
-    "baseUrl": "../..",
     "paths": {
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     }
   },

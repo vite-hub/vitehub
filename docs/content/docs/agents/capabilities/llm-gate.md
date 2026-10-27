@@ -72,14 +72,14 @@ It asks one `ask.choice()` question with every category. Jev accepts 2 to 255 ch
 The state is the Invocation `data` when a caller sets it. Otherwise it is `{ request, history? }` from the latest user text and the `history` option.
 
 The decision has `confidence` and `probabilities`, a map from category key to probability. Jev decisions have no `reason`.
-Credentials come from the `typesafe` Server Env group, as for the ask Driver.
+The request goes through the `gateway` option, an [AI gateway](/docs/agents/ai-gateways) such as `cloudflare()`, or through `typesafe()`, which reads `TYPESAFE_API_KEY`.
 
 ## Requirements
 
 - At least one allow category and one reject category.
 - Category keys must be stable identifiers: a letter first, then letters, digits, `-`, `_`, or `.`.
 - A model. Model-backed Agents use the Agent model. Provider-backed and custom-run-backed Agents do not expose an Agent model to Capabilities, so set `model`. Without a model, the invocation fails with "requires a model option or an agent model".
-- For Jev decisions: the `advocaat` package and the `typesafe` Server Env group. See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
+- For Jev decisions: the `advocaat` package and the key of the gateway (`TYPESAFE_API_KEY` for the default `typesafe()`). See [Use an ask Driver](/docs/agents/agent-drivers#use-an-ask-driver).
 
 ## Security and approval
 
