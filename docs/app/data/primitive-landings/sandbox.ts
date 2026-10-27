@@ -17,7 +17,7 @@ const sandboxFiles = [
   {
     path: "server/release-notes.ts",
     language: "typescript",
-    content: 'import { runSandboxTask } from "@vite-hub/sandbox-task"\n\nexport function releaseNotes() {\n  return runSandboxTask("release-notes", { notes: "ship it" })\n}',
+    content: 'import { runSandboxTask } from "@vite-hub/sandbox/task"\n\nexport function releaseNotes() {\n  return runSandboxTask("release-notes", { notes: "ship it" })\n}',
   },
 ];
 
@@ -30,9 +30,9 @@ export const SandboxLanding = {
   supported: ["Vite", "Nitro", "Nuxt"],
   variants: sandbox.variants.map(variant => {
     const dependencies = {
-      vite: { "@vite-hub/sandbox-task": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
-      nitro: { "@vite-hub/sandbox-task": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
-      nuxt: { "@vite-hub/sandbox-task": "latest", "@vercel/sandbox": "latest", nuxt: "latest", "vite-hub": "latest" },
+      vite: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
+      nitro: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", "vite-hub": "latest", vite: "latest", nitro: "latest" },
+      nuxt: { "@vite-hub/sandbox": "latest", "@vercel/sandbox": "latest", nuxt: "latest", "vite-hub": "latest" },
     }[variant.framework];
     const packageFile: PrimitiveProjectFile = {
       path: "package.json",
