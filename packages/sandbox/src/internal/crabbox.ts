@@ -26,6 +26,7 @@ import {
 } from "./requirements.ts"
 import { markBuiltInSandboxRuntime } from "./runtime.ts"
 import { createSandboxSession, type RuntimeSession } from "./session.ts"
+import { shellQuote } from "./shell-quote.ts"
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 export interface CrabboxOptions {
@@ -1407,10 +1408,6 @@ function normalizeRelativeArchivePath(path: string) {
   const normalized = posix.normalize(path.replace(/^\.\//, "").replace(/\/$/, ""))
   if (!normalized || normalized === "." || normalized.startsWith("../") || posix.isAbsolute(normalized)) return undefined
   return normalized
-}
-
-function shellQuote(value: string) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`
 }
 
 function lastLines(value: string, count: number) {

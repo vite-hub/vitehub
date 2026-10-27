@@ -294,7 +294,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
   }
 
   function fetchContent(key: string, file: GitHubFile<string>) {
-    if (file.content) return Promise.resolve(file.content)
+    if (file.content) return file.content
     throw sourceError(`[vitehub] github(${JSON.stringify(options.repo)}) did not include archive content for ${JSON.stringify(key)}.`)
   }
 
@@ -330,15 +330,15 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
     },
     async getItems(ctx) {
       const token = await contextAuth(ctx)
-      return await Promise.all((await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(async file => ({
+      return (await getFiles(token, ctx.abortSignal, ctx.revision?.id)).map(file => ({
         key: file.key,
         path: file.path,
-        content: await fetchContent(file.key, file),
+        content: fetchContent(file.key, file),
         metadata: {
           ref: file.ref,
           sha: file.sha,
         },
-      })))
+      }))
     },
     async getMeta(key, ctx) {
       const token = await contextAuth(ctx)
@@ -355,7 +355,7 @@ export function github(options: GitHubSourceOptions): FileSource<string> {
       return {
         key: file.key,
         path: file.path,
-        content: await fetchContent(key, file),
+        content: fetchContent(key, file),
         metadata: {
           ref: file.ref,
           sha: file.sha,
