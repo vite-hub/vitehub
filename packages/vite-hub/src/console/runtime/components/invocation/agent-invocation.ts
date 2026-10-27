@@ -27,6 +27,7 @@ export { invocationActivities } from "./internal/invocation-activity.ts";
 import { buildInvocationConversation, type InvocationConversation } from "./internal/invocation-conversation.ts";
 import { hasRuntimeType, runtimeType } from "./internal/runtime-type.ts";
 import { payloadText } from "./internal/payload-text.ts";
+import { isSafeExternalUrl } from "./internal/url.ts";
 import { Markdown } from "@vite-hub/ui/markdown";
 import { ToolList } from "@vite-hub/ui/tool-list";
 
@@ -176,6 +177,8 @@ const InvocationError = defineComponent({
     return () => {
       const error = props.error;
       const payload = diagnosticPayload(error);
+      // Match Console request errors' HTTPS-only policy; keep the original URL in the diagnostic.
+      const docs = error.docs?.startsWith("https://") && isSafeExternalUrl(error.docs) ? error.docs : undefined;
       // The message alone repeats the card; any other field is worth a details view.
       const hasDetails = Object.keys(payload).length > 1;
       // The name and status qualify the code; a plain "Error" name says nothing.
@@ -198,7 +201,7 @@ const InvocationError = defineComponent({
           h("p", error.fix),
         ]) : null,
         h("div", { class: "vh-invocation-error__actions" }, [
-          error.docs ? h("a", { class: "vh-invocation-error__action", href: error.docs, rel: "noreferrer", target: "_blank" }, [
+          docs ? h("a", { class: "vh-invocation-error__action", href: docs, rel: "noreferrer", target: "_blank" }, [
             "Read the docs",
             h("svg", { "aria-hidden": "true", fill: "none", viewBox: "0 0 24 24" }, [h("path", { d: "M7 17 17 7M8 7h9v9", "stroke-linecap": "round", "stroke-linejoin": "round" })]),
           ]) : null,

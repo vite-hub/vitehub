@@ -2582,6 +2582,45 @@ describe("Agent Invocation UI", () => {
 
   });
 
+  it.each([
+    ["https://vitehub.dev/docs/agents/limits-and-errors#AGENT_R0726", true],
+    ["javascript:alert(document.domain)", false],
+    ["java\nscript:alert(document.domain)", false],
+    ["data:text/html,<script>alert(1)</script>", false],
+    ["http://vitehub.dev/docs/agents/limits-and-errors", false],
+    ["//vitehub.dev/docs/agents/limits-and-errors", false],
+    ["/docs/agents/limits-and-errors", false],
+    ["https://", false],
+    ["https://[invalid", false],
+  ])("validates failed-run documentation links while retaining the diagnostic: %s", async (docs, allowed) => {
+    const error = { code: "AGENT_R0726", docs, message: "Workspace spend cap reached" };
+    const invocation: AgentInvocationView = {
+      createdAt: "2026-08-22T00:00:00.000Z", id: "quota", observations: [],
+      status: "failed", traceId: "trace", updatedAt: "2026-08-22T00:00:00.000Z",
+      error,
+    };
+    const wrapper = mount(AgentInvocationInspector, { props: { invocation } });
+    const link = wrapper.find(".vh-invocation-error__actions a");
+    expect(link.exists()).toBe(allowed);
+    if (allowed) {
+      expect(link.attributes("href")).toBe(docs);
+      expect(link.text()).toBe("Read the docs");
+    }
+    await wrapper.get(".vh-invocation-error__action[aria-controls]").trigger("click");
+    const diagnostic = wrapper.get(".vh-invocation-error__details").text();
+    expect(JSON.parse(diagnostic)).toMatchObject(error);
+
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    try {
+      await wrapper.get("button.vh-invocation-error__action:not([aria-controls])").trigger("click");
+      expect(writeText).toHaveBeenCalledWith(diagnostic);
+    } finally {
+      vi.unstubAllGlobals();
+      wrapper.unmount();
+    }
+  });
+
   it("renders provider-owned recovery instructions without guessing advice", () => {
     const invocation: AgentInvocationView = {
       createdAt: "2026-08-22T00:00:00.000Z", id: "quota", observations: [],
