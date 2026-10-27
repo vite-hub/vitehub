@@ -51,7 +51,7 @@ export interface CommentComponent {
  * reads the page, the element, the Vue components, and the browser; the server adds the build.
  */
 export interface CommentContext {
-  /** The page URL without the comment mode query and the hash. */
+  /** The page origin and pathname, without credentials, query parameters, or a hash. */
   url: string
   title?: string
   /** The Vue Router route pattern, such as `/blog/:id(.*)*`. */

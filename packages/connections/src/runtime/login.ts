@@ -1,5 +1,6 @@
 import * as v from "valibot"
 
+import { codeChallenge, randomToken } from "../internal/oauth-crypto.ts"
 import { accountFromIdToken } from "../account.ts"
 import { isSafeEndpoint } from "../api-key.ts"
 import { isConnectionError } from "../errors.ts"
@@ -49,18 +50,6 @@ const serverMetadataSchema = v.object({
 })
 const registrationSchema = v.object({ client_id: v.pipe(v.string(), v.minLength(1)), client_secret: v.optional(v.string()) })
 const sealedValueSchema = v.object({ unseal: v.function() })
-
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-function randomToken(): string {
-  return base64Url(crypto.getRandomValues(new Uint8Array(32)))
-}
-
-async function codeChallenge(verifier: string): Promise<string> {
-  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))
-}
 
 function withoutTrailingSlash(url: string): string {
   return url.replace(/\/+$/, "")

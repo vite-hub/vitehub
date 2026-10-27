@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { componentNames, hubComments, readCommentsBuild, readCommentsComponents } from "../src/vite.ts"
+import { componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 
@@ -33,6 +33,19 @@ afterEach(async () => {
 })
 
 describe("hubComments", () => {
+  it.each([
+    "git@ghe.example.com:acme/app.git",
+    "https://ghe.example.com/acme/app.git",
+    "ssh://git@ghe.example.com:2222/acme/app.git",
+    "git@github.com:acme/app.git",
+    "https://github.com/acme/app/",
+  ])("discovers a repository from a GitHub or Enterprise remote: %s", async (remote) => {
+    expect(githubRepository(remote)).toBe("acme/app")
+    const root = await project({})
+    expect(await readCommentsBuild(root, { COMMIT_REF: "abc", BRANCH: "feat", REPOSITORY_URL: remote, PULL_REQUEST: "true", REVIEW_ID: "7" }))
+      .toEqual({ commit: "abc", branch: "feat", repository: "acme/app", pullRequest: 7 })
+  })
+
   it("does nothing without server/comments.ts", async () => {
     const root = await project({ "server/content.ts": "export const content = {}" })
     const plugin = hubComments()
@@ -54,7 +67,7 @@ describe("hubComments", () => {
 
   it("names a Vue file the way production builds and Nuxt name its component", () => {
     expect(componentNames("app/components/PricingCard.vue")).toEqual(["PricingCard"])
-    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread", "ViewerThread"])
+    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread"])
     expect(componentNames("app/components/viewer/ViewerCommentThread.vue")).toEqual(["ViewerCommentThread"])
     expect(componentNames("app/pages/drops/index.vue")).toEqual(["index", "drops"])
     expect(componentNames("app/pages/blog/[id].vue")).toEqual(["[id]", "blog-id"])
@@ -82,6 +95,58 @@ describe("hubComments", () => {
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
   })
 
+  it("maps filenames that are inherited object keys through Comments configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/constructor.vue": "<template />",
+      "app/components/toString.vue": "<template />",
+    })
+    expect(await readCommentsComponents(root)).toEqual({
+      constructor: ["app/components/constructor.vue"],
+      toString: ["app/components/toString.vue"],
+    })
+    await configure(hubComments(), root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"constructor\":[\"app/components/constructor.vue\"]")
+  })
+
+  it("maps resolved component names that are inherited object keys", async () => {
+    const root = await project({ "widgets/Card.vue": "<template />" })
+    const components = await readCommentsComponents(root, 5000, [{ pascalName: "constructor", filePath: join(root, "widgets/Card.vue") }])
+    expect(components.constructor).toEqual(["widgets/Card.vue"])
+  })
+
+  it("uses resolved Nuxt names, including configured directories and mode suffixes, before and after configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/cards/index.vue": "<template />",
+      "app/components/(group)/Buy.client.vue": "<template />",
+      "app/components/Account.server.vue": "<template />",
+      "widgets/Thing.vue": "<template />",
+    })
+    const plugin = hubComments()
+    const entries = [
+      { pascalName: "Cards", filePath: join(root, "app/components/cards/index.vue") },
+      { pascalName: "Buy", filePath: join(root, "app/components/(group)/Buy.client.vue") },
+      { pascalName: "Account", filePath: join(root, "app/components/Account.server.vue") },
+      { pascalName: "CustomThing", filePath: join(root, "widgets/Thing.vue") },
+      { pascalName: "Primitive", filePath: join(root, "node_modules/lib/Primitive.vue") },
+    ]
+    await plugin.api.setComponents(entries)
+    await configure(plugin, root)
+    const readMap = async () => JSON.parse((await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).replace(/^export default /, ""))
+    expect(await readMap()).toMatchObject({
+      Cards: ["app/components/cards/index.vue"],
+      Buy: ["app/components/(group)/Buy.client.vue"],
+      Account: ["app/components/Account.server.vue"],
+      CustomThing: ["widgets/Thing.vue"],
+    })
+    expect(await readMap()).not.toHaveProperty("Primitive")
+    expect(await readMap()).not.toHaveProperty("CardsIndex")
+    await plugin.api.setComponents([{ pascalName: "Thing", filePath: join(root, "widgets/Thing.vue") }])
+    expect(await readMap()).toMatchObject({ Thing: ["widgets/Thing.vue"] })
+    expect(await readMap()).not.toHaveProperty("CustomThing")
+  })
+
   it("reads the people from the Console access rules when the app has the Console", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
     const plugin = hubComments({ auth: true, console: { module: "vite-hub/console/sections" } })
@@ -90,6 +155,9 @@ describe("hubComments", () => {
     expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
     expect(handler).toContain("session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
     expect(handler).not.toContain("commentsAuthSession")
+    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(mcpPlugin).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
+    expect(mcpPlugin).toContain("session: commentsConsoleSession(consoleRealtimeAccess(\"comments\"))")
     const directory = join(root, ".vitehub/nitro/realtime")
     await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
     expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
@@ -105,6 +173,29 @@ describe("hubComments", () => {
       name: "comments",
     })])
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("const name = \"content\"")
+  })
+
+  it.each([
+    ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
+    ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
+    ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: chooseDatabase() })', undefined],
+    ['export const comments = defineComments({ database: "wrong", ...options })', undefined],
+    ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
+    ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
+  ])("reads only the effective exported Database option: %s", async (source, database) => {
+    const root = await project({ "server/comments.ts": source })
+    expect(await readCommentsDatabase(join(root, "server/comments.ts"))).toBe(database)
+    const plugin = hubComments()
+    await configure(plugin, root)
+    const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
+    expect(contributions).toHaveLength(1)
+    if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
+    else expect(contributions[0]).toHaveProperty("database", database)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`const name = ${JSON.stringify(database ?? null)}`)
   })
 
   it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {

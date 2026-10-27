@@ -4,6 +4,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -54,8 +55,16 @@ export interface CommentsRealtimeContributionContext {
   serverDirs?: string[]
 }
 
+/** The names and source files resolved by Nuxt's component scanner. */
+export interface CommentsComponent {
+  pascalName: string
+  filePath: string
+}
+
 export type CommentsVitePlugin = Plugin & {
   api: {
+    /** Supplies Nuxt's effective component names, and refreshes the generated map after a rescan. */
+    setComponents(components: readonly CommentsComponent[]): Promise<void>
     /**
      * The `comments` Realtime Definition of the page presence rooms, for `hubRealtime({ contribute })`. Realtime calls
      * it only when the host has a room authority; without one, pages show comments without presence.
@@ -80,7 +89,40 @@ const defaultImports: CommentsImports = {
  */
 export async function readCommentsDatabase(file: string): Promise<string | undefined> {
   const source = await readFile(file, "utf8").catch(() => "")
-  return /\bdatabase\s*:\s*["'`]([\w-]+)["'`]/.exec(source)?.[1]
+  const module = scanModule(source, file)
+  if (module.errors.length) return
+  const bindings = new Set<string>()
+  for (const statement of module.program.body) {
+    if (statement.type !== "ExportNamedDeclaration" || statement.source) continue
+    if (statement.declaration?.type === "VariableDeclaration") {
+      for (const declaration of statement.declaration.declarations) {
+        if (declaration.id.type === "Identifier" && declaration.id.name === "comments") bindings.add(declaration.id.name)
+      }
+    }
+    for (const specifier of statement.specifiers) {
+      const name = specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value
+      if (name === "comments" && specifier.local.type === "Identifier") bindings.add(specifier.local.name)
+    }
+  }
+  for (const statement of module.program.body) {
+    const declaration = statement.type === "ExportNamedDeclaration" ? statement.declaration : statement
+    if (declaration?.type !== "VariableDeclaration") continue
+    for (const binding of declaration.declarations) {
+      if (binding.id.type !== "Identifier" || !bindings.has(binding.id.name) || !binding.init) continue
+      const call = unwrapExpression(binding.init)
+      if (call.type !== "CallExpression" || call.callee.type !== "Identifier" || call.callee.name !== "defineComments") continue
+      const options = argumentExpression(call.arguments[0])
+      if (options?.type !== "ObjectExpression") return
+      for (const property of objectProperties(options).reverse()) {
+        // A later spread or dynamic key may replace an earlier Database option.
+        if (property.key === undefined) return
+        if (property.key !== "database") continue
+        if (property.node.type !== "Property" || property.node.kind !== "init" || property.node.method) return
+        return staticString(property.value)
+      }
+      return
+    }
+  }
 }
 
 /** The directory of the prebuilt overlay script in this package. */
@@ -109,9 +151,9 @@ async function git(root: string, args: string[]): Promise<string | undefined> {
   }
 }
 
-/** `owner/name` of a GitHub remote URL, such as `git@github.com:owner/name.git`. */
+/** `owner/name` of a GitHub or Enterprise remote. The forge's API URL selects the server at runtime. */
 export function githubRepository(remote: string | undefined): string | undefined {
-  return remote ? /github\.com[:/]([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
+  return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
 }
 
 /** The pull request that the CI or host builds, when it names one. */
@@ -146,12 +188,10 @@ export async function readCommentsBuild(root: string, env: Record<string, string
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
 
-const pascal = (segment: string): string => segment.replace(/(?:^|[-_.\s]+)(\w)/g, (_, letter: string) => letter.toUpperCase())
-
 /**
  * The names that a production build may give the component of a `.vue` file: its file name, which `<script setup>`
- * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`; under `components/`, the
- * Nuxt name, such as `ViewerThread` for `components/viewer/Thread.vue`.
+ * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`.
+ * Nuxt component names come from its resolved registry rather than a path heuristic.
  */
 export function componentNames(file: string): string[] {
   const names = new Set([basename(file, ".vue")])
@@ -161,13 +201,6 @@ export function componentNames(file: string): string[] {
     const route = parts.slice(pages + 1).filter(part => part !== "index" && !/^\(.*\)$/.test(part)).map(part => part.replace(/[[\].]/g, "")).join("-")
     names.add(route || "index")
   }
-  const directory = parts.lastIndexOf("components")
-  if (directory !== -1) {
-    const segments = parts.slice(directory + 1).map(pascal)
-    const last = segments.pop()!
-    const prefix = segments.join("")
-    names.add(last.startsWith(prefix) ? last : `${prefix}${last}`)
-  }
   return [...names]
 }
 
@@ -175,8 +208,8 @@ export function componentNames(file: string): string[] {
  * The Vue files of a project by component name, relative to the project root. `<script setup>` components carry the
  * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
  */
-export async function readCommentsComponents(root: string, limit = 5000): Promise<Record<string, string[]>> {
-  const components: Record<string, string[]> = {}
+export async function readCommentsComponents(root: string, limit = 5000, resolvedComponents: readonly CommentsComponent[] = []): Promise<Record<string, string[]>> {
+  const components: Record<string, string[]> = Object.create(null)
   let count = 0
   async function walk(directory: string, depth: number): Promise<void> {
     if (depth > 12 || count >= limit) return
@@ -196,6 +229,16 @@ export async function readCommentsComponents(root: string, limit = 5000): Promis
     }
   }
   await walk(root, 0)
+  const resolvedNames: Record<string, string[]> = Object.create(null)
+  for (const component of resolvedComponents) {
+    const file = relative(root, component.filePath).split(sep).join("/")
+    // Nuxt's registry also includes library components and generated placeholders, which are not project sources.
+    if (!file.endsWith(".vue") || file.split("/").some(part => part !== ".." && (part.startsWith(".") || skippedDirectories.has(part)))) continue
+    const files = resolvedNames[component.pascalName] ??= []
+    if (!files.includes(file)) files.push(file)
+  }
+  // A resolved name wins over ambiguous filename fallbacks.
+  Object.assign(components, resolvedNames)
   return components
 }
 
@@ -244,11 +287,13 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports }): string {
+  const session = sessionLines(input.session ?? {}, input.imports)
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+    ...session.imports,
     "",
     "// The Database that `defineComments({ database })` names, else `default`, else the only one.",
     "function database() {",
@@ -263,7 +308,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, session: ${session.value}, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -278,11 +323,22 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let realtime = false
+  let resolvedComponents: readonly CommentsComponent[] = []
+  let componentsFile: string | undefined
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
+  async function writeComponents(): Promise<void> {
+    if (!projectRoot || !componentsFile) return
+    const components = await readCommentsComponents(projectRoot, 5000, resolvedComponents)
+    await writeFile(componentsFile, `export default ${JSON.stringify(components)}\n`)
+  }
 
   return {
     name: "@vite-hub/comments/vite",
     api: {
+      async setComponents(components) {
+        resolvedComponents = components
+        await writeComponents()
+      },
       async contributeRealtime(context) {
         const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
         if (!definition) return
@@ -347,17 +403,19 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
         const definition = discover()
         if (!definition) {
+          componentsFile = undefined
           await rm(directory, { force: true, recursive: true })
           return
         }
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         await mkdir(directory, { recursive: true })
-        const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
+        componentsFile = join(directory, "components.mjs")
+        const build = await readCommentsBuild(projectRoot)
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
-          writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports })),
+          writeComponents(),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), session: options, imports })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${commentsRoute}/**` })

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-import { ask } from "../src/ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { defineAgent, runAgent } from "../src/index.ts"
 import { usage } from "../src/capabilities/usage.ts"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
@@ -30,9 +30,6 @@ const systemOne = vi.hoisted(() => vi.fn(async (request: { questions: WireQuesti
 }))
 
 vi.mock("advocaat", () => ({ typesafe: () => ({ systemOne }) }))
-vi.mock("../src/internal/server-env.ts", () => ({
-  importServerEnvModule: async () => ({ useServerEnv: () => ({ typesafe: { apiKey: "secret-key", model: "jev-latest", provider: "typesafe" } }) }),
-}))
 
 const runtime = () => ({ memo: vi.fn(), runtime: "unknown" as const, runtimeConfig: {}, waitUntil: vi.fn() })
 
@@ -79,6 +76,7 @@ function setup() {
 }
 
 beforeEach(() => {
+  vi.stubEnv("TYPESAFE_API_KEY", "secret-key")
   systemOne.mockClear()
 })
 
@@ -163,7 +161,7 @@ describe("ask Driver Invocation observations", () => {
     systemOne.mockClear()
     const failure = "failed with HTTP 503 after 3 attempts"
     await expect(runAgent(sameArea, runtime(), { data: "failing" })).rejects.toMatchObject({
-      code: "AGENT_R1010",
+      code: "GATEWAYS_R0009",
       cause: expect.objectContaining({ message: "503 upstream overloaded" }),
       message: expect.stringContaining(failure),
       providerStatus: 503,

@@ -38,15 +38,24 @@ function message(error: unknown): string {
   return (error instanceof Error ? error.message : String(error)).slice(0, 500)
 }
 
-function linkOf(row: LinkRow): CommentForgeLink {
+function linkOf(thread: CommentThread, byId: ReadonlyMap<string, LinkRow>): CommentForgeLink | null {
+  const rows = thread.comments.map(comment => byId.get(comment.id))
+  const first = rows[0]
+  const target = first ?? rows.find(row => row !== undefined)
+  if (!target) return null
+  const error = rows.find(row => row?.error)?.error
   return {
-    repository: row.repository,
-    pullRequest: row.pullRequest,
-    state: row.error ? "failed" : row.remoteId ? "posted" : "pending",
-    ...(row.url ? { url: row.url } : {}),
-    ...(row.error ? { error: row.error } : {}),
-    ...(row.postedAs ? { postedAs: row.postedAs } : {}),
+    repository: target.repository,
+    pullRequest: target.pullRequest,
+    state: error ? "failed" : rows.some(row => !row?.remoteId) ? "pending" : "posted",
+    ...(first?.url ? { url: first.url } : {}),
+    ...(error ? { error } : {}),
+    ...(first?.postedAs ? { postedAs: first.postedAs } : {}),
   }
+}
+
+function authorizationFailed(error: unknown): boolean {
+  return error instanceof GitHubRequestError && (error.status === 401 || error.status === 403 || error.status === 404)
 }
 
 /** Runs tasks with the same key one after another, so two syncs of a thread or a pull request never interleave. */
@@ -199,8 +208,14 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       const hash = digest(body)
       try {
         if (existing.digest !== hash) {
-          const token = existing.postedAs === "author" ? await authorToken(comment) ?? await appToken() : await appToken()
-          await github.updateComment(token, at.repository, existing.remoteId, body)
+          const own = existing.postedAs === "author" ? await authorToken(comment) : undefined
+          try {
+            await github.updateComment(own ?? await appToken(), at.repository, existing.remoteId, body)
+          }
+          catch (error) {
+            if (!own || !authorizationFailed(error)) throw error
+            await github.updateComment(await appToken(), at.repository, existing.remoteId, body)
+          }
           await save(comment.id, { digest: hash, error: null })
         }
         else if (existing.error) await save(comment.id, { error: null })
@@ -236,7 +251,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
       }
       catch (error) {
         // A revoked or narrow user token: post for them instead.
-        if (!own || !(error instanceof GitHubRequestError && (error.status === 401 || error.status === 403 || error.status === 404))) throw error
+        if (!own || !authorizationFailed(error)) throw error
         postedAs = "app"
         body = renderComment(thread, comment, postedAs)
         token = await appToken()
@@ -260,11 +275,12 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     if (extraId) ids.add(extraId)
     const threads = (await Promise.all([...ids].map(threadId => store.get(threadId)))).filter(thread => thread !== undefined)
     if (!threads.length) return
+    const byId = new Map(rows.map(item => [item.id, item]))
     return renderSummary({
       title,
       threads: threads.map((thread) => {
-        const first = rows.find(item => item.id === thread.comments[0]?.id)
-        return { thread, ...(first?.url ? { url: first.url } : {}), failed: Boolean(first?.error) }
+        const link = linkOf(thread, byId)
+        return { thread, ...(link?.url ? { url: link.url } : {}), failed: link?.state !== "posted" }
       }),
     })
   }
@@ -382,12 +398,10 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
     },
     async attach(threads) {
       if (!threads.length) return threads
-      const firstIds = threads.map(thread => thread.comments[0]?.id).filter(id => id !== undefined)
-      const rows = firstIds.length ? await database.select().from(links).where(inArray(links.id, firstIds)) : []
+      const rows = await database.select().from(links).where(inArray(links.threadId, threads.map(thread => thread.id)))
       const byId = new Map(rows.map(item => [item.id, item]))
       return threads.map((thread) => {
-        const found = byId.get(thread.comments[0]?.id ?? "")
-        return { ...thread, forge: found ? linkOf(found) : null }
+        return { ...thread, forge: linkOf(thread, byId) }
       })
     },
   }

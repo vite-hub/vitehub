@@ -23,6 +23,7 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
   const calls: string[] = []
   let nextId = 100
   let failNext = 0
+  const rejectedTokens = new Map<string, number>()
   let rejectedCreate: "summary" | "comment" | undefined
   let lostResponse: "summary" | "comment" | undefined
   let heldCreate: { kind: "summary" | "comment", visible: boolean, started: () => void, released: Promise<void> } | undefined
@@ -34,6 +35,7 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     const body: unknown = init?.body ? JSON.parse(String(init.body)) : undefined
     calls.push(`${method} ${url.pathname}`)
     const json = (data: unknown, status = 200) => new Response(status === 204 ? null : JSON.stringify(data), { status, headers: { "content-type": "application/json" } })
+    if (rejectedTokens.has(token)) return json({ message: "Token rejected" }, rejectedTokens.get(token))
     if (failNext > 0) {
       failNext--
       return json({ message: "Resource not accessible by integration" }, 403)
@@ -104,6 +106,9 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     calls,
     failNextRequests(count: number) {
       failNext = count
+    },
+    rejectToken(token: string, status: number) {
+      rejectedTokens.set(token, status)
     },
     rejectNextCreate(kind: "summary" | "comment") {
       rejectedCreate = kind
@@ -206,6 +211,65 @@ describe("forge sync", () => {
     expect(pending!.forge).toMatchObject({ state: "pending" })
     expect(posted!.forge).toMatchObject({ state: "posted", url: expect.any(String) })
     expect(failed!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403") })
+  })
+
+  it("aggregates pending and failed replies while keeping the first comment's link", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    await comments.flush()
+    const original = (await comments.get(thread!.id))[1]!.forge!
+    const held = github.holdNextCreate("comment")
+    const [, reply] = await comments.reply(thread!.id, { body: "A reply.", author: grace })
+    await held.started
+    const pending = (await comments.get(thread!.id))[1]!.forge
+    held.release()
+    await comments.flush()
+    expect(pending).toMatchObject({ state: "pending", url: original.url, postedAs: original.postedAs })
+
+    github.failNextRequests(1)
+    await comments.edit(reply!.id, { body: "An edited reply." })
+    await comments.flush()
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403"), url: original.url })
+    expect((await comments.list({ page: "/forecast" }))[1]![0]!.forge).toMatchObject({ state: "failed" })
+    expect(github.bodies()[0]).toContain("Open, not posted yet")
+
+    await comments.sync(thread!.id)
+    expect((await comments.getByComment(reply!.id))[1]!.forge).toEqual(original)
+    expect(github.bodies()[0]).not.toContain("not posted yet")
+  })
+
+  it("exposes a rejected reply create in the thread and summary until retry", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    await comments.flush()
+    github.rejectNextCreate("comment")
+    await comments.reply(thread!.id, { body: "A reply.", author: grace })
+    await comments.flush()
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403"), url: expect.any(String) })
+    expect(github.bodies()[0]).toContain("Open, not posted yet")
+    await comments.sync(thread!.id)
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "posted" })
+    expect(github.comments.size).toBe(3)
+  })
+
+  it.each([401, 403, 404])("retries author edits with the app after token rejection (%s)", async (status) => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github, { token: () => "ada-token" })
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Initial.", author: ada })
+    await comments.flush()
+    github.rejectToken("ada-token", status)
+    await comments.edit(thread!.comments[0]!.id, { body: "Edited." })
+    await comments.flush()
+    expect(github.bodies()[1]).toMatch(/^Edited\./)
+    expect(github.comments.size).toBe(2)
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "posted", postedAs: "author" })
+
+    github.rejectToken("app-token", 403)
+    await comments.edit(thread!.comments[0]!.id, { body: "Rejected by both." })
+    await comments.flush()
+    expect((await comments.get(thread!.id))[1]!.forge).toMatchObject({ state: "failed", error: expect.stringContaining("403") })
   })
 
   it("hides a resolved thread, shows it again when reopened, and keeps the summary current", async () => {

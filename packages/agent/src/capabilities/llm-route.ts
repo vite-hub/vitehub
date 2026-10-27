@@ -11,6 +11,7 @@ import {
   renderHistory,
 } from "./llm-decision-shared.ts"
 
+import type { AiGateway } from "@vite-hub/gateways"
 import type {
   AgentCapabilityDefinition,
   AgentModelResolver,
@@ -33,6 +34,8 @@ export interface LlmRouteOptions<TChoices extends LlmDecisionChoiceMap = LlmDeci
   choices: TChoices
   history?: boolean | number
   id?: string
+  /** Gateway of a Jev decision on a `driver.ask` Agent: `typesafe()`, `vercel()`, or `cloudflare()`. Default: `typesafe()`. */
+  gateway?: AiGateway<{ ask: true }>
   /** Chat model for the decision. Default: the Agent model, or TypeSafe Jev when the Agent uses `driver.ask`. */
   model?: AgentModelResolver
   prompt?: string

@@ -234,30 +234,18 @@ export function createBundledVercelBlobDriver(options: ResolvedVercelBlobStoreCo
       }
     },
     async list(listOptions = {}) {
-      if (listOptions.folded) {
-        const result = await list({
-          ...auth,
-          cursor: listOptions.cursor,
-          limit: listOptions.limit,
-          mode: "folded",
-          prefix: listOptions.prefix,
-        })
-        return {
-          blobs: result.blobs.map(toBlobObject),
-          cursor: result.cursor,
-          folders: result.folders,
-          hasMore: result.hasMore,
-        }
-      }
-      const result = await list({
+      const folded = listOptions.folded
+      const result = await list<"folded" | undefined>({
         ...auth,
         cursor: listOptions.cursor,
         limit: listOptions.limit,
+        ...(folded ? { mode: "folded" } : {}),
         prefix: listOptions.prefix,
       })
       return {
         blobs: result.blobs.map(toBlobObject),
         cursor: result.cursor,
+        ...(folded && "folders" in result ? { folders: result.folders } : {}),
         hasMore: result.hasMore,
       }
     },

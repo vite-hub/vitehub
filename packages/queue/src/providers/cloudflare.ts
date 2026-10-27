@@ -72,22 +72,13 @@ function toSendOptions(options: QueueEnqueueOptions = {}): Result<CloudflareSend
 }
 
 function resolveAction(action: CloudflareQueueBatchErrorAction | void, message: CloudflareQueueMessage, fallback: "ack" | "retry") {
-  if (action === "ack") {
-    message.ack()
-    return
-  }
-
-  if (action === "retry") {
-    message.retry()
-    return
-  }
-
   if (action && typeof action === "object" && !Array.isArray(action) && Object.hasOwn(action, "retry")) {
     message.retry(action.retry)
     return
   }
 
-  if (fallback === "ack") {
+  const resolvedAction = action === "ack" || action === "retry" ? action : fallback
+  if (resolvedAction === "ack") {
     message.ack()
   } else {
     message.retry()
@@ -174,7 +165,7 @@ export function createCloudflareQueueClient(provider: CloudflareQueueProviderOpt
       }
       const [error] = await queueProviderResult("cloudflare", "send-batch", () => binding.sendBatch(messages))
       if (error) return [error, undefined]
-      return [undefined, items.map(() => ({ status: "queued" as const }))]
+      return [undefined, messages.map(() => ({ status: "queued" as const }))]
     },
     createBatchHandler: createCloudflareQueueBatchHandler,
   }
