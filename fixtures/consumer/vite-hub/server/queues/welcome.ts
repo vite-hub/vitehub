@@ -1,5 +1,5 @@
 import { defineQueue } from "vite-hub/queue"
-import { runSandboxTask } from "vite-hub/sandbox-task"
+import { runSandboxTask } from "vite-hub/sandbox/task"
 
 export default defineQueue(async () => {
   const response = await runSandboxTask("image-optimizer", { queued: true })

@@ -141,8 +141,8 @@ const nitroAgentRuntimeInlines = ["vite-hub", agentPackageName, "@ai-sdk/mcp", "
 const optionalNetlifyAgentBundleExternals = [
   "@ai-sdk/mcp",
   "@modelcontextprotocol/sdk/*",
-  "@vite-hub/sandbox-task",
-  "@vite-hub/sandbox-task/*",
+  "@vite-hub/sandbox/task",
+  "@vite-hub/sandbox/task/*",
   "@vite-hub/shell",
   "@vite-hub/shell/*",
   "@vite-hub/workflow",
@@ -169,8 +169,8 @@ function resolveNetlifyAgentBundleExternals(options: AgentGeneratedImportOptions
     bundled.add("@vite-hub/workflow/*")
   }
   if (options.workspaceDependencyRuntimeImports?.sandboxTask || options.workspaceDependencyRuntimeImports?.sandboxTaskRuntimeState) {
-    bundled.add("@vite-hub/sandbox-task")
-    bundled.add("@vite-hub/sandbox-task/*")
+    bundled.add("@vite-hub/sandbox/task")
+    bundled.add("@vite-hub/sandbox/task/*")
   }
   if (options.workspaceDependencyRuntimeImports?.shellWorkspace) {
     bundled.add("@vite-hub/shell")

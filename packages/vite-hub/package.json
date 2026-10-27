@@ -195,11 +195,11 @@
       "require": "./dist/_internal/rate-limit/runtime/console.js",
       "default": "./dist/_internal/rate-limit/runtime/console.js"
     },
-    "./_internal/sandbox-task/runtime/state": {
-      "types": "./dist/_internal/sandbox-task/runtime/state.d.ts",
-      "import": "./dist/_internal/sandbox-task/runtime/state.js",
-      "require": "./dist/_internal/sandbox-task/runtime/state.js",
-      "default": "./dist/_internal/sandbox-task/runtime/state.js"
+    "./_internal/sandbox/task/runtime/state": {
+      "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
+      "import": "./dist/_internal/sandbox/task/runtime/state.js",
+      "require": "./dist/_internal/sandbox/task/runtime/state.js",
+      "default": "./dist/_internal/sandbox/task/runtime/state.js"
     },
     "./_internal/schedule": {
       "types": "./dist/_internal/schedule.d.ts",
@@ -1200,11 +1200,11 @@
       "require": "./dist/presets/workspace.js",
       "default": "./dist/presets/workspace.js"
     },
-    "./sandbox-task": {
-      "types": "./dist/sandbox-task.d.ts",
-      "import": "./dist/sandbox-task.js",
-      "require": "./dist/sandbox-task.js",
-      "default": "./dist/sandbox-task.js"
+    "./sandbox/task": {
+      "types": "./dist/sandbox/task.d.ts",
+      "import": "./dist/sandbox/task.js",
+      "require": "./dist/sandbox/task.js",
+      "default": "./dist/sandbox/task.js"
     },
     "./sandbox/ssh": {
       "types": "./dist/sandbox/ssh.d.ts",
@@ -1279,7 +1279,6 @@
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/sandbox": "workspace:*",
-    "@vite-hub/sandbox-task": "workspace:*",
     "@vite-hub/schedule": "workspace:*",
     "@vite-hub/shell": "workspace:*",
     "@vite-hub/source": "workspace:*",
@@ -1300,6 +1299,7 @@
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
+    "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",
     "workflow": "catalog:workflow",
     "@internationalized/date": "^3.12.4",
@@ -1346,7 +1346,6 @@
     "publint": "catalog:tooling",
     "reka-ui": "^2.10.5",
     "tailwindcss": "^4.3.3",
-    "typescript": "catalog:tooling",
     "uploadthing": "catalog:storage",
     "vite": "catalog:vite",
     "vite-doctor": "catalog:",

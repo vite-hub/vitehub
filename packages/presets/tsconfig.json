@@ -18,19 +18,19 @@
         "packages/agent/src/provider-agent.ts"
       ],
       "#vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox-task/src/runtime/provider-loader.ts"
+        "packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "virtual:vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox-task/src/runtime/provider-loader.ts"
+        "packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "vitehub-sandbox-task-provider-loader": [
-        "packages/sandbox-task/src/runtime/provider-loader.ts"
+        "packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
-      "@vite-hub/sandbox-task/runtime/provider-loader": [
-        "packages/sandbox-task/src/runtime/provider-loader.ts"
+      "@vite-hub/sandbox/task/runtime/provider-loader": [
+        "packages/sandbox/src/task/runtime/provider-loader.ts"
       ],
       "#vitehub-sandbox-task-registry": [
-        "packages/sandbox-task/src/runtime/empty-registry.ts"
+        "packages/sandbox/src/task/runtime/empty-registry.ts"
       ],
       "#vitehub-workspace-assets-registry": [
         "packages/workspace/src/runtime/empty-assets-registry.ts"
@@ -56,11 +56,11 @@
       "@vite-hub/rate-limit/*": [
         "packages/rate-limit/src/*"
       ],
-      "@vite-hub/sandbox-task": [
-        "packages/sandbox-task/src/index.ts"
+      "@vite-hub/sandbox/task": [
+        "packages/sandbox/src/task/index.ts"
       ],
-      "@vite-hub/sandbox-task/runtime/state": [
-        "packages/sandbox-task/src/runtime/state.ts"
+      "@vite-hub/sandbox/task/runtime/state": [
+        "packages/sandbox/src/task/runtime/state.ts"
       ],
       "@vite-hub/shell": [
         "packages/shell/src/index.ts"

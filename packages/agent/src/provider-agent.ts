@@ -1,5 +1,5 @@
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
-import { protectGeneratedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
+import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
 import { preparedProviderCheckoutHead } from "./internal/prepared-provider-checkout.ts"
 import { codexDeveloperInstructionsArg, codexDeveloperInstructionsMaxBytes, codexLaunchArgs } from "./internal/codex-launch-args.ts"
 import { resolveAgentDriverGateway, withAgentDriverGatewayEnvironment } from "./internal/agent-gateway.ts"
@@ -3367,6 +3367,7 @@ async function* runProvider<
     // Host launch preparation must see source-authored instruction files.
     let instructions = await waitForProviderOperation(resolveInstructions(options, context), effectiveSignal)
     let materializeInstructions = Boolean(instructions)
+    let turnInstructions: string | undefined
     if (!instructions && options.provider === "claude-code") {
       const nativeInstructions = await readFile(join(providerCwd, "CLAUDE.md"), "utf8").catch(() => undefined)
       if (nativeInstructions !== undefined) instructions = nativeInstructions
@@ -3384,6 +3385,9 @@ async function* runProvider<
       instructions = [instructions, provenanceInstructions].filter(Boolean).join("\n\n")
       materializeInstructions = true
     }
+    const unmergedInstructions = instructions && materializeInstructions && !options.sandbox && (pullRequestRoot || preparedWorkspace?.projectRoot)
+      ? await unmergedProviderGitFiles(providerCwd)
+      : new Set<string>()
     // Codex renders AGENTS.md under a header that contains the absolute cwd, and
     // an owned root is new for each invocation. Driver instructions go to Codex
     // developer instructions instead, which come before every cwd-dependent
@@ -3411,9 +3415,16 @@ async function* runProvider<
       // AGENTS.md. Fingerprint that source and the launch configuration so a
       // resumed thread never silently keeps stale instruction state.
       const fallbackInstructions = effectiveCodexInstructions ?? await readFile(join(providerCwd, "AGENTS.md"), "utf8").catch(() => "")
-      const digestInput = codexDeveloperInstructions === undefined
+      let digestInput = codexDeveloperInstructions === undefined
         ? JSON.stringify([fallbackInstructions, options.providerSettings?.launchArgs, providerRuntimeEnvironment?.T3CODE_CODEX_LAUNCH_ARGS])
         : codexDeveloperInstructions
+      if (unmergedInstructions.has("AGENTS.md")) {
+        // Conflict repair leaves native instructions active alongside the Driver
+        // instructions. Their current contents must also match before resuming.
+        const nativeInstructions = await Promise.all(["AGENTS.md", "AGENTS.override.md"].map(name =>
+          readFile(join(providerCwd, name), "utf8").catch(() => null)))
+        digestInput = JSON.stringify([digestInput, nativeInstructions])
+      }
       developerInstructionsDigest = createHash("sha256").update(digestInput).digest("hex")
     }
     // Codex renders developer instructions only when a thread starts. Resume a
@@ -3453,13 +3464,14 @@ async function* runProvider<
       if (options.provider === "claude-code") {
         // Deliver generated instructions once, without Claude's native @path imports.
         // Preserve native instruction files when only adding source provenance.
-        if (!preserveNativeInstructions) {
+        if (!preserveNativeInstructions && !unmergedInstructions.has("CLAUDE.md")) {
           generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "CLAUDE.md"), ""))
         }
         claudePromptFile = join(providerCwd, ".claude", "vitehub-system-prompt.md")
         generatedProviderFiles.push(await materializeGeneratedProviderFile(providerCwd, claudePromptFile, promptFileInstructions))
+      } else if (unmergedInstructions.has("AGENTS.md")) {
+        if (codexDeveloperInstructions === undefined) turnInstructions = instructions
       } else {
-        // With developer instructions, an empty AGENTS.md still hides the native file, as before.
         const generated = await materializeGeneratedProviderFile(providerCwd, join(providerCwd, "AGENTS.md"), codexDeveloperInstructions === undefined ? instructions : "")
         if (preserveNativeInstructions && provenanceInstructions && generated.content !== undefined) {
           // Remove only the injected text so native instruction edits reach Workspace write-back.
@@ -3722,7 +3734,7 @@ async function* runProvider<
       })
     }
     const turn = await waitForProviderOperation(
-      runtime.sendTurn({ attachments, input: prompt, threadId }),
+      runtime.sendTurn({ attachments, input: turnInstructions ? `${turnInstructions}\n\n${prompt}` : prompt, threadId }),
       effectiveSignal,
       lateTurn => finalizeDeferredRuntime(threadId, lateTurn.turnId),
       deferRuntimeCleanup,
