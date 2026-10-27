@@ -243,9 +243,9 @@ function createBudget(state: BudgetState, limits: ExecutionBudgetLimits, control
     },
     recordToolCall(inputBytes = 0) {
       assertAvailable("toolCalls", 1)
-      if (inputBytes) assertAvailable("inputBytes", inputBytes)
+      if (inputBytes !== 0) assertAvailable("inputBytes", inputBytes)
       state.usage.toolCalls += 1
-      if (inputBytes) state.usage.inputBytes += inputBytes
+      if (inputBytes !== 0) state.usage.inputBytes += inputBytes
     },
     snapshot() {
       const remainingTime = limits.deadlineAt === undefined ? undefined : Math.max(0, limits.deadlineAt - Date.now())
