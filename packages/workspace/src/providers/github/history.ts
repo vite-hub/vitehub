@@ -691,6 +691,9 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const base = resolveRef(pullRequest.base)
     const locks: Awaited<ReturnType<typeof acquireGitHubPublishReservation>>[] = []
     let created: Awaited<ReturnType<GitHubProvider["threads"]["create"]>>
+    let number: number
+    let dispatched = false
+    let uncertain = false
     try {
       if (pullRequest.reservation) {
         if (!pullRequest.reservation.headPrefix) throw workspaceError("[vitehub] A pull request reservation requires a headPrefix.")
@@ -722,7 +725,11 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         }
       }
       await Promise.all(locks.map(lock => lock.assertOwned()))
+      // Expiry can recover preparation, but cannot fence a request that GitHub has already received.
+      // Persist the attempt before dispatch, and retain it on any ambiguous response.
+      for (const lock of locks) await lock.begin(head.branch)
       const deadline = locks.length ? Math.min(...locks.map(lock => lock.expiresAt)) : undefined
+      dispatched = true
       created = await githubRequest(client(), async (provider, repo) => await provider.threads.create(repo, {
         kind: "pull_request",
         title: pullRequest.title,
@@ -731,17 +738,19 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         base: base.branch,
         draft: pullRequest.draft,
       }, deadline ? { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) } : undefined), "pull request")
+      number = Number(created.ref.number)
+      if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
     }
     catch (error) {
-      // The branch only existed for this pull request.
-      if (pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
+      const status = githubRequestStatus(error)
+      uncertain = dispatched && !(status !== undefined && status >= 400 && status < 500 && status !== 408)
+      // A definitive rejection permits cleanup. An unknown outcome must preserve both the branch and the claim.
+      if (!uncertain && pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
       throw error
     }
     finally {
-      await Promise.all(locks.map(async lock => await lock.release().catch(() => undefined)))
+      if (!uncertain) await Promise.all(locks.map(async lock => await lock.release().catch(() => undefined)))
     }
-    const number = Number(created.ref.number)
-    if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
     pullRequestCache = undefined
     return { number, url: created.url, title: created.title, head: head.ref, base: base.ref }
   }

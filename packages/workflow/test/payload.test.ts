@@ -1,7 +1,7 @@
 import { runInNewContext } from "node:vm"
 import { describe, expect, it } from "vitest"
 
-import { validatePayload } from "../src/runtime/payload.ts"
+import { readRequestPayload, readValidatedPayload, validatePayload } from "../src/runtime/payload.ts"
 
 describe("workflow payload validation", () => {
   it("accepts safeParse schemas", async () => {
@@ -86,5 +86,39 @@ describe("workflow payload validation", () => {
 
   it("accepts parser functions", async () => {
     await expect(validatePayload("hello", value => String(value).length)).resolves.toBe(5)
+  })
+})
+
+describe("workflow request payloads", () => {
+  it.each(["application/json", "Application/JSON", "APPLICATION/JSON; charset=utf-8", "application/json ; charset=utf-8"])("parses the JSON media type %s", async (contentType) => {
+    const request = new Request("https://example.com/workflow", {
+      method: "POST",
+      headers: { "content-type": contentType },
+      body: JSON.stringify({ email: "ada@example.com" }),
+    })
+    await expect(readRequestPayload(request)).resolves.toEqual({ email: "ada@example.com" })
+  })
+
+  it.each(["text/plain", "application/jsonp", 'text/plain; note="application/json"'])("reads %s as text", async (contentType) => {
+    const request = new Request("https://example.com/workflow", {
+      method: "POST",
+      headers: { "content-type": contentType },
+      body: "plain payload",
+    })
+    await expect(readRequestPayload(request)).resolves.toBe("plain payload")
+  })
+
+  it("passes parsed JSON to the validator for mixed-case media types", async () => {
+    const request = new Request("https://example.com/workflow", {
+      method: "POST",
+      headers: { "content-type": "Application/JSON; charset=UTF-8" },
+      body: JSON.stringify({ email: "ada@example.com" }),
+    })
+    await expect(readValidatedPayload(request, (value) => {
+      if (!value || typeof value !== "object" || !("email" in value) || typeof value.email !== "string") {
+        throw new Error("Expected an email payload")
+      }
+      return value.email
+    })).resolves.toBe("ada@example.com")
   })
 })

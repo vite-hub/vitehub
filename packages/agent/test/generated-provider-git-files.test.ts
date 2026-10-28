@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process"
+import { execFile, spawnSync } from "node:child_process"
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -10,6 +10,31 @@ const execute = promisify(execFile)
 const roots: string[] = []
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })))
+})
+
+it.each(["remove", "conflict"])("restores Git metadata after a protected path becomes %s", async change => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-generated-git-"))
+  roots.push(root)
+  const git = async (...args: string[]) => (await execute("git", ["-C", root, ...args])).stdout
+  await git("init", "-q")
+  await writeFile(join(root, "AGENTS.md"), "source instructions\n")
+  await git("add", "AGENTS.md")
+  const blob = (await git("rev-parse", ":AGENTS.md")).trim()
+  const exclude = await readFile(join(root, ".git/info/exclude"), "utf8")
+  const restore = await protectGeneratedProviderGitFiles(root, [join(root, "AGENTS.md")])
+  await git("update-index", "--force-remove", "AGENTS.md")
+  if (change === "conflict") {
+    const result = spawnSync("git", ["-C", root, "update-index", "--index-info"], {
+      input: `100644 ${blob} 1\tAGENTS.md\n100644 ${blob} 2\tAGENTS.md\n100644 ${blob} 3\tAGENTS.md\n`,
+    })
+    expect(result.status).toBe(0)
+    await expect(protectGeneratedProviderGitFiles(root, [join(root, "AGENTS.md")])).rejects.toThrow("Cannot overwrite conflicted generated provider files: AGENTS.md")
+  }
+  const index = await git("ls-files", "--stage")
+  await restore()
+  await restore()
+  expect(await git("ls-files", "--stage")).toBe(index)
+  expect(await readFile(join(root, ".git/info/exclude"), "utf8")).toBe(exclude)
 })
 
 it("keeps generated instructions and Skills out of real Git commits and restores Git metadata", async () => {

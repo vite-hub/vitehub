@@ -11,6 +11,7 @@ const leaseSchema = v.object({
   owner: v.string(),
   expiresAt: v.number(),
   head: v.string(),
+  opening: v.optional(v.string()),
 })
 const commitSchema = v.object({
   message: v.string(),
@@ -18,7 +19,7 @@ const commitSchema = v.object({
   committer: v.optional(v.object({ date: v.string() })),
 })
 
-/** A short-lived claim whose ref updates and release compare the owned commit, never delete a successor's claim. */
+/** Expiring preparation claims become durable before dispatching a mutation whose outcome might be ambiguous. */
 export async function acquireGitHubPublishReservation(repository: GitHubRepository, options: { branch: string, head: string, path: string }) {
   const busy = () => workspaceConflict(`[vitehub] A publish is already opening a pull request for ${options.path}. Retry after it finishes or its reservation expires.`, { details: { ref: "pull-request", path: options.path } })
   const expiresAt = Date.now() + githubPublishReservationMs
@@ -26,12 +27,14 @@ export async function acquireGitHubPublishReservation(repository: GitHubReposito
   const readCommit = (sha: string) => githubRequest(repository, async (provider, repo) => v.parse(commitSchema,
     (await provider.request<unknown>("GET", `${route(repo)}/git/commits/${encodeURIComponent(sha)}`)).data))
   const base = await readCommit(options.head)
-  const owned = await githubRequest(repository, async (provider, repo) => v.parse(v.object({ sha: v.string() }),
+  const owner = randomUUID()
+  const writeClaim = (opening?: string) => githubRequest(repository, async (provider, repo) => v.parse(v.object({ sha: v.string() }),
     (await provider.request<unknown>("POST", `${route(repo)}/git/commits`, { body: {
-      message: JSON.stringify({ vitehubPublishReservation: 1, owner: randomUUID(), expiresAt, head: options.head }),
+      message: JSON.stringify({ vitehubPublishReservation: 1, owner, expiresAt, head: options.head, ...(opening ? { opening } : {}) }),
       parents: [options.head],
       tree: base.tree.sha,
     } })).data).sha)
+  let owned = await writeClaim()
 
   async function graphql(query: string, operationName: string, variables: Record<string, unknown>): Promise<unknown> {
     return githubRequest(repository, async (provider) => {
@@ -55,7 +58,9 @@ export async function acquireGitHubPublishReservation(repository: GitHubReposito
       return true
     }
     catch (error) {
-      if (await readCurrentHead(repository, options.branch) !== expected) return false
+      const current = await readCurrentHead(repository, options.branch)
+      if (current === next) return true
+      if (current !== expected) return false
       throw error
     }
   }
@@ -71,21 +76,43 @@ export async function acquireGitHubPublishReservation(repository: GitHubReposito
     if (!current) throw error
     const commit = await readCommit(current)
     let expiry: number
+    let opening: string | undefined
     try {
-      expiry = v.parse(leaseSchema, JSON.parse(commit.message)).expiresAt
+      const lease = v.parse(leaseSchema, JSON.parse(commit.message))
+      expiry = lease.expiresAt
+      opening = lease.opening
     }
     catch {
       // Older releases pointed the reservation directly at the publish commit, without an owner or deadline.
       expiry = Date.parse(commit.committer?.date ?? "") + githubPublishReservationMs
     }
     if (!Number.isFinite(expiry) || expiry > Date.now()) throw busy()
+    if (opening) {
+      // A timeout, lost response, or crashed client does not cancel GitHub's mutation. Only an observed PR
+      // (including a closed/retargeted one) proves that attempt completed, allowing the normal open-PR recheck.
+      const completed = await githubRequest(repository, async (provider, repo) => {
+        const query = new URLSearchParams({ state: "all", head: `${repo.owner}:${opening}`, per_page: "1" })
+        const requests = v.parse(v.array(v.object({ head: v.object({ ref: v.string() }) })),
+          (await provider.request<unknown>("GET", `${route(repo)}/pulls?${query}`)).data)
+        return requests.some(request => request.head.ref === opening)
+      })
+      if (!completed) throw workspaceConflict(`[vitehub] GitHub has not confirmed the publish pull request from ${opening} for ${options.path}. Keep its branch and reservation; retry after GitHub reports the result.`, { details: { ref: "pull-request", path: options.path, head: opening } })
+    }
     if (!await replace(current, owned)) throw busy()
+  }
+
+  async function assertOwned(): Promise<void> {
+    if (await readCurrentHead(repository, options.branch) !== owned || Date.now() >= expiresAt) throw busy()
   }
 
   return {
     expiresAt,
-    async assertOwned(): Promise<void> {
-      if (await readCurrentHead(repository, options.branch) !== owned || Date.now() >= expiresAt) throw busy()
+    assertOwned,
+    async begin(opening: string): Promise<void> {
+      await assertOwned()
+      const previous = owned
+      owned = await writeClaim(opening)
+      if (!await replace(previous, owned)) throw busy()
     },
     async release(): Promise<void> {
       await replace(owned, zeroOid)

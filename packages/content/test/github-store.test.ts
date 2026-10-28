@@ -404,24 +404,41 @@ describe("Content on the GitHub store", () => {
       expect(result.revision!.id).toBe(fake.head(fake.pulls[0]!.head))
     })
 
-    it("retries a failed publish after an abandoned reservation expires", async () => {
+    it("retries failed preparation after an abandoned reservation expires", async () => {
+      const { posts, content } = await setup({ publish: "pr", database: false })
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      vi.useFakeTimers({ toFake: ["Date"] })
+      let preparingFails = true
+      fake.respond(request => preparingFails && request.operation === "UpdateRefs"
+        ? Response.json({ message: "Unavailable" }, { status: 503 }) : undefined)
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toThrow()
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toHaveLength(1)
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
+      vi.advanceTimersByTime(5 * 60_000 + 1)
+      preparingFails = false
+      const result = await content.publish({ collection: "posts", ids: ["b"] })
+      expect(result.pullRequest?.number).toBe(1)
+      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toEqual([])
+    })
+
+    it("keeps an ambiguous PR creation reserved until GitHub reports its result", async () => {
       const { posts, content } = await setup({ publish: "pr", database: false })
       await posts.save("b", { data: { title: "B" }, body: "" })
       vi.useFakeTimers({ toFake: ["Date"] })
       let openingFails = true
-      let cleanupFails = true
-      fake.respond(request => (openingFails && request.method === "POST" && request.path.endsWith("/pulls"))
-        || (cleanupFails && request.operation === "UpdateRefs")
-        ? Response.json({ message: "Unavailable" }, { status: 503 }) : undefined)
-      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toThrow()
-      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toHaveLength(1)
+      fake.respond(request => openingFails && request.method === "POST" && request.path.endsWith("/pulls")
+        ? Response.json({ message: "Unknown outcome" }, { status: 503 }) : undefined)
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toThrow("503")
+      const [branch] = fake.branchNames().filter(name => name.startsWith("vitehub/publish/"))
+      expect(branch).toBeDefined()
       openingFails = false
-      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
       vi.advanceTimersByTime(5 * 60_000 + 1)
-      cleanupFails = false
-      const result = await content.publish({ collection: "posts", ids: ["b"] })
-      expect(result.pullRequest?.number).toBe(1)
-      expect(fake.branchNames().filter(name => name.startsWith("vitehub/reservations/"))).toEqual([])
+      await expect(content.publish({ collection: "posts", ids: ["b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
+      fake.openPull(branch!, "main", "Late publish")
+      const fresh = await setup({ publish: "pr", database: false, seed: false })
+      expect((await fresh.posts.status("b"))?.pullRequest?.number).toBe(1)
+      await expect(fresh.content.publish({ collection: "posts", ids: ["b"] })).rejects.toMatchObject({ code: "CONTENT_R0017" })
+      expect(fake.pulls).toHaveLength(1)
     })
 
     it.each(["staging", "published"])("stops treating a retargeted pull request as a pending publish (base: %s)", async (base) => {

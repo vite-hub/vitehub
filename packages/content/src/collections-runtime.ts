@@ -1757,7 +1757,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             reservation: { headPrefix: publishBranchPrefix, paths: documents.map(({ collection, id }) => requireCollection(collection).pathFor(id)) },
             title: pullRequestTitle(commitMessage),
             body: `${lines.join("\n")}\n\nMessage:\n\n${markdownFence(commitMessage)}\n\nPublished from the Content draft ${markdownCode(draftHead.id.slice(0, 7))}. The documents go live when this pull request merges.`,
-            // A branch without a pull request is no use, so a refusal from GitHub leaves nothing behind.
+            // Clean up a definitive refusal; unknown outcomes keep the branch for reconciliation.
             deleteHeadOnFailure: true,
           })
         }

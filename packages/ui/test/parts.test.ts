@@ -174,7 +174,7 @@ describe("shadcn/ui parts", () => {
 
   it("styles parts in the components layer so utility classes win", () => {
     const stylesheet = readFileSync(resolve(import.meta.dirname, "../styles.css"), "utf8");
-    expect(stylesheet.trimStart().split("\n")[1]).toBe("@layer theme, base, components, utilities;");
+    expect(stylesheet.trimStart().split("\n")[1]).toBe("@layer theme, base, comark, components, utilities;");
     const parts = stylesheet.slice(stylesheet.indexOf("@layer components {"));
     for (const slot of ["message", "bubble-content", "marker", "trace-line", "trace-collapsible-content-inner", "attachment"])
       expect(parts, slot).toContain(`[data-slot="${slot}"]`);

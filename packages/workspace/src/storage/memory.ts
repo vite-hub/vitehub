@@ -198,6 +198,9 @@ class MemoryWorkspaceStore implements WorkspaceStore {
   #writeFile(path: string, file: WorkspaceFile): void {
     file = { ...file, metadata: copyJsonFileMetadata(path, file.metadata) }
     const normalized = normalizeWorkspacePath(path)
+    if (this.#nodes.get(normalized)?.type === "directory") {
+      throw workspaceError(`[vitehub] Cannot write a file over directory: ${normalized}.`)
+    }
     this.#ensureParents(normalized)
     this.#nodes.set(normalized, {
       type: "file",

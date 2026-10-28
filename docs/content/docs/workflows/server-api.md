@@ -52,6 +52,10 @@ DevKit assign it as shown in [Add a durable Vercel entry](/docs/workflows/config
 
 `WorkflowStartOptions` currently accepts `id`.
 
+Inline runs buffer the response body before completion. Each inspection and duplicate
+start returns a fresh response, so reading or cancelling one result does not consume
+later results. A body read failure marks the run as failed.
+
 Inline run inspection uses weak references while execution is active. A reachable
 execution remains inspectable. An abandoned execution with no remaining owner
 can be garbage-collected and then reports `unknown`. Completed inline runs are

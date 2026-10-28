@@ -102,15 +102,7 @@ function cloneState(state: ProcessWakeState, patch: Partial<ProcessWakeState>): 
 const minuteMs = 60_000
 
 function floorUTCMinute(date: Date): Date {
-  return new Date(
-    Date.UTC(
-      date.getUTCFullYear(),
-      date.getUTCMonth(),
-      date.getUTCDate(),
-      date.getUTCHours(),
-      date.getUTCMinutes(),
-    ),
-  )
+  return new Date(Math.floor(date.getTime() / minuteMs) * minuteMs)
 }
 
 function occurrenceKey(input: ProcessScheduleWake): string {
@@ -250,7 +242,7 @@ export const makeProcessWakeRuntime = Effect.fn("ScheduleProcessDriver.make")(fu
   ) {
     const due: ProcessScheduleWake[] = []
     for (const schedule of schedules) {
-      for (let minute = first; minute <= last; minute += minuteMs) {
+      for (let minute = Math.ceil(first / minuteMs) * minuteMs; minute <= last; minute += minuteMs) {
         const scheduledAt = new Date(minute)
         const result = yield* wrapBoundary(() => isScheduleDue(schedule, scheduledAt)).pipe(
           Effect.match({

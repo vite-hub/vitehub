@@ -1,10 +1,10 @@
 # @vite-hub/blob
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-config-646cff?style=flat-square">
-  <img alt="Storage" src="https://img.shields.io/badge/Blob-stores-0f766e?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
+  <img alt="Storage" src="https://comark-ui.onmax.me/badge.svg?label=Blob&amp;value=stores">
 </p>
 
 `@vite-hub/blob` gives server code one object-storage API across local files and hosted blob providers.
@@ -112,6 +112,8 @@ export default defineConfig({
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+
+Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
 ## Uploads
 
