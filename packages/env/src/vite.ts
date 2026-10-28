@@ -743,10 +743,11 @@ function createReadonlyServerEnvTypes(indent: number, secretType: string): strin
 function createPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
     const valueSchema = runtimeValueSchema(declaration)
-    const parsedDefault = typeof declaration.default === "undefined"
-      ? undefined
-      : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
-    const fallbackValue = parsedDefault === undefined ? resolvedValues?.[key] : parsedDefault
+    const fallbackValue = resolvedValues
+      ? resolvedValues[key]
+      : typeof declaration.default === "undefined"
+        ? undefined
+        : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
     const fallbackType = fallbackValue === null ? "null" : fallbackValue === undefined ? "unknown" : typeof fallbackValue
     return [
       key,

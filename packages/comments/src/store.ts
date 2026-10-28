@@ -3,7 +3,7 @@ import { and, desc, eq, exists, inArray, sql } from "drizzle-orm"
 import { commentsSchema } from "./database.ts"
 
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { Comment, CommentAnchor, CommentAuthor, CommentMention, CommentThread, CommentThreadStatus } from "./types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread, CommentThreadStatus } from "./types.ts"
 
 const { vitehubCommentThreads: threads, vitehubComments: comments } = commentsSchema
 
@@ -17,7 +17,7 @@ export interface CommentsStore {
   get(id: string): Promise<CommentThread | undefined>
   /** The thread that holds a comment. */
   threadOf(commentId: string): Promise<string | undefined>
-  create(input: { page: string, anchor: CommentAnchor, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
+  create(input: { page: string, anchor: CommentAnchor, context?: CommentContext, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
   reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<{ comment: Comment } | { error: "not-found" | "resolved" }>
   setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
@@ -52,6 +52,7 @@ function toThread(row: ThreadRow, rows: readonly CommentRow[]): CommentThread {
     id: row.id,
     page: row.page,
     anchor: json<CommentAnchor>(row.anchor)!,
+    context: json<CommentContext>(row.context),
     status: row.status,
     createdBy: json<CommentAuthor>(row.createdBy)!,
     resolvedBy: json<CommentAuthor>(row.resolvedBy),
@@ -91,12 +92,13 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
       const [row] = await database.select({ threadId: comments.threadId }).from(comments).where(eq(comments.id, commentId)).limit(1)
       return row?.threadId
     },
-    async create({ page, anchor, body, author, mentions }) {
+    async create({ page, anchor, context, body, author, mentions }) {
       const now = Date.now()
       const thread: ThreadRow = {
         id: crypto.randomUUID(),
         page,
         anchor: JSON.stringify(anchor),
+        context: context ? JSON.stringify(context) : null,
         status: "open",
         createdBy: JSON.stringify(author),
         resolvedBy: null,
