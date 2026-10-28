@@ -124,7 +124,7 @@ function escapeRegExp(value: string): string {
 async function checkMentions(who: Caller, body: string, ids: readonly string[] | undefined): Promise<CommentUser[]> {
   const unique = [...new Set(ids ?? [])]
   if (!unique.length) return []
-  const found = new Map((await (who.runtime.users ? who.runtime.users.byIds(unique) : who.runtime.store.knownUsersByIds(unique))).map(person => [person.id, person]))
+  const found = new Map((await (who.runtime.users ? who.runtime.users.byIds(unique) : who.runtime.store.knownUsersByIds(unique, thread => permitted(who, "read", { thread }).catch(() => false)))).map(person => [person.id, person]))
   const people: CommentUser[] = []
   for (const mentioned of unique) {
     const person = found.get(mentioned)

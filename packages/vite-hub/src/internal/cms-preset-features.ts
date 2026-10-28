@@ -1,7 +1,7 @@
 import { resolve } from "node:path"
 
 import { usesComments } from "@vite-hub/comments/vite"
-import { usesCmsPreset } from "@vite-hub/content/vite"
+import { cmsPresetStore } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
@@ -20,8 +20,8 @@ type CmsPresetConfig = UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_
 const resolvedFeatureOptions = new WeakSet<object>()
 
 /** The features that the Content `cms` preset needs. `vitehub()` turns on the ones left unset. */
-function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T): T {
-  return { ...options, blob: options.blob ?? true, database: options.database ?? true, workspace: options.workspace ?? true }
+function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, store: "blob-database" | "github"): T {
+  return { ...options, blob: options.blob ?? (store === "blob-database" ? true : undefined), database: options.database ?? true, workspace: options.workspace ?? true }
 }
 
 /** Whether `vitehub()` can leave a `cms` preset feature unset for these options. */
@@ -34,7 +34,8 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
  * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
-  if (hasUnsetCmsPresetFeature(options) && usesCmsPreset(project)) return withCmsPresetFeatures(options)
+  const store = hasUnsetCmsPresetFeature(options) ? cmsPresetStore(project) : undefined
+  if (store) return withCmsPresetFeatures(options, store)
   // Comments need the Database only.
   return options.database === undefined && usesComments(project) ? { ...options, database: true } : options
 }
@@ -45,11 +46,11 @@ export function markCmsPresetFeaturesResolved<T extends CmsPresetFeatureOptions>
   return options
 }
 
-function selectsCmsPreset(config: CmsPresetConfig): boolean {
+function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "github" | undefined {
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return usesCmsPreset({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  return cmsPresetStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
 /**
@@ -191,12 +192,14 @@ export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options:
   }
   // An invalid combination with a variant's features fails only in apps that select it.
   const failing = (error: unknown): unknown[] => [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
-  const cms = cmsUnset ? attempt(withCmsPresetFeatures(options)) : undefined
+  const blob = cmsUnset ? attempt(withCmsPresetFeatures(options, "blob-database")) : undefined
+  const github = cmsUnset ? attempt(withCmsPresetFeatures(options, "github")) : undefined
   const comments = commentsUnset ? attempt({ ...options, database: true }) : undefined
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   let merged = flattenPluginOptions(create(options), [])
-  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsComments(config) && !(cmsUnset && selectsCmsPreset(config)))
-  if (cms) merged = composeVariants(merged, "error" in cms ? failing(cms.error) : cms, selectsCmsPreset)
+  if (comments) merged = composeVariants(merged, "error" in comments ? failing(comments.error) : comments, config => selectsComments(config) && !(cmsUnset && selectedCmsPresetStore(config)))
+  if (blob) merged = composeVariants(merged, "error" in blob ? failing(blob.error) : blob, config => selectedCmsPresetStore(config) === "blob-database")
+  if (github) merged = composeVariants(merged, "error" in github ? failing(github.error) : github, config => selectedCmsPresetStore(config) === "github")
   // SAFETY: The merged list holds the Vite plugin options of every build.
   return merged as PluginOption[]
 }

@@ -17,7 +17,7 @@ import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } fr
 import { documents } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
 import cms from "../src/presets/cms.ts"
-import { hubContent, usesCmsPreset } from "../src/vite.ts"
+import { cmsPresetStore, hubContent, usesCmsPreset } from "../src/vite.ts"
 
 import type { ResolvedConfig } from "vite"
 
@@ -101,8 +101,8 @@ describe("reading the cms preset from server/content.ts", () => {
     expect(missing.message).toContain("\"server/content.ts\": imports the Content cms preset but does not select it with extends.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst name = 'x'\nexport const content = defineContent({ extends: [cms, { database: name }] })")).message)
       .toContain("cms preset option \"database\" must be a string literal")
-    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: [cms, { store: 'x' }] })")).message)
-      .toContain("unknown cms preset option \"store\". Use database, blob, or workspace.")
+    expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: [cms, { speed: 'x' }] })")).message)
+      .toContain("unknown cms preset option \"speed\". Use blob, database, workspace, store, repo, branch, draftBranch, root, publish.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nconst o = {}\nexport const content = defineContent({ extends: [cms, o] })")).message)
       .toContain("the cms preset tuple must be [cms, { ... }] with an object literal.")
     expect(errorOf(() => read("import { defineContent } from 'vite-hub/content'\nimport cms from 'vite-hub/content/presets/cms'\nexport const content = defineContent({ extends: cms, extends: [cms, {}] })")).message)
@@ -143,7 +143,7 @@ describe("resolving the cms preset resources", () => {
   })
 
   it("renders a Workspace module that loads without a configured Database", () => {
-    const module = renderCmsWorkspaceModule({ ...usage, blob: "media", database: "audit", databaseReason: "option", workspace: "site" }, {
+    const module = renderCmsWorkspaceModule({ ...usage, store: "blob-database", blob: "media", database: "audit", databaseReason: "option", workspace: "site" }, {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
       database: "vite-hub/database/drizzle",
@@ -199,8 +199,8 @@ describe("defineContent({ extends: cms })", () => {
     const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
     expect(errorOf(() => defineContent({ extends: cms, workspace: "site", collections })).message)
       .toContain("defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options")
-    // @ts-expect-error -- `store` is not a cms option.
-    expect(errorOf(() => defineContent({ extends: [cms, { store: "x" }], collections })).message).toContain("Unknown Content cms preset option \"store\".")
+    // @ts-expect-error -- `speed` is not a cms option.
+    expect(errorOf(() => defineContent({ extends: [cms, { speed: "x" }], collections })).message).toContain("Unknown Content cms preset option \"speed\".")
     // @ts-expect-error -- extends takes a Content preset.
     expect(errorOf(() => defineContent({ extends: { workspace: "site" }, collections })).message).toContain("requires a Content preset")
     // @ts-expect-error -- the tuple holds the preset and one options object.
@@ -261,6 +261,9 @@ describe("hubContent()", () => {
     const custom = await temporaryRoot()
     await writeProjectFile(custom, "app/server/content.ts", presetContent)
     expect(usesCmsPreset({ projectRoot: custom, serverDirs: ["app/server"] })).toBe(true)
+    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("blob-database")
+    await writeProjectFile(custom, "app/server/content.ts", presetContent.replace("extends: cms", "extends: [cms, { store: 'github', repo: 'owner/repo' }]"))
+    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("github")
   })
 
   it("contributes nothing and removes the generated module without the preset", async () => {
@@ -302,5 +305,106 @@ describe("hubContent()", () => {
     })
     await expect(hubContent().vitehub.workspaces({ projectRoot: root, root }))
       .rejects.toThrow("Choose one with extends: [cms, { database: \"audit\" }].")
+  })
+})
+
+describe("the cms preset on the GitHub store", () => {
+  const githubSource = (options: string) => [
+    "import { defineContent } from 'vite-hub/content'",
+    "import cms from 'vite-hub/content/presets/cms'",
+    `export const content = defineContent({ extends: [cms, { ${options} }] })`,
+  ].join("\n")
+  const choices = (names: string[]) => ({
+    names,
+    resolveDefault(list: readonly string[]) {
+      if (list.includes("default")) return { name: "default", reason: "default" as const, status: "resolved" as const }
+      return list.length ? { names: [...list].sort(), status: "ambiguous" as const } : { status: "none" as const }
+    },
+  })
+  const imports = { blob: "vite-hub/blob", blobDatabase: "vite-hub/workspace/blob-database", database: "vite-hub/database/drizzle", workspace: "vite-hub/workspace" }
+
+  it("reads the GitHub options as string literals", () => {
+    expect(readCmsPresetUsage(githubSource("store: 'github', repo: 'onmax/docs', branch: 'main', draftBranch: 'cms/drafts', root: 'content', publish: 'commit', database: 'default'"), file, "/app", parseAst))
+      .toEqual({ file, options: { store: "github", repo: "onmax/docs", branch: "main", draftBranch: "cms/drafts", root: "content", publish: "commit", database: "default" } })
+    // The empty string is the repository root.
+    expect(readCmsPresetUsage(githubSource("store: 'github', root: ''"), file, "/app", parseAst)).toEqual({ file, options: { store: "github", root: "" } })
+  })
+
+  it.each([
+    ["store: 'git'", "option \"store\" must be \"blob-database\" or \"github\"."],
+    ["store: 'github', repo: 'docs'", "option \"repo\" must be a repository in owner/name format."],
+    ["store: 'github', branch: 'a b'", "option \"branch\" must be a branch name"],
+    ["store: 'github', draftBranch: '/x'", "option \"draftBranch\" must be a branch name"],
+    ["store: 'github', root: '../x'", "option \"root\" must be a folder inside the repository"],
+    ["store: 'github', root: '/abs'", "option \"root\" must be a folder inside the repository"],
+    ["store: 'github', publish: 'merge'", "option \"publish\" must be \"commit\" or \"pr\"."],
+    ["store: 'github', branch: 'main', draftBranch: 'main'", "option \"draftBranch\" must differ from \"branch\"."],
+    ["store: 'github', blob: 'media'", "option \"blob\" does not apply to store: \"github\""],
+    ["repo: 'onmax/docs'", "option \"repo\" only applies to store: \"github\"."],
+    ["root: 'content', publish: 'commit'", "options \"root\", \"publish\" only apply to store: \"github\"."],
+  ])("rejects %s with CONTENT_B0001", (options, message) => {
+    const error = errorOf(() => readCmsPresetUsage(githubSource(options), file, "/app", parseAst))
+    expect(error.code).toBe("CONTENT_B0001")
+    expect(error.message).toContain(message)
+  })
+
+  it("names the follow-up when publish is pr", () => {
+    const error = errorOf(() => readCmsPresetUsage(githubSource("store: 'github', publish: 'pr'"), file, "/app", parseAst))
+    expect(error.code).toBe("CONTENT_B0001")
+    expect(error.message).toContain("pull request publishing comes in a follow-up release")
+  })
+
+  it("plans the GitHub store with its defaults, a Database, and no Blob store", () => {
+    const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs" } }, choices([]), "/app")
+    expect(plan).toMatchObject({ store: "github", database: "default", databaseReason: "preset", workspace: "content", github: { repo: "onmax/docs", branch: "main", draftBranch: "vitehub/content", root: "", publish: "commit" } })
+    expect(plan.blob).toBeUndefined()
+    expect(resolveCmsPresetPlan({ file, options: {} }, choices([]), "/app")).toMatchObject({ store: "blob-database", blob: "default" })
+    expect(errorOf(() => resolveCmsPresetPlan({ file, options: { store: "github" } }, choices(["a", "b"]), "/app")).code).toBe("CONTENT_B0002")
+  })
+
+  it("renders a lazy GitHub Workspace module that denies writes outside the collections at the repository root", () => {
+    const plan = resolveCmsPresetPlan({ file, options: { store: "github", repo: "onmax/docs", draftBranch: "cms/drafts" } }, choices([]), "/app")
+    const module = renderCmsWorkspaceModule(plan, imports)
+    expect(module).toContain("const database = useDatabase(\"default\")?.db\n")
+    expect(module).toContain("provider: \"github\",")
+    expect(module).toContain("repository: \"onmax/docs\",")
+    expect(module).toContain("root: \"\",")
+    expect(module).toContain("refs: { published: \"main\", draft: \"cms/drafts\" },")
+    expect(module).toContain("rules: { \"**\": { write: false } },")
+    // No token is read while the module loads.
+    expect(module).not.toContain("token")
+    expect(module).not.toContain("blob")
+    const folder = renderCmsWorkspaceModule(resolveCmsPresetPlan({ file, options: { store: "github", root: "content" } }, choices([]), "/app"), imports)
+    expect(folder).toContain("root: \"content\",")
+    expect(folder).toContain("rules: { \"**\": { write: false } },")
+    expect(folder).not.toContain("repository:")
+  })
+
+  it("validates the options at runtime too", () => {
+    const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "docs" }], collections })).message).toContain("option \"repo\" must be a repository in owner/name format.")
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", publish: "pr" }], collections })).message).toContain("pull request publishing comes in a follow-up release")
+    expect(errorOf(() => defineContent({ extends: [cms, { repo: "onmax/docs" }], collections })).message).toContain("only applies to store: \"github\"")
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }], collections, workspace: "x" })).message).toContain("sets workspace")
+    const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs", root: "", workspace: "docs" }], collections, logger: false })
+    expect(content).toBeDefined()
+    content.dispose()
+  })
+
+  it("contributes only the sessions table, and needs no Blob store", async () => {
+    const root = await temporaryRoot()
+    await writeProjectFile(root, "server/content.ts", githubSource("store: 'github', repo: 'onmax/docs'"))
+    await writeProjectFile(root, "server/databases/config.ts", "export default {}\n")
+    const plugin = hubContent({ imports: { blob: "vite-hub/blob" } })
+    const workspaces = await plugin.vitehub.workspaces({ projectRoot: root, root })
+    expect(workspaces).toMatchObject([{ name: "content", definition: { export: "contentWorkspace" } }])
+    await expect(readFile(join(root, ".vitehub/content/workspace.mjs"), "utf8")).resolves.toContain("provider: \"github\"")
+    expect(await plugin.vitehub.databases({ projectRoot: root, root, rootDir: root })).toEqual([{ database: "default", definition: { export: "contentSessionsSchema", module: "@vite-hub/content/database" }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }])
+    // Workspace and Database are on, Blob is not.
+    const configResolved = plugin.configResolved as (config: ResolvedConfig) => Promise<void>
+    // SAFETY: configResolved reads only the root and plugin names.
+    await expect(configResolved({ root, plugins: [{ name: "@vite-hub/workspace/vite" }, { name: "@vite-hub/database/vite" }] } as unknown as ResolvedConfig)).resolves.toBeUndefined()
+    // SAFETY: configResolved reads only the root and plugin names.
+    await expect(configResolved({ root, plugins: [{ name: "@vite-hub/database/vite" }] } as unknown as ResolvedConfig)).rejects.toThrow("it needs workspace enabled")
   })
 })

@@ -7,7 +7,12 @@ import { expect, it } from "vitest"
 
 const execFileAsync = promisify(execFile)
 
-it.each(["configured", "disabled", "absent"] as const)("runs Agent KV loading in production output with KV %s", async (mode) => {
+it.each([
+  { mode: "configured", ssr: true },
+  { mode: "disabled", ssr: true },
+  { mode: "absent", ssr: true },
+  { mode: "absent", ssr: false },
+] as const)("runs Agent KV loading in production output with KV $mode and SSR $ssr", async ({ mode, ssr }) => {
   const cache = resolve(import.meta.dirname, "../node_modules/.cache")
   await mkdir(cache, { recursive: true })
   const root = await mkdtemp(join(cache, "optional-kv-build-"))
@@ -42,8 +47,8 @@ it.each(["configured", "disabled", "absent"] as const)("runs Agent KV loading in
       `  plugins: [hubAgent(), ${mode === "absent" ? "" : "hubKv()"}],`,
       `  kv: ${JSON.stringify(mode === "disabled" ? false : { driver: "fs-lite", base: join(root, "kv") })},`,
       `  ssr: { noExternal: true },`,
-      `  build: { ssr: ${JSON.stringify(entry)}, outDir: "dist", minify: false,`,
-      `    rolldownOptions: { output: { entryFileNames: "entry.mjs" } },`,
+      `  build: { ssr: ${ssr ? JSON.stringify(entry) : "false"}, outDir: "dist", minify: false,`,
+      `    rolldownOptions: { input: ${JSON.stringify(entry)}, preserveEntrySignatures: "strict", output: { entryFileNames: "entry.mjs" } },`,
       `  },`,
       `})`,
     ].join("\n"))

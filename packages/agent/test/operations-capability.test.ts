@@ -159,6 +159,18 @@ describe("operations capability", () => {
     expect(Object.keys(await tools(operations({ include: ["other.*"], registry })))).toEqual(["other_whoami"])
   })
 
+  it("offers no sectionless or dynamic tools when authorization denies the user", async () => {
+    const sectionless = defineOperation({ ...rename, name: "demo.sectionless", section: false })
+    const dynamic = defineOperation({ ...rename, name: "demo.dynamic", section: () => "demo" })
+    const registry = createOperationRegistry([{ operations: [sectionless, dynamic] }])
+    installOperationSectionResolver(async () => [])
+    expect(Object.keys(await tools(operations({ include: ["demo.*"], registry })))).toEqual([])
+    // An admitted user can still use a sectionless operation with an unrelated section grant.
+    installOperationSectionResolver(async () => ["other"])
+    const resolved = await tools(operations({ include: ["demo.sectionless"], registry }))
+    await expect(resolved.demo_sectionless!.execute!({ name: "allowed" } as never, {})).resolves.toEqual({ name: "allowed" })
+  })
+
   it("lets an Agent override edit leases only when the developer allowed it", async () => {
     const result = async (options: { overrideLeases?: boolean }) => (await (await tools(operations({ include: ["demo.lease"], registry, ...options }))).demo_lease!.execute!({} as never, {})) as { overrideLeases: boolean }
     expect((await result({})).overrideLeases).toBe(false)

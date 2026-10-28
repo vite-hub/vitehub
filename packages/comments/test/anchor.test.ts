@@ -141,6 +141,20 @@ describe("anchor round trips", () => {
     expect(resolveAnchor(anchor)).toEqual({ detached: true })
   })
 
+  it("keeps point anchors inside an element root", () => {
+    page(`<main><div id="card"></div></main><div id="layer"></div>`)
+    const root = document.querySelector("main")!
+    const card = document.getElementById("card")!
+    const layer = document.getElementById("layer")!
+    place(card, { left: 0, top: 0, width: 100, height: 100 })
+    document.elementsFromPoint = () => [layer, card, root, document.body]
+    const anchor = createAnchor({ x: 10, y: 20 }, { root })
+    expect(anchor).toEqual({ kind: "element", selector: "#card", x: 100, y: 200 })
+    expect(resolved(resolveAnchor(anchor, root)).element).toBe(card)
+    document.elementsFromPoint = () => [layer, root, document.body]
+    expect(() => createAnchor({ x: 10, y: 20 }, { root })).toThrow()
+  })
+
   it("returns detached for a selector that is not valid", () => {
     expect(resolveAnchor({ kind: "element", selector: "div[", x: 0, y: 0 })).toEqual({ detached: true })
   })
