@@ -27,9 +27,8 @@ type OptionalPeerUsage = "both" | "declaration" | "runtime"
 
 const contentEditorTiptapPeers: Readonly<Record<string, OptionalPeerUsage>> = {
   "comark": "runtime",
-  "comark-tiptap": "both",
   "@tiptap/core": "both",
-  "@tiptap/extension-code-block": "runtime",
+  "@tiptap/extension-list": "runtime",
   "@tiptap/extension-image": "runtime",
   "@tiptap/extension-table": "runtime",
   "@tiptap/pm": "runtime",
@@ -51,7 +50,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
-  // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.
+  // The editor uses Comark UI, which imports these Tiptap packages. Content keeps all of them external.
   ["@vite-hub/content/editor", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "declaration" }],
   // Realtime loads the editor, and the Realtime and Workspace runtimes that hold the live document.
   ["@vite-hub/content/realtime", { ...contentEditorTiptapPeers, "@vite-hub/realtime": "both", "@vite-hub/workspace": "runtime" }],

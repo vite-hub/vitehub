@@ -12,7 +12,7 @@ import type { ConsoleDocumentComponent } from "../definitions";
  */
 const props = defineProps<NodeViewProps & { definition: ConsoleDocumentComponent }>();
 
-const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => ({ name, type: prop.type, value: props.node.attrs[name] })));
+const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => ({ name, type: prop.type, value: props.node.attrs.props?.[name] ?? prop.default })));
 const editable = computed(() => props.editor.isEditable);
 
 function display(value: unknown): string {
@@ -31,7 +31,7 @@ function update(name: string, type: string, raw: unknown): void {
       return;
     }
   }
-  props.updateAttributes({ [name]: value });
+  props.updateAttributes({ props: { ...props.node.attrs.props, [name]: value } });
 }
 </script>
 

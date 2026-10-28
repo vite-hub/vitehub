@@ -1,6 +1,3 @@
-import { contentEditorComponents } from "@vite-hub/content/editor"
-
-import type { DocumentComponent } from "@vite-hub/content"
 import type { ConsoleDocumentComponent } from "../definitions"
 
 /**
@@ -28,18 +25,9 @@ export interface ConsoleSlashLabel {
 
 export type ConsoleSlashGroup = Array<ConsoleSlashLabel | ConsoleSlashItem>
 
-/** The collection components keyed by tag, as Content declares them, for the codec that Content owns. */
-export function consoleComponentRecord(components: readonly ConsoleDocumentComponent[] | undefined): Record<string, DocumentComponent> {
-  return Object.fromEntries((components ?? []).map(component => [component.name, { kind: component.kind, props: component.props }]))
-}
-
-/**
- * The collection components the editor can register: the ones Content's `contentEditorComponents()` keeps, so the
- * Console and the server codec of a live room have the same schema.
- */
+/** Collection components available in the slash menu. The Comark UI schema keeps unknown tags too. */
 export function consoleEditorComponents(components: readonly ConsoleDocumentComponent[] | undefined): ConsoleDocumentComponent[] {
-  const kept = new Set(contentEditorComponents(consoleComponentRecord(components), definition => definition.name))
-  return (components ?? []).filter(component => kept.has(component.name))
+  return (components ?? []).filter(component => /^[a-z][a-z0-9-]*$/.test(component.name))
 }
 
 /** Default attributes of a new component: each prop's declared default. */

@@ -63,11 +63,11 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
-    "@comark/html": 0.7.0
+    "@comark/html": 0.8.1
     "@types/mdast": ^4.0.4
-    comark: 0.7.0
-    comark-content: 0.4.1
-    comark-tiptap: ^0.1.1
+    comark: 0.8.1
+    comark-content: 0.4.3
+    comark-ui: 0.7.2
   nuxt:
     "@nuxt/content": ^3.16.1
     "@nuxt/ui": ^4.11.3
@@ -79,11 +79,11 @@ catalogs:
     nuxt: ^4.5.2 || >=5.0.0-0
   realtime:
     "@tiptap/core": ^3.31.4
-    "@tiptap/extension-code-block": ^3.31.4
     "@tiptap/extension-collaboration": ^3.31.4
     "@tiptap/extension-collaboration-caret": 3.31.4
     "@tiptap/extension-document": ^3.31.4
     "@tiptap/extension-image": ^3.31.4
+    "@tiptap/extension-list": ^3.31.4
     "@tiptap/extension-table": ^3.31.4
     "@tiptap/extensions": ^3.31.4
     "@tiptap/markdown": ^3.31.4
@@ -223,6 +223,8 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
+  # Preserve code marks until https://github.com/onmax/comark-ui/pull/258 is released.
+  comark-ui@0.7.2: patches/comark-ui@0.7.2.patch
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch

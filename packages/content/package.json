@@ -100,11 +100,13 @@
     "test": "vp run -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown",
     "@standard-schema/spec": "catalog:runtime",
     "@valibot/to-json-schema": "catalog:runtime",
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
+    "comark-ui": "catalog:markdown",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -113,8 +115,8 @@
   "devDependencies": {
     "@libsql/client": "catalog:database",
     "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-code-block": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
@@ -125,7 +127,6 @@
     "@vite-hub/workspace": "workspace:*",
     "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
-    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
@@ -137,8 +138,8 @@
   },
   "peerDependencies": {
     "@tiptap/core": "catalog:realtime",
-    "@tiptap/extension-code-block": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
+    "@tiptap/extension-list": "catalog:realtime",
     "@tiptap/extension-table": "catalog:realtime",
     "@tiptap/pm": "catalog:realtime",
     "@tiptap/starter-kit": "catalog:realtime",
@@ -147,7 +148,6 @@
     "@vite-hub/workspace": "workspace:*",
     "comark": "catalog:markdown",
     "comark-content": "catalog:markdown",
-    "comark-tiptap": "catalog:markdown",
     "drizzle-orm": "catalog:database",
     "vite": "catalog:vite-compat"
   },
@@ -155,10 +155,10 @@
     "@tiptap/core": {
       "optional": true
     },
-    "@tiptap/extension-code-block": {
+    "@tiptap/extension-image": {
       "optional": true
     },
-    "@tiptap/extension-image": {
+    "@tiptap/extension-list": {
       "optional": true
     },
     "@tiptap/extension-table": {
@@ -180,9 +180,6 @@
       "optional": true
     },
     "comark": {
-      "optional": true
-    },
-    "comark-tiptap": {
       "optional": true
     },
     "drizzle-orm": {

@@ -92,7 +92,7 @@ The editor reports every 15 seconds while the tab is visible and every 60 second
 
 The body is Markdown, and the rich editor edits it through Comark. Opening a document and switching between Rich and Source writes nothing: the stored text stays byte for byte until someone edits it. After an edit the editor writes canonical Markdown, so formatting choices such as `*` bullets may become `-`.
 
-When a body uses Markdown that the rich editor would drop, such as a component that the collection does not declare, Rich mode is read-only for that document and says so. Edit it in Source, or declare the component in `documents({ components })`.
+When a body uses Markdown that the rich editor would drop, such as a footnote definition the base parser drops, Rich mode is read-only for that document and says so. Edit it in Source. Components do not need a collection declaration to round-trip through the shared Comark UI schema.
 
 Images inserted from the `/` menu, or pasted and dropped into the body, go through the [media picker](#pick-media-for-documents). The title is the page's heading, so start the body with its first paragraph rather than a `# Title` that repeats it.
 
@@ -215,4 +215,4 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
 - A live preview of the page is not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
-- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-tiptap` installed.
+- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-ui` installed.

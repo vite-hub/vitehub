@@ -1,9 +1,8 @@
-import { contentMarkdownLossOf } from "@vite-hub/content/editor"
+import { createEditorCodec } from "comark-ui/editor"
 import { describe, expect, it } from "vitest"
 
 import {
   consoleComponentDefaults,
-  consoleComponentRecord,
   consoleEditorComponents,
   consoleHeadingSlug,
   consoleSlashGroups,
@@ -31,9 +30,9 @@ describe("Console body editor menus", () => {
     expect(consoleSlashGroups([])).toHaveLength(2)
   })
 
-  it("registers only components that cannot shadow a built-in node", () => {
+  it("keeps component names separate from schema node names", () => {
     const table = { ...alert, name: "table" }
-    expect(consoleEditorComponents([alert, table, { ...badge, name: "Bad" }])).toEqual([alert])
+    expect(consoleEditorComponents([alert, table, { ...badge, name: "Bad" }])).toEqual([alert, table])
     expect(consoleEditorComponents(undefined)).toEqual([])
     expect(consoleComponentDefaults(alert)).toEqual({ type: "info" })
   })
@@ -45,15 +44,12 @@ describe("Console body editor menus", () => {
     expect(consoleHeadingSlug("Getting started, fast!")).toBe("getting-started-fast")
   })
 
-  it("tells formatting changes from Markdown the rich editor would drop, with Content's check", async () => {
-    const stored = "Intro.\n\n::note\nHello\n::\n\n* one\n* two\n\n_em_\n"
-    expect(await contentMarkdownLossOf(stored, "Intro.\n\n::note\nHello\n::\n\n- one\n- two\n\n*em*\n")).toBeUndefined()
-    expect(await contentMarkdownLossOf(stored, "Intro.\n\nHello\n\n- one\n- two\n\n*em*\n")).toMatchObject({ lost: ["note"] })
-  })
-
-  it("keeps an alert without a type editable: the declared default is form, not loss", async () => {
-    const components = consoleComponentRecord([alert, badge])
-    expect(components).toEqual({ alert: { kind: "block", props: { type: { default: "info", type: "string" } } }, badge: { kind: "inline", props: {} } })
-    expect(await contentMarkdownLossOf("::alert\nCareful.\n::\n", "::alert{type=\"info\"}\nCareful.\n::\n", { components })).toBeUndefined()
+  it("keeps undeclared components editable with Comark UI's shared codec", async () => {
+    const codec = createEditorCodec()
+    const body = "Intro.\n\n::note\nHello\n::\n\n* one\n* two\n\n_em_\n"
+    expect(await codec.verify(body)).toMatchObject({ writable: true })
+    const written = await codec.toMarkdown(await codec.fromMarkdown(body))
+    expect(written).toContain("::note")
+    expect(written).toContain("Hello")
   })
 })

@@ -5,14 +5,13 @@ import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
-import { EditorContent, nodeViewProps } from "@tiptap/vue-3";
-import { contentEditorComponents, contentEditorKitOptions, contentMarkdownLossOf, describeContentMarkdownLoss } from "@vite-hub/content/editor";
-import { defineComarkVueComponent, useComarkEditor } from "comark-tiptap/vue";
+import { EditorContent, nodeViewProps, useEditor, VueNodeViewRenderer } from "@tiptap/vue-3";
+import { createEditorCodec } from "comark-ui/editor";
+import comarkUi from "comark-ui/vue";
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
 import {
   consoleComponentDefaults,
-  consoleComponentRecord,
   consoleConvertibleNodes,
   consoleEditorComponents,
   consoleHeadingSlug,
@@ -74,14 +73,15 @@ let flushVersion = 0;
 const live = props.live;
 const components = computed(() => consoleEditorComponents(props.components));
 const definitions = new Map(components.value.map(component => [component.name, component]));
-// The same component definitions as the server codec, each with a node view that knows which definition it renders.
-const comarkComponents = contentEditorComponents(consoleComponentRecord(props.components), definition => defineComarkVueComponent({
-  ...definition,
-  nodeView: defineComponent({
-    name: `ConsoleComark${definition.name}`,
-    props: nodeViewProps,
-    setup: nodeProps => () => h(ConsoleComarkComponent, { ...nodeProps, definition: definitions.get(definition.name)! }),
-  }),
+const preset = comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } });
+const codec = createEditorCodec({ plugins: preset.plugins });
+const componentView = VueNodeViewRenderer(defineComponent({
+  props: nodeViewProps,
+  setup: nodeProps => () => {
+    const name = String(nodeProps.node.attrs.name);
+    const definition: ConsoleDocumentComponent = definitions.get(name) ?? { name, label: name, kind: nodeProps.node.type.name === "comarkInline" ? "inline" : "block", props: {} };
+    return h(ConsoleComarkComponent, { ...nodeProps, definition });
+  },
 }));
 
 // Media: a provided picker, such as a Blob media library, or the editor's own dialog.
@@ -135,47 +135,43 @@ const mediaDrop = Extension.create({
   },
 });
 
-const { editor, getMarkdown, setContent } = useComarkEditor({
-  components: comarkComponents,
-  contentType: "markdown",
-  editorOptions: {
-    editable: !props.disabled,
-    editorProps: { attributes: { "aria-label": props.label ?? "Body", "aria-multiline": "true", class: "vitehub-markdown-editor__content", role: "textbox" } },
+const extensions = codec.extensions().map(extension => extension.extend({
+  addExtensions() {
+    return (this.parent?.() ?? []).map(extension =>
+      extension.name === "comarkBlock" || extension.name === "comarkInline"
+        ? extension.extend({ addNodeView: () => componentView })
+        : extension);
   },
+}).configure({
+  starterKit: {
+    undoRedo: live ? false : undefined,
+    trailingNode: false,
+    dropcursor: { class: "vitehub-drop-cursor", color: "var(--ui-primary)", width: 2 },
+    link: { openOnClick: false },
+  },
+}));
+const editor = useEditor({
+  editable: !props.disabled,
+  editorProps: { attributes: { "aria-label": props.label ?? "Body", "aria-multiline": "true", class: "vitehub-markdown-editor__content", role: "textbox" } },
   extensions: [
+    ...extensions,
     Placeholder.configure({
       includeChildren: false,
       placeholder: ({ node }) => (node.type.name === "heading" ? `Heading ${node.attrs.level}` : "Type / for commands"),
       showOnlyCurrent: true,
     }),
     mediaDrop,
-    // Live: Yjs holds the body and its undo history, and each person shows as a named caret in their colour.
-    ...(live
-      ? [
-          markRaw(Collaboration.configure({ fragment: markRaw(live.document.getXmlFragment("body")) })),
-          markRaw(CollaborationCaret.configure({ provider: live.provider, user: live.user })),
-        ]
-      : []),
+    ...(live ? [
+      markRaw(Collaboration.configure({ fragment: markRaw(live.document.getXmlFragment("body")) })),
+      markRaw(CollaborationCaret.configure({ provider: live.provider, user: live.user })),
+    ] : []),
   ],
-  kitOptions: {
-    resolveSrc: src => providedPicker?.resolveSrc?.(src),
-    starterKit: {
-      ...(live ? contentEditorKitOptions.starterKit : {}),
-      dropcursor: { class: "vitehub-drop-cursor", color: "var(--ui-primary)", width: 2 },
-      link: { openOnClick: false },
-    },
-  },
-  onError: (error, context) => {
-    // Load parsing is handled by the per-load operation below. Other errors are not enough to identify which load
-    // produced them, so they must not change the loss state of the active document.
-    void error;
-    void context;
-  },
   onUpdate: () => {
     if (!loading && !live) schedule();
     scheduleOutline();
   },
 });
+const getMarkdown = () => editor.value ? codec.toMarkdown(editor.value.getJSON()) : Promise.resolve(null);
 
 async function flush(): Promise<void> {
   const version = flushVersion;
@@ -200,93 +196,32 @@ async function commit(): Promise<void> {
   await flush();
 }
 
-/** Loads Markdown without an update or an undo step, then records how the editor serializes it. */
-function load(markdown: string): Promise<void> {
+/** Loads through the same Comark UI codec as a live room, without creating an edit. */
+async function load(markdown: string): Promise<void> {
   const instance = editor.value;
-  if (!instance) return Promise.resolve();
+  if (!instance) return;
   const token = ++loading;
   lossy.value = undefined;
-  return new Promise((resolve) => {
-    let finished = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const done = async () => {
-      if (finished) return;
-      finished = true;
-      instance.off("transaction", onTransaction);
-      if (timeout) clearTimeout(timeout);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      const serialized = await getMarkdown();
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      loaded = markdown;
-      written = markdown;
-      canonical = serialized ?? undefined;
-      const loss = await markdownLoss(markdown, canonical);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      lossy.value ??= loss;
-      if (token === loading) loading = 0;
-      setEditable();
-      publishOutline();
-      resolve();
-    };
-    const onTransaction = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
-      if (transaction.getMeta("vitehubLoad") === token) void done();
-    };
-    const fail = (error: unknown) => {
-      if (finished) return;
-      finished = true;
-      instance.off("transaction", onTransaction);
-      if (timeout) clearTimeout(timeout);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+  try {
+    const [document, result] = await Promise.all([codec.fromMarkdown(markdown), codec.verify(markdown)]);
+    if (token !== loading || instance.isDestroyed) return;
+    instance.commands.setContent(document, { emitUpdate: false });
+    loaded = markdown;
+    written = markdown;
+    canonical = await codec.toMarkdown(instance.getJSON());
+    if (token !== loading) return;
+    if (!result.writable) lossy.value = "The editor cannot keep this Markdown unchanged. Edit this body in Source.";
+  }
+  catch (error) {
+    if (token !== loading) return;
+    lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+  }
+  finally {
+    if (token === loading) {
       loading = 0;
       setEditable();
-      resolve();
-    };
-    // Parse in this load's scope. This keeps parse failures tied to the active token instead of the editor-wide
-    // onError callback, whose context does not carry transaction metadata.
-    void parseMarkdown(markdown).then((tree) => {
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      // Parsing is asynchronous. An empty body produces no transaction when the editor is already empty.
-      timeout = setTimeout(() => void done(), 3_000);
-      instance.on("transaction", onTransaction);
-      // setContent may reject after parsing (for example when a node view cannot be created). Keep the
-      // per-load cleanup together so a failed load cannot leave the listener, timeout, or loading guard active.
-      void Promise.resolve()
-        .then(() => setContent(tree, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } }))
-        .catch(fail);
-    }).catch((error: unknown) => {
-      fail(error);
-    });
-  });
-}
-
-/**
- * Why rich editing would lose part of `markdown`, or undefined when what the editor writes parses the same. Content owns
- * the check, so the Console and a live room's codec agree on what counts as loss and on its wording.
- */
-async function markdownLoss(markdown: string, written: string | undefined): Promise<string | undefined> {
-  if (written === undefined || written === markdown) return undefined;
-  try {
-    const loss = await contentMarkdownLossOf(markdown, written, { components: consoleComponentRecord(props.components) });
-    return loss ? describeContentMarkdownLoss(loss) : undefined;
-  }
-  catch {
-    return undefined;
+      publishOutline();
+    }
   }
 }
 
@@ -378,9 +313,9 @@ const customHandlers = {
     execute: (instance: Editor, item?: { component?: string }) => {
       const component = item?.component ? definitions.get(item.component) : undefined;
       if (!component) return instance.chain();
-      const attrs = consoleComponentDefaults(component);
-      if (component.kind === "inline") return instance.chain().focus().insertContent({ attrs, content: [{ text: component.label, type: "text" }], type: component.name });
-      return replaceEmptyBlock(instance, { attrs, content: [{ type: "paragraph" }], type: component.name });
+      const attrs = { name: component.name, props: consoleComponentDefaults(component) };
+      if (component.kind === "inline") return instance.chain().focus().insertContent({ attrs, content: [{ text: component.label, type: "text" }], type: "comarkInline" });
+      return replaceEmptyBlock(instance, { attrs, content: [{ type: "paragraph" }], type: "comarkBlock" });
     },
     isActive: () => false,
   },

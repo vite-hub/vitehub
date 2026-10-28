@@ -1,0 +1,26 @@
+diff --git a/dist/editor-BAdok66p.mjs b/dist/editor-BAdok66p.mjs
+index 5b6920d85bf24cdae2edbffecf1806f537deb6b0..3956a549a6282671bdc3c5fa240cb670c0af02b5 100644
+--- a/dist/editor-BAdok66p.mjs
++++ b/dist/editor-BAdok66p.mjs
+@@ -137,7 +137,11 @@ const ComarkKit = Extension.create({
+ 	}],
+ 	addExtensions() {
+ 		return [
+-			StarterKit.configure({
++			StarterKit.extend({
++        addExtensions() {
++          return (this.parent?.() ?? []).map(extension => extension.name === "code" ? extension.extend({ excludes: "" }) : extension);
++        }
++      }).configure({
+ 				...this.options.starterKit,
+ 				underline: false
+ 			}),
+@@ -537,7 +541,7 @@ function writeInline(content = []) {
+ 		for (let frame = open.pop(); frame; frame = open.length > depth ? open.pop() : void 0) append(open.at(-1)?.children ?? root, writeMark(frame.mark, frame.children));
+ 	};
+ 	for (const json of content) {
+-		const active = json.marks ?? [];
++		const active = [...(json.marks ?? [])].sort((left, right) => Number(left.type === "code") - Number(right.type === "code"));
+ 		const same = (index) => {
+ 			const frame = open[index];
+ 			const mark = active[index];

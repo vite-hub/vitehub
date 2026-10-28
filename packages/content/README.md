@@ -51,6 +51,28 @@ configured on the content runtime.
 
 Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
 
+## Markdown rendering
+
+Content parses Markdown with the full [Comark UI](https://comark-ui.onmax.me) preset. Callouts, steps, tabs, cards, badges, diagrams, tables, and the other Comark UI blocks use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`.
+
+Render the returned nodes with the matching renderer preset. For Vue:
+
+```vue
+<script setup lang="ts">
+import { MarkdownDocument } from "@comark/vue"
+import comarkUi from "comark-ui/vue"
+
+const { components } = comarkUi()
+defineProps<{ page: { nodes: import("comark").Node[] } }>()
+</script>
+
+<template>
+  <MarkdownDocument :value="page" :components="components" />
+</template>
+```
+
+Install `@comark/vue` for a Vue reader. Comark UI supplies document styling on Nuxt UI's theme tokens; Nuxt UI Prose components are not needed. The preset's file include plugin stays off. Content leaves badge images and chip images as URLs instead of downloading them during parsing. Icons and diagrams use Comark UI's default resolvers; override their plugins in `markdown.plugins` for an offline or private renderer.
+
 ## Document collections
 
 `collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`. `@vite-hub/content` exports every field helper: `image()` and `file()` from Blob, `seo()`, and `optional()`.
@@ -125,7 +147,7 @@ The `content()` Agent Capability from `@vite-hub/agent/capabilities` gives an Ag
 
 `content.sessions` keeps presence and edit leases in the Database of the Workspace history: `report()` every 15 seconds, `acquire()` on the first edit, `release()` when the editor closes, and `list()` for list rows. While one session holds a document's lease, `save()`, `remove()`, and `restore()` from other callers throw `CONTENT_LEASE_HELD`; pass `{ session }` from the holder's tab, or `{ lease: "override" }`. Add `contentSessionsSchema` from `@vite-hub/content/database` next to `workspaceHistorySchema`. `documents({ editing: { lease: false } })` keeps presence without the lease.
 
-With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor(collection)` and `contentMarkdownLoss()` in `@vite-hub/content/editor` are the codec and the loss check that the room and the Console share. `defineContent({ live: false })` keeps one editor at a time.
+With Realtime enabled on a host with a room authority, ViteHub contributes a `content` Realtime Definition from `contentRealtime(content)` in `@vite-hub/content/realtime`: several people edit one Markdown document at once, the room saves into `draft` with `ifDigest`, and it holds the edit lease as `kind: 'live'`. `contentRealtimeEditor()` in `@vite-hub/content/editor` adapts Comark UI's shared editor codec to the room. The Console uses the same `comark-ui/editor` schema and loss check; unknown components, slots, task lists, and media survive an edit. `defineContent({ live: false })` keeps one editor at a time.
 
 ## SEO
 

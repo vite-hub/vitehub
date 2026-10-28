@@ -295,3 +295,11 @@ Content has no hosted provider. Comark Content stores its query and search index
 The `vitehub()` Vite plugin generates the Content route for every preset. The Nuxt module installs the same behavior. Libraries that use owner packages get it from `hubSource()` in `@vite-hub/source/vite`. Each Source loader must also work on the host. `glob()` with literal options works everywhere, because the build bundles its files; see [Hosts without a file system](/docs/source/configure#hosts-without-a-file-system).
 
 See [Limits and errors](/docs/content/limits-and-errors) before running Content in production.
+
+## Render Markdown with Comark UI
+
+Content uses the full `comark-ui` parser preset. Render its nodes with the matching `comark-ui/vue`, `comark-ui/react`, `comark-ui/svelte`, or `comark-ui/html` component map. Nuxt UI can still provide the page layout; the Markdown body uses Comark UI's components and typography.
+
+`markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
+
+Content's collaborative editor and the Console use `comark-ui/editor` for their schema, Markdown conversion, and loss check. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.

@@ -183,7 +183,6 @@ const live = liveDefinition
   ? useConsoleLiveDocument({
       definition: liveDefinition,
       room: () => liveRoom.value,
-      components: () => props.collection.components,
       user: () => sessionPresence.value?.user,
       onReset: onLiveReset,
     })

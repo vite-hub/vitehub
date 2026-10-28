@@ -91,6 +91,23 @@ describe("contentSource", () => {
     await expect(content.cache.keys("docs")).resolves.toEqual(["docs:guide/index.md"])
   })
 
+  it("parses Comark UI blocks by default and lets callers replace a preset plugin", async () => {
+    const source = {
+      keys: () => ["index.md"],
+      getItem: () => "> [!NOTE]\n> Read this.\n",
+      getItemRaw: () => "> [!NOTE]\n> Read this.\n",
+    }
+    const content = defineContent({ sources: { docs: source } })
+    expect((await content.get("/"))?.nodes).toEqual(expect.arrayContaining([
+      expect.arrayContaining(["github-callout", expect.objectContaining({ type: "note" })]),
+    ]))
+    const custom = defineContent({
+      sources: { docs: source },
+      markdown: { plugins: [{ name: "alert", post: state => { state.tree.nodes = [["p", {}, "Custom callout"]] } }] },
+    })
+    expect((await custom.get("/"))?.nodes).toEqual(expect.arrayContaining([["p", {}, "Custom callout"]]))
+  })
+
   it("accepts source name arrays from another JavaScript realm", async () => {
     const content = defineContent({
       sources: {

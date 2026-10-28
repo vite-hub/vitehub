@@ -143,7 +143,7 @@ vitehub({
 - Opening a document joins its live room. Everyone in it edits the fields and the body together. The body shows a named caret per person, and each property row shows who has it in focus.
 - The header shows the people in the room and **Live**. The room saves the draft 2 seconds after typing stops, at most every 10 seconds, and when the last person leaves. ⌘S, Publish, and Schedule save first. Each revision in History names everyone who edited it, such as `Ana and Ben`.
 - Drafts in progress save with their field issues, which show inline. Publish waits until they are fixed.
-- A body with Markdown the editor cannot keep, such as an undeclared component, a task list, or a heading id, opens read-only in the room. The page names the construct, and Source stays editable by one person at a time under the edit lease.
+- A body with Markdown the editor cannot keep, such as a footnote definition the base parser drops, opens read-only in the room. The page explains that it cannot keep the Markdown, and Source stays editable by one person at a time under the edit lease.
 - A save from outside the room, such as an Agent, the CLI, or another route, reloads the room. Someone with edits the room had not saved yet gets **Copy your unsaved edits**.
 - Where live editing is unavailable, a page that someone else has open shows **Live editing unavailable · one editor at a time**.
 
@@ -159,11 +159,11 @@ ViteHub generates one Realtime Definition named `content`. Its rooms are `<colle
 import { contentRealtimeEditor } from 'vite-hub/content/editor'
 import { useRealtimeTiptap } from 'vite-hub/realtime/vue'
 
-const editor = contentRealtimeEditor(posts) // the same codec the server uses
+const editor = contentRealtimeEditor() // the same codec the server uses
 const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 ```
 
-`contentRealtimeEditor(collection)` builds the comark-tiptap schema of a collection from its `components`, without a DOM. Browser editors that add node views build their components with `contentEditorComponents()`, so both schemas match. `contentMarkdownLoss()` is the check `verify()` uses: it ignores attribute order, declared prop defaults, and reference links written inline.
+`contentRealtimeEditor()` adapts `createEditorCodec()` from `comark-ui/editor`. The server and browser use the same generic schema for components, named slots, task lists, tables, and media, without separate node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a route to Source.
 
 `vite-hub/content/realtime` also exports `contentDocument(collection)`, the Realtime document adapter of one collection, and `contentRealtime(content, { identify, authorize, user })` to define the room yourself in `server/realtime/content.ts`. A file with that name replaces the generated one.
 
