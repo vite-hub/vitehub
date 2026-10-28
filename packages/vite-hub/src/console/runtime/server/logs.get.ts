@@ -35,7 +35,7 @@ export async function consoleLogsHandler(
     throw Object.assign(new Error("Invalid or unsupported log filter."), { statusCode: 400 });
   }
   try {
-    const page = v.parse(logPageSchema, await source.query(query));
+    const page = v.parse(logPageSchema, await source.query(query, { signal: event.req?.signal }));
     if (page.entries.length > query.limit)
       throw new Error("The source exceeded the requested page size.");
     const json = JSON.stringify(page);

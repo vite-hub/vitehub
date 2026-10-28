@@ -68,6 +68,11 @@ it("keeps installed framework declarations independent of optional evlog", async
     }
     await writeFile(resolve(consumerRoot, "consumer.ts"), `
       import { vitehub, type ObservabilityEvlogOptions } from "vite-hub"
+      import { getLogSource, installLogSource } from "vite-hub/logs/host"
+      import { parseLogQuery, type LogSource } from "vite-hub/logs/source"
+      const source: LogSource | undefined = getLogSource()
+      if (source) installLogSource("/consumer", source)
+      parseLogQuery({ level: "error" })
       vitehub({ preset: "cloudflare", observability: { service: "consumer", evlog: { pretty: true, sampling: { rates: { info: 25 } } } } })
       const valid: ObservabilityEvlogOptions = { dev: { prettyError: { detail: "full" } }, redact: { builtins: ["email"], patterns: [/secret/], replacement: (matched: unknown, context: { path: string, key: string, groups?: Array<string | undefined> }) => context.path }, sampling: { keep: [{ status: 400 }] } }
       void valid
@@ -83,6 +88,16 @@ it("keeps installed framework declarations independent of optional evlog", async
 
     `)
     await writeFile(resolve(consumerRoot, "package.json"), JSON.stringify({ private: true, type: "module" }))
+    await execFileAsync(process.execPath, ["--input-type=module", "-e", `
+      import { createLogBuffer } from "vite-hub/logs/memory"
+      import { getLogSource, installLogSource } from "vite-hub/logs/host"
+      import { parseLogQuery } from "vite-hub/logs/source"
+      import { strict as assert } from "node:assert"
+      const buffer = createLogBuffer()
+      installLogSource("/consumer", buffer.source)
+      assert.equal(getLogSource(), buffer.source)
+      assert.deepEqual((await buffer.source.query(parseLogQuery({}))).entries, [])
+    `], { cwd: consumerRoot })
     await writeFile(resolve(consumerRoot, "tsconfig.json"), JSON.stringify({
       compilerOptions: {
         module: "NodeNext",

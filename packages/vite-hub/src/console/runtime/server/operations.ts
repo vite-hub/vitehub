@@ -42,7 +42,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method,
-    req: { json: async () => request.body, method, url },
+    req: { json: async () => request.body, method, signal: context.request?.signal, url },
     res: context.response ?? {},
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil

@@ -103,6 +103,7 @@ vi.mock("@vite-hub/workspace/runtime", async (importOriginal) => {
   }
 })
 
+const { createWorkspace, defineWorkspace } = await vi.importActual<typeof import("@vite-hub/workspace")>("@vite-hub/workspace")
 const { defineAgent: defineNamedWorkspaceTestAgent } = await import("../src/index.ts")
 
 function withExplicitWorkspaceName<
@@ -128,6 +129,10 @@ function context(runtimeConfig: Record<string, unknown> = {}) {
 function readonlyWorkspaceFacade(): ReadonlyWorkspaceFacade {
   return readonlyWorkspaceTestFixture({
     fs: { exists, list, readFile, stat },
+    history: createWorkspace({
+      ...defineWorkspace({ store: { provider: "memory" } }),
+      name: `agent-inspection-${crypto.randomUUID()}`,
+    }).history,
     tools: Object.assign(vi.fn(() => ({})), {
       inspect: inspectTools,
       none: vi.fn(() => ({})),

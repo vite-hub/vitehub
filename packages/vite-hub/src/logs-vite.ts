@@ -3,10 +3,10 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit";
-import type evlog from "evlog/nitro/v3";
 import type { Plugin } from "vite";
+import type { ObservabilityEvlogOptions } from "./observability-vite.ts";
 
-export type LogsEvlogOptions = NonNullable<Parameters<typeof evlog>[0]>;
+export type LogsEvlogOptions = ObservabilityEvlogOptions;
 export type LogsOptions =
   | { source: string }
   | { evlog?: LogsEvlogOptions; maxEntries?: number; maxEntryBytes?: number };
@@ -83,7 +83,7 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
         "utf8",
       );
       kit.addPlugin(file);
-      return { nitro: kit.config };
+      Object.assign(config, { nitro: kit.config });
     },
   };
 }
