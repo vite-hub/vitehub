@@ -316,7 +316,7 @@ async function issuesOf(collection: AnyContentCollection, id: string, selectedRe
 function documentTemplate(collection: AnyContentCollection, id: string): { path: string, text: string } {
   const path = collection.kind === "singleton"
     ? collection.path
-    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.path))
+    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths))
   return { path, text: renderDocumentFile(Object.fromEntries(collection.fields.map(field => [field, null])), "", collection.format) }
 }
 

@@ -1,3 +1,4 @@
+import { describeCommentContext } from "../context.ts"
 import { installedComments } from "./plugin.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
@@ -29,6 +30,7 @@ export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord
       fields: [
         { label: "Open on page", value: link },
         { label: "Anchor", value: thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label },
+        ...describeCommentContext(thread.context),
         ...thread.comments.map(comment => ({ label: comment.author.name, value: comment.body })),
         ...(thread.resolvedBy ? [{ label: "Resolved by", value: thread.resolvedBy.name }] : []),
       ],

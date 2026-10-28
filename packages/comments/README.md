@@ -56,6 +56,7 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 - A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
 - Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
+- Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
 - Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads.
 - The overlay is a custom element with a shadow root, so the page's CSS does not reach it.
 
