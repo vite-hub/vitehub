@@ -28,7 +28,7 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
   let rejectedCreate: "summary" | "comment" | undefined
   let lostResponse: "summary" | "comment" | undefined
   let heldCreate: { kind: "summary" | "comment", visible: boolean, started: () => void, released: Promise<void> } | undefined
-  let heldUpdate: { kind: "summary" | "comment", started: () => void, released: Promise<void> } | undefined
+  let heldUpdate: { kind: "summary" | "comment" | "visibility", started: () => void, released: Promise<void> } | undefined
   const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     const method = init?.method ?? "GET"
@@ -44,6 +44,12 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     if (url.pathname === "/graphql") {
       const { query, variables } = body as { query: string, variables: { id: string } }
       const comment = comments.get(Number(variables.id.replace("node-", "")))
+      if (heldUpdate?.kind === "visibility") {
+        const held = heldUpdate
+        heldUpdate = undefined
+        held.started()
+        await held.released
+      }
       if (comment) comment.minimized = query.includes("minimizeComment(") && !query.includes("unminimize")
       return json({ data: {} })
     }
@@ -117,7 +123,7 @@ function fakeGitHub(pulls: Record<string, number> = {}) {
     loseNextCreateResponse(kind: "summary" | "comment") {
       lostResponse = kind
     },
-    holdNextUpdate(kind: "summary" | "comment") {
+    holdNextUpdate(kind: "summary" | "comment" | "visibility") {
       let start!: () => void
       let release!: () => void
       const started = new Promise<void>((resolve) => { start = resolve })
@@ -304,6 +310,38 @@ describe("forge sync", () => {
     await comments.flush()
     expect(posted!.minimized).toBe(false)
     expect(summary!.body).toContain("**1 open**")
+  })
+
+  it.each(["resolve", "reopen"] as const)("keeps the latest status when an older %s finishes last in another isolate", async (action) => {
+    const github = fakeGitHub()
+    const database = await createDatabase()
+    const options = { forge: { provider: "github", fetch: github.fetch } } satisfies { forge: CommentsForgeOptions }
+    const first = defineComments(options)
+    const second = defineComments(options)
+    installComments(first, { database })
+    installComments(second, { database })
+    const [, thread] = await first.create({ page: "/forecast", anchor, context: context(), body: "Visibility.", author: ada })
+    await first.flush()
+    if (action === "reopen") {
+      await first.resolve(thread!.id, { by: grace })
+      await first.flush()
+    }
+    const posted = [...github.comments.values()][1]!
+    const held = github.holdNextUpdate("visibility")
+    if (action === "resolve") await first.resolve(thread!.id, { by: grace })
+    else await first.reopen(thread!.id)
+    await held.started
+    if (action === "resolve") await second.reopen(thread!.id)
+    else await second.resolve(thread!.id, { by: grace })
+    await second.flush()
+    held.release()
+    await first.flush()
+
+    expect(posted.minimized).toBe(action === "reopen")
+    expect((await second.get(thread!.id))[1]!.status).toBe(action === "reopen" ? "resolved" : "open")
+    github.calls.length = 0
+    await second.sync(thread!.id)
+    expect(github.calls).toEqual([])
   })
 
   it("edits only the comment that changed, and sends nothing when nothing did", async () => {

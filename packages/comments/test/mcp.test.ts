@@ -21,6 +21,24 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it.each([false, true])("preserves Console denial before Comments policies, with custom identity: %s", async (customIdentity) => {
+    const identify = vi.fn(() => ada)
+    const authorize = vi.fn(() => true)
+    const comments = await createComments({ identify: customIdentity ? identify : undefined, authorize })
+    const session = commentsConsoleSession({ authorize: async () => false, user: async () => ada, identify: async () => ada })
+    const tools = commentsMcpTools(comments, { session })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
+    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Denied" }, { id: thread!.id }]
+    for (const [index, tool] of tools.entries()) {
+      expect((await tool.call(inputs[index]!, { user: ada, event: event() })).isError).toBe(true)
+    }
+    expect(identify).not.toHaveBeenCalled()
+    expect(authorize).not.toHaveBeenCalled()
+    const [, after] = await comments.get(thread!.id)
+    expect(after?.comments).toHaveLength(1)
+    expect(after?.status).toBe("open")
+  })
+
   it("keeps anonymous callers anonymous for every action", async () => {
     const { comments, call } = await setup()
     const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: ada })
@@ -91,7 +109,7 @@ describe("Comments MCP tools", () => {
     expect(after?.comments.at(-1)?.author).toEqual({ id: person.id, name: person.name })
     expect(after?.resolvedBy).toEqual({ id: person.id, name: person.name })
 
-    const guestSession = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => ({ id: "guest-123" }) })
+    const guestSession = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => ({ id: "guest-12345678-1234-4123-8123-123456789abc" }) })
     const guestTools = commentsMcpTools(comments, { session: guestSession })
     await comments.reopen(thread!.id)
     expect((await guestTools[2]!.call({ id: thread!.id, body: "Thanks" }, { user: null, event: event({ "x-vitehub-comments-guest-id": "ben", "x-vitehub-comments-guest-name": "Ben" }) })).isError).toBeUndefined()

@@ -19,9 +19,9 @@ function access(input: { allowed: boolean, user?: Record<string, unknown> | null
 }
 
 describe("commentsConsoleSession", () => {
-  it("gives null to people that the Console does not let use the comments section", async () => {
+  it("denies people that the Console does not let use the comments section", async () => {
     const session = commentsConsoleSession(access({ allowed: false, user: { id: "u1", name: "Ada" } }))
-    await expect(session(event())).resolves.toBeNull()
+    await expect(session(event())).resolves.toBe(false)
   })
 
   it("gives the Console user with every field, so authorize policies can read a role", async () => {
@@ -34,14 +34,21 @@ describe("commentsConsoleSession", () => {
     await expect(session(event())).resolves.toEqual({ id: "ada@vitehub.dev", email: "ada@vitehub.dev", name: "ada@vitehub.dev" })
   })
 
+  it("preserves a verified Cloudflare email starting with guest- even with browser guest headers", async () => {
+    const person = { id: "guest-reviewer@example.com", email: "guest-reviewer@example.com", name: "guest-reviewer@example.com" }
+    const session = commentsConsoleSession(access({ allowed: true, person }))
+    await expect(session(event())).resolves.toEqual(person)
+    await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben" }))).resolves.toEqual(person)
+  })
+
   it("gives a guest for a Console without accounts, and the name the guest chose", async () => {
-    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-1234", name: "Guest" } }))
+    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-12345678-1234-4123-8123-123456789abc", name: "Guest" } }))
     await expect(session(event())).resolves.toEqual({ id: "guest:console", name: "Guest", guest: true })
     await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
   })
 
   it("reads a chosen guest from the H3 1 event that Nuxt passes to MCP", async () => {
-    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-1234" } }))
+    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-12345678-1234-4123-8123-123456789abc" } }))
     const nodeEvent = { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" } } } }
     await expect(Reflect.apply(session, undefined, [nodeEvent])).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
   })

@@ -373,9 +373,13 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
         await syncComment(thread, comment, rows.find(item => item.id === comment.id), at, token)
       }
       // GitHub has no resolved state for a pull request comment, so a resolved thread hides its first comment.
-      const first = await row(thread.comments[0]?.id ?? "")
-      const resolved = thread.status === "resolved"
-      if (first?.nodeId && first.minimized !== resolved) {
+      // Recheck after every request: another isolate may have changed the status while it was in flight.
+      while (true) {
+        const latest = await store.get(threadId)
+        if (!latest) break
+        const first = await row(latest.comments[0]?.id ?? "")
+        const resolved = latest.status === "resolved"
+        if (!first?.nodeId || first.minimized === resolved) break
         try {
           await github.minimize(await token(), first.nodeId, resolved)
           await save(first.id, { minimized: resolved })
@@ -383,6 +387,7 @@ export function createForgeSync(options: CommentsForgeOptions, input: { database
         catch (error) {
           await save(first.id, { error: message(error) })
           console.warn(`[vitehub] Comments could not ${resolved ? "hide" : "show"} the comment of thread ${thread.id}:`, error)
+          break
         }
       }
     }
