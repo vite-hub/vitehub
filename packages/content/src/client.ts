@@ -15,3 +15,5 @@ export type {
   ContentHeadScript,
   ContentHeadSite,
 } from "./head.ts"
+export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
+export type { ContentFieldAddress } from "./field.ts"
