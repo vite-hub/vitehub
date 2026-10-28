@@ -264,7 +264,7 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
         held.splice(index, 1)
         return
       }
-      synthesize(invocation, "assistant", reply, Number.isFinite(updated) ? updated : created, String(position))
+      synthesize(invocation, "assistant", reply, Number.isFinite(updated) ? updated : created, String(position).padStart(10, "0"))
     })
   }
   return list.map(entry => entry.message)

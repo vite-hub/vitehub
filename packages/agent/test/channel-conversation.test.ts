@@ -6,6 +6,7 @@ import { Chat, Message } from "chat"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installChannelsConsoleHost } from "../src/channels-console-host.ts"
+import { access } from "../src/capabilities/access.ts"
 import { defineChatCapability } from "../src/chat-trigger.ts"
 import { defineAgent } from "../src/index.ts"
 import { channelConversationArchive } from "../src/internal/channel-conversation.ts"
@@ -19,7 +20,7 @@ import { createFakeCloudflareStateNamespace } from "./support/cloudflare-state-n
 
 import { parseOperationInput } from "@vite-hub/internal/operations"
 
-import type { AgentChatOptions } from "../src/types.ts"
+import type { AgentCapabilityDefinition, AgentChatOptions } from "../src/types.ts"
 import type { OperationContext } from "@vite-hub/internal/operations"
 import type { Adapter, ChatInstance, StateAdapter, WebhookOptions } from "chat"
 
@@ -114,6 +115,7 @@ function telegramAdapter(options: { cache?: boolean, name?: string, window?: num
 
 interface Fixture {
   adapter: ReturnType<typeof telegramAdapter>
+  invocationStore: ReturnType<typeof createMemoryAgentInvocationStore>
   /** The route handler that the generated webhook route calls, asked for the signed history. */
   history: (threadId: string) => Promise<Response>
   state: StateAdapter
@@ -135,6 +137,7 @@ interface FixtureOptions {
   channel?: string
   cache?: boolean
   content?: boolean
+  rejection?: "access" | "filter"
   identity?: AgentChatOptions["identity"]
   secretToken?: false
   /** `libsql` (the default) and `cloudflare` are durable. `memory` uses the in-process State of the route. */
@@ -156,19 +159,23 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   const state = kind === "cloudflare" ? createCloudflareAgentState({ namespace: createFakeCloudflareStateNamespace() }) : kind === "libsql" ? libsql : undefined
   const adapter = telegramAdapter({ ...(options.adapterName ? { name: options.adapterName } : {}), ...(options.cache === undefined ? {} : { cache: options.cache }), ...(options.window === undefined ? {} : { window: options.window }) })
   let turn = 0
-  const invocations = defineAgentInvocations({ ...(options.content ? { content: "content" as const } : {}), store: createMemoryAgentInvocationStore() })
+  const invocationStore = createMemoryAgentInvocationStore()
+  const invocations = defineAgentInvocations({ ...(options.content ? { content: "content" as const } : {}), store: invocationStore })
   const channel = options.channel ?? "telegram"
+  const capabilities: AgentCapabilityDefinition[] = [
+    defineChatCapability({
+      // SAFETY: The fake implements the Adapter methods that the chat route calls.
+      platforms: { telegram: () => adapter as unknown as Adapter },
+      stream: false,
+      ...(options.rejection === "filter" ? { filter: () => false } : {}),
+      ...(options.identity ? { identity: options.identity } : {}),
+      ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
+      webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: options.secretToken ?? "history-secret" } },
+    }),
+  ]
+  if (options.rejection === "access") capabilities.push(access({ chat: { resolve: () => false } }))
   const agent = defineAgent({
-    capabilities: [
-      defineChatCapability({
-        // SAFETY: The fake implements the Adapter methods that the chat route calls.
-        platforms: { telegram: () => adapter as unknown as Adapter },
-        stream: false,
-        ...(options.identity ? { identity: options.identity } : {}),
-        ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
-        webhooks: { [channel]: { adapter: "telegram", secretHeader: "x-test-secret", secretToken: options.secretToken ?? "history-secret" } },
-      }),
-    ],
+    capabilities,
     driver: { run: () => ({ text: `reply ${++turn}` }) },
     invocations,
     name: "support",
@@ -185,6 +192,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   })
   return {
     adapter,
+    invocationStore,
     async recover(placeholder, legacy = false, retryFailure = false) {
       const message = adapter.messages.find(message => !message.author.isBot)!
       const key = `chat:support:${channel}:vitehub:interrupted-chat`
@@ -443,6 +451,23 @@ describe("Channel conversation operations", () => {
     expect(full.messages.map(message => message.source)).toEqual(["provider", "provider"])
   })
 
+  it("retains delivered journal replies when the Invocation later fails", async () => {
+    const chat = await fixture({ cache: false, content: true, transcripts: false, window: 0 })
+    const timestamp = new Date().toISOString()
+    await chat.invocationStore.create({
+      id: "failed-with-replies", agentName: "support", origin: "telegram", threadId: "telegram:456",
+      status: "failed", traceId: "failed-with-replies", createdAt: timestamp, updatedAt: timestamp,
+      observations: [
+        { name: "agent.invocation.start", type: "run", sequence: 1, timestamp, attributes: { "input.messages": [{ role: "user", parts: [{ type: "text", text: "question" }] }] } },
+        { name: "agent.channel.delivery.effect", type: "lifecycle", sequence: 2, timestamp, attributes: { "channel.effect.kind": "reply", "channel.effect.content": "delivered reply" } },
+        { name: "agent.invocation.finish", type: "run", sequence: 3, timestamp, attributes: { "result.text": "undelivered final text" } },
+      ],
+    })
+    expect(lines((await conversation()).messages)).toEqual(["user: question", "assistant: delivered reply"])
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
+    expect(parseArchive(exported.text).messages.map(message => message.text)).toEqual(["question", "delivered reply"])
+  })
+
   it("pages a conversation with a cursor that survives new messages", async () => {
     const chat = await fixture()
     for (let id = 1; id <= 5; id += 2) await chat.say(id, `question ${id}`)
@@ -478,6 +503,17 @@ describe("Channel conversation operations", () => {
 })
 
 describe("conversation privacy", () => {
+  it.each(["access", "filter"] as const)("refuses a group whose only message was rejected by %s before asking the provider", async (rejection) => {
+    const chat = await fixture({ rejection })
+    await chat.say(1, "rejected message", { chat: { id: -100, type: "supergroup" } }, -100)
+    const index = await chat.state.getList("chat:support:telegram:transcripts:thread:telegram:-100")
+    expect(index).not.toHaveLength(0)
+    chat.adapter.fetchMessages.mockClear()
+    await expect(conversation("telegram:-100")).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN", status: 404 })
+    await expect(operation("conversations.export")({ agent: "support", channel: "telegram", format: "json", thread: "telegram:-100" })).rejects.toMatchObject({ code: "CHANNELS_THREAD_UNKNOWN" })
+    expect(chat.adapter.fetchMessages).not.toHaveBeenCalled()
+  })
+
   it("refuses a thread that the Channel does not know, before it asks the provider", async () => {
     const chat = await fixture()
     await chat.say(1, "hello")

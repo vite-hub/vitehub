@@ -24439,8 +24439,9 @@ describe("server helpers", () => {
       get(target, property, receiver) {
         if (property !== "appendToList") return Reflect.get(target, property, receiver)
         return async (...args: Parameters<typeof state.appendToList>) => {
-          // Only the delivery journal fails. The transcripts are a separate list.
-          if (!String(args[0]).includes("transcripts:user:")) eventAppends += 1
+          // Only the delivery journal fails; transcript entries and participant indexes use separate lists.
+          if (String(args[0]).includes("transcripts:")) return await state.appendToList(...args)
+          eventAppends += 1
           if (eventAppends > 2) throw new Error("journal unavailable")
           return await state.appendToList(...args)
         }

@@ -117,6 +117,13 @@ describe("stitchChannelConversation", () => {
     expect(full.map(message => message.invocationId)).toEqual(["run-1", "run-1"])
   })
 
+  it("keeps twelve journal-only replies in delivery order", () => {
+    const replies = Array.from({ length: 12 }, (_, position) => `reply ${position}`)
+    const invocation = { createdAt: new Date(at(1)).toISOString(), id: "run", prompt: "question", replies, status: "completed", updatedAt: new Date(at(2)).toISOString() }
+    const messages = stitch({ invocations: [invocation] })
+    expect(messages.map(message => message.text)).toEqual(["question", ...replies])
+  })
+
   it("summarizes the people and the last message", () => {
     const messages = stitch({ provider: [provider("1", "q", 1), provider("2", "a", 9, true)] })
     expect(summarizeChannelConversation(messages)).toEqual({ lastMessageAt: new Date(at(9)).toISOString(), participants: ["Maxi"] })

@@ -308,7 +308,7 @@ export default defineAgent({
 
 ### Who can read a conversation
 
-A conversation is private. Every surface refuses a thread that the Channel does not know, with `CHANNELS_THREAD_UNKNOWN` (404): the Agent has no Invocation in that thread for this Channel, and no transcript holds it. The reader checks this before it asks the provider, so the bot token cannot be used to read another chat. A group thread that has a transcript but no Invocation is not found.
+A conversation is private. Every surface refuses a thread that the Channel does not know, with `CHANNELS_THREAD_UNKNOWN` (404): the Agent has no Invocation in that thread for this Channel, and no transcript holds it. The reader checks this before it asks the provider, so the bot token cannot be used to read another chat. A group thread that has a transcript but no Invocation is not found. The Channel keeps evidence of admitted Invocations in State, so group transcripts remain readable when the journal is unavailable; rejected messages do not establish a known group.
 
 On the Console, the CLI, and [MCP](/docs/development/mcp) (where the app serves `/_vitehub/mcp`), a person who may use the `channels` section reads every thread of it, so set `console.authorize` for the people who may. An Agent that calls the operations through `operations()` reads nothing unless the capability sets `conversations`:
 

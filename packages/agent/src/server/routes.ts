@@ -6593,6 +6593,10 @@ async function handleChatSdkMessage(
       runId: run?.runId,
     })
     invocationStarted = true
+    if (options?.transcripts) {
+      // Unlike an inbound transcript, this proves the Channel admitted an Invocation in the thread.
+      await state.state.set(channelTranscriptAdmissionKey(state.keyPrefix, thread.id), true).catch(() => undefined)
+    }
     const runContext = {
       ...context,
       ...(invocation.run ? { run: invocation.run } : {}),
@@ -7622,6 +7626,10 @@ function channelTranscriptParticipantsKey(prefix: string, threadId: string): str
   return `${prefix}transcripts:thread:${threadId}`
 }
 
+function channelTranscriptAdmissionKey(prefix: string, threadId: string): string {
+  return `${prefix}transcripts:admitted:${threadId}`
+}
+
 function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): TranscriptRecorder {
   const recorder: TranscriptRecorder = {
     async inbound(thread, message, context) {
@@ -8403,7 +8411,7 @@ async function channelConversationInvocations(
       const finished = channelHistoryInvocationText(record)
       const prompt = channelInvocationPrompt(record)
       // The result text is only a reply when the Invocation delivered one to the thread.
-      const replies = record.status !== "completed" ? [] : deliveries.length ? deliveries : finished && channelInvocationDeliveryCount(record) > 0 ? [finished] : []
+      const replies = deliveries.length ? deliveries : record.status === "completed" && finished && channelInvocationDeliveryCount(record) > 0 ? [finished] : []
       invocations.push({
         createdAt: record.createdAt,
         id: record.id,
@@ -8547,7 +8555,16 @@ async function readChannelConversation(
   const origin = chatRegistrationOrigin(registration)
   const journal = await channelConversationInvocations(agent, context, origin, input.threadId)
   if (input.requireKnown && !journal.invocations.length) {
-    const known = (await readTranscripts(keys, 1)).entries.length > 0
+    let admitted = adapter.isDM?.(input.threadId) === true
+    if (!admitted && retention.transcripts) {
+      try {
+        admitted = await state.state.get(channelTranscriptAdmissionKey(state.titleKeyPrefix, input.threadId)) === true
+      }
+      catch (error) {
+        throw new ChannelStateUnavailableError(`The thread admission could not be read from the Agent State: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+    const known = admitted && (await readTranscripts(keys, 1)).entries.length > 0
     if (!known) throw new ChannelThreadUnknownError(`The Channel has no Invocation and no transcript for the thread ${JSON.stringify(input.threadId)}.`)
   }
   const messages: Record<string, unknown>[] = []
