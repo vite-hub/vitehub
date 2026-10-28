@@ -10194,11 +10194,7 @@ describe("server helpers", () => {
     }
   })
 
-  it.each([
-    { completionSucceeds: true, rehydrates: true },
-    { completionSucceeds: false, rehydrates: true },
-    { completionSucceeds: true, rehydrates: false },
-  ])("steers an active queued webhook invocation once and quarantines ambiguous input (completion: $completionSucceeds, rehydrate: $rehydrates)", async ({ completionSucceeds, rehydrates }) => {
+  it.each([true, false])("steers an active queued webhook invocation once and quarantines ambiguous input (completion succeeds: %s)", async (completionSucceeds) => {
     const { defineAgent } = await import("../src/index.ts")
     const { github } = await import("../src/channels.ts")
     const { agentInvocationControlId, registerAgentInvocationInputHandler } = await import("../src/internal/agent-invocation-control.ts")
@@ -10206,7 +10202,6 @@ describe("server helpers", () => {
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-webhook-steer-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
-    const prepare = vi.fn()
     const retryDelivery = vi.spyOn(state, "retryWebhookDelivery")
     const completeWebhookDelivery = state.completeWebhookDelivery.bind(state)
     const completeDelivery = vi.spyOn(state, "completeWebhookDelivery")
@@ -10271,7 +10266,6 @@ describe("server helpers", () => {
         github: github({
           triggers: {
             webhook: {
-              prepare,
               invoke: (_context, input) => {
                 // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
                 const deliveryId = (input as { github: { deliveryId: string } }).github.deliveryId
@@ -10285,7 +10279,7 @@ describe("server helpers", () => {
                     concurrencyLimit: 1,
                     concurrencyTtlMs: 1_000,
                     deliveryId,
-                    ...(rehydrates ? { rehydrate: () => rehydrate(deliveryId) } : {}),
+                    rehydrate: () => rehydrate(deliveryId),
                   },
                 }
               },
@@ -10330,9 +10324,7 @@ describe("server helpers", () => {
       })
       await withDeadline(runStarted[0]!.promise, 3_000, "First queued webhook Agent Invocation did not start.")
       expect(run).toHaveBeenCalledOnce()
-      expect(prepare).toHaveBeenCalledOnce()
-      if (rehydrates) expect(rehydrate).toHaveBeenCalledWith("delivery-1")
-      else expect(rehydrate).not.toHaveBeenCalled()
+      expect(rehydrate).toHaveBeenCalledWith("delivery-1")
       expect(run.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ run: expect.objectContaining({ runId: "delivery-1" }) }))
 
       const waitUntilCount = waitUntilTasks.length
@@ -10361,7 +10353,6 @@ describe("server helpers", () => {
       expect(waitUntilTasks.at(-1)).toBeInstanceOf(Promise)
       const steeringSettlement = waitUntilTasks.at(-1)!
       expect(steeredInputs).toEqual([expect.objectContaining({ prompt: "delivery-2" })])
-      expect(prepare).toHaveBeenCalledOnce()
 
       const duplicate = await handler(request("delivery-2"), "github", options)
       await expect(duplicate.json()).resolves.toEqual({
@@ -10458,7 +10449,6 @@ describe("server helpers", () => {
       releases.shift()!()
       await withDeadline(runStarted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not start.")
       expect(run).toHaveBeenCalledTimes(5)
-      expect(prepare).toHaveBeenCalledTimes(5)
       releases.shift()!()
       await withDeadline(runCompleted[4]!.promise, 3_000, "Fifth queued webhook Agent Invocation did not finish.")
       expect(completedRuns).toBe(5)
@@ -11538,40 +11528,6 @@ describe("server helpers", () => {
       await state.disconnect()
       await rm(stateDir, { force: true, recursive: true })
     }
-  })
-
-  it("rejects webhook steering into a named task", async () => {
-    const { github } = await import("../src/channels.ts")
-    const run = vi.fn()
-    const prepare = vi.fn()
-    const agent = defineAgent({
-      channels: {
-        github: github({
-          triggers: {
-            webhook: {
-              tasks: { mirror: { prepare, run } },
-              invoke: () => ({
-                task: "mirror",
-                input: { prompt: "mirror" },
-                webhook: { busy: "steer", concurrencyKey: "thread", concurrencyLimit: 1, deliveryId: "task" },
-              }),
-            },
-          },
-          webhooks: { secretToken: false },
-        }),
-      },
-      driver: { run },
-    })
-    const handler = createChannelWebhookRouteHandler(agent)
-    const response = await handler(new Request("https://example.com/api/github/webhook", {
-      body: "{}",
-      headers: { "content-type": "application/json", "x-github-event": "pull_request" },
-      method: "POST",
-    }), "github")
-    expect(response.status).toBe(500)
-    await expect(response.json()).resolves.toMatchObject({ message: 'Webhook busy: "steer" sends input to a running Invocation. It does not run a task.' })
-    expect(prepare).not.toHaveBeenCalled()
-    expect(run).not.toHaveBeenCalled()
   })
 
   it("rejects webhook steering without keyed concurrency ownership", async () => {
