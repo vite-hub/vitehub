@@ -5,6 +5,7 @@ import { useRoute, useRouter } from "vue-router";
 import { requestConsole } from "../client/request";
 import { rememberConsoleSection } from "../sections";
 import { consoleSkillFileSchema, consoleSkillsSchema, type ConsoleSkillFile, type ConsoleSkills } from "../skills";
+import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleFrame from "./console-frame.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSkillTree from "./console-skill-tree.vue";
@@ -105,12 +106,13 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
     <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
       <template #header>
-        <UDashboardNavbar title="Skills" :toggle="false">
+        <ConsolePageHeader title="Skills" :toggle="false">
           <template #right>
-            <USelect v-if="catalog?.agents.length" :model-value="selectedAgent" :items="catalog.agents" aria-label="Agent" class="w-44" size="sm" variant="ghost" @update:model-value="selectAgent" />
+            <UButton label="Skill index" to="https://vitehub.dev/.well-known/skills/index.json" target="_blank" rel="noopener noreferrer" icon="i-ph-arrow-up-right-light" :ui="{ label: 'hidden sm:inline' }" size="xs" color="neutral" variant="ghost" aria-label="Open ViteHub's published Skill index" />
+            <USelect v-if="catalog?.agents.length" :model-value="selectedAgent" :items="catalog.agents" aria-label="Agent" class="w-28 sm:w-44" size="sm" variant="ghost" @update:model-value="selectAgent" />
             <UButton aria-label="Refresh Skills" icon="i-ph-arrows-clockwise-light" size="xs" color="neutral" variant="ghost" :disabled="loading" @click="loadCatalog" />
           </template>
-        </UDashboardNavbar>
+        </ConsolePageHeader>
       </template>
       <template #body>
         <p v-if="loading" role="status" class="p-4 text-sm text-muted">Loading Skills…</p>
@@ -139,7 +141,7 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
             <div v-else-if="fileError" role="alert" class="flex flex-wrap items-center gap-3 p-4 text-sm">
               <span>{{ fileError }}</span><UButton label="Try again" color="neutral" variant="ghost" @click="loadFile" />
             </div>
-            <ConsoleSkillFilePreview v-else-if="file" :key="file.path" :file="file" />
+            <ConsoleSkillFilePreview v-else-if="file" :key="file.path" :file="file" :paths="paths" />
             <p v-else class="p-4 text-sm text-muted">Select a file to preview it.</p>
           </div>
         </main>

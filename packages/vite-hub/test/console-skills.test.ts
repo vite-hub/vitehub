@@ -28,7 +28,7 @@ function call(query: Record<string, string> = {}) {
     body: JSON.stringify({ method: consoleRpcMethods.skills, input: { query } }),
   }))
 }
-afterEach(() => { vi.unstubAllGlobals(); installConsoleAccess({ mode: "local" }) })
+afterEach(() => { vi.unstubAllGlobals(); installConsoleAccess({ mode: "open" }) })
 
 describe("Console bundled Skills", () => {
   it("lists composed Skills and supporting files without returning content", async () => {

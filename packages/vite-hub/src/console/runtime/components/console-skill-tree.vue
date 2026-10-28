@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { AgentFileTree, useAgentFileTree } from "@vite-hub/ui";
+import { FileTree, useFileTree } from "@vite-hub/ui";
 import { watch } from "vue";
 
 const props = defineProps<{ paths: readonly string[]; selected?: string }>();
 const emit = defineEmits<{ select: [path: string] }>();
 let syncing = false;
-const model = useAgentFileTree({
+const model = useFileTree({
   paths: props.paths,
   density: "compact",
   search: true,
@@ -29,5 +29,5 @@ watch(() => props.selected, selected => {
 </script>
 
 <template>
-  <AgentFileTree :model="model" :paths="paths" aria-label="Skill files" />
+  <FileTree :model="model" :paths="paths" aria-label="Skill files" />
 </template>

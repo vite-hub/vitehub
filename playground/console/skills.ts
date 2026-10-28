@@ -21,9 +21,12 @@ Use this skill when building a screen, improving a layout, or reviewing an inter
 
 ## File map
 
-- **references/layout.md** sets spacing and panel rules.
-- **references/accessibility.md** covers keyboard access and focus.
-- **scripts/check-contrast.ts** checks a text and background pair.
+- [references/layout.md](references/layout.md) sets spacing and panel rules.
+- [references/accessibility.md](references/accessibility.md) covers keyboard access and focus.
+- [scripts/check-contrast.ts](scripts/check-contrast.ts) checks a text and background pair.
+
+> [!NOTE]
+> Supporting files are part of the Skill. Open the links above to read them in this browser.
 
 ## Before you finish
 
