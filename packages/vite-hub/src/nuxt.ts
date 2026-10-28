@@ -1,8 +1,9 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { transform } from "esbuild"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -201,11 +202,42 @@ const nitroCloudflareWorkersDev = {
   },
 }
 
+/** Keep ViteHub's H3 2 imports out of Nuxt 4's application-wide H3 1 alias. */
+const nitroViteHubH3 = {
+  name: "vite-hub/nitro-h3",
+  resolveId(id: string, importer?: string) {
+    if (!/^h3(?:\/|$)/.test(id) || !importer) return
+    const path = importer.replaceAll("\\", "/")
+    if (!/(?:^|\/)(?:vite-hub|@vite-hub|\.vitehub)(?:\/|$)/.test(path) && !/\/(?:h3@2|nitro@3)[^/]*\//.test(path)) return
+    return fileURLToPath(import.meta.resolve(id))
+  },
+}
+
+/** Node development uses request bindings without importing the production Cloudflare runtime. */
+async function writeCloudflareWorkersDevShim(buildDir: string): Promise<string> {
+  const file = join(buildDir, "vitehub/cloudflare-workers.dev.mjs")
+  await writeFileIfChanged(file, [
+    "const bindings = () => globalThis.__env__ ?? process.env",
+    "export const env = new Proxy({}, { get: (_, key) => bindings()[key] ?? process.env[key], has: (_, key) => key in bindings() || key in process.env })",
+    "export async function waitUntil(promise) { if (globalThis.__wait_until__) return globalThis.__wait_until__(promise); await promise }",
+    "export function withEnv() { throw new Error('cloudflare.withEnv is not available in Node development.') }",
+    "class Unsupported { constructor() { throw new Error('This Cloudflare runtime class is not available in Node development.') } }",
+    "export { Unsupported as DurableObject, Unsupported as RpcTarget, Unsupported as WorkerEntrypoint, Unsupported as WorkflowEntrypoint }",
+    "",
+  ].join("\n"))
+  return file
+}
+
+function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: string): void {
+  if (!Array.isArray(config.plugins)) return
+  config.plugins = config.plugins.map(plugin => typeof plugin === "string" && /^\.vitehub[\\/]/.test(plugin) && !isAbsolute(plugin) ? resolve(root, plugin) : plugin)
+}
+
 /** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
 function installNitroBuildPlugins(config: Record<string, unknown>, dev = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3, ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1400,7 +1432,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
+    normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
+    if (nuxt.options.dev && plan.preset === "cloudflare") {
+      const alias = (config.alias ??= {}) as Record<string, string>
+      alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)
+    }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
