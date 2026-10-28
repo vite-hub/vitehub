@@ -1,0 +1,1 @@
+ALTER TABLE `vitehub_comment_threads` ADD `context` text;
