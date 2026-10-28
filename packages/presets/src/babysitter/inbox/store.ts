@@ -114,6 +114,7 @@ export interface PullRequestInboxOptions {
   filter?: GitHubPullRequestFilter
   clock?: () => number
   activityAuthors?: readonly string[]
+  activityAppId?: number
   budgets?: InboxBudgets
   /**
    * Called once per process for each stored PR row that fails validation. The inbox skips such a row
@@ -236,10 +237,11 @@ export class PullRequestInbox {
   private clock: () => number
   private filter?: GitHubPullRequestFilter
   private activityAuthors: Set<string>
+  private activityAppId?: number
   private budgets: InboxBudgets
   private invalidRow?: (row: InvalidInboxRow) => void
   private reportedRows = new Set<string>()
-  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], invalidRow }: PullRequestInboxOptions) {
+  constructor({ path, storage, scope = '', repositories, filter, clock = Date.now, budgets = {}, activityAuthors = [], activityAppId, invalidRow }: PullRequestInboxOptions) {
     validateBudgets(budgets)
     if ((path === undefined) === (storage === undefined)) throw new Error('PullRequestInbox requires exactly one of path or storage.')
     this.budgets = { ...budgets }
@@ -248,6 +250,7 @@ export class PullRequestInbox {
     this.clock = clock
     this.filter = filter
     this.activityAuthors = new Set(activityAuthors.map(author => author.trim().toLowerCase()))
+    this.activityAppId = activityAppId === undefined ? undefined : v.parse(v.pipe(v.number(), v.integer(), v.minValue(1)), activityAppId)
     this.storage = storage ?? createNodeSqliteInboxStorage(path!)
     this.ownsStorage = !storage
     this.scope = scope
@@ -305,10 +308,22 @@ export class PullRequestInbox {
   private repositoryFilter(column = 'repository'): { sql: string; args: string[] } {
     return { sql: `${column} IN (${this.repositories.map(() => '?').join(',')})`, args: this.repositories }
   }
+  private ownsComment(comment: GitHubEvidence | undefined): boolean {
+    return this.activityAppId !== undefined
+      ? comment?.performed_via_github_app?.id === this.activityAppId
+      : this.activityAuthors.has(String(comment?.user?.login ?? comment?.author?.login ?? '').trim().toLowerCase())
+  }
+  private isActivityComment(comment: GitHubEvidence | undefined): boolean {
+    return this.ownsComment(comment) && String(comment?.body ?? '').startsWith('<!-- vitehub-agent-activity:')
+  }
+  private cleanSnapshot(snapshot: Snapshot): Snapshot {
+    snapshot.comments = Object.fromEntries(Object.entries(snapshot.comments).filter(([, comment]) => !this.isActivityComment(comment)))
+    return snapshot
+  }
   private async getIn(tx: PullRequestInboxExecutor, repository: string, number: number): Promise<Snapshot | undefined> {
     const [row] = await tx.execute(`SELECT value FROM ${this.tables.pullRequests} WHERE scope=? AND repository=? AND number=?`, [this.scope, repository, number])
     // SAFETY: the value column stores snapshot JSON; parseSnapshot validates the decoded boundary.
-    return row ? parseSnapshot(JSON.parse(stringValue(row.value))) : undefined
+    return row ? this.cleanSnapshot(parseSnapshot(JSON.parse(stringValue(row.value)))) : undefined
   }
   /** A snapshot for a queue-wide scan. An invalid row is reported and skipped. */
   private async getRowIn(tx: PullRequestInboxExecutor, row: PullRequestInboxRow): Promise<Snapshot | undefined> {
@@ -324,7 +339,7 @@ export class PullRequestInbox {
     if (!this.repositories.length) return []
     const repositories = this.repositoryFilter()
     const rows = await this.read(`SELECT repository, number, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql} ORDER BY repository, number`, [this.scope, ...repositories.args])
-    return rows.flatMap(row => this.parseRow(row, parseSnapshot) ?? [])
+    return rows.flatMap(row => this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value))) ?? [])
   }
   private compactTerminal(s: Snapshot): void {
     if (s.status !== 'terminal') return
@@ -343,6 +358,7 @@ export class PullRequestInbox {
     s.feedbackRefresh = true
   }
   private async put(tx: PullRequestInboxExecutor, s: Snapshot): Promise<void> {
+    this.cleanSnapshot(s)
     let reopened = false
     let resumed = false
     let wasWorking = false
@@ -877,11 +893,10 @@ export class PullRequestInbox {
       if (!this.repositories.includes(repository)) return await finish('repository not configured')
       // Activity suppression applies to issue comments only. Actual reviews
       // and inline review comments are evidence regardless of reviewer name.
-      const commentAuthor = String(payload.comment?.user?.login ?? payload.comment?.author?.login ?? payload.sender?.login ?? '').trim().toLowerCase()
       const commentBody = String(payload.comment?.body ?? '')
       const marked = commentBody.startsWith('<!-- vitehub-agent-activity:')
       const repairMarked = commentBody.startsWith('<!-- vitehub-babysitter-repair:')
-      const activity = marked && this.activityAuthors.has(commentAuthor)
+      const activity = marked && this.ownsComment(payload.comment)
       // Only authenticated activity markers are transport records. A public
       // marker on an external comment must remain actionable feedback.
       if (event === 'issue_comment' && !payload.issue?.pull_request) return await finish('issue is not a PR')
@@ -910,7 +925,7 @@ export class PullRequestInbox {
         // for an active publication or its durable pushed-head wait.
         const pending = await tx.execute(`SELECT repository, number, value FROM ${t.pullRequests} WHERE scope=? AND repository=? AND state='open' AND (lease IS NOT NULL OR waiting=1)`, [this.scope, repository])
         for (const row of pending) {
-          const snapshot = this.parseRow(row, parseSnapshot)
+          const snapshot = this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value)))
           if (!snapshot) continue
           if (snapshot.wait?.headSha === sha || snapshot.lease && snapshot.leaseUntil > this.clock() && (snapshot.sourcePushHeads?.includes(sha) || snapshot.prospectivePush?.token === snapshot.lease && snapshot.prospectivePush.heads.includes(sha))) numbers.add(Number(row.number))
         }
@@ -953,7 +968,7 @@ export class PullRequestInbox {
           if (feedback) upsert(s.comments, payload.comment)
           // Agent activity comments are self-generated transport records; they
           // must not advance the repair generation or revoke the active claim.
-          if (activity || repairMarked && this.activityAuthors.has(commentAuthor)) changed = false
+          if (activity || repairMarked && this.ownsComment(payload.comment)) changed = false
         }
         if (event === 'pull_request_review_comment') { upsert(s.reviewComments, payload.comment); if (changed) s.feedbackRefresh = true }
         if (event === 'pull_request_review') { upsert(s.reviews, payload.review); if (changed) s.feedbackRefresh = true }
@@ -1097,9 +1112,10 @@ export class PullRequestInbox {
       }
       const before = s.pr
       Object.assign(s, patch)
+      this.cleanSnapshot(s)
       if (patch.pr && before && before.head?.sha === s.pr?.head?.sha && conflicted(s.pr) && !conflicted(before)) this.grantProgress(s, 'conflict')
       if (s.pr && !this.eligible(s.repository, s.pr)) s.status = 'terminal'
-      await this.put(tx, s); Object.assign(claim.snapshot, patch, { status: s.status, progressBudget: s.progressBudget }); return true
+      await this.put(tx, s); Object.assign(claim.snapshot, patch, { comments: s.comments, status: s.status, progressBudget: s.progressBudget }); return true
     })
   }
   async refreshThreads(observed: Snapshot, threads: GitHubReviewThread[]): Promise<boolean> {
@@ -1334,7 +1350,7 @@ export class PullRequestInbox {
     const repositories = this.repositoryFilter()
     const rows = await this.read(`SELECT repository, number, value FROM ${this.tables.pullRequests} WHERE scope=? AND ${repositories.sql}
       AND waiting=1 AND status<>'terminal' AND lease IS NULL ${includeExternal || includeIdle ? '' : 'AND generation>handled'} ORDER BY dirty_at, number`, [this.scope, ...repositories.args])
-    return rows.flatMap(row => this.parseRow(row, parseSnapshot) ?? []).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
+    return rows.flatMap(row => this.parseRow(row, value => this.cleanSnapshot(parseSnapshot(value))) ?? []).filter(snapshot => snapshot.generation > snapshot.handled || includeExternal && (snapshot.wait?.wake || snapshot.wait?.retryAt !== undefined) || includeIdle && !snapshot.wait?.wake)
   }
   /** Records that the host evaluated a wait's new events and the wait still holds. */
   async acknowledgeWait(observed: Snapshot): Promise<boolean> {

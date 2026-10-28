@@ -8,8 +8,9 @@ import { descriptorVariable, env } from "../src/core/declarations.ts";
 import { createRuntimeRegistry } from "../src/core/resolve.ts";
 import { envValueTypeName, parseEnvValue } from "../src/core/values.ts";
 import { envSchema } from "../src/env-schema/index.ts";
+import { defineEnvProvider } from "../src/provider.ts";
 import { SecretEnv } from "../src/secret.ts";
-import { describeServerEnv, resolveServerEnv } from "../src/server.ts";
+import { describeServerEnv, loadServerEnv, resolveServerEnv } from "../src/server.ts";
 
 import type { EnvSchemaOptions } from "../src/env-schema/index.ts";
 
@@ -268,6 +269,102 @@ VITEHUB_METADATA=`);
     expect(JSON.stringify(error)).not.toContain("private-marker");
     expect(String(error.cause)).not.toContain("private-marker");
   });
+
+  it("keeps explicit empty object types distinct from unconstrained objects", () => {
+    const registry = createRuntimeRegistry(
+      contract(`# @type=object() @public
+VITEHUB_EMPTY='{}'
+# @type=object @public
+VITEHUB_METADATA='{}'
+# @type=array(object()) @public
+VITEHUB_ITEMS='[{}]'`).server,
+    );
+    expect(describeServerEnv(registry).entries.map(({ type }) => type)).toEqual([
+      "Record<string, never>",
+      "Record<string, unknown>",
+      "Array<Record<string, never>>",
+    ]);
+    expect(parseEnvValue({ kind: "object", properties: {} }, { extra: true }).success).toBe(false);
+    expect(parseEnvValue({ kind: "object" }, { extra: true }).success).toBe(true);
+  });
+
+  it("isolates structured defaults and host bindings between resolutions", () => {
+    const registry = createRuntimeRegistry(
+      contract(`# @type=object(enabled=boolean, tags=array(string)) @public
+VITEHUB_SETTINGS='{"enabled":true,"tags":["first"]}'
+# @type=array(object(label=string))
+VITEHUB_PRIVATE_TAGS='[{"label":"first"}]'`).server,
+    );
+    type Values = {
+      settings: { enabled: boolean; tags: string[] };
+      privateTags: SecretEnv<Array<{ label: string }>>;
+    };
+    const bindings = {
+      VITEHUB_SETTINGS: { enabled: true, tags: ["first"] },
+      VITEHUB_PRIVATE_TAGS: [{ label: "first" }],
+    };
+    for (const event of [{ env: {} }, { env: bindings }]) {
+      const first = resolveServerEnv<Values>(registry, event);
+      first.settings.enabled = false;
+      first.settings.tags.push("changed");
+      first.privateTags.unseal()[0]!.label = "changed";
+      const next = resolveServerEnv<Values>(registry, event);
+      expect(next.settings).toEqual({ enabled: true, tags: ["first"] });
+      expect(next.privateTags.unseal()).toEqual([{ label: "first" }]);
+    }
+  });
+
+  it.each(["default", "host", "provider"])(
+    "freezes nested structured %s snapshots without freezing their source",
+    async (source) => {
+      const settings = { enabled: true, tags: ["first"] };
+      const registry = createRuntimeRegistry({
+        settings: descriptorVariable(
+          { kind: "object" },
+          {
+            default: settings,
+            source:
+              source === "provider"
+                ? env.provider("config", "settings")
+                : env.source("STRUCTURED_SETTINGS"),
+          },
+        ),
+        privateTags: descriptorVariable(
+          { kind: "array", items: { kind: "object" } },
+          {
+            default: [{ label: "first" }],
+            secret: true,
+          },
+        ),
+      });
+      const snapshot = await loadServerEnv<{
+        settings: typeof settings;
+        privateTags: SecretEnv<Array<{ label: string }>>;
+      }>(
+        registry,
+        { env: source === "host" ? { STRUCTURED_SETTINGS: settings } : {} },
+        {
+          providers: {
+            config: defineEnvProvider({
+              read: async ({ env: local }) => {
+                expect(local.privateTags).toBeInstanceOf(SecretEnv);
+                if (local.privateTags instanceof SecretEnv)
+                  expect(Object.isFrozen(local.privateTags.unseal())).toBe(true);
+                return { settings: JSON.stringify(settings) };
+              },
+            }),
+          },
+        },
+      );
+      expect(Object.isFrozen(snapshot.settings)).toBe(true);
+      expect(Object.isFrozen(snapshot.settings.tags)).toBe(true);
+      expect(Object.isFrozen(snapshot.privateTags.unseal())).toBe(true);
+      expect(Object.isFrozen(snapshot.privateTags.unseal()[0])).toBe(true);
+      expect(Reflect.set(snapshot.settings, "enabled", false)).toBe(false);
+      expect(Object.isFrozen(settings)).toBe(false);
+      expect(Object.isFrozen(settings.tags)).toBe(false);
+    },
+  );
 
   it("rejects nested secret enum metadata", () => {
     for (const type of [

@@ -23,7 +23,7 @@ export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueP
         }
       }
       return isEnvSchemaValue(value) && matchesJsonType(schema, value)
-        ? { data: value, success: true }
+        ? { data: typeof input === "string" ? value : structuredClone(value), success: true }
         : { success: false, message: "JSON value does not match the declared type." };
     }
     case "string":
@@ -59,12 +59,15 @@ export function envValueTypeName(schema: EnvValueSchema): string {
   switch (schema.kind) {
     case "array":
       return `Array<${schema.items ? envValueTypeName(schema.items) : "unknown"}>`;
-    case "object":
-      return schema.properties
-        ? `{ ${Object.entries(schema.properties)
+    case "object": {
+      if (!schema.properties) return "Record<string, unknown>";
+      const properties = Object.entries(schema.properties);
+      return properties.length
+        ? `{ ${properties
             .map(([key, property]) => `${JSON.stringify(key)}: ${envValueTypeName(property)}`)
             .join("; ")} }`
-        : "Record<string, unknown>";
+        : "Record<string, never>";
+    }
     case "enum":
       return schema.values.map((value) => JSON.stringify(value)).join(" | ");
     case "url":
