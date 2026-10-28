@@ -14,6 +14,7 @@ import {
   consoleComponentDefaults,
   consoleConvertibleNodes,
   consoleEditorComponents,
+  consoleEditorMedia,
   consoleHeadingSlug,
   consoleSlashGroups,
   consoleTurnIntoItems,
@@ -138,6 +139,7 @@ const mediaDrop = Extension.create({
 const extensions = codec.extensions().map(extension => extension.extend({
   addExtensions() {
     return (this.parent?.() ?? []).map(extension =>
+      extension.name === "image" ? consoleEditorMedia(src => providedPicker?.resolveSrc?.(src)) :
       extension.name === "comarkBlock" || extension.name === "comarkInline"
         ? extension.extend({ addNodeView: () => componentView })
         : extension);

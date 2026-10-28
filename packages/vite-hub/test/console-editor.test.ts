@@ -1,3 +1,5 @@
+import { getSchema } from "@tiptap/core"
+import StarterKit from "@tiptap/starter-kit"
 import { createEditorCodec } from "comark-ui/editor"
 import { describe, expect, it } from "vitest"
 
@@ -6,6 +8,7 @@ import {
   consoleComponentProp,
   consoleComponentWithProp,
   consoleEditorComponents,
+  consoleEditorMedia,
   consoleHeadingSlug,
   consoleSlashGroups,
   splitConsoleFrontmatter,
@@ -17,6 +20,18 @@ const alert: ConsoleDocumentComponent = { description: "A highlighted note", kin
 const badge: ConsoleDocumentComponent = { kind: "inline", label: "Badge", name: "badge", props: {} }
 
 describe("Console body editor menus", () => {
+  it("resolves media for display without rewriting stored paths", async () => {
+    const codec = createEditorCodec()
+    const schema = getSchema([StarterKit, consoleEditorMedia(src => `/served/${src}`)])
+    for (const { file, tag } of [{ file: "photo.png", tag: "img" }, { file: "movie.mp4", tag: "video" }, { file: "sound.mp3", tag: "audio" }]) {
+      const markdown = `![Media](uploads/${file})`
+      const doc = await codec.fromMarkdown(markdown)
+      const image = schema.nodeFromJSON(doc).firstChild?.firstChild
+      if (!image) throw new Error("The document has no media node")
+      expect(image.type.spec.toDOM?.(image)).toEqual([tag, expect.objectContaining({ src: `/served/uploads/${file}` })])
+      expect(await codec.toMarkdown(doc)).toContain(`](uploads/${file})`)
+    }
+  })
   it("groups the slash menu and lists collection components last with their Markdown", () => {
     const groups = consoleSlashGroups([alert, badge])
     expect(groups.map(group => group[0])).toEqual([

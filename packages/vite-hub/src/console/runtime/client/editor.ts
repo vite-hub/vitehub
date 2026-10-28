@@ -1,4 +1,19 @@
+import { ComarkImage } from "comark-ui/editor"
+import type { DOMOutputSpec } from "@tiptap/pm/model"
 import type { ConsoleDocumentComponent } from "../definitions"
+import type { ConsoleMediaPicker } from "./media"
+
+/** Resolve media for display while the shared codec keeps its stored pathname. */
+export function consoleEditorMedia(resolveSrc: ConsoleMediaPicker["resolveSrc"]): typeof ComarkImage {
+  return ComarkImage.extend({
+    renderHTML({ node, HTMLAttributes }) {
+      const spec: DOMOutputSpec = this.parent?.({ node, HTMLAttributes }) ?? ["img", HTMLAttributes]
+      const src = resolveSrc?.(String(node.attrs.src))
+      if (src && Array.isArray(spec) && typeof spec[1] === "object" && spec[1] !== null) spec[1] = { ...spec[1], src }
+      return spec
+    },
+  })
+}
 
 /**
  * Menus of the document body editor, as plain data so they can be tested without an editor. Item `kind`s are Nuxt UI
