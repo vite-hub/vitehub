@@ -378,6 +378,24 @@ describe("GitHub history commit", () => {
     expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
   })
 
+  it("denies repository pull-request listings to a resolved partial Workspace scope", async () => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("private/change", main, fake.tree("main"))
+    fake.commit("private/change", { "private/secret.md": "secret" })
+    const number = fake.openPull("private/change", "main", "Private change")
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const definition = { name: "content", store }
+    const base = useWorkspace("content", { mode: "write", definition })
+    const invocation = { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false } }
+    const complete = await createWorkspaceSourceResolutionFacade(base, definition, { invocation })
+    await expect(complete.workspace.history.pullRequests!({ headPrefix: "private/" })).resolves.toMatchObject([{ number, title: "Private change" }])
+
+    const scoped = await createWorkspaceSourceResolutionFacade(base, definition, { invocation, selectedWorkspaceScope: { all: false, name: "posts", paths: ["posts/a.md"] } })
+    const requestCount = fake.requests.length
+    await expect(scoped.workspace.history.pullRequests!({ headPrefix: "private/" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    expect(fake.requests).toHaveLength(requestCount)
+  })
+
   it("runs resolved merge validators once and applies their normalized bytes", async () => {
     const main = fake.commit("main", { "posts/a.md": "a" })
     fake.setBranch("incoming", main, fake.tree("main"))

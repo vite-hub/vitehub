@@ -56,7 +56,7 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
   return {
     ...(history?.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
     ...(history?.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
-    ...(history?.pullRequests ? { pullRequests: async options => await history.pullRequests!(options) } : {}),
+    ...(history?.pullRequests ? { pullRequests: async options => await requireHistory().pullRequests!(options) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
