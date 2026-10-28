@@ -516,7 +516,7 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision }
+    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
   }),
   section: "content",
 })

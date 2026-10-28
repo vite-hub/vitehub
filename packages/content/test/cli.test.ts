@@ -116,6 +116,23 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it("prints the pull request that a publish opened", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const pullRequest = { number: 7, url: "https://github.com/onmax/docs/pull/7" }
+    // A project with `publish: 'pr'` answers a publish with the pull request that it opened.
+    const withPullRequest = { ...content, publish: async (options: Parameters<typeof content.publish>[0]) => ({ ...await content.publish(options), pullRequest, pending: true as const }) }
+    const published = await cli(withPullRequest).run("publish", "--yes")
+    expect(published).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: `Opened pull request #7 for 1 document:\n  add     posts/hello\n${pullRequest.url}\nThe documents are published when it merges.\n`,
+    })
+    await posts.save("second", { data: { title: "Second" }, body: "" })
+    const json = await cli(withPullRequest).run("publish", "--yes", "--json")
+    expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: false, documents: [{ id: "second", change: "add" }], pullRequest })
+  })
+
   it("checks discovered roots but leaves explicit deployed URLs independent of the local path", async () => {
     const { content } = await setup()
     const { fetch, run } = cli(content)

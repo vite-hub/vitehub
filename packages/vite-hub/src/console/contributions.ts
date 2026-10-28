@@ -1,6 +1,6 @@
 import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
 import { authConsoleSection } from "@vite-hub/auth/console";
-import { commentsConsoleSection } from "@vite-hub/comments/vite"
+import { commentsConsoleSection, mountedCommentsRoute } from "@vite-hub/comments/vite"
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
@@ -53,6 +53,8 @@ export interface ConsoleDocumentEditorRegistration {
 
 export interface ConsoleRegisteredSection {
   readonly descriptor: ConsoleContributedSection
+  /** Resolves the visit using the owner package's application mount contract. */
+  readonly visit?: (base: string) => string
   read(context: ConsoleSectionDiscoveryContext): Promise<ConsoleSectionContent>
   /** Request-time reader. The Console adds its records to the build-time content on each request. */
   readonly runtime?: ConsoleRuntimeReader
@@ -73,12 +75,14 @@ export function consoleRuntimeReaderModule(module: string): string {
 function registerConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: (context: ConsoleSectionDiscoveryContext) => TOptions,
+  visit?: (base: string) => string,
 ): ConsoleRegisteredSection {
   const descriptor: ConsoleContributedSection = describeViteHubConsoleSection(section)
   const runtime = describeViteHubConsoleRuntimeReader(section)
   const actions = describeViteHubConsoleDocumentActions(section)
   const registered: { -readonly [K in keyof ConsoleRegisteredSection]: ConsoleRegisteredSection[K] } = {
     descriptor,
+    ...(visit ? { visit } : {}),
     read: async (context) => {
       const content: ConsoleSectionContent = await readViteHubConsoleSection(section, options(context))
       return content
@@ -112,7 +116,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     schedules: context.scheduleDefinitions,
     serverDirs: context.serverDirs,
   })),
-  registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })),
+  registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }), base => `${mountedCommentsRoute(base)}/session`),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
@@ -168,11 +172,12 @@ export function isConsoleContributedSectionId(section: ConsoleSectionId): boolea
  * Returns the descriptors of the enabled contributed sections in navigation order. Each keeps only the pages whose
  * required sections are enabled too, such as Content Media with Blob.
  */
-export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[]): ConsoleContributedSection[] {
+export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[], base = "/"): ConsoleContributedSection[] {
   return sections.flatMap((section) => {
     const registered = consoleContributedSections.get(section)
     if (!registered) return []
     const { pages: _pages, ...descriptor } = registered.descriptor
+    if (registered.visit) descriptor.visit = registered.visit(base)
     const pages = resolveViteHubConsoleSectionPages(registered.descriptor, sections)
     return [pages.length ? { ...descriptor, pages } : descriptor]
   })
