@@ -1,6 +1,6 @@
 import { getSchema } from "@tiptap/core"
 import StarterKit from "@tiptap/starter-kit"
-import { createEditorCodec } from "comark-ui/editor"
+import { createContentEditorCodec } from "@vite-hub/content/editor"
 import { describe, expect, it } from "vitest"
 
 import {
@@ -21,7 +21,7 @@ const badge: ConsoleDocumentComponent = { kind: "inline", label: "Badge", name: 
 
 describe("Console body editor menus", () => {
   it("resolves media for display without rewriting stored paths", async () => {
-    const codec = createEditorCodec()
+    const codec = createContentEditorCodec()
     const schema = getSchema([StarterKit, consoleEditorMedia(src => `/served/${src}`)])
     for (const { file, tag } of [{ file: "photo.png", tag: "img" }, { file: "movie.mp4", tag: "video" }, { file: "sound.mp3", tag: "audio" }]) {
       const markdown = `![Media](uploads/${file})`
@@ -55,7 +55,7 @@ describe("Console body editor menus", () => {
   })
 
   it("reads and edits typed component props without leaving stale bindings", async () => {
-    const codec = createEditorCodec()
+    const codec = createContentEditorCodec()
     const doc = await codec.fromMarkdown('::card{:count="3" :enabled="true"}\nHello\n::\n')
     const component = doc.content?.[0]
     expect(component?.attrs?.name).toBe("card")
@@ -80,7 +80,7 @@ describe("Console body editor menus", () => {
   })
 
   it("keeps undeclared components editable with Comark UI's shared codec", async () => {
-    const codec = createEditorCodec()
+    const codec = createContentEditorCodec()
     const body = "Intro.\n\n::note\nHello\n::\n\n* one\n* two\n\n_em_\n"
     expect(await codec.verify(body)).toMatchObject({ writable: true })
     const written = await codec.toMarkdown(await codec.fromMarkdown(body))

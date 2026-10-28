@@ -298,8 +298,22 @@ See [Limits and errors](/docs/content/limits-and-errors) before running Content 
 
 ## Render Markdown with Comark UI
 
-Content uses the full `comark-ui` parser preset. Render its nodes with the matching `comark-ui/vue`, `comark-ui/react`, `comark-ui/svelte`, or `comark-ui/html` component map. Nuxt UI can still provide the page layout; the Markdown body uses Comark UI's components and typography.
+Content bundles the full Comark UI parser preset. ViteHub UI includes the matching components and document styles. Render a Content page directly:
+
+```vue
+<script setup lang="ts">
+import { Markdown } from "vite-hub/ui/markdown"
+
+const { data: page } = await useFetch("/api/content/get/docs/introduction")
+</script>
+
+<template>
+  <Markdown v-if="page" :value="page" />
+</template>
+```
+
+Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imports `Markdown`. No Comark UI install, component map, or document stylesheet is required. Optional `components` override individual renderers. The same primitive accepts a Markdown string and supports streaming.
 
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
-Content's collaborative editor and the Console use `comark-ui/editor` for their schema, Markdown conversion, and loss check. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
+Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.

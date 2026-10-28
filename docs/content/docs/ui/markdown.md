@@ -1,12 +1,12 @@
 ---
 title: Markdown
-description: "Render streaming assistant Markdown with chat typography, math, and image previews."
+description: "Render Content pages and streaming Markdown with Comark UI components, typography, math, and image previews."
 navigation.order: 23
 navigation.group: Chat
 icon: i-ph-markdown-logo-light
 ---
 
-`Markdown` renders Markdown with `@comark/vue` and the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
+`Markdown` renders Markdown strings and parsed Content pages with Comark UI components and document styles already configured. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
 
 ::component-preview{name="MarkdownExample"}
 ::
@@ -29,9 +29,27 @@ import { Markdown } from "@vite-hub/ui";
 <Markdown :value="part.text" :streaming="part.state === 'streaming'" />
 ```
 
+## Content pages
+
+Pass a Content page directly. ViteHub uses its pre-parsed nodes without parsing them again. Callouts, tabs, steps, badges, cards, and document typography use the bundled Comark UI renderers.
+
+```vue
+<script setup lang="ts">
+import { Markdown } from "vite-hub/ui/markdown";
+
+const { data: page } = await useFetch("/api/content/get/docs/introduction");
+</script>
+
+<template>
+  <Markdown v-if="page" :value="page" />
+</template>
+```
+
+There is no separate Comark install, preset, component map, or stylesheet. `components` is an optional override. A parsed page keeps the document's parser settings; `plugins` and `options` apply only to string values.
+
 ## Composition
 
-`Markdown` passes the value to the Comark root. The built-in `img` and `math` components render images and formulas. Replace them with the `components` prop.
+`Markdown` chooses the string parser or document renderer from the value. Comark UI supplies the block components. Images use ViteHub previews; string formulas use lazy KaTeX. Replace individual renderers with the `components` prop.
 
 ```text
 Markdown (Comark root, vh-typeset vh-typeset-chat)
@@ -46,7 +64,7 @@ Markdown (Comark root, vh-typeset vh-typeset-chat)
 - Renders math with KaTeX.
 - Shows images as thumbnails that open a full preview.
 - Accepts Comark components, parser options, and plugins.
-- Never renders raw HTML.
+- Raw HTML in string values stays disabled. Parsed Content pages render their existing nodes.
 
 ## Streaming
 
@@ -86,7 +104,7 @@ Pass Comark components to replace an element or add a custom one. Set `component
 />
 ```
 
-Comark 0.7 takes parser plugins in the top-level `plugins` prop. `options` holds parser settings only. ViteHub always sets `options.html` to `false`.
+Comark takes parser plugins in the top-level `plugins` prop. `options` holds parser settings only. Raw HTML stays disabled for string values.
 
 ## Styling
 
@@ -117,11 +135,11 @@ Renders the Markdown source as styled prose.
 
 | Prop         | Type                          | Default | Description                                                         |
 | ------------ | ----------------------------- | ------- | ------------------------------------------------------------------- |
-| `value`      | `string`                      | `""`    | The Markdown source.                                                |
+| `value`      | `string \| { nodes: Node[] }` | `""` | Markdown source or a parsed Content page.                                                |
 | `streaming`  | `boolean`                     | `false` | Parses the value as partial, streamed Markdown.                     |
-| `components` | `MarkdownProps['components']` |         | Comark components. Merged over the built-in `img` and `math` components. |
+| `components` | `MarkdownProps['components']` |         | Comark components. Optional overrides for the bundled components. |
 | `options`    | `MarkdownProps['options']`    |         | Comark parser options. `html` is always `false`.                    |
-| `plugins`    | `MarkdownProps['plugins']`    |         | Comark parser plugins. Added after the built-in math plugin.        |
+| `plugins`    | `MarkdownProps['plugins']`    |         | Comark parser plugins. Extend or replace the string parser defaults by name.        |
 
 Other attributes, for example `class`, go to the Comark root.
 

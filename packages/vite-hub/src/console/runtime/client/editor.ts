@@ -1,11 +1,11 @@
-import { ComarkImage } from "comark-ui/editor"
+import { ContentImage } from "@vite-hub/content/editor"
 import type { DOMOutputSpec } from "@tiptap/pm/model"
 import type { ConsoleDocumentComponent } from "../definitions"
 import type { ConsoleMediaPicker } from "./media"
 
 /** Resolve media for display while the shared codec keeps its stored pathname. */
-export function consoleEditorMedia(resolveSrc: ConsoleMediaPicker["resolveSrc"]): typeof ComarkImage {
-  return ComarkImage.extend({
+export function consoleEditorMedia(resolveSrc: ConsoleMediaPicker["resolveSrc"]): typeof ContentImage {
+  return ContentImage.extend({
     renderHTML({ node, HTMLAttributes }) {
       const spec: DOMOutputSpec = this.parent?.({ node, HTMLAttributes }) ?? ["img", HTMLAttributes]
       const src = resolveSrc?.(String(node.attrs.src))

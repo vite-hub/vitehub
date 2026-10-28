@@ -163,7 +163,7 @@ const editor = contentRealtimeEditor() // the same codec the server uses
 const realtime = useRealtimeTiptap('content', 'posts/hello', { editor })
 ```
 
-`contentRealtimeEditor()` adapts `createEditorCodec()` from `comark-ui/editor`. The server and browser use the same generic schema for components, named slots, task lists, tables, and media, without separate node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a route to Source.
+`contentRealtimeEditor()` adapts `createContentEditorCodec()` from `vite-hub/content/editor`. Content bundles Comark UI and installs its editor runtimes. The server and browser use the same generic schema for components, named slots, task lists, tables, and media, without separate node definitions per collection. Comark UI owns Markdown conversion and the loss check. A body the codec cannot keep opens read-only with a route to Source.
 
 `vite-hub/content/realtime` also exports `contentDocument(collection)`, the Realtime document adapter of one collection, and `contentRealtime(content, { identify, authorize, user })` to define the room yourself in `server/realtime/content.ts`. A file with that name replaces the generated one.
 

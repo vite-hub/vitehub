@@ -215,4 +215,4 @@ Saves, restores, deletes, and publishes record the user's `name`, `email`, or `i
 - Media edits are last-writer-wins, like [`blob.media`](/docs/blob/media#consistency).
 - A live preview of the page is not available yet.
 - Drafts save on their own only after a document exists. Leaving the page right after typing saves first; closing the tab asks.
-- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Nuxt hosts need `comark` and `comark-ui` installed.
+- The Nuxt module registers the page, but this editor has been verified only in the Vite Console. Content supplies the Comark UI implementation and its editor dependencies.

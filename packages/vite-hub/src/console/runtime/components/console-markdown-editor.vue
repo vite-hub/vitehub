@@ -6,8 +6,7 @@ import CollaborationCaret from "@tiptap/extension-collaboration-caret";
 import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
 import { EditorContent, nodeViewProps, useEditor, VueNodeViewRenderer } from "@tiptap/vue-3";
-import { createEditorCodec } from "comark-ui/editor";
-import comarkUi from "comark-ui/vue";
+import { createContentEditorCodec } from "@vite-hub/content/editor";
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
 import {
@@ -74,8 +73,7 @@ let flushVersion = 0;
 const live = props.live;
 const components = computed(() => consoleEditorComponents(props.components));
 const definitions = new Map(components.value.map(component => [component.name, component]));
-const preset = comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } });
-const codec = createEditorCodec({ plugins: preset.plugins });
+const codec = createContentEditorCodec();
 const componentView = VueNodeViewRenderer(defineComponent({
   props: nodeViewProps,
   setup: nodeProps => () => {

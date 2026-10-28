@@ -19,11 +19,8 @@ import { packageInfos } from "../utils/repo"
 const execFileAsync = promisify(execFile)
 const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
-// Tiptap packages that the Content editor's comark-ui renderer needs as peers.
-const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-list", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
-const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-list", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
-// @tiptap/pm publishes only subpaths, so its resolution is probed through one of them.
-const optionalPeerProbes = optionalPeers.map(name => name === "@tiptap/pm" ? "@tiptap/pm/state" : name)
+const optionalPeers = ["@nuxt/ui", "@upstash/redis", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeerProbes = optionalPeers
 
 function isJavaScriptModule(target: string) {
   return target.endsWith(".js") || target.endsWith(".mjs")
@@ -97,7 +94,6 @@ async function requiredPeerSpecs() {
     "@types/json-schema": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/json-schema/package.json")),
     "@types/mdast": await installedVersion(join(repoRoot, "packages/agent/node_modules/@types/mdast/package.json")),
     "@types/node": await installedVersion(join(repoRoot, "node_modules/@types/node/package.json")),
-    "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     "drizzle-kit": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-kit/package.json")),
     "drizzle-orm": await installedVersion(join(repoRoot, "packages/database/node_modules/drizzle-orm/package.json")),
     postgres: await installedVersion(join(repoRoot, "packages/database/node_modules/postgres/package.json")),
@@ -530,11 +526,7 @@ async function addOptionalPeers(appDir: string) {
   const viteHubManifest = await readManifest(join(appDir, "node_modules/vite-hub/package.json"))
   const peers = {
     "@nuxt/ui": await installedVersion(join(repoRoot, "packages/ui/node_modules/@nuxt/ui/package.json")),
-    ...Object.fromEntries(await Promise.all(contentEditorPeers.map(async name =>
-      [name, await installedVersion(join(repoRoot, "packages/content/node_modules", name, "package.json"))] as const))),
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
-    comark: await installedVersion(join(repoRoot, "packages/content/node_modules/comark/package.json")),
-    "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),

@@ -1,11 +1,19 @@
 import { createEditorCodec } from "comark-ui/editor"
 import comarkUi from "comark-ui/html"
-import type { EditorCodecOptions } from "comark-ui/editor"
+import type { EditorCodec, EditorCodecOptions } from "comark-ui/editor"
 import type { RealtimeEditor } from "@vite-hub/realtime"
 
-/** The same Comark UI schema and loss check serve the Console and a collaborative room. */
+export { ComarkImage as ContentImage } from "comark-ui/editor"
+export type { EditorCodecOptions as ContentEditorOptions } from "comark-ui/editor"
+
+/** Content's codec and schema, ready for a browser editor or a collaborative room. */
+export function createContentEditorCodec(options: EditorCodecOptions = {}): EditorCodec {
+  return createEditorCodec({ plugins: comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } }).plugins, ...options })
+}
+
+/** The same Content schema and loss check serve the Console and a collaborative room. */
 export function contentRealtimeEditor(options: EditorCodecOptions = {}): RealtimeEditor {
-  const codec = createEditorCodec({ plugins: comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } }).plugins, ...options })
+  const codec = createContentEditorCodec(options)
   return {
     ...codec,
     async verify(markdown) {
