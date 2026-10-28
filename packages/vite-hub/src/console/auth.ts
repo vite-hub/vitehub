@@ -4,6 +4,7 @@ import { createAuthForRequest, type getAuthForRequest } from "@vite-hub/auth/ser
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 import { consoleMountBase } from "./runtime/console-route.ts"
+import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 
@@ -158,14 +159,16 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
 } {
   async function requestAuth(event: object) {
     const request = toEventRequest(event)
-    let auth = resolveAuth(request, undefined, event)
+    const url = consoleRequestURL({ req: request })
+    const authRequest = { headers: request.headers, url: url.href }
+    let auth = resolveAuth(authRequest, undefined, event)
     let context = await auth.$context
     // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
     if (!context.baseURL) {
-      auth = resolveAuth(request, { baseURL: new URL(request.url).origin }, event)
+      auth = resolveAuth(authRequest, { baseURL: url.origin }, event)
       context = await auth.$context
     }
-    return { auth, context, request }
+    return { auth, context, request, url }
   }
   return {
     async authBasePath(event) {
@@ -173,8 +176,7 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
       return new URL(context.baseURL).pathname.replace(/\/$/, "")
     },
     signIn: async (event: object, denied?: Response): Promise<Response> => {
-      const { auth, context, request } = await requestAuth(event)
-      const url = new URL(request.url)
+      const { auth, context, request, url } = await requestAuth(event)
       const mount = consoleMountBase(url.pathname)
       const page = `${mount}/_vitehub/sign-in`
       const authURL = new URL(context.baseURL)
