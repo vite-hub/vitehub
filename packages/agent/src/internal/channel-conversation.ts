@@ -137,9 +137,9 @@ function similar(left: string, right: string): boolean {
  *   replaces an earlier one, since an edit appends again. An entry without an id is the same message as any other
  *   message with the same role and text within a minute, and each message absorbs at most one such entry.
  * - A message that the provider reports as deleted is dropped, with its transcript copies.
- * - An Invocation names the message that started it by its platform id, so that message and the replies after it, up to
- *   the next message from a person, carry its `invocationId`. Without an id, the last message from a person before it
- *   starts it.
+ * - An Invocation names its trigger by platform id, or the last message from a person before it starts. Recorded reply
+ *   text matches deliveries across overlapping Invocations first; remaining replies up to the next person use the
+ *   trigger's `invocationId`.
  * - When the journal kept content, an Invocation also adds the prompt, and each reply that no message of its window
  *   already holds.
  */
@@ -226,7 +226,7 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     list.sort(compareEntries)
     return entry
   }
-  for (const invocation of [...input.invocations].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime())) {
+  const pending = [...input.invocations].sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()).map((invocation) => {
     const created = new Date(invocation.createdAt).getTime()
     const updated = new Date(invocation.updatedAt).getTime()
     let trigger = invocation.sourceMessageId ? list.findIndex(entry => entry.message.id === invocation.sourceMessageId && entry.message.role === "user") : -1
@@ -242,8 +242,26 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     }
     const triggerEntry = trigger === -1 ? undefined : list[trigger]
     if (triggerEntry) mark(triggerEntry, invocation.id)
+    return { created, invocation, triggerEntry, updated }
+  })
+  // Delivery evidence takes precedence over windows: parallel replies can arrive after the next person's message.
+  for (const { created, invocation, triggerEntry, updated } of pending) {
+    const triggerPosition = triggerEntry ? list.indexOf(triggerEntry) : -1
+    for (const reply of invocation.replies) {
+      const body = normalized(reply)
+      if (!body) continue
+      const candidates = list.filter((entry, position) => entry.message.role === "assistant" && !entry.message.invocationId
+        && position > triggerPosition
+        && (entry.time === undefined || (entry.time >= created - replyWindowBeforeMs && entry.time <= updated + replyWindowAfterMs)))
+      const match = candidates.find(entry => normalized(entry.message.text) === body)
+        ?? candidates.find(entry => similar(normalized(entry.message.text), body))
+      if (match) mark(match, invocation.id)
+    }
+  }
+  for (const { created, invocation, triggerEntry, updated } of pending) {
     const window: Entry[] = []
     if (triggerEntry) {
+      const trigger = list.indexOf(triggerEntry)
       for (let position = trigger + 1; position < list.length && list[position]!.message.role !== "user"; position++) {
         if (list[position]!.message.role === "assistant" && !list[position]!.message.invocationId) window.push(list[position]!)
       }

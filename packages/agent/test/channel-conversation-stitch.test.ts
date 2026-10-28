@@ -117,6 +117,27 @@ describe("stitchChannelConversation", () => {
     expect(full.map(message => message.invocationId)).toEqual(["run-1", "run-1"])
   })
 
+  it.each(["provider", "transcript"] as const)("matches parallel %s replies before assigning the next person's window", (source) => {
+    const replies = ["answer to first", "answer to second"]
+    const invocations = replies.map((reply, index) => ({
+      createdAt: new Date(at(index + 1)).toISOString(), id: `run-${index + 1}`, replies: [reply],
+      sourceMessageId: String(index + 1), status: "completed", updatedAt: new Date(at(index + 3)).toISOString(),
+    }))
+    for (const reversed of [false, true]) {
+      const delivered = reversed ? [...replies].reverse() : replies
+      const messages = stitch({
+        invocations,
+        provider: [provider("1", "first question", 1), provider("2", "second question", 2),
+          ...(source === "provider" ? delivered.map((reply, index) => provider(`reply-${index}`, reply, 3, true)) : [])],
+        transcripts: source === "transcript" ? delivered.map((reply, index) => transcript(`reply-${index}`, "assistant", reply, at(3), `reply-${index}`)) : [],
+      })
+      expect(messages).toHaveLength(4)
+      expect(messages.filter(message => message.role === "assistant").map(message => [message.text, message.invocationId]))
+        .toEqual(delivered.map(reply => [reply, `run-${replies.indexOf(reply) + 1}`]))
+      expect(messages.some(message => message.source === "invocation")).toBe(false)
+    }
+  })
+
   it("keeps twelve journal-only replies in delivery order", () => {
     const replies = Array.from({ length: 12 }, (_, position) => `reply ${position}`)
     const invocation = { createdAt: new Date(at(1)).toISOString(), id: "run", prompt: "question", replies, status: "completed", updatedAt: new Date(at(2)).toISOString() }

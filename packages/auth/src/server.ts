@@ -10,6 +10,7 @@ import { resolveAuthOptions } from "./runtime-options.ts"
 import { throwAuthenticationProviderError } from "./errors.ts"
 import { getAuthenticationSession } from "./session.ts"
 import { getAuthRuntimeState } from "./runtime-state.ts"
+import { withSessionMarker } from "./session-marker.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
 import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
@@ -277,7 +278,7 @@ export function createBetterAuthOptions(
 function createAuthenticationProvider<TAuth = ViteHubAuth>(options: AuthBetterAuthRuntimeOptions): TAuth {
   try {
     // SAFETY: callers pass the options of the Auth Definition that TAuth is inferred from.
-    return betterAuth(options) as TAuth
+    return withSessionMarker(betterAuth(options)) as TAuth
   }
   catch (cause) {
     throwAuthenticationProviderError(cause, "get-auth-for-request")
@@ -288,7 +289,7 @@ export function createAuth(
   definition: AuthDefinition,
   runtimeOptions?: AuthRuntimeOptions,
 ): ViteHubAuth {
-  return betterAuth(createBetterAuthOptions(definition, runtimeOptions)) as ViteHubAuth
+  return withSessionMarker(betterAuth(createBetterAuthOptions(definition, runtimeOptions))) as ViteHubAuth
 }
 
 export function createAuthForRequest(
@@ -299,7 +300,7 @@ export function createAuthForRequest(
 ): ViteHubAuth {
 
 
-  return betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions) as ViteHubAuth}
+  return withSessionMarker(betterAuth(resolveAuthOptions(definition, { request, runtimeOptions, event, env: envResolverFor(definition) }).providerOptions)) as ViteHubAuth}
 
 export function handleAuthRequest(
   definition: AuthDefinition,

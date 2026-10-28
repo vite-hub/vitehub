@@ -9565,10 +9565,10 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
               createJsonErrorResponse(500, 'Webhook busy: "steer" requires concurrencyKey and concurrencyLimit.'),
             )
           }
-          if (invocation.webhook?.busy === "steer" && (invocation.task !== undefined || invocation.trigger.prepare)) {
+          if (invocation.webhook?.busy === "steer" && invocation.task !== undefined) {
             return await terminalChannelDeliveryResponse(
               channelDelivery,
-              createJsonErrorResponse(500, 'Webhook busy: "steer" sends input to a running Invocation. It does not run prepare or a task.'),
+              createJsonErrorResponse(500, 'Webhook busy: "steer" sends input to a running Invocation. It does not run a task.'),
             )
           }
           if (
@@ -10171,7 +10171,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
     })
   }
-  handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
+  handler.resume = ({ recoverInterruptedBefore, ...handlerOptions }: AgentChannelWebhookResumeOptions = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     let recoveryBefore = recoverInterruptedBefore
     let inboxReplayBefore = recoverInterruptedBefore

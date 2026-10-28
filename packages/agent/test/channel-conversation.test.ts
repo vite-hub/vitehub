@@ -316,7 +316,7 @@ describe("Channel conversation operations", () => {
   })
 
   it("lists the threads from the journal, with a cursor that survives new threads", async () => {
-    const chat = await fixture()
+    const chat = await fixture({ state: "cloudflare" })
     await chat.say(1, "hello")
     await chat.say(3, "other chat", {}, 789)
     const threads = await operation("channels.threads")({ agent: "support", channel: "telegram" })
@@ -582,6 +582,44 @@ describe("conversation privacy", () => {
     expect(lines(read.messages)).toEqual(["user: first participant", "assistant: reply 1"])
     const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:-100", format: "json" })
     expect(parseArchive(exported.text).messages.map(message => message.text)).toEqual(["first participant", "reply 1"])
+  })
+
+  it("links concurrent webhook replies to their own Invocations without duplicating them in exports", async () => {
+    let markStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let turn = 0
+    const chat = await fixture({ cache: false, concurrency: "parallel", content: true, state: "cloudflare", run: async () => {
+      const current = ++turn
+      if (current === 1) {
+        markStarted()
+        await released
+      }
+      return { text: `reply ${current}` }
+    } })
+    const group = { id: -100, type: "supergroup" } as const
+    const first = chat.say(1, "first participant", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    try {
+      await started
+      await chat.say(2, "second participant", { chat: group, from: { id: 789, username: "second" } }, group.id)
+    }
+    finally {
+      release()
+      await first
+    }
+    const read = await conversation("telegram:-100")
+    expect(read.messages).toHaveLength(4)
+    const firstInvocation = read.messages.find(message => message.text === "first participant")?.invocationId
+    const secondInvocation = read.messages.find(message => message.text === "second participant")?.invocationId
+    expect(firstInvocation).toBeDefined()
+    expect(secondInvocation).toBeDefined()
+    expect(firstInvocation).not.toBe(secondInvocation)
+    expect(read.messages.find(message => message.text === "reply 1")?.invocationId).toBe(firstInvocation)
+    expect(read.messages.find(message => message.text === "reply 2")?.invocationId).toBe(secondInvocation)
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:-100", format: "json" })
+    expect(parseArchive(exported.text).messages.map(message => [message.text, message.invocationId]))
+      .toEqual(read.messages.map(message => [message.text, message.invocationId]))
   })
 
   it.each(["access", "filter"] as const)("refuses a group whose only message was rejected by %s before asking the provider", async (rejection) => {
