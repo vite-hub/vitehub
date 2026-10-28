@@ -197,9 +197,22 @@ const channelsThreads = defineOperation({
     catch (error) {
       throw failureOf(error)
     }
-    // An Agent that reads only its own threads sees the ones that its Actor started an Invocation in.
+    // Retained transcript/provider authors can participate without starting their own Invocation.
     const ids = callerIds(context)
-    const visible = context.surface === "agent" && mode === "participant" ? threads.filter(thread => thread.invokerIds.some(id => ids.includes(id))) : threads
+    const visible = []
+    for (const thread of threads) {
+      if (context.surface === "agent" && mode === "participant" && !thread.invokerIds.some(id => ids.includes(id))) {
+        let conversation
+        try {
+          conversation = await handler.conversation(requestOf(context), { attachmentBytes: 0, channel: input.channel, threadId: thread.thread }, options)
+        }
+        catch (error) {
+          throw failureOf(error)
+        }
+        if (!conversation.participants.some(id => ids.includes(id))) continue
+      }
+      visible.push(thread)
+    }
     const key = (thread: { lastActivity: string, thread: string }) => ({ i: thread.thread, t: new Date(thread.lastActivity).getTime() })
     const ordered = [...visible].sort((left, right) => key(right).t - key(left).t || (left.thread < right.thread ? -1 : 1))
     const rest = pageAfterChannelCursor(ordered, cursor, key, (thread, from) => key(thread).t < from.t || (key(thread).t === from.t && key(thread).i > from.i))

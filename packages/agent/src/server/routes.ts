@@ -7465,7 +7465,7 @@ function createChatSdkMessageThread(
     // SAFETY: The route normalized this value for an internal boundary whose generic signature cannot express the narrowed variant.
     threadHistory: chatThreadHistoryCache(source) as never,
   })
-  return recorder ? recordTranscriptsOfThread(created, recorder) : created
+  return recorder ? recordTranscriptsOfThread(created, recorder, message.userKey ?? null) : created
 }
 
 async function serialMessageDeliveryKind(thread: Thread, message: ChatSdkMessage, options: AgentChatOptions | undefined): Promise<AgentMessageDeliveryKind | undefined> {
@@ -7617,9 +7617,7 @@ async function handleChatSdkMessages(
 interface TranscriptRecorder {
   chat?: Chat
   inbound(thread: Thread, message: ChatSdkMessage, context?: MessageContext): Promise<void>
-  /** The person a reply in a thread answers: the author of the last message that the Channel saw there. */
-  keys: Map<string, string>
-  outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string, userKey?: string | null): Promise<void>
+  outbound(adapter: Adapter, threadId: string, id: string | undefined, text: string, userKey: string | null): Promise<void>
 }
 
 function channelTranscriptParticipantsKey(prefix: string, threadId: string): string {
@@ -7640,7 +7638,6 @@ function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): Trans
         try {
           const saved = await history.append(thread, entry)
           if (saved?.userKey) {
-            recorder.keys.set(thread.id, saved.userKey)
             // Keep the lookup as long as the transcripts. Atomic appends may race into duplicates, never lost keys.
             const index = channelTranscriptParticipantsKey(keyPrefix, thread.id)
             const participants = await state.getList<string>(index)
@@ -7650,8 +7647,7 @@ function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): Trans
         catch {}
       }
     },
-    keys: new Map(),
-    async outbound(adapter, threadId, id, text, userKey = recorder.keys.get(threadId)) {
+    async outbound(adapter, threadId, id, text, userKey) {
       const history = recorder.chat?.history.user
       if (!history || !userKey || !text) return
       try {
@@ -7674,7 +7670,7 @@ function sentText(sent: unknown): string {
 }
 
 /** A message that the thread sent. Editing it records the new text under the same id. */
-function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string, recorder: TranscriptRecorder): T {
+function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string, recorder: TranscriptRecorder, userKey: string | null): T {
   if (!isRecord(sent) || !isRuntimeFunction(sent.edit)) return sent
   return new Proxy(sent as object, {
     get(target, property) {
@@ -7682,7 +7678,7 @@ function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string,
       if (property === "edit" && isRuntimeFunction(value)) {
         return async (content: unknown) => {
           const edited = await value.call(target, content)
-          await recorder.outbound(adapter, threadId, isRuntimeString(Reflect.get(target, "id")) ? String(Reflect.get(target, "id")) : undefined, postableText(content) || sentText(edited))
+          await recorder.outbound(adapter, threadId, isRuntimeString(Reflect.get(target, "id")) ? String(Reflect.get(target, "id")) : undefined, postableText(content) || sentText(edited), userKey)
           return edited
         }
       }
@@ -7696,17 +7692,17 @@ function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string,
  * records what ViteHub posts or edits through it, such as a placeholder and its final text. An edit appends the message
  * again with the same id, and the reader keeps the last one.
  */
-function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder): Thread {
+function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder, userKey: string | null): Thread {
   return new Proxy(thread, {
     get(target, property) {
       if (property === "post" || property === "reply") {
         return async (...args: unknown[]) => {
           const sent = await (Reflect.get(target, property, target) as (...input: unknown[]) => Promise<unknown>).apply(target, args)
-          await recorder.outbound(target.adapter, target.id, isRecord(sent) && isRuntimeString(sent.id) ? sent.id : undefined, postableText(args.at(-1)) || sentText(sent))
-          return recordTranscriptsOfSent(sent, target.adapter, target.id, recorder)
+          await recorder.outbound(target.adapter, target.id, isRecord(sent) && isRuntimeString(sent.id) ? sent.id : undefined, postableText(args.at(-1)) || sentText(sent), userKey)
+          return recordTranscriptsOfSent(sent, target.adapter, target.id, recorder, userKey)
         }
       }
-      if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, recorder)
+      if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, recorder, userKey)
       const value = Reflect.get(target, property, target)
       return isRuntimeFunction(value) ? value.bind(target) : value
     },
@@ -7724,7 +7720,7 @@ function postableText(message: unknown): string {
  * The adapter, recording each message that it posts or edits as an assistant message of the thread. An edit appends the
  * message again with the same id, and the reader keeps the last one. A stream is recorded when it ends.
  */
-function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecorder): Adapter {
+function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecorder, userKey: string | null): Adapter {
   return new Proxy(adapter, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
@@ -7732,14 +7728,14 @@ function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecord
       if (property === "postMessage") {
         return async (threadId: string, message: unknown) => {
           const sent = await target.postMessage(threadId, message as never)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message))
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message), userKey)
           return sent
         }
       }
       if (property === "editMessage") {
         return async (threadId: string, messageId: string, message: unknown) => {
           const sent = await target.editMessage(threadId, messageId, message as never)
-          await recorder.outbound(target, threadId, messageId, postableText(message))
+          await recorder.outbound(target, threadId, messageId, postableText(message), userKey)
           return sent
         }
       }
@@ -7755,7 +7751,7 @@ function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecord
           })()
           // SAFETY: The adapter declares `stream` for the same arguments that this wrapper forwards.
           const sent = await (target.stream as (...args: unknown[]) => Promise<{ id?: string }>)(threadId, collected, options)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed)
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed, userKey)
           return sent
         }
       }
@@ -7799,7 +7795,7 @@ async function createChannelChat(
   }
   const deliveryContext = async () => (resolveDelivery ? withAgentChannelDelivery(context, await resolveDelivery()) : context)
   chat.onDirectMessage(async (chatThread, message, _channel, messageContext) => {
-    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
     return handleChatSdkMessages(
       agent,
@@ -7818,7 +7814,7 @@ async function createChannelChat(
     )
   })
   chat.onNewMention(async (chatThread, message, messageContext) => {
-    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
     const messageRuntimeContext = await deliveryContext()
     if (chatSdkOption<string>(options, "concurrency") !== "serial") {
@@ -7857,7 +7853,7 @@ async function createChannelChat(
     )
   })
   chat.onSubscribedMessage(async (chatThread, message, messageContext) => {
-    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder) : chatThread
+    const thread = recorder ? recordTranscriptsOfThread(chatThread, recorder, message.userKey ?? null) : chatThread
     await recorder?.inbound(thread, message, messageContext)
     return handleChatSdkMessages(
       agent,
@@ -8370,11 +8366,6 @@ function channelInvocationPrompt(record: JournalObservations): string | undefine
   return stripChannelModelHeader(body).trim() || undefined
 }
 
-/** How many replies an Invocation delivered to its thread. The journal keeps their text only when it keeps content. */
-function channelInvocationDeliveryCount(record: JournalObservations): number {
-  return record.observations.filter(observation => observation.name === "agent.channel.delivery.effect" && observation.attributes?.["channel.effect.kind"] === "reply").length
-}
-
 async function* channelJournalSummaries(agent: AgentInput<ViteAgentRouteRuntimeContext>, context: ViteAgentRouteRuntimeContext) {
   if (!agent.invocations) return
   const agentName = routeAgentInvocationName(agent, context.agentIdentity)
@@ -8407,11 +8398,19 @@ async function channelConversationInvocations(
       const start = record.observations.find(observation => observation.name === "agent.invocation.start")
       const source = start?.attributes?.["channel.delivery.source.id"]
       const invoker = start?.attributes?.["agent.invoker.id"]
-      const deliveries = channelHistoryInvocationDeliveries(record).map(delivery => delivery.text)
+      // Native effects (including Chat finish traces without a Channel name) target this Invocation's thread.
+      // Independently configured channelDelivery() destinations have no `supported` evidence, even with the same name.
+      const delivered = record.observations.filter(observation => observation.name === "agent.channel.delivery.effect"
+        && observation.attributes?.["channel.effect.kind"] === "reply"
+        && (observation.attributes["channel.effect.channel"] === undefined || observation.attributes["channel.effect.channel"] === origin)
+        && observation.attributes["channel.effect.supported"] === true
+        && observation.attributes["channel.effect.skipped"] === undefined
+        && observation.attributes["error.message"] === undefined)
+      const deliveries = channelHistoryInvocationDeliveries({ observations: delivered }).map(delivery => delivery.text)
       const finished = channelHistoryInvocationText(record)
       const prompt = channelInvocationPrompt(record)
       // The result text is only a reply when the Invocation delivered one to the thread.
-      const replies = deliveries.length ? deliveries : record.status === "completed" && finished && channelInvocationDeliveryCount(record) > 0 ? [finished] : []
+      const replies = deliveries.length ? deliveries : record.status === "completed" && finished && delivered.length > 0 ? [finished] : []
       invocations.push({
         createdAt: record.createdAt,
         id: record.id,

@@ -139,6 +139,8 @@ interface FixtureOptions {
   content?: boolean
   rejection?: "access" | "filter"
   identity?: AgentChatOptions["identity"]
+  concurrency?: AgentChatOptions["concurrency"]
+  run?: () => Promise<{ text: string }>
   secretToken?: false
   /** `libsql` (the default) and `cloudflare` are durable. `memory` uses the in-process State of the route. */
   state?: "cloudflare" | "libsql" | "memory"
@@ -167,6 +169,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
       // SAFETY: The fake implements the Adapter methods that the chat route calls.
       platforms: { telegram: () => adapter as unknown as Adapter },
       stream: false,
+      ...(options.concurrency ? { concurrency: options.concurrency } : {}),
       ...(options.rejection === "filter" ? { filter: () => false } : {}),
       ...(options.identity ? { identity: options.identity } : {}),
       ...(options.transcripts !== undefined ? { transcripts: options.transcripts } : {}),
@@ -176,7 +179,7 @@ async function fixture(options: FixtureOptions = {}): Promise<Fixture> {
   if (options.rejection === "access") capabilities.push(access({ chat: { resolve: () => false } }))
   const agent = defineAgent({
     capabilities,
-    driver: { run: () => ({ text: `reply ${++turn}` }) },
+    driver: { run: options.run ?? (() => ({ text: `reply ${++turn}` })) },
     invocations,
     name: "support",
     runtime: false,
@@ -459,13 +462,39 @@ describe("Channel conversation operations", () => {
       status: "failed", traceId: "failed-with-replies", createdAt: timestamp, updatedAt: timestamp,
       observations: [
         { name: "agent.invocation.start", type: "run", sequence: 1, timestamp, attributes: { "input.messages": [{ role: "user", parts: [{ type: "text", text: "question" }] }] } },
-        { name: "agent.channel.delivery.effect", type: "lifecycle", sequence: 2, timestamp, attributes: { "channel.effect.kind": "reply", "channel.effect.content": "delivered reply" } },
-        { name: "agent.invocation.finish", type: "run", sequence: 3, timestamp, attributes: { "result.text": "undelivered final text" } },
+        { name: "agent.channel.delivery.effect", type: "lifecycle", sequence: 2, timestamp, attributes: { "channel.effect.kind": "reply", "channel.effect.channel": "telegram", "channel.effect.supported": true, "channel.effect.content": "delivered reply" } },
+        { name: "agent.channel.delivery.effect", type: "lifecycle", sequence: 3, timestamp, attributes: { "channel.effect.kind": "reply", "channel.effect.channel": "private-channel", "channel.effect.content": "private elsewhere" } },
+        { name: "agent.invocation.finish", type: "run", sequence: 4, timestamp, attributes: { "result.text": "undelivered final text" } },
       ],
     })
     expect(lines((await conversation()).messages)).toEqual(["user: question", "assistant: delivered reply"])
     const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
     expect(parseArchive(exported.text).messages.map(message => message.text)).toEqual(["question", "delivered reply"])
+  })
+
+  it.each(["failed", "completed"] as const)("excludes unrelated and undelivered effects from a %s Invocation", async (status) => {
+    const chat = await fixture({ cache: false, content: true, transcripts: false, window: 0 })
+    const timestamp = new Date().toISOString()
+    const effects = [
+      { "channel.effect.channel": "another-channel", "channel.effect.supported": true, "channel.effect.content": "private elsewhere" },
+      // channelDelivery() may reuse the originating Channel's name but sends to its own destination.
+      { "channel.effect.channel": "telegram", "channel.effect.content": "private same-name destination" },
+      { "channel.effect.content": "unknown destination" },
+      { "channel.effect.channel": "telegram", "channel.effect.supported": true, "channel.effect.skipped": "dry-run", "channel.effect.content": "dry-run text" },
+      { "channel.effect.channel": "telegram", "channel.effect.supported": true, "error.message": "send failed", "channel.effect.content": "failed send" },
+    ]
+    await chat.invocationStore.create({
+      id: "unrelated-replies", agentName: "support", origin: "telegram", threadId: "telegram:456",
+      status, traceId: "unrelated-replies", createdAt: timestamp, updatedAt: timestamp,
+      observations: [
+        { name: "agent.invocation.start", type: "run", sequence: 1, timestamp, attributes: { "input.messages": [{ role: "user", parts: [{ type: "text", text: "question" }] }] } },
+        ...effects.map((attributes, index) => ({ name: "agent.channel.delivery.effect", type: "lifecycle" as const, sequence: index + 2, timestamp, attributes: { "channel.effect.kind": "reply", ...attributes } })),
+        { name: "agent.invocation.finish", type: "run", sequence: 7, timestamp, attributes: { "result.text": "undelivered final text" } },
+      ],
+    })
+    expect(lines((await conversation()).messages)).toEqual(["user: question"])
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
+    expect(parseArchive(exported.text).messages.map(message => message.text)).toEqual(["question"])
   })
 
   it("pages a conversation with a cursor that survives new messages", async () => {
@@ -503,6 +532,58 @@ describe("Channel conversation operations", () => {
 })
 
 describe("conversation privacy", () => {
+  it("lists a retained participant's thread even when only another participant started an Invocation", async () => {
+    const chat = await fixture({ cache: false, window: 0 })
+    const group = { id: -100, type: "supergroup" } as const
+    await chat.say(1, "invoker message", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    // A debounced message can have a retained transcript without its own Invocation.
+    await chat.state.appendToList("chat:support:transcripts:user:telegram:789", { id: "skipped", platformMessageId: "skipped", role: "user", text: "skipped message", threadId: "telegram:-100", timestamp: Date.now(), userKey: "telegram:789" })
+    await chat.state.appendToList("chat:support:telegram:transcripts:thread:telegram:-100", "telegram:789")
+    const participant = { actor: { id: "telegram:789" }, conversations: "participant", surface: "agent", user: null } as const
+    await expect(conversation("telegram:-100", participant)).resolves.toMatchObject({ messageCount: 3 })
+    const own = await operation("channels.threads", participant)({ agent: "support", channel: "telegram" })
+    expect(own.threads.map(thread => thread.thread)).toEqual(["telegram:-100"])
+    await chat.adapter.deleteHistory("telegram:789")
+    expect((await operation("channels.threads", participant)({ agent: "support", channel: "telegram" })).threads).toEqual([])
+  })
+
+  it("retains parallel replies with the participant that triggered them", async () => {
+    let markStarted!: () => void
+    let release!: () => void
+    const started = new Promise<void>((resolve) => { markStarted = resolve })
+    const released = new Promise<void>((resolve) => { release = resolve })
+    let turn = 0
+    const chat = await fixture({ cache: false, concurrency: "parallel", journalFails: true, window: 0, run: async () => {
+      const current = ++turn
+      if (current === 1) {
+        markStarted()
+        await released
+      }
+      return { text: `reply ${current}` }
+    } })
+    const group = { id: -100, type: "supergroup" } as const
+    const first = chat.say(1, "first participant", { chat: group, from: { id: 456, username: "first" } }, group.id)
+    try {
+      await started
+      // Adapters can dispatch several messages through the same Chat instance in one webhook.
+      await chat.adapter.handleWebhook(new Request(webhookUrl, {
+        method: "POST",
+        body: JSON.stringify({ message: { chat: group, date: Math.floor(Date.now() / 1000), from: { id: 789, username: "second" }, message_id: 3, text: "second participant" } }),
+      }))
+      expect(turn).toBe(2)
+    }
+    finally {
+      release()
+      await first
+    }
+    await chat.adapter.deleteHistory("telegram:789")
+    await chat.history("telegram:-100") // Disable the journal: only durable transcripts remain.
+    const read = await conversation("telegram:-100")
+    expect(lines(read.messages)).toEqual(["user: first participant", "assistant: reply 1"])
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:-100", format: "json" })
+    expect(parseArchive(exported.text).messages.map(message => message.text)).toEqual(["first participant", "reply 1"])
+  })
+
   it.each(["access", "filter"] as const)("refuses a group whose only message was rejected by %s before asking the provider", async (rejection) => {
     const chat = await fixture({ rejection })
     await chat.say(1, "rejected message", { chat: { id: -100, type: "supergroup" } }, -100)
@@ -678,7 +759,8 @@ describe("conversations.export", () => {
   })
 
   it("says so when the transcript limit cut the oldest messages", async () => {
-    const chat = await fixture({ cache: false, window: 0 })
+    // Exercise the read limit without hundreds of individual disk transactions timing out the test.
+    const chat = await fixture({ cache: false, state: "cloudflare", window: 0 })
     await chat.say(1, "hello")
     await chat.state.connect()
     for (let index = 0; index < 500; index++) {
