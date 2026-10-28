@@ -1,8 +1,11 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { readFile } from "node:fs/promises"
+import { dirname, extname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
+import { findNearestFile } from "pkg-types"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -72,6 +75,17 @@ function configuredProjectRootOption(value: unknown): string | undefined {
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? value.projectRoot
     : undefined
+}
+
+async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
+  // Match Nitro's project-file discovery and parsing before adding our context-level default.
+  const configPath = await findNearestFile(["wrangler.json", "wrangler.jsonc", "wrangler.toml"], { startingFrom: rootDir }).catch(() => undefined)
+  if (!configPath) return undefined
+  const text = await readFile(configPath, "utf8")
+  const extension = extname(configPath)
+  const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
+  const alias = isRecord(config) && isRecord(config.alias) ? config.alias["#vitehub/env/server"] : undefined
+  return typeof alias === "string" ? alias : undefined
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
@@ -1417,7 +1431,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       if (envServer) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const alias = (wrangler.alias ??= {}) as Record<string, string>
-        alias["#vitehub/env/server"] ??= envServer
+        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? envServer
       }
       if (cloudflare.nodeCompat === true) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>

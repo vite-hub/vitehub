@@ -2530,6 +2530,33 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it.each([
+    ["json", JSON.stringify({ alias: { "#vitehub/env/server": "/project/env.mjs" } })],
+    ["jsonc", '{ // Project Env implementation\n "alias": { "#vitehub/env/server": "/project/env.mjs" }, }'],
+    ["toml", '[alias]\n"#vitehub/env/server" = "/project/env.mjs"'],
+  ])("preserves a project Wrangler Env alias from wrangler.%s", async (extension, contents) => {
+    const rootDir = await mkdtemp("/tmp/vitehub-nuxt-wrangler-")
+    try {
+      await writeFile(resolve(rootDir, `wrangler.${extension}`), contents)
+      await mkdir(resolve(rootDir, "app"))
+      for (const override of [undefined, "/inline/env.mjs"]) {
+        const { nuxt, runNitroConfigHook } = createNuxt()
+        const config: Record<string, unknown> = {
+          rootDir: resolve(rootDir, "app"),
+          cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } },
+        }
+        await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+        await runNitroConfigHook(config)
+        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
+        await runNitroConfigHook(config)
+        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
+      }
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
