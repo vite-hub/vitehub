@@ -84,6 +84,7 @@ interface ResolvedEnvState {
   projectRoot: string
   providerModules: Record<string, string>
   publicConfig: Record<string, unknown>
+  publicTypes: Record<string, string>
   serverRegistry: EnvRuntimeRegistry
   developmentSecret?: string
   developmentSecretGenerated?: boolean
@@ -145,6 +146,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
           projectRoot,
           providerModules,
           publicConfig: {},
+          publicTypes: {},
           serverRegistry: {},
           developmentSecret,
           developmentSecretGenerated,
@@ -184,6 +186,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
         projectRoot,
         providerModules,
         publicConfig,
+        publicTypes: createPublicTypeEntries(envConfig.public, publicConfig),
         serverRegistry: registry,
         developmentSecret,
         developmentSecretGenerated,
@@ -272,7 +275,7 @@ export function hubEnv(options: EnvIntegrationOptions = {}): EnvVitePlugin {
       const previousGeneratedStateWrite = generatedStateWrites.get(projectRoot) ?? Promise.resolve()
       const generatedStateWrite = previousGeneratedStateWrite.catch(() => undefined).then(async () => {
         const packageRoot = await resolvePackageRoot(config.root, projectRoot)
-        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.serverRegistry, runtimeImports, state.providerModules, state.developmentSecretEnvKey, state.developmentSecretGenerated)
+        await refreshEnvGeneratedFiles(projectRoot, packageRoot, state.publicConfig, state.publicTypes, state.serverRegistry, runtimeImports, state.providerModules, state.developmentSecretEnvKey, state.developmentSecretGenerated)
       })
       generatedStateWrites.set(projectRoot, generatedStateWrite)
       try {
@@ -336,7 +339,7 @@ async function prepareEnvGeneratedTypes(
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
 ): Promise<void> {
-  const publicTypes = createPreparedPublicTypeEntries(publicConfig)
+  const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
@@ -484,17 +487,17 @@ async function refreshEnvGeneratedFiles(
   root: string,
   packageRoot: string | undefined,
   publicConfig: Record<string, unknown>,
+  publicTypes: Record<string, string>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
   developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void> {
-  const publicTypes = createPublicTypeEntries(publicConfig)
   await Promise.all([
     ...(packageRoot && packageRoot !== root
       ? [
-          ...packageEnvModuleWrites(packageRoot, publicConfig, serverRegistry, runtimeImports, providerModules, developmentSecretEnvKey, developmentSecretGenerated),
+          ...packageEnvModuleWrites(packageRoot, publicConfig, publicTypes, serverRegistry, runtimeImports, providerModules, developmentSecretEnvKey, developmentSecretGenerated),
           writeFileIfChanged(
             viteHubEnvAmbientTypesPath(packageRoot),
             createAmbientTypesReference(packageRoot, root),
@@ -522,13 +525,13 @@ function createAmbientTypesReference(packageRoot: string, projectRoot: string): 
 function packageEnvModuleWrites(
   root: string,
   publicConfig: Record<string, unknown>,
+  publicTypes: Record<string, string>,
   serverRegistry: EnvRuntimeRegistry,
   runtimeImports: Required<EnvRuntimeImportSpecifiers>,
   providerModules: Record<string, string>,
   developmentSecretEnvKey?: string,
   developmentSecretGenerated?: boolean,
 ): Promise<void>[] {
-  const publicTypes = createPublicTypeEntries(publicConfig)
   return [
     writeFileIfChanged(viteHubEnvPublicModulePath(root), createPublicEnvModule(publicConfig)),
     writeFileIfChanged(viteHubEnvPublicModuleTypesPath(root), createPublicEnvModuleTypes(publicTypes)),
@@ -735,21 +738,20 @@ function createReadonlyServerEnvTypes(indent: number, secretType: string): strin
   ]
 }
 
-function createPublicTypeEntries(publicConfig: Record<string, unknown>): Record<string, string> {
-  return Object.fromEntries(Object.entries(publicConfig).map(([key, value]) => [key, typeof value]))
-}
-
-function createPreparedPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"]): Record<string, string> {
+function createPublicTypeEntries(publicConfig: EnvViteConfigOptions["public"], resolvedValues?: Record<string, unknown>): Record<string, string> {
   return Object.fromEntries(Object.entries(publicConfig ?? {}).map(([key, declaration]) => {
     const valueSchema = runtimeValueSchema(declaration)
-    const parsedDefault = typeof declaration.default === "undefined"
-      ? undefined
-      : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
+    const fallbackValue = resolvedValues
+      ? resolvedValues[key]
+      : typeof declaration.default === "undefined"
+        ? undefined
+        : parseSchema(declaration.schema, declaration.default, `env.public.${key}`)
+    const fallbackType = fallbackValue === null ? "null" : fallbackValue === undefined ? "unknown" : typeof fallbackValue
     return [
       key,
       `${declaration.type
         ?? (valueSchema ? envValueTypeName(valueSchema) : undefined)
-        ?? (parsedDefault === null ? "null" : typeof parsedDefault === "undefined" ? "unknown" : typeof parsedDefault)}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
+        ?? fallbackType}${!declaration.required && typeof declaration.default === "undefined" ? " | undefined" : ""}`,
     ]
   }))
 }
