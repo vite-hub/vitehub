@@ -55,6 +55,8 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
     consoleSession: input.consoleSession,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
+    build: { commit: "abc123", branch: "main" },
+    components: { PricingCard: ["app/components/PricingCard.vue"], index: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
   }))
   const call = async (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const headers = new Headers(init.headers)
@@ -67,6 +69,40 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
+    const user = { id: "ada", name: "Ada", role: "editor" }
+    const session = commentsConsoleSession({
+      authorize: async ({ kind }: { event: unknown, kind?: "read" | "write" }) => !readOnly || kind !== "write",
+      user: async () => user,
+      identify: async () => user,
+    })
+    const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "editor")
+    const content = fakeContent()
+    const { comments, call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Existing", author: user })
+    const [, deletable] = await comments.create({ page: "/", anchor, body: "Delete this comment", author: user })
+    const current = await call("/session")
+    const list = await call("/threads?page=/")
+    expect(list.response.status).toBe(200)
+    expect((await call("/people?q=ad")).response.status).toBe(200)
+    for (const [path, init] of [
+      ["/threads", { method: "POST", json: { page: "/", anchor, body: "New" } }],
+      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Reply" } }],
+      [`/threads/${thread!.id}/resolve`, { method: "POST" }],
+      [`/threads/${thread!.id}/reopen`, { method: "POST" }],
+      ["/fields", { method: "POST", json: { field: "about#hero.title", value: "Edit", ifDigest: "d1" } }],
+      [`/threads/${deletable!.id}/comments/${deletable!.comments[0]!.id}`, { method: "DELETE" }],
+      [`/threads/${thread!.id}`, { method: "DELETE" }],
+    ] as const) {
+      expect((await call(path, init)).response.status, path).toBe(readOnly ? 403 : 200)
+    }
+    expect(current.body.data).toMatchObject({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: !readOnly, resolve: !readOnly } })
+    expect(list.body.data[0].can).toEqual({ comment: !readOnly, resolve: !readOnly })
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user }))
+    expect(content.saves).toHaveLength(readOnly ? 0 : 1)
+    if (readOnly) expect((await comments.get(thread!.id))[1]).toMatchObject({ status: "open", comments: [{ body: "Existing" }] })
+  })
+
   it.each([{ id: "custom", name: "Custom" }, null])("skips the Auth session when custom identify returns %j", async (user) => {
     const session = vi.fn(async () => { throw new Error("Auth unavailable") })
     const identify = vi.fn(() => user)
@@ -189,6 +225,64 @@ describe("Comments API", () => {
     expect((await call(`/threads/${id}/comments/${reply.body.data.id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call(`/threads/${id}`, { method: "DELETE" })).response.status).toBe(200)
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it.each(["https://other.test/pricing", "http://site.test/other", "/pricing", "not a URL"])("rejects a context URL outside the request origin and thread page: %s", async (url) => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url }, body: "Hi" } })
+    expect(response.status).toBe(400)
+    expect(body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+    expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it("uses the forwarded origin and normalized thread page for context URLs", async () => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      headers: { origin: "https://public.test", "x-forwarded-host": "public.test", "x-forwarded-proto": "https" },
+      json: { page: "/pricing/?comments", anchor, context: { url: "https://public.test/pricing/?token=secret#token" }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({ page: "/pricing", context: { url: "https://public.test/pricing" } })
+  })
+
+  it("keeps the page context, and adds the build and the component files that only the server knows", async () => {
+    const { call } = await setup()
+    const context = {
+      url: "http://site.test/pricing?code=oauth-code&token=reset-token&X-Amz-Signature=secret#token",
+      title: "Pricing",
+      route: "/pricing",
+      element: { tag: "button", role: "button", name: "Buy" },
+      components: [{ name: "index", files: ["/etc/passwd"] }, { name: "PricingCard" }, { name: "Unknown" }],
+      environment: { viewport: { width: 1280, height: 800 }, devicePixelRatio: 2, userAgent: "Test", colorScheme: "dark" },
+      build: { commit: "forged" },
+    }
+    const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context, body: "Buy is hidden" } })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+    expect(created.body.data.context).toEqual({
+      ...context,
+      url: "http://site.test/pricing",
+      components: [
+        { name: "index", files: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
+        { name: "PricingCard", files: ["app/components/PricingCard.vue"] },
+      ],
+      build: { commit: "abc123", branch: "main" },
+    })
+    const library = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components: ["A", "B", "C", "D"].map(name => ({ name })) }, body: "Hi" } })
+    expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
+    const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
+    expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+  })
+
+  it("treats inherited component-map keys as unknown names", async () => {
+    const { call } = await setup()
+    const components = ["constructor", "toString", "__proto__"].map(name => ({ name }))
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data.context.components).toEqual(components)
   })
 
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {

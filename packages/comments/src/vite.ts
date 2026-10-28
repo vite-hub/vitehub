@@ -16,8 +16,8 @@ export { commentsConsoleSection } from "./console.ts"
 export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
 export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, commentsDatabaseModulePath, renderCommentsDatabaseModule, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
-export { readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
-export type { CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
+export { componentNames, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
+export type { CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
 
 export type HubCommentsOptions = Omit<OperationOptions, "imports"> & CommentsVitePluginOptions & {
   operationsImports?: OperationOptions["imports"]
@@ -63,6 +63,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
     name: operations.name,
     enforce: "pre",
     api: {
+      setComponents: live.api.setComponents,
       async contributeRealtime(context: CommentsRealtimeContributionContext) {
         const entry = findCommentsEntry({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })
         if (entry && commentsEntryMode(entry) === "live") return live.api.contributeRealtime(context)

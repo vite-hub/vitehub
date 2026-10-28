@@ -14,10 +14,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function store(repository = "onmax/repo") {
+async function store(repository = "onmax/repo", token = "token") {
   const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
   return createGitHubWorkspaceStore(
-    { provider: "github", repository, token: "token", root: "docs" },
+    { provider: "github", repository, token, root: "docs" },
     "docs",
   );
 }
@@ -101,6 +101,30 @@ it("reuses blobs across repositories", async () => {
     textBytes("same bytes"),
   );
   expect(other.requests.filter((request) => request.path.includes("/git/blobs/"))).toHaveLength(0);
+});
+
+it.each(["repository", "credentials"])("rejects mismatched blob bytes without poisoning another %s", async (scope) => {
+  fake.seed("docs/a.md", "expected");
+  const other = createFakeGitHub({ owner: "other", repo: "docs" });
+  other.seed("docs/a.md", "expected");
+  let mismatched = true;
+  fake.respond((request) =>
+    mismatched && request.path.includes("/git/blobs/")
+      ? Response.json({ sha: textSha("expected"), encoding: "base64", content: btoa("wrong bytes") })
+      : undefined,
+  );
+  vi.stubGlobal("fetch", vi.fn((input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    return (url.pathname.startsWith("/repos/other/docs/") ? other : fake).fetch(input, init);
+  }));
+  const first = await store();
+  await expect(first.readFile("a.md")).rejects.toThrow("malformed blob response");
+
+  mismatched = false;
+  const second = await store(scope === "repository" ? "other/docs" : "onmax/repo", "other-token");
+  expect(await readBytes(second, "a.md")).toEqual(textBytes("expected"));
+  expect(await readBytes(first, "a.md")).toEqual(textBytes("expected"));
+  expect([...fake.requests, ...other.requests].filter((request) => request.path.includes("/git/blobs/"))).toHaveLength(2);
 });
 
 it.each(["repository", "credentials"])("isolates pending blob failures by %s", async (scope) => {

@@ -12,6 +12,38 @@ export const anchorSchema = v.object({
   viewport: v.object({ width: v.pipe(v.number(), v.minValue(0), v.maxValue(100_000)) }),
 })
 
+const short = (max: number) => v.pipe(v.string(), v.maxLength(max))
+const size = v.pipe(v.number(), v.minValue(0), v.maxValue(100_000))
+
+export const componentSchema = v.object({
+  name: short(128),
+  files: v.optional(v.pipe(v.array(short(512)), v.maxLength(8))),
+})
+
+export const contextSchema = v.object({
+  url: short(2048),
+  title: v.optional(short(256)),
+  route: v.optional(short(256)),
+  element: v.optional(v.object({
+    tag: short(64),
+    id: v.optional(short(128)),
+    testId: v.optional(short(128)),
+    role: v.optional(short(64)),
+    name: v.optional(short(120)),
+    classes: v.optional(v.pipe(v.array(short(64)), v.maxLength(8))),
+  })),
+  components: v.optional(v.pipe(v.array(componentSchema), v.maxLength(12))),
+  environment: v.optional(v.object({
+    viewport: v.object({ width: size, height: size }),
+    devicePixelRatio: v.pipe(v.number(), v.minValue(0), v.maxValue(16)),
+    userAgent: short(512),
+    language: v.optional(short(64)),
+    colorScheme: v.optional(v.picklist(["light", "dark"])),
+    timeZone: v.optional(short(64)),
+  })),
+  build: v.optional(v.object({ commit: v.optional(short(64)), branch: v.optional(short(256)) })),
+})
+
 export const bodySchema = v.pipe(v.string(), v.trim(), v.minLength(1, "The comment is empty."), v.maxLength(4000, "Keep a comment under 4,000 characters."))
 
 export const mentionsSchema = v.pipe(
@@ -31,6 +63,7 @@ export const pageSchema = v.pipe(v.string(), v.startsWith("/", "A page starts wi
 export const createThreadSchema = v.object({
   page: pageSchema,
   anchor: anchorSchema,
+  context: v.optional(contextSchema),
   body: bodySchema,
   author: authorSchema,
   mentions: mentionsSchema,

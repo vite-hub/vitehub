@@ -6,12 +6,12 @@ import * as v from "valibot"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
-import { anchorSchema, bodySchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
-import type { CommentAuthor, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -47,14 +47,21 @@ export interface CommentsHandlerOptions {
   /** Reads the ViteHub Auth user only when no custom `identify` is configured. */
   session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
   /**
-   * Checks Console section access before custom `identify` or Comments policies. `false` or a failed read denies
-   * access; otherwise this is the user when no custom `identify` is configured.
+   * Checks Console section access for the action before custom `identify` or Comments policies. `false` or a failed
+   * check denies access; otherwise this is the user when no custom `identify` is configured.
    */
-  consoleSession?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
+  consoleSession?: (event: H3Event, action?: CommentsAction) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
   realtime: boolean
+  /** The commit and branch of this build. New threads keep them in `context.build`. */
+  build?: NonNullable<CommentContext["build"]>
+  /**
+   * The Vue files of the project by component name, relative to the project root. New threads get the files of each
+   * component that the overlay names, because production builds keep only the name.
+   */
+  components?: Readonly<Record<string, readonly string[]>>
 }
 
 const hintMaxAge = 60 * 60 * 24 * 30
@@ -74,7 +81,7 @@ function spend(grant: ActionGrant, actions: readonly CommentsAction[], threadId?
 
 const fieldEditGrant = defineGrant("vitehub.comments.field-edit", (input: { collection: ContentCollectionLike, id: string, field: string, user: CommentAuthor }) => input)
 
-const createBody = v.object({ page: pageSchema, anchor: anchorSchema, body: bodySchema, mentions: mentionsSchema })
+const createBody = v.object({ page: pageSchema, anchor: anchorSchema, context: v.optional(contextSchema), body: bodySchema, mentions: mentionsSchema })
 const replyBody = v.object({ body: bodySchema, mentions: mentionsSchema })
 const fieldBody = v.object({ field: v.pipe(v.string(), v.maxLength(512)), value: v.pipe(v.string(), v.maxLength(20_000)), ifDigest: v.string() })
 
@@ -155,8 +162,8 @@ function leaseHolder(error: unknown): string {
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
   const { comments } = options
 
-  async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
-    const consoleUser = await options.consoleSession?.(event).catch(() => false as const)
+  async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
+    const consoleUser = await options.consoleSession?.(event, action).catch(() => false as const)
     if (consoleUser === false) return false
     if (comments.options.identify) return await comments.options.identify({ event }) ?? null
     if (options.consoleSession) return consoleUser ?? null
@@ -164,7 +171,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
-    const user = await resolveUser(event)
+    const user = await resolveUser(event, action)
     if (user === false || !await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
     const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
@@ -200,6 +207,25 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     },
   }
 
+  /** Adds the build, and the source files of each component, to the context that the overlay read. */
+  function completeContext(context: CommentContext): CommentContext {
+    // Keep the app's own components: names without a project file, such as RouterView or a UI library's, are noise.
+    // Without a file map, or when none matches, keep the three innermost names.
+    const named = context.components?.map((component) => {
+      const files = options.components && Object.hasOwn(options.components, component.name) ? options.components[component.name] : undefined
+      return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
+    })
+    const own = named?.filter(component => component.files)
+    const components = own?.length ? own : named?.slice(-3)
+    // The browser does not know the build, and cannot name files: both come from the server.
+    const { build: _build, ...read } = context
+    return {
+      ...read,
+      ...(components ? { components } : {}),
+      ...(options.build && (options.build.commit || options.build.branch) ? { build: options.build } : {}),
+    }
+  }
+
   async function readJson(event: H3Event): Promise<unknown> {
     try {
       return await event.req.json()
@@ -215,7 +241,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => user === false ? false : comments.can({ user, action })))
+    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
     const headers = new Headers()
     headers.append("set-cookie", read
       ? `${commentsHintCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
@@ -230,13 +256,19 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }, { headers })
   }
 
-  async function permissions(user: CommentsUser | null, thread: CommentThread) {
-    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => comments.can({ user, action, thread })))
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentsAction, thread?: CommentThread): Promise<boolean> {
+    if (user === false) return false
+    if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
+    return comments.can({ user, action, thread })
+  }
+
+  async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
+    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => can(event, user, action, thread)))
     return { ...thread, can: { comment, resolve } }
   }
 
-  async function respondThread(user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
-    return error ? failure(error) : json({ data: await permissions(user, thread) })
+  async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
+    return error ? failure(error) : json({ data: await permissions(event, user, thread) })
   }
 
   async function thread(id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND" | "COMMENTS_NOT_INSTALLED">> {
@@ -333,7 +365,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
         })
-        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(allowed.user, thread))) })
+        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))) })
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(event))
@@ -341,7 +373,24 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const [denied, allowed] = await access(event, "comment")
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
-        return await respondThread(allowed.user, await writes.create(allowed.grant, { ...parsed.output, author: allowed.author }))
+        const { context, ...input } = parsed.output
+        if (context) {
+          const origin = forwardedRequestOrigin(request)
+          const page = normalizeCommentPage(input.page)
+          let submitted: URL
+          try {
+            submitted = new URL(context.url)
+          }
+          catch {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }))
+          }
+          if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== page) {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }))
+          }
+          // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
+          context.url = `${origin}${page}`
+        }
+        return await respondThread(event, allowed.user, await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }
 
@@ -361,8 +410,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       if (method === "POST" && (action === "resolve" || action === "reopen")) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        if (action === "reopen") return await respondThread(allowed.user, await writes.reopen(allowed.grant, id))
-        return await respondThread(allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
+        if (action === "reopen") return await respondThread(event, allowed.user, await writes.reopen(allowed.grant, id))
+        return await respondThread(event, allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
       }
       if (method === "DELETE" && action === "comments" && parts[3]) {
         const commentId = decodeURIComponent(parts[3])

@@ -575,6 +575,20 @@ describe("generated Console access", () => {
 })
 
 describe("Realtime rooms from Console access", () => {
+  it.each(["comments:read", "comments"] as const)("keeps read and write section grants distinct: %s", async (section) => {
+    installConsoleAccess({
+      mode: "auth",
+      check: async () => undefined,
+      user: async () => ({ id: "ana", name: "Ana", role: "editor" }),
+      authorize: () => ({ sections: [section] }),
+    })
+    const access = consoleRealtimeAccess("comments")
+    const request = event()
+    await expect(access.authorize({ event: request })).resolves.toBe(true)
+    await expect(access.authorize({ event: request, kind: "write" })).resolves.toBe(section === "comments")
+    await expect(access.user({ event: request })).resolves.toMatchObject({ id: "ana", role: "editor" })
+  })
+
   it("names the signed-in Console user and gates rooms by section access", async () => {
     installConsoleAccess({
       mode: "auth",
