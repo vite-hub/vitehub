@@ -242,7 +242,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
