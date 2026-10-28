@@ -157,9 +157,10 @@ Rules, validators, hooks, `maxBytes`, and Source write grants run on every chang
 | `history.commit({ ref?, ifHead, files, message?, metadata? })` | A revision with `id`, `ref`, `parentId`, `createdAt`, optional message and metadata, file count `files`, and total file `bytes`. |
 | `history.commit({ ref?, ifHead, changes: { put?, delete? }, message?, metadata? })` | The same revision shape, built from the ref head plus the changes. |
 | `history.head({ ref? })` | Current revision of the ref, or `null` before its first commit. |
-| `history.list({ ref?, cursor?, limit? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the returned cursor unchanged with the same ref; a cursor from another ref throws `WORKSPACE_R0070`. |
+| `history.list({ ref?, cursor?, limit?, path? })` | `{ revisions, cursor? }` for one ref, newest first. Default limit `20`, maximum `100`. Pass the returned cursor unchanged with the same ref; a cursor from another ref throws `WORKSPACE_R0070`. With `path`, only the revisions that changed that file or folder. |
 | `history.refs()` | `[{ name, head }]` for every ref with at least one revision, sorted by name. |
 | `history.open(id)` | Read-only view with `revision`, `list(path?, options?)`, `stat(path)`, and `readFile(path, { encoding? })`. Encoding defaults to UTF-8; `'binary'` returns `Uint8Array`. |
+| `history.digest(bytes)` | The digest that this Store uses for file bytes: SHA-256, or the Git blob sha on the [GitHub Store](/docs/workspace/configure#github-store). Compare it with the `digest` of entries from `history.open(id).list()`. |
 | `history.usage()` | `{ bytes, objects }` for unique retained file content across committed revisions on every ref. This excludes manifests, Database storage, Blob metadata, and failed uploads. |
 
 Read mode exposes `head`, `list`, `refs`, `open`, and `usage`. Commit requires write mode. `capabilities().retainedHistory` reports Store support on the writable facade. Stores without retained history throw `WORKSPACE_R0069` for these methods. `history.checkpoint()` and `history.rebase()` keep their existing contracts and use `main`; a checkpoint is not proof of retained file bytes on every Store.
