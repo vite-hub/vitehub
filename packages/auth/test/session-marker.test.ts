@@ -27,13 +27,57 @@ function post(definition: AuthDefinition, path: string, body: unknown, cookie?: 
   }))
 }
 
-function find(response: Response, name: string): string | undefined {
+function find(response: { headers: Headers }, name: string): string | undefined {
   return response.headers.getSetCookie().find(cookie => cookie.startsWith(`${name}=`))
 }
 
 const account = { email: "ada@example.com", name: "Ada", password: "passwordpassword" }
 
 describe("session marker cookie", () => {
+  it.each(["asResponse", "request", "returnHeaders"] as const)("tracks direct API session creation and clearing with %s", async (mode) => {
+    const auth = createAuth(createDefinition())
+    const options = {
+      ...(mode === "asResponse" ? { asResponse: true } : {}),
+      ...(mode === "request" ? { request: new Request(`${origin}/api/auth/sign-up/email`, { method: "POST" }) } : {}),
+      returnHeaders: true as const,
+    }
+    const signUp = await auth.api.signUpEmail({ ...options, body: account })
+    expect(signUp instanceof Response).toBe(mode !== "returnHeaders")
+    const headers = signUp.headers
+    expect.soft(find(signUp, authSessionMarkerCookie)).toMatch(/^vitehub_session=1;/)
+    const body = signUp instanceof Response ? await signUp.json() : signUp.response
+    expect(body).toMatchObject({ user: { email: account.email } })
+    const cookie = headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const signOut = await auth.api.signOut({
+      ...options,
+      ...(mode === "request" ? { request: new Request(`${origin}/api/auth/sign-out`, { method: "POST" }) } : {}),
+      headers: new Headers({ cookie }),
+    })
+    expect(find(signOut, authSessionMarkerCookie)).toMatch(/^vitehub_session=;.*Max-Age=0/i)
+    expect(auth.api.signUpEmail.path).toBe("/sign-up/email")
+    expect(auth.api.signUpEmail.options.method).toBe("POST")
+    expect(await auth.api.getSession({ headers: new Headers({ cookie }) })).toBeNull()
+  })
+
+  it.each(["headers", "fallback"] as const)("resolves dynamic session cookies for direct API calls using %s", async (mode) => {
+    const auth = createAuth(createDefinition(), {
+      advanced: {
+        cookies: { session_token: { name: "app_session" } },
+        crossSubDomainCookies: { enabled: true },
+      },
+      baseURL: { allowedHosts: ["app.example.com"], protocol: "auto", ...(mode === "fallback" ? { fallback: origin } : {}) },
+    })
+    const headers = new Headers(mode === "headers" ? { host: "app.example.com" } : {})
+    const signUp = await auth.api.signUpEmail({ asResponse: true, body: account, headers })
+    expect(signUp.status).toBe(200)
+    expect(find(signUp, "__Secure-app_session")).toBeDefined()
+    expect.soft(find(signUp, authSessionMarkerCookie)).toMatch(/^vitehub_session=1;.*Domain=app.example.com/i)
+    headers.set("cookie", signUp.headers.getSetCookie().map(value => value.split(";")[0]).join("; "))
+    const signOut = await auth.api.signOut({ asResponse: true, headers })
+    expect(signOut.status).toBe(200)
+    expect(find(signOut, authSessionMarkerCookie)).toMatch(/^vitehub_session=;.*Max-Age=0/i)
+  })
+
   it.each([
     ["handleAuthRequest", (definition: AuthDefinition) => (request: Request) => handleAuthRequest(definition, request)],
     ["createAuth.handler", (definition: AuthDefinition) => createAuth(definition).handler],
