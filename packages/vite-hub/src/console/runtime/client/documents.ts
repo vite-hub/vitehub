@@ -114,6 +114,8 @@ export interface ConsoleDocumentListQuery {
 
 export interface ConsoleDocumentPublished {
   documents: Array<{ change: "add" | "update" | "delete", collection: string, id: string }>
+  /** Set when the project publishes through a pull request: the documents go live when it merges. */
+  pullRequest?: { number: number, url: string }
   revision: string | null
 }
 

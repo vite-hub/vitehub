@@ -643,7 +643,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
           metadata: writeMetadata(context),
         })
-        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })) }
+        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
       })
     },
 
