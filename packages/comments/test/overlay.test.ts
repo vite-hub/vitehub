@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
+import * as page from "../src/page.ts"
 import { api } from "../src/overlay/api.ts"
 
 import type { PageThread } from "../src/overlay/api.ts"
@@ -19,10 +21,16 @@ const room = vi.hoisted(() => ({
   notify: vi.fn(),
   destroy: vi.fn(),
 }))
-vi.mock("@vite-hub/realtime/client", () => ({ connectRealtimeRoom: () => room }))
+vi.mock("@vite-hub/realtime/client", () => ({ connectRealtimeRoom: vi.fn(() => room) }))
 
 let overlay: HTMLElement
 let shadow: ShadowRoot
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
 
 function thread(): PageThread {
   const author = { id: "ada", name: "Ada" }
@@ -59,6 +67,7 @@ beforeEach(async () => {
 
 afterEach(() => {
   overlay.remove()
+  history.replaceState(null, "", "/")
   vi.useRealTimers()
   vi.restoreAllMocks()
   Reflect.deleteProperty(document, "elementsFromPoint")
@@ -79,6 +88,86 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it("uses the loaded thread permissions for replies and resolution", async () => {
+    overlay.remove()
+    vi.mocked(api.session).mockResolvedValue([undefined, {
+      user: { id: "ada", name: "Ada" }, can: { read: true, comment: false, resolve: false }, realtime: true, content: true,
+    }])
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: true, resolve: true } }]])
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
+    openThread()
+    expect(shadow.querySelector('[aria-label="Resolve"]')).not.toBeNull()
+    expect(shadow.querySelector('textarea[aria-label="Reply"]')).not.toBeNull()
+    expect(shadow.querySelector('[title="Edit text (E)"]')).toBeNull()
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "e", bubbles: true }))
+    expect(document.documentElement.classList.contains("vitehub-edit-mode")).toBe(false)
+    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    expect(api.field).not.toHaveBeenCalled()
+  })
+
+  it("discards superseded navigation joins", async () => {
+    const older = deferred<Awaited<ReturnType<typeof api.threads>>>()
+    const newer = deferred<Awaited<ReturnType<typeof api.threads>>>()
+    vi.mocked(api.threads).mockReturnValueOnce(older.promise).mockReturnValueOnce(newer.promise)
+    const initialJoins = vi.mocked(connectRealtimeRoom).mock.calls.length
+    history.pushState(null, "", "/older")
+    await vi.waitFor(() => expect(api.threads).toHaveBeenCalledWith("/older"))
+    history.pushState(null, "", "/newer")
+    await vi.waitFor(() => expect(api.threads).toHaveBeenCalledWith("/newer"))
+    newer.resolve([undefined, []])
+    await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(initialJoins + 1))
+    older.resolve([undefined, []])
+    await older.promise
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(connectRealtimeRoom).toHaveBeenCalledTimes(initialJoins + 1)
+  })
+
+  it("keeps a successful reply when an older poll finishes afterward", async () => {
+    openThread()
+    const pending = deferred<Awaited<ReturnType<typeof api.threads>>>()
+    vi.mocked(api.threads).mockReturnValueOnce(pending.promise)
+    await vi.advanceTimersByTimeAsync(30_000)
+    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
+    input.value = "New reply"
+    vi.mocked(api.reply).mockResolvedValue([undefined, { ...thread().comments[0]!, id: "reply", body: input.value }])
+    input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }))
+    await vi.waitFor(() => expect(shadow.querySelector(".messages")?.textContent).toContain("New reply"))
+    pending.resolve([undefined, [thread()]])
+    await pending.promise
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(shadow.querySelector(".messages")?.textContent).toContain("New reply")
+  })
+
+  it("refreshes the thread panel after remote replies and resolution", async () => {
+    shadow.querySelector<HTMLButtonElement>('[title="Threads on this page"]')!.click()
+    const updated = thread()
+    updated.comments.push({ ...updated.comments[0]!, id: "reply", body: "Remote reply" })
+    vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(shadow.querySelector(".panel")?.textContent).toContain("1 replies")
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...updated, status: "resolved" }]])
+    await vi.advanceTimersByTimeAsync(30_000)
+    expect(shadow.querySelector(".panel-item")).toBeNull()
+  })
+
+  it("submits only once while a keyboard request is pending", async () => {
+    openThread()
+    const pending = deferred<Awaited<ReturnType<typeof api.reply>>>()
+    vi.mocked(api.reply).mockReturnValue(pending.promise)
+    const input = shadow.querySelector<HTMLTextAreaElement>('textarea[aria-label="Reply"]')!
+    input.value = "One reply"
+    const submit = () => input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }))
+    submit()
+    input.dispatchEvent(new Event("input"))
+    submit()
+    expect(api.reply).toHaveBeenCalledTimes(1)
+    pending.resolve([undefined, { ...thread().comments[0]!, id: "reply", body: input.value }])
+    await vi.waitFor(() => expect(shadow.querySelector(".messages")?.textContent).toContain("One reply"))
+  })
+
   it.each(['"><image href="x" onerror="alert(document.domain)"/><!--', "#A1b2C3"])("renders remote cursor color safely: %s", (color) => {
     room.states.mockReturnValue(new Map([[1, {
       user: { id: "guest:remote", name: "Visitor", color },
@@ -113,6 +202,43 @@ describe("Comments overlay", () => {
     await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
     expect(api.remove).not.toHaveBeenCalled()
     expect(shadow.querySelector(".pin-button")).toBeNull()
+  })
+
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+    const authenticated = Boolean(user && !user.guest)
+    overlay.remove()
+    vi.mocked(api.session).mockResolvedValue([undefined, {
+      user,
+      can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
+    }])
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
+    openThread()
+    const button = shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
+    expect(Boolean(button)).toBe(authenticated)
+    if (authenticated) {
+      button!.click()
+      await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
+    }
+  })
+
+  it("links a saved draft to Content below the app base", async () => {
+    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+    const title = await startEdit()
+    title.textContent = "Updated"
+    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
+  })
+
+  it("links non-editable fields to Content below the app base", async () => {
+    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
+    shadow.querySelector<HTMLButtonElement>('[title="Edit text (E)"]')!.click()
+    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Open Content"))
   })
 
   it("saves a draft edit back to the published text", async () => {

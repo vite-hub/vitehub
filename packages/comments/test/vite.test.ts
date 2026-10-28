@@ -22,8 +22,8 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build") {
-  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build", extra: UserConfig & Record<string, unknown> = {}) {
+  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
@@ -179,6 +179,26 @@ describe("hubComments", () => {
   })
 
   it.each([
+    { base: "/portal/" },
+    { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/" },
+  ])("mounts Comments below the application base: %j", async (config) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
+    const nitro = await configure(plugin, root, "build", config)
+    expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
+    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
+    expect(mcpPlugin).toContain('session: commentsConsoleSession(consoleRealtimeAccess("comments"))')
+    const transform = plugin.transformIndexHtml
+    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
+    expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
+  })
+
+  it.each([
+    ['import { defineComments as defineSiteComments } from "vite-hub/comments"; export const comments = defineSiteComments({ database: "content" })', "content"],
+    ['import { defineComments as defineSiteComments } from "@vite-hub/comments"; const site = defineSiteComments({ database: "content" }); export { site as comments }', "content"],
     ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
     ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
     ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
@@ -225,6 +245,18 @@ describe("comments() without vite-hub", () => {
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(plugin).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
     expect(handler).toContain('githubLogin: createCommentsGitHubLogin({"repository":"acme/app"})')
+  })
+
+  it.each(["build", "serve"] as const)("mounts standalone Comments, its overlay and GitHub sign-in below the app base for %s", async (command) => {
+    const root = await project({ "package.json": "{}" })
+    const plugin = standalone()
+    const nitro = await configure(plugin, root, command, { base: "/portal/" })
+    expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(generated).toContain("/portal/api/_vitehub/comments/assets/overlay.js")
+    expect(generated).toContain(`development: ${command === "serve"}`)
+    expect(generated).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
   })
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {

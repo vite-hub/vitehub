@@ -169,13 +169,10 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       if (!current) return notInstalled()
       const parsed = v.safeParse(replySchema, input)
       if (!parsed.success) return [commentsErrors.COMMENTS_INVALID_INPUT({ issue: describeIssue(parsed.issues) }), undefined]
-      const thread = await current.get(threadId)
-      if (!thread) return notFound(threadId)
-      if (thread.status === "resolved" && !replyOptions.allowResolved) return [commentsErrors.COMMENTS_RESOLVED(), undefined]
       const result = await current.reply(threadId, parsed.output, replyOptions)
       if ("error" in result) return result.error === "resolved" ? [commentsErrors.COMMENTS_RESOLVED(), undefined] : notFound(threadId)
-      const { comment } = result
-      await notify({ ...thread, comments: [...thread.comments, comment] }, comment)
+      const { comment, thread } = result
+      await notify(thread, comment)
       changed(threadId)
       return [undefined, comment]
     },

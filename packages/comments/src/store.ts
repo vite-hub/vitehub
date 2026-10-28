@@ -20,7 +20,7 @@ export interface CommentsStore {
   threadOf(commentId: string): Promise<string | undefined>
   create(input: { scope: string, page: string, anchor?: CommentAnchor, context?: CommentContext, metadata?: CommentMetadata, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
   edit(commentId: string, input: { body: string, mentions: CommentMention[] }): Promise<Comment | undefined>
-  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }, options?: ReplyOptions): Promise<{ comment: Comment } | { error: "not-found" | "resolved" }>
+  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }, options?: ReplyOptions): Promise<{ comment: Comment, thread: CommentThread } | { error: "not-found" | "resolved" }>
   setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
   removeComment(commentId: string): Promise<void>
@@ -137,7 +137,7 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
     async reply(threadId, { body, author, mentions }, { allowResolved = false } = {}) {
       const now = Date.now()
       const comment: CommentRow = { id: crypto.randomUUID(), threadId, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      const [inserted, , parents] = await database.batch([
+      const [inserted, , parents, rows] = await database.batch([
         // Read the parent in the insert statement, inside the same atomic batch as its activity update.
         database.insert(comments).select(database.select({
           id: sql<string>`${comment.id}`.as("id"),
@@ -151,20 +151,21 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
         database.update(threads).set({ updatedAt: now }).where(and(eq(threads.id, threadId), exists(
           database.select({ id: comments.id }).from(comments).where(eq(comments.id, comment.id)),
         ))),
-        database.select({ status: threads.status }).from(threads).where(eq(threads.id, threadId)),
+        database.select().from(threads).where(eq(threads.id, threadId)),
+        database.select().from(comments).where(eq(comments.threadId, threadId)).orderBy(comments.createdAt),
       ])
-      if (inserted[0]) return { comment: toComment(inserted[0]) }
+      if (inserted[0] && parents[0]) return { comment: toComment(inserted[0]), thread: toThread(parents[0], rows) }
       return { error: parents[0]?.status === "resolved" ? "resolved" : "not-found" }
     },
     async edit(commentId, { body, mentions }) {
-      const [row] = await database.select().from(comments).where(eq(comments.id, commentId)).limit(1)
-      if (!row) return
-      const edited: CommentRow = { ...row, body, mentions: JSON.stringify(mentions), editedAt: Date.now() }
-      await database.batch([
-        database.update(comments).set({ body, mentions: edited.mentions, editedAt: edited.editedAt }).where(eq(comments.id, commentId)),
-        database.update(threads).set({ updatedAt: edited.editedAt! }).where(eq(threads.id, row.threadId)),
+      const now = Date.now()
+      const [updated] = await database.batch([
+        database.update(comments).set({ body, mentions: JSON.stringify(mentions), editedAt: now }).where(eq(comments.id, commentId)).returning(),
+        database.update(threads).set({ updatedAt: now }).where(inArray(threads.id,
+          database.select({ threadId: comments.threadId }).from(comments).where(eq(comments.id, commentId)),
+        )),
       ])
-      return toComment(edited)
+      return updated[0] ? toComment(updated[0]) : undefined
     },
     async setStatus(threadId, status, by) {
       const now = Date.now()
