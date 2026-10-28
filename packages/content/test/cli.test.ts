@@ -761,6 +761,23 @@ describe("hubContent", () => {
     expect(none instanceof Function ? await none() : none).toEqual([])
   })
 
+  it.each([
+    "export const content = defineContent({ route: false })",
+    "const route = false; const options = { route }; export const content = defineContent({ ...options })",
+  ])("reports a disabled public Content route: %s", async (definition) => {
+    const root = await project(true)
+    await writeFile(join(root, "server", "content.ts"), `import { defineContent } from "vite-hub/content"\n${definition}\n`)
+    const plugin = hubContent()
+    await configHook(plugin)({ root }, { command: "serve", mode: "development" })
+    const inspection = await (plugin.vitehub.inspect as () => Promise<{ definitions: Array<{ list: () => unknown }> }>)()
+    expect(inspection.definitions[0]!.list()).toEqual([{
+      fields: [{ label: "Route", value: "Disabled" }, { label: "Collections", value: "vitehub content collections" }],
+      file: "server/content.ts",
+      name: "content",
+      source: "server-content",
+    }])
+  })
+
   it("contributes the CLI namespace and the Content inspector only when the app defines Content", async () => {
     const withContent = hubContent()
     await configHook(withContent)({ root: await project(true) }, { command: "serve", mode: "development" })
