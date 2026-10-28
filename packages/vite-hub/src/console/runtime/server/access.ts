@@ -147,8 +147,11 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   const page = consoleSignInPage(url.pathname)
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
   if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access)) return undefined
+  const access = checkedEvents.get(event) ?? await checkConsoleAccess(event)
+  if (!isRuntimeResponse(access)) {
+    checkedEvents.set(event, access)
+    return undefined
+  }
   const policy = scope[policyKey]
   if (access.status === 403 && page.endsWith("/_vitehub/sign-in") && policy && "signIn" in policy && policy.signIn) {
     return policy.signIn(event, access)

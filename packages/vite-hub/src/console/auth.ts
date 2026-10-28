@@ -168,6 +168,9 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
       auth = resolveAuth(authRequest, { baseURL: url.origin }, event)
       context = await auth.$context
     }
+    if (new URL(context.baseURL).origin !== url.origin) {
+      throw new TypeError("[vitehub] Console app Auth requires Auth baseURL and the Console to use the same origin. Serve Auth on the Console origin or configure independent console.auth.")
+    }
     return { auth, context, request, url }
   }
   return {
@@ -373,7 +376,7 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
   getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader
-  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false }) => Promise<Response | undefined>
+  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
   /** Rejects a request without a session. Used for a Console path that no access route matches. */
   requireSession: (event: object) => Promise<Response | undefined>
   routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
@@ -402,7 +405,7 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
       if (!matched.length) return options.requireSession(event)
       const indexes = matched.map(route => route.index)
       const required = matched.filter(route => route.authorize).map(route => route.index)
-      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false })
+      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false, reuse: true })
     },
     user(event) {
       const request = toEventRequest(event)

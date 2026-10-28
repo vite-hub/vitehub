@@ -128,6 +128,8 @@ With independent Console Auth, the sign-in button opens authentication in the ma
 
 `console: true` reuses the app Auth Definition and its server access policy. Enable `auth: true` and authorize the Console routes in `server/auth.ts`, as shown below. A `console` object still requires an explicit `auth` choice.
 
+App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
+
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
 
 If `console` is omitted or set to `false`, ViteHub does not register a Console page, RPC route, Nitro plugin, or public asset path. A disabled Console returns the host's normal not-found response.

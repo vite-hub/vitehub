@@ -1,11 +1,11 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
-import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
-import { H3 } from "h3"
+import { H3, H3Event } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { createConsoleAppAuthPages } from "../src/console/auth.ts"
-import { installConsoleAccess, consoleRequest } from "../src/console/runtime/server/access.ts"
+import { createConsoleAppAuthAccess, createConsoleAppAuthPages, type ConsoleAuthorize } from "../src/console/auth.ts"
+import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
 
@@ -25,7 +25,7 @@ afterEach(() => {
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
 })
 
-async function setup(mount = "", providers = true) {
+async function setup(mount = "", providers = true, access: { authorize?: () => boolean, consoleAuthorize?: ConsoleAuthorize } = {}) {
   const database = new DatabaseSync(":memory:")
   databases.push(database)
   const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
@@ -34,7 +34,8 @@ async function setup(mount = "", providers = true) {
     basePath: `${mount}/api/auth`,
     database,
     secret: "test-secret-at-least-32-bytes-long",
-    access: { routes: routes.map(route => ({ route: route.route, authorize: () => true })) },
+    access: { routes: routes.map(route => ({ route: route.route, authorize: access.authorize ?? (() => true) })) },
+    emailAndPassword: { enabled: true },
     socialProviders: providers ? {
       github: { clientId: "test-github", clientSecret: "test-secret" },
       google: { clientId: "test-google", clientSecret: "test-secret" },
@@ -46,7 +47,19 @@ async function setup(mount = "", providers = true) {
     mode: "auth",
     signInPage: "/_vitehub/sign-in",
     ...createConsoleAppAuthPages(authForRequest),
-    check: event => requireAuthAccessRoutes(consoleRequest(event), [0], definition, [0], { redirectToSignIn: false }),
+    ...createConsoleAppAuthAccess({
+      getAuthForRequest: authForRequest,
+      requireAuthAccessRoutes: (event, indexes, _definition, required, options) => {
+        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
+        return requireAuthAccessRoutes(event, indexes, definition, required, options)
+      },
+      requireSession: event => {
+        if (!(event instanceof H3Event)) throw new TypeError("Expected the Console's H3 request event.")
+        return withAuthorization(true, () => undefined, definition)(event)
+      },
+      routes: routes.map((route, index) => ({ ...route, index, authorize: true })),
+    }),
+    authorize: access.consoleAuthorize,
   })
   const app = new H3()
     .use(`${mount}/_vitehub/**`, signInMiddleware)
@@ -69,6 +82,39 @@ function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
 }
 
 describe("Console reuses app Auth sign-in", () => {
+  it.each([undefined, "text/html"])("checks app and Console authorization once for an accepted page (Accept: %s)", async (accept) => {
+    const authorize = vi.fn(() => true)
+    const consoleAuthorize = vi.fn(() => true)
+    const { authForRequest, visit } = await setup("/portal", true, { authorize, consoleAuthorize })
+    const auth = authForRequest(new Request(origin))
+    const signedIn = await auth.handler(new Request(`${origin}/portal/api/auth/sign-up/email`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin },
+      body: JSON.stringify({ name: "Console User", email: "console@example.com", password: "test-password-123" }),
+    }))
+    expect(signedIn.status).toBe(200)
+    const cookie = signedIn.headers.getSetCookie().map(value => value.split(";")[0]).join("; ")
+    const headers = new Headers({ cookie })
+    if (accept) headers.set("accept", accept)
+    const response = await visit("/_vitehub/content", { headers })
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("<title>ViteHub Console</title>")
+    expect(authorize).toHaveBeenCalledOnce()
+    expect(consoleAuthorize).toHaveBeenCalledOnce()
+  })
+
+  it("rejects a distinct resolved Auth origin before rendering or starting sign-in", async () => {
+    const definition = defineAuth(() => ({
+      baseURL: "https://auth.example.com",
+      secret: "test-secret-at-least-32-bytes-long",
+      socialProviders: { github: { clientId: "test-github", clientSecret: "test-secret" } },
+    }))
+    const pages = createConsoleAppAuthPages(request => createAuthForRequest(definition, request))
+    const event = { req: new Request(`${origin}/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }) }
+    await expect(pages.authBasePath(event)).rejects.toThrow(/same origin/)
+    await expect(pages.signIn(event)).rejects.toThrow(/same origin/)
+  })
+
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
     const pages = createConsoleAppAuthPages(getAuthForRequest)
     const event = { req: new Request(`${origin}/portal/_vitehub/sign-in`) }
