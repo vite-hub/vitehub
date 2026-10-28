@@ -33,6 +33,8 @@ import {
 import { envValueTypeName, stringValueSchema } from "./core/values.ts"
 
 export { createRuntimeRegistry as createRuntimeEnvRegistry } from "./core/resolve.ts"
+export { envSchema } from "./env-schema/index.ts"
+export type { EnvSchemaOptions } from "./env-schema/index.ts"
 
 import type {
   EnvIntegrationOptions,

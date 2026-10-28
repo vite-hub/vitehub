@@ -131,6 +131,7 @@
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
+    "@env-spec/parser": "0.6.2",
     "@vite-hub/runtime": "workspace:*",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"
