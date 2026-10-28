@@ -243,6 +243,43 @@ describe("generated operation commands", () => {
     expect(JSON.parse(stdout.output())).toEqual({ deployed: true })
   })
 
+  describe("deployed RPC targets", () => {
+    const env = {
+      VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
+      CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+    }
+
+    it.each([
+      "http://app.example.com", "http://localhost.example.com", "ftp://localhost", "not a url",
+      "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
+    ])("rejects unsafe URL %s before sending credentials for reads and writes", async (url) => {
+      for (const args of [["reports", "list", "acme"], ["reports", "delete", "r1", "--yes", "--json"]]) {
+        const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+        const result = await run([...args, "--url", url], { env, fetch })
+        expect(fetch).not.toHaveBeenCalled()
+        expect(result.code).toBe(1)
+        expect(result.stderr + result.stdout).toContain("CLI_R0003")
+        expect(result.stderr + result.stdout).not.toMatch(/private|access-secret|password/)
+      }
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("sends credentials to safe RPC URL %s", async (url) => {
+      const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("authorization")).toBe(env.VITEHUB_CONSOLE_AUTHORIZATION)
+        expect(headers.get("cookie")).toBe(env.VITEHUB_CONSOLE_COOKIE)
+        expect(headers.get("cf-access-client-id")).toBe(env.CF_ACCESS_CLIENT_ID)
+        expect(headers.get("cf-access-client-secret")).toBe(env.CF_ACCESS_CLIENT_SECRET)
+        expect(headers.has(operationExpectedRootsHeader)).toBe(false)
+        return Response.json({ ok: true, value: { deployed: true } })
+      })
+      const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+      expect(JSON.parse(result.stdout)).toEqual({ deployed: true })
+    })
+  })
+
   describe("signed dispatch", () => {
     const key = "ab".repeat(32)
 

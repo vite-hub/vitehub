@@ -338,7 +338,23 @@ function acceptedRoots(rootDir: string): string[] {
  * else `VITEHUB_DEV_SERVER_URL`. There is no guess: another project may use port 5173.
  */
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
-  if (parsed.url) return { target: parsed.url }
+  if (parsed.url) {
+    let base: URL
+    try {
+      base = new URL(parsed.url)
+    }
+    catch {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })) }
+    }
+    const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+    if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })) }
+    }
+    if (base.username || base.password || base.search || base.hash) {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
+    }
+    return { target: parsed.url }
+  }
   const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
   if (found) return { target: found }
   const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
@@ -350,20 +366,7 @@ function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target
  * so the command falls back to the RPC with Console credentials.
  */
 async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
-  let base: URL
-  try {
-    base = new URL(url)
-  }
-  catch {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })), ok: false }
-  }
-  const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
-  if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })), ok: false }
-  }
-  if (base.username || base.password || base.search || base.hash) {
-    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })), ok: false }
-  }
+  const base = new URL(url)
   let key: string | undefined
   try {
     key = await resolveViteHubDispatchKey(context.env)
