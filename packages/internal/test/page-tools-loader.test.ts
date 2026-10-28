@@ -205,6 +205,39 @@ describe("readViteHubPageSession", () => {
 })
 
 describe("lazy tools", () => {
+  it.each([false, true])("rolls back failed startup registrations (lazy: %s)", async (lazy) => {
+    page("/?vitehub=console")
+    session({ tools: [{ ...consoleTool, lazy }] })
+    const signals: AbortSignal[] = []
+    const load = vi.fn(async () => ({ default(context: ViteHubPageToolContext) {
+      signals.push(context.signal)
+      const shadow = context.bar.attachShadow({ mode: "open" })
+      const trigger = document.createElement("button")
+      shadow.append(trigger)
+      const window = context.createWindow({ id: "console", title: "Console", trigger })
+      window.show()
+      context.onOpen(() => window.show())
+      if (signals.length === 1) {
+        context.beforeExit(() => false)
+        throw new Error("startup failed after opening")
+      }
+    } }))
+    await loadViteHubPageTools({ load })
+    expect(document.querySelector("vitehub-window")).toBeNull()
+    expect(signals[0]!.aborted).toBe(true)
+    if (!lazy) {
+      expect(document.querySelector("vitehub-pill")).toBeNull()
+      return
+    }
+    document.querySelector<HTMLButtonElement>("vitehub-tool button")!.click()
+    await vi.waitFor(() => expect(document.querySelectorAll("vitehub-window")).toHaveLength(1))
+    expect(signals[1]!.aborted).toBe(false)
+    pill().exit.click()
+    expect(signals[1]!.aborted).toBe(true)
+    expect(document.querySelector("vitehub-window")).toBeNull()
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
   it("keeps the query-selected window visible when a restored import finishes later", async () => {
     page("/?vitehub=console")
     session({ tools: [{ ...consoleTool, lazy: true }, { ...comments, lazy: true }] })

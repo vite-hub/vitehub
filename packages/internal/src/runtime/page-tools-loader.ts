@@ -130,9 +130,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
-  const exitChecks: Array<() => boolean> = []
+  const exitChecks = new Set<() => boolean>()
   const exit = () => {
-    if (exitChecks.some(check => !check())) return
+    if ([...exitChecks].some(check => !check())) return
     for (const tool of session.tools) remember(tool.id, false)
     document.cookie = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
     const url = new URL(location.href)
@@ -152,16 +152,20 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const openTool = async (id: string, path?: string) => await activators.get(id)?.(path) ?? false
   const started = await Promise.all(session.tools.map(async (tool, index) => {
     const { signal } = controllers[index]!
-    const bar = document.createElement("vitehub-tool")
+    let bar = document.createElement("vitehub-tool")
     bar.slot = tool.id
     pill.append(bar)
     let activate: ((path?: string) => void) | undefined
     let starting: Promise<boolean> | undefined
     let mounted = false
     const run = (path?: string, show = true): Promise<boolean> => {
+      if (signal.aborted) return Promise.resolve(false)
       if (mounted) { activate?.(path); return Promise.resolve(true) }
       if (starting) return starting.then(ok => { if (ok) activate?.(path); return ok })
       starting = (async () => {
+        const attempt = new AbortController()
+        const stop = () => attempt.abort()
+        signal.addEventListener("abort", stop, { once: true })
         try {
           bar.setAttribute("aria-busy", "true")
           const start = startOf(await load(tool.script))
@@ -169,10 +173,14 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
           if (signal.aborted) return false
           bar.replaceChildren()
           const cleanup = start({
-            beforeExit: check => exitChecks.push(check), tool, bar, signal,
+            beforeExit: check => {
+              const guard = () => check()
+              exitChecks.add(guard)
+              attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
+            }, tool, bar, signal: attempt.signal,
             open: show && (tool.lazy === true || tool.id === open), exit,
             createWindow: options => {
-              const window = createViteHubPageWindow({ ...options, signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
+              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
               const retained = { ...window, show() {
                 for (const [id, other] of windows) if (id !== tool.id) other.hide()
                 remember(tool.id, true)
@@ -188,19 +196,29 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
           if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
           if (cleanup instanceof Function) {
             if (signal.aborted) cleanup()
-            else signal.addEventListener("abort", () => cleanup(), { once: true })
+            else attempt.signal.addEventListener("abort", () => cleanup(), { once: true })
           }
           return !signal.aborted
         }
         catch (error) {
+          attempt.abort()
+          signal.removeEventListener("abort", stop)
+          if (windows.delete(tool.id)) remember(tool.id, false)
+          activate = undefined
+          mounted = false
           console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
           if (tool.lazy) {
+            // A failed tool may have attached a shadow root; retries need a fresh segment.
+            const replacement = document.createElement("vitehub-tool")
+            replacement.slot = tool.id
+            bar.replaceWith(replacement)
+            bar = replacement
             launch.textContent = `Retry ${tool.label}`
             launch.title = "The tool could not load. Try again."
             bar.hidden = false
             bar.append(launch)
           }
-          else bar.remove()
+          else { activators.delete(tool.id); bar.remove() }
           return false
         }
         finally { bar.removeAttribute("aria-busy"); starting = undefined }
