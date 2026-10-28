@@ -267,6 +267,39 @@ describe("installViteHubPageTools on Nitro 2", () => {
     expect(binary.body).toEqual(new Uint8Array([1, 2, 3]))
   })
 
+  it.each(["text/html; charset=iso-8859-1", 'text/html; charset="ISO-8859-1"', "text/html; charset=windows-1252"])("preserves byte HTML and headers for %s", async (type) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+    const body = Buffer.from("<body>café</body>", "latin1")
+    const headers = new Map([["content-type", type], ["content-length", String(body.length)], ["etag", "old"], ["cache-control", "public, max-age=60"]])
+    const originalHeaders = new Map(headers)
+    const response = { body }
+    await respond({ node: {
+      req: { url: "/?vitehub", headers: {} },
+      res: { getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: string) => headers.set(key, value), removeHeader: (key: string) => headers.delete(key) },
+    } }, response)
+    expect(response.body).toBe(body)
+    expect(headers).toEqual(originalHeaders)
+  })
+
+  it.each(["text/html; charset=utf-8", 'text/html; Charset="UTF-8"', "text/html; charset=utf8"])("injects byte HTML with non-ASCII text for %s", async (type) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    installViteHubPageTools(app)
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => Promise<void>
+    const headers = new Map([["content-type", type]])
+    const response = { body: new TextEncoder().encode("<body>café 🐸</body>") as unknown }
+    await respond({ node: {
+      req: { url: "/?vitehub", headers: {} },
+      res: { getHeader: (key: string) => headers.get(key), setHeader: (key: string, value: string) => headers.set(key, value) },
+    } }, response)
+    expect(response.body).toBe(`<body>café 🐸${loaderTag}</body>`)
+    expect(headers.get("content-type")).toBe(type)
+    expect(headers.get("cache-control")).toBe("private, no-store")
+  })
+
   it.each(["string", "bytes"])("replaces the generated SPA check in buffered %s HTML under CSP", async (format) => {
     const app = nitro2App()
     registerViteHubPageTool(app, comments)

@@ -221,7 +221,7 @@ export interface ViteHubPageToolsInstallOptions {
  * It reads that app's registry and configured base on each request, so plugin order does not matter.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls. The tag uses `options.base`.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
- *   as a `Response`, string, or uncompressed byte buffer, including prerendered files. The tag uses the base of
+ *   as a `Response`, string, or uncompressed UTF-8 byte buffer, including prerendered files. The tag uses the base of
  *   the request.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
@@ -272,6 +272,9 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     if (res?.getHeader?.("content-encoding") || (res?.statusCode ?? 200) !== 200) return
     const body = response.body
     if (typeof body !== "string" && !(body instanceof Uint8Array)) return
+    // Leave other encodings intact: decoding as UTF-8 would corrupt their bytes and charset contract.
+    const charset = /;\s*charset\s*=\s*"?([^";]*)/i.exec(type)?.[1]?.trim()
+    if (body instanceof Uint8Array && charset !== undefined && !/^utf-?8$/i.test(charset)) return
     const html = typeof body === "string" ? body : new TextDecoder().decode(body)
     const policy = res?.getHeader?.("content-security-policy")
     const tag = loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined)
