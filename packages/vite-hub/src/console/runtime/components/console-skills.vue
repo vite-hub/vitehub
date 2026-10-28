@@ -104,7 +104,7 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 <template>
   <ConsoleFrame active="skills" :sections-base="sectionsBase">
     <ConsoleSearch :agents-base="agentsBase" :definitions-base="definitionsBase" :kv-base="kvBase" :search-base="searchBase" :sections-base="sectionsBase" />
-    <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 gap-0' }">
+    <UDashboardPanel id="skills" :ui="{ body: 'min-h-0 overflow-hidden p-0 sm:p-0 gap-0 sm:gap-0' }">
       <template #header>
         <ConsolePageHeader title="Skills" :toggle="false">
           <template #right>
@@ -127,14 +127,14 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
         </div>
         <main v-else class="skills-browser">
           <aside class="skills-browser__tree flex min-h-0 min-w-0 flex-col" aria-label="Bundled Skill files">
-            <header class="flex min-h-11 items-center justify-between gap-2 px-3 text-xs">
+            <header class="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-default px-3 text-xs sm:px-4">
               <span class="font-medium text-highlighted">Files</span>
               <span class="tabular-nums text-muted">{{ skillCount }} {{ skillCount === 1 ? 'skill' : 'skills' }} · {{ paths.length }} files</span>
             </header>
-            <div class="min-h-0 flex-1 overflow-auto px-1 pb-3">
+            <div class="min-h-0 flex-1 overflow-hidden">
               <ConsoleSkillTree :key="selectedAgent" :paths="paths" :selected="path" @select="selectFile" />
             </div>
-            <p class="border-t border-default px-3 py-2 text-pretty text-xs leading-relaxed text-muted">Bundled with this Agent. Source-mounted Skills are available in the session Workspace.</p>
+            <p class="border-t border-default px-3 py-2 text-pretty text-xs leading-relaxed text-muted sm:px-4">Bundled with this Agent. Source-mounted Skills are available in the session Workspace.</p>
           </aside>
           <div class="flex min-h-0 min-w-0 flex-col" :aria-busy="fileLoading">
             <p v-if="fileLoading" role="status" class="p-4 text-sm text-muted">Loading file…</p>
@@ -153,7 +153,7 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
 <style scoped>
 .skills-browser { display: grid; grid-template-columns: minmax(14rem, 19rem) minmax(0, 1fr); flex: 1; min-height: 0; }
 .skills-browser__tree { border-inline-end: 1px solid var(--ui-border); }
-@media (max-width: 640px) {
+@media (width < 640px) {
   .skills-browser { grid-template-columns: minmax(0, 1fr); grid-template-rows: 12rem minmax(0, 1fr); }
   .skills-browser__tree { border-inline-end: 0; border-bottom: 1px solid var(--ui-border); }
   .skills-browser__tree > p { display: none; }

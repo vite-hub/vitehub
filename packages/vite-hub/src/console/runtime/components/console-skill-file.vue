@@ -48,7 +48,7 @@ const SkillLink = defineComponent({
 
 <template>
   <section class="flex min-h-0 min-w-0 flex-1 flex-col" aria-label="Skill file preview">
-    <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-3 py-2">
+    <header class="flex min-h-11 flex-wrap items-center gap-x-3 gap-y-2 border-b border-default px-3 py-2 sm:px-4">
       <UIcon name="i-ph-file-text-light" class="size-4 shrink-0 text-muted" />
       <p class="min-w-0 basis-full break-all font-mono text-xs leading-relaxed text-highlighted sm:flex-1 sm:basis-auto">{{ file.path }}</p>
       <div v-if="markdown" role="group" aria-label="File view" class="flex items-center gap-1">
@@ -63,7 +63,7 @@ const SkillLink = defineComponent({
       <Markdown v-if="markdown && !raw" class="mx-auto max-w-[75ch] break-words px-6 py-7 sm:px-10" :value="file.content" :components="{ a: SkillLink }" />
       <ConsoleSessionCodePreview v-else :content="file.content" :path="file.path" :wrap="true" />
     </div>
-    <footer class="flex min-h-8 flex-wrap items-center justify-between gap-x-4 border-t border-default px-3 py-1 text-xs text-muted">
+    <footer class="flex min-h-8 flex-wrap items-center justify-between gap-x-4 border-t border-default px-3 py-1 text-xs text-muted sm:px-4">
       <span>Bundled file · Read only</span>
       <span class="tabular-nums">{{ file.content.split('\n').length }} lines · {{ file.size.toLocaleString() }} bytes</span>
     </footer>
