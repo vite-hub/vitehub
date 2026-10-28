@@ -1,6 +1,8 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
+import { readFileSync } from "node:fs"
+import { findPackageJSON } from "node:module"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 import { transform } from "esbuild"
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
@@ -44,6 +46,7 @@ import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocat
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -109,10 +112,11 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
 
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: ((
-    name: "close" | "nitro:config",
-    callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
-  ) => void) & ((name: "listen", callback: (server: unknown, listener: { url: string }) => void) => void)
+  hook?: {
+    (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
+    (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
+    (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+  }
   options: {
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
@@ -205,14 +209,33 @@ const nitroCloudflareWorkersDev = {
 }
 
 /** Keep ViteHub's H3 2 imports out of Nuxt 4's application-wide H3 1 alias. */
-const nitroViteHubH3 = {
-  name: "vite-hub/nitro-h3",
-  resolveId(id: string, importer?: string) {
-    if (!/^h3(?:\/|$)/.test(id) || !importer) return
-    const path = importer.replaceAll("\\", "/")
-    if (!/(?:^|\/)(?:vite-hub|@vite-hub|\.vitehub)(?:\/|$)/.test(path) && !/\/(?:h3@2|nitro@3)[^/]*\//.test(path)) return
-    return fileURLToPath(import.meta.resolve(id))
-  },
+function nitroViteHubH3(generatedRoots: string[]) {
+  const roots = generatedRoots.map(root => `${root.replaceAll("\\", "/").replace(/\/+$/, "")}/`)
+  const owners = new Map<string, boolean>()
+  return {
+    name: "vite-hub/nitro-h3",
+    resolveId(id: string, importer?: string) {
+      if (!/^h3(?:\/|$)/.test(id) || !importer) return
+      const path = importer.split("?", 1)[0]!.replaceAll("\\", "/")
+      if (!roots.some(root => path.startsWith(root))) {
+        const directory = dirname(path)
+        let owned = owners.get(directory)
+        if (owned === undefined) {
+          try {
+            const manifest = findPackageJSON(pathToFileURL(path), import.meta.url)
+            const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+            owned = isRecord(pkg) && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
+              || (pkg.name === "nitro" && typeof pkg.version === "string" && pkg.version.startsWith("3."))
+              || (pkg.name === "h3" && typeof pkg.version === "string" && pkg.version.startsWith("2.")))
+          }
+          catch { owned = false } // Virtual modules without a package retain the host's resolution.
+          owners.set(directory, owned)
+        }
+        if (!owned) return
+      }
+      return fileURLToPath(import.meta.resolve(id))
+    },
+  }
 }
 
 /** Node development uses request bindings without importing the production Cloudflare runtime. */
@@ -220,7 +243,16 @@ async function writeCloudflareWorkersDevShim(buildDir: string): Promise<string> 
   const file = join(buildDir, "vitehub/cloudflare-workers.dev.mjs")
   await writeFileIfChanged(file, [
     "const bindings = () => globalThis.__env__ ?? process.env",
-    "export const env = new Proxy({}, { get: (_, key) => bindings()[key] ?? process.env[key], has: (_, key) => key in bindings() || key in process.env })",
+    "const read = key => bindings()[key] ?? process.env[key]",
+    "export const env = new Proxy({}, {",
+    "  get: (_, key) => read(key),",
+    "  has: (_, key) => key in bindings() || key in process.env,",
+    "  ownKeys: () => [...new Set([...Reflect.ownKeys(process.env), ...Reflect.ownKeys(bindings())])],",
+    "  getOwnPropertyDescriptor(_, key) {",
+    "    const descriptor = Object.getOwnPropertyDescriptor(bindings(), key) ?? Object.getOwnPropertyDescriptor(process.env, key)",
+    "    return descriptor && { configurable: true, enumerable: descriptor.enumerable, writable: true, value: read(key) }",
+    "  },",
+    "})",
     "export async function waitUntil(promise) { if (globalThis.__wait_until__) return globalThis.__wait_until__(promise); await promise }",
     "export function withEnv() { throw new Error('cloudflare.withEnv is not available in Node development.') }",
     "class Unsupported { constructor() { throw new Error('This Cloudflare runtime class is not available in Node development.') } }",
@@ -236,10 +268,10 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 }
 
 /** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
-function installNitroBuildPlugins(config: Record<string, unknown>, dev = false): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3, nitroOptionalPeers(config), ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1110,6 +1142,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
+  // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
+  const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
+  if (commentsPlugin) {
+    await commentsPlugin.api.setComponents([])
+    // Templates are generated after the entire components:extend chain, including later modules and dev rescans.
+    nuxt.hook?.("app:templatesGenerated", app => commentsPlugin.api.setComponents(app.components))
+  }
   const retainedKVPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/kv/vite")
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
     api?: {
@@ -1435,7 +1475,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
-    installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare")
     if (nuxt.options.dev && plan.preset === "cloudflare") {
       const alias = (config.alias ??= {}) as Record<string, string>
       alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)

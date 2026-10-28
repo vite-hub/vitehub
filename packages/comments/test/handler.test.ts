@@ -1,11 +1,12 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
+import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { anchor, createComments } from "./harness.ts"
 
-import type { CommentsContent } from "../src/runtime/handler.ts"
+import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
 const origin = "http://site.test"
@@ -46,12 +47,16 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
   return { runtime, saves }
 }
 
-async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent> } = {}) {
+async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"], consoleSession?: CommentsHandlerOptions["consoleSession"] } = {}) {
   const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, ...input.options })
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
     comments,
+    session: input.session,
+    consoleSession: input.consoleSession,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
+    build: { commit: "abc123", branch: "main" },
+    components: { PricingCard: ["app/components/PricingCard.vue"], index: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
   }))
   const call = async (path: string, init: RequestInit & { json?: unknown } = {}) => {
     const headers = new Headers(init.headers)
@@ -64,6 +69,85 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each([{ id: "custom", name: "Custom" }, null])("skips the Auth session when custom identify returns %j", async (user) => {
+    const session = vi.fn(async () => { throw new Error("Auth unavailable") })
+    const identify = vi.fn(() => user)
+    const { call } = await setup({ session, options: { identify, authorize: () => true } })
+    const current = await call("/session")
+    expect(current.body.data).toMatchObject({ user, can: { read: true, comment: true, resolve: true } })
+    expect((await call("/threads?page=/")).response.status).toBe(200)
+    expect(identify).toHaveBeenCalled()
+    expect(session).not.toHaveBeenCalled()
+  })
+
+  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before Comments identity or policy", async (source) => {
+    for (const customIdentity of [false, true]) {
+      const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+      const authorize = vi.fn(() => true)
+      const fail = async () => { throw new Error("Console session unavailable") }
+      const session = commentsConsoleSession({
+        authorize: source === "authorize" ? fail : async () => true,
+        user: source === "user" ? fail : async () => null,
+        identify: source === "identify" ? fail : async () => null,
+      })
+      const { call } = await setup({ consoleSession: session, options: { identify: customIdentity ? identify : undefined, authorize } })
+      const current = await call("/session")
+      expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
+      expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect((await call("/threads?page=/")).response.status).toBe(403)
+      expect((await call("/threads", {
+        method: "POST",
+        json: { page: "/", anchor, body: "Denied" },
+        headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" },
+      })).response.status).toBe(403)
+      expect(identify).not.toHaveBeenCalled()
+      expect(authorize).not.toHaveBeenCalled()
+    }
+  })
+
+  it("keeps Console guest authors anonymous to Comments policies", async () => {
+    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
+    const { call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: ({ user }) => user === null } })
+    const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
+    const current = await call("/session", { headers })
+    expect(current.body.data).toMatchObject({ user: null, can: { read: true, comment: true, resolve: true } })
+    const created = await call("/threads", { headers, method: "POST", json: { page: "/", anchor, body: "Hi" } })
+    expect(created.response.status).toBe(200)
+    expect(created.body.data.createdBy).toEqual({ id: "guest:visitor", name: "Visitor", guest: true })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+  })
+
+  it.each([false, true])("requires Content to allow anonymous writes for Console guests: %s", async (allowAnonymous) => {
+    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
+    const content = fakeContent()
+    const canWrite = vi.fn(async ({ user }: Parameters<CommentsContent["can"]>[0]) => user != null || allowAnonymous)
+    content.runtime.can = canWrite
+    const { call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize: () => true } })
+    const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
+    const saved = await call("/fields", { headers, method: "POST", json: { field: "about#hero.title", value: "Guest edit", ifDigest: "d1" } })
+    expect(saved.response.status).toBe(allowAnonymous ? 200 : 403)
+    if (!allowAnonymous) expect(saved.body.error?.code).toBe("COMMENTS_FIELD_FORBIDDEN")
+    expect(canWrite).toHaveBeenCalledWith(expect.objectContaining({ user: undefined }))
+    expect(content.saves).toHaveLength(allowAnonymous ? 1 : 0)
+  })
+
+  it.each([undefined, () => ({ id: "custom", name: "Custom" })])("preserves Console denial before guest policies or custom identity: %s", async (identify) => {
+    const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
+    const { comments, call } = await setup({ consoleSession: session, options: { identify, authorize: () => true } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
+    const current = await call("/session")
+    expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false })
+    expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    for (const [path, init] of [
+      ["/threads?page=/", {}],
+      ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
+      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Denied" } }],
+    ] as const) {
+      const denied = await call(path, { ...init, headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } })
+      expect(denied.response.status).toBe(403)
+    }
+  })
+
   it("answers the session with access, and sets the comment mode hint", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
@@ -109,6 +193,64 @@ describe("Comments API", () => {
     expect((await call("/threads?page=/pricing")).body.data).toEqual([])
   })
 
+  it.each(["https://other.test/pricing", "http://site.test/other", "/pricing", "not a URL"])("rejects a context URL outside the request origin and thread page: %s", async (url) => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url }, body: "Hi" } })
+    expect(response.status).toBe(400)
+    expect(body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+    expect((await call("/threads?page=/pricing")).body.data).toEqual([])
+  })
+
+  it("uses the forwarded origin and normalized thread page for context URLs", async () => {
+    const { call } = await setup()
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      headers: { origin: "https://public.test", "x-forwarded-host": "public.test", "x-forwarded-proto": "https" },
+      json: { page: "/pricing/?comments", anchor, context: { url: "https://public.test/pricing/?token=secret#token" }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data).toMatchObject({ page: "/pricing", context: { url: "https://public.test/pricing" } })
+  })
+
+  it("keeps the page context, and adds the build and the component files that only the server knows", async () => {
+    const { call } = await setup()
+    const context = {
+      url: "http://site.test/pricing?code=oauth-code&token=reset-token&X-Amz-Signature=secret#token",
+      title: "Pricing",
+      route: "/pricing",
+      element: { tag: "button", role: "button", name: "Buy" },
+      components: [{ name: "index", files: ["/etc/passwd"] }, { name: "PricingCard" }, { name: "Unknown" }],
+      environment: { viewport: { width: 1280, height: 800 }, devicePixelRatio: 2, userAgent: "Test", colorScheme: "dark" },
+      build: { commit: "forged" },
+    }
+    const created = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context, body: "Buy is hidden" } })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+    expect(created.body.data.context).toEqual({
+      ...context,
+      url: "http://site.test/pricing",
+      components: [
+        { name: "index", files: ["app/pages/index.vue", "app/pages/blog/index.vue"] },
+        { name: "PricingCard", files: ["app/components/PricingCard.vue"] },
+      ],
+      build: { commit: "abc123", branch: "main" },
+    })
+    const library = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components: ["A", "B", "C", "D"].map(name => ({ name })) }, body: "Hi" } })
+    expect(library.body.data.context.components).toEqual([{ name: "B" }, { name: "C" }, { name: "D" }])
+    const invalid = await call("/threads", { method: "POST", json: { page: "/pricing", anchor, context: { url: "x".repeat(3000) }, body: "Hi" } })
+    expect(invalid.body.error?.code).toBe("COMMENTS_INVALID_INPUT")
+  })
+
+  it("treats inherited component-map keys as unknown names", async () => {
+    const { call } = await setup()
+    const components = ["constructor", "toString", "__proto__"].map(name => ({ name }))
+    const { response, body } = await call("/threads", {
+      method: "POST",
+      json: { page: "/pricing", anchor, context: { url: "http://site.test/pricing", components }, body: "Hi" },
+    })
+    expect(response.status).toBe(200)
+    expect(body.data.context.components).toEqual(components)
+  })
+
   it("rejects writes from another origin, and accepts the origin behind a TLS proxy", async () => {
     const { call } = await setup()
     const foreign = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "Hi" }, headers: { origin: "https://evil.test" } })
@@ -126,8 +268,9 @@ describe("Comments API", () => {
     expect(nameless.body.error?.code).toBe("COMMENTS_FORBIDDEN")
   })
 
-  it("rejects guest deletion even when a visible author ID is copied", async () => {
-    const { comments, call } = await setup({ user: null, options: { authorize: () => true } })
+  it.each([false, true])("rejects guest deletion even when a visible author ID is copied, with Console: %s", async (console) => {
+    const session = console ? commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null }) : undefined
+    const { comments, call } = await setup({ consoleSession: session, options: { identify: undefined, authorize: () => true } })
     const headers = { "x-vitehub-comments-guest-id": "victim", "x-vitehub-comments-guest-name": "Visitor" }
     const created = await call("/threads", { method: "POST", headers, json: { page: "/", anchor, body: "Root" } })
     const id = created.body.data.id
