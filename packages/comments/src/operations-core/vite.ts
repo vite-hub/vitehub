@@ -3,7 +3,7 @@ import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
-import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
@@ -98,6 +98,7 @@ const defaultImports: CommentsImports = {
 }
 
 type CommentsPluginConfig = UserConfig & {
+  [VITEHUB_APP_BASE_URL]?: string
   [VITEHUB_PROJECT_ROOT]?: string
   [VITEHUB_SERVER_DIRS]?: string[]
   [VITEHUB_NITRO_CONFIG_CONTEXT]?: boolean
@@ -208,11 +209,12 @@ export function renderCommentsNitroPlugin(options: { auth: boolean, database?: s
 
 /**
  * The path that the app is mounted at, under Nuxt. There Vite's `base` is the folder of its built files (`/_nuxt/` in
- * development), and the app base reaches Vite as the `__VITEHUB_APP_BASE_URL__` define. Later plugins replace that
- * define with Vite's base, so only the `config` hook, which runs before them, can read it.
+ * development). Prefer the host's app base, which stays available when later plugins replace the client define
+ * with Vite's assets base. The define is a fallback for hosts without the shared app-base key.
  */
 function nuxtAppMount(config: { define?: Record<string, unknown> } & CommentsPluginConfig): string | undefined {
   if (!config[VITEHUB_NITRO_CONFIG_CONTEXT]) return undefined
+  if (typeof config[VITEHUB_APP_BASE_URL] === "string") return mountPath(config[VITEHUB_APP_BASE_URL])
   const base: unknown = config.define?.__VITEHUB_APP_BASE_URL__
   try {
     const value: unknown = typeof base === "string" ? JSON.parse(base) : base

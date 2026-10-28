@@ -318,7 +318,7 @@ function routePattern(collection: AnyContentCollection): RegExp | null {
   return new RegExp(`^${source}${token ? "" : "$"}`)
 }
 
-/** Paths of the documents of one collection, as of one draft head. Rebuilt only when the head moves. */
+/** Paths of the documents of one collection and ref. Rebuilt only when that ref's head moves. */
 interface PathIndex {
   byPath: Map<string, string>
   head: string
@@ -327,21 +327,23 @@ interface PathIndex {
 const pathIndexes = new WeakMap<object, Map<string, PathIndex>>()
 
 /** Every document of the collection with a URL, from full pages of summaries (no bodies). One list per head. */
-async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection): Promise<Map<string, string>> {
+async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection, selectedRef: "draft" | "published"): Promise<Map<string, string>> {
   // A stand-in runtime without head() builds the index each time.
-  const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.("draft") ?? null
-  const cached = pathIndexes.get(content)?.get(collection.name)
+  const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.(selectedRef) ?? null
+  if (selectedRef === "published" && head === null && typeof content.head === "function") return new Map()
+  const key = `${selectedRef}:${collection.name}`
+  const cached = pathIndexes.get(content)?.get(key)
   if (head !== null && cached?.head === head) return cached.byPath
   const byPath = new Map<string, string>()
   let cursor: string | undefined
   do {
-    const page = await collection.list({ limit: 1_000, ref: "draft", ...(cursor === undefined ? {} : { cursor }) })
+    const page = await collection.list({ limit: 1_000, ref: selectedRef, ...(cursor === undefined ? {} : { cursor }) })
     for (const item of page.items) if (item.url !== undefined && item.url !== null) byPath.set(normalizeUrl(item.url), item.id)
     cursor = page.nextCursor ?? undefined
   } while (cursor !== undefined)
   if (head !== null) {
     const indexes = pathIndexes.get(content) ?? new Map<string, PathIndex>()
-    indexes.set(collection.name, { byPath, head })
+    indexes.set(key, { byPath, head })
     pathIndexes.set(content, indexes)
   }
   return byPath
@@ -359,9 +361,12 @@ const resolveDocument = defineOperation({
     const wanted = normalizeUrl(input.path)
     // A collection whose `url` pattern cannot produce the path is not listed at all.
     const candidates = (await readableCollections(content, access)).filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
-    for (const collection of candidates) {
-      const id = (await pathIndexOf(content, collection)).get(wanted)
-      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
+    // Keep draft URLs first, then fall back to the URLs still served by the published site.
+    for (const selectedRef of ["draft", "published"] as const) {
+      for (const collection of candidates) {
+        const id = (await pathIndexOf(content, collection, selectedRef)).get(wanted)
+        if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
+      }
     }
     return null
   }),

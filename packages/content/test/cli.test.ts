@@ -730,6 +730,36 @@ describe("Content operations", () => {
     expect(await resolve("/nowhere")).toEqual({ ok: true, value: null })
   })
 
+  it("resolves published URLs while a draft changes or deletes the page", async () => {
+    const content = defineContent({
+      authorize: ({ id }) => id !== "secret",
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:title" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    const posts = content.collection("posts")
+    await posts.save("hello", { data: { title: "published" } })
+    await posts.save("secret", { data: { title: "secret" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    const found = { ok: true, value: { collection: "posts", id: "hello" } }
+    await posts.save("hello", { data: { title: "draft" } })
+    expect(await resolve("/blog/draft")).toEqual(found)
+    expect(await resolve("/blog/published")).toEqual(found)
+    // A pending deletion also leaves the published page online.
+    await posts.remove("hello")
+    await posts.remove("secret")
+    expect(await resolve("/blog/published")).toEqual(found)
+    expect(await resolve("/blog/secret")).toEqual({ ok: true, value: null })
+    // Publishing invalidates the fallback index as well as the draft index.
+    await content.publish()
+    expect(await resolve("/blog/published")).toEqual({ ok: true, value: null })
+  })
+
   it.each([
     ["/blog/:id/", "Hello", "/blog/hello"],
     ["/blog/:id/?lang=en#top", "Hello", "/blog/hello"],

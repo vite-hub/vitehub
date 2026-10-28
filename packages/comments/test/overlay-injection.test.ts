@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 
 import { afterEach, describe, expect, it } from "vitest"
+import { resolveConfig } from "vite"
+import type { InlineConfig } from "vite"
 
 import { defineComments, validateCommentsDefinition } from "../src/operations-core/define.ts"
 import { injectLoader, loaderTag, loaderUrl, mountPath, renderOverlayMiddleware, scriptNonce } from "../src/overlay.ts"
@@ -366,6 +368,34 @@ describe("hubComments overlay", () => {
       expect(indexHtml(plugin)("<body></body>")).toContain(`src="${mount}/_vitehub/comments/loader.abc123.js`)
       expect(JSON.stringify((config.nitro as { publicAssets?: unknown }).publicAssets)).toContain(`"baseURL":"${mount}/_vitehub/comments"`)
     }
+  })
+
+  it("keeps the Nuxt app mount when earlier config hooks replace its client define", async () => {
+    const root = await project()
+    const plugin = hubComments({ overlayAssets: assets })
+    const input: InlineConfig & { __vitehubNitroConfigContext: boolean, __vitehubAppBaseURL: string } = {
+      configFile: false,
+      root,
+      logLevel: "silent",
+      base: "/_nuxt/",
+      define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/portal/") },
+      __vitehubNitroConfigContext: true,
+      __vitehubAppBaseURL: "/portal/",
+      plugins: [
+        {
+          name: "replace-app-base-define",
+          enforce: "pre",
+          config: () => ({ define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/_nuxt/") } }),
+        },
+        plugin,
+      ],
+    }
+    const config = await resolveConfig(input, "serve")
+    expect(config.define?.__VITEHUB_APP_BASE_URL__).toBe(JSON.stringify("/_nuxt/"))
+    const generated = '"/portal/_vitehub/comments/loader.abc123.js'
+    expect(await readFile(join(root, ".vitehub/comments/inject-overlay.mjs"), "utf8")).toContain(generated)
+    expect(await readFile(join(root, commentsNitroPluginPath), "utf8")).toContain(generated)
+    expect(JSON.stringify(Reflect.get(config, "nitro").publicAssets)).toContain('"baseURL":"/portal/_vitehub/comments"')
   })
 
   it("tells the loader that the app can edit pages only when the check says so", async () => {
