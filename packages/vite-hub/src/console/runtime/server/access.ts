@@ -20,7 +20,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, authBasePath?: (event: object) => Promise<string>, signIn?: (event: object, denied?: Response) => Promise<Response>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
@@ -122,6 +122,21 @@ export function consoleSignInPage(pathname: string): string | undefined {
   return isConsoleSignInPage(mounted) ? mounted : undefined
 }
 
+/** The app Auth mount used by the Console's own browser client. */
+export function consoleAppAuthBasePath(event: ConsoleRequestEvent): Promise<string> | undefined {
+  const policy = scope[policyKey]
+  return policy && "authBasePath" in policy ? policy.authBasePath?.(event) : undefined
+}
+
+/** Serve the built-in app Auth page before the application's protected Console routes. */
+export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> | undefined {
+  const policy = scope[policyKey]
+  const url = consoleRequestURL(event)
+  if (policy && "signIn" in policy && policy.signIn && url.pathname === `${consoleMountBase(url.pathname)}/_vitehub/sign-in`) {
+    return policy.signIn(event)
+  }
+}
+
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
@@ -133,7 +148,12 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
   if (!page || (method !== "GET" && method !== "HEAD")) return undefined
   const access = await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access) || access.status !== 401) return undefined
+  if (!isRuntimeResponse(access)) return undefined
+  const policy = scope[policyKey]
+  if (access.status === 403 && page.endsWith("/_vitehub/sign-in") && policy && "signIn" in policy && policy.signIn) {
+    return policy.signIn(event, access)
+  }
+  if (access.status !== 401) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {

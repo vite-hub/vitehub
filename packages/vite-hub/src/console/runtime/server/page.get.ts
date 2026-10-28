@@ -1,5 +1,5 @@
 import { consoleMountBase } from "../console-route.ts"
-import { consoleSignInPage, consoleSignInRedirect } from "./access.ts"
+import { consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
@@ -36,9 +36,11 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
   const mountBase = consoleMountBase(pathname)
   // The Console links to the sign-in page when a session ends while the page is open.
   const signInPage = consoleSignInPage(pathname)
+  const authBase = await consoleAppAuthBasePath(event)
+  const authMeta = authBase ? `\n    <meta name="vitehub-console-auth-base" content="${escapeAttribute(authBase)}">` : ""
   const signInMeta = signInPage ? `\n    <meta name="vitehub-console-sign-in" content="${escapeAttribute(signInPage)}">` : ""
   const mountedPage = page
-    .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}`)
+    .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}${authMeta}`)
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
     .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)
