@@ -37,7 +37,7 @@ function thread(): CommentThread {
   const now = new Date().toISOString()
   return {
     id: "thread", page: "/", status: "open", createdBy: author, resolvedBy: null, resolvedAt: null,
-    createdAt: now, updatedAt: now,
+    createdAt: now, updatedAt: now, context: null,
     anchor: { selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
     comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now, editedAt: null }],
   }

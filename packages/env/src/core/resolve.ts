@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { runtimeValueSchema } from "./declarations.ts"
-import { envValueTypeName, parseEnvValue } from "./values.ts"
+import { envValueTypeName, parseEnvValue, schemaContainsEnum } from "./values.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { Diagnostic } from "nostics"
@@ -323,7 +323,7 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     if (!schema) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema. Server Env accepts env(), env.boolean(), env.number(), and env.enum() because runtime parsers must be serializable.`)
     }
-    if (schema.kind === "enum" && value.secret) {
+    if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
     }
     const type = envValueTypeName(schema)
