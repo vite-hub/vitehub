@@ -3911,11 +3911,46 @@ describe("ViteHub Nuxt integration", () => {
     await fixture.runNitroConfigHook(config)
     const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
     const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
-    for (const importer of ["/app/node_modules/@vite-hub/auth/dist/server.js", "/app/.vitehub/nitro/workspace/plugin.ts", "/app/node_modules/vite-hub/dist/nuxt.js"]) {
+    for (const importer of [fileURLToPath(import.meta.resolve("@vite-hub/auth")), "/tmp/vitehub-nuxt/.vitehub/nitro/workspace/plugin.ts", "/tmp/vitehub-nuxt/.nuxt/vitehub/runtime.mjs", fileURLToPath(new URL("../src/nuxt.ts", import.meta.url))]) {
       expect(resolver.resolveId?.("h3", importer)).toBe(fileURLToPath(import.meta.resolve("h3")))
     }
     expect(resolver.resolveId?.("h3", "/app/server/api/example.ts")).toBeUndefined()
     expect(resolver.resolveId?.("other", "/app/node_modules/vite-hub/dist/nuxt.js")).toBeUndefined()
+  })
+
+  it.each([
+    ["node_modules/nitro", "nitro", "3.0.0-beta.1", true],
+    ["node_modules/.pnpm/nitro@3.0.0/node_modules/nitro", "nitro", "3.0.0", true],
+    ["node_modules/h3", "h3", "2.0.0", true],
+    ["node_modules/.pnpm/h3@2.0.0/node_modules/h3", "h3", "2.0.0", true],
+    ["node_modules/vite-hub", "vite-hub", "0.0.4", true],
+    ["node_modules/@vite-hub/auth", "@vite-hub/auth", "0.0.4", true],
+    ["packages/auth", "@vite-hub/auth", "0.0.4", true],
+    ["vite-hub", "consumer", "1.0.0", false],
+    ["@vite-hub", "consumer", "1.0.0", false],
+    [".vitehub", "consumer", "1.0.0", false],
+    ["vite-hub/node_modules/nitropack", "nitropack", "2.0.0", false],
+    ["@vite-hub/node_modules/unrelated", "unrelated", "1.0.0", false],
+    [".vitehub/node_modules/h3", "h3", "1.0.0", false],
+  ] as const)("identifies the H3 owner at the package boundary %s", async (layout, name, version, owned) => {
+    const directory = await mkdtemp("/tmp/vitehub-h3-owner-")
+    try {
+      const root = resolve(directory, layout)
+      const importer = resolve(root, "dist/runtime.mjs")
+      await mkdir(dirname(importer), { recursive: true })
+      await writeFile(resolve(root, "package.json"), JSON.stringify({ name, version }))
+      await writeFile(importer, "")
+      const fixture = createNuxt(false)
+      await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+      const config: Record<string, unknown> = {}
+      await fixture.runNitroConfigHook(config)
+      const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+      for (const path of [importer, importer.replaceAll("/", "\\")]) {
+        expect(resolver.resolveId?.("h3", path)).toBe(owned ? fileURLToPath(import.meta.resolve("h3")) : undefined)
+      }
+    }
+    finally { await rm(directory, { force: true, recursive: true }) }
   })
 
   it("uses runtime bindings in Node Cloudflare development without a consumer shim", async () => {
@@ -3930,6 +3965,16 @@ describe("ViteHub Nuxt integration", () => {
     try {
       expect(shim.env.EXAMPLE).toBe("binding")
       expect(shim.env.FALLBACK).toBe("process")
+      expect(Object.hasOwn(shim.env, "EXAMPLE")).toBe(true)
+      expect(Object.hasOwn(shim.env, "FALLBACK")).toBe(true)
+      expect(Object.hasOwn(shim.env, "MISSING_BINDING")).toBe(false)
+      expect(Object.keys(shim.env)).toContain("EXAMPLE")
+      expect(Object.assign({}, shim.env)).toMatchObject({ EXAMPLE: "binding", FALLBACK: "process" })
+      vi.stubGlobal("__env__", { NEXT: "next request" })
+      expect(Object.hasOwn(shim.env, "EXAMPLE")).toBe(false)
+      expect(Object.assign({}, shim.env)).toMatchObject({ NEXT: "next request", FALLBACK: "process" })
+      vi.stubGlobal("__env__", undefined)
+      expect(Object.assign({}, shim.env)).toHaveProperty("FALLBACK", "process")
       let completed = false
       await shim.waitUntil(Promise.resolve().then(() => { completed = true }))
       expect(completed).toBe(true)
