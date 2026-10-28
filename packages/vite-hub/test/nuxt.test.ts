@@ -2565,7 +2565,6 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig = {
       cloudflare: {
         wrangler: {
-          alias: { "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs" },
           d1_databases: [d1Binding, d1Binding],
           observability: { enabled: true },
         },
@@ -2640,6 +2639,7 @@ describe("ViteHub Nuxt integration", () => {
       },
       cloudflare: {
         wrangler: {
+          alias: { "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs" },
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },
