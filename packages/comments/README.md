@@ -20,6 +20,8 @@ ViteHub then adds the `vitehub_comment_threads` and `vitehub_comments` tables to
 
 Open any page with `?comments`. The server adds the overlay script to that page, and the session route sets the `vitehub-comments` cookie so later pages open in comment mode too. The cookie is a hint, never a credential: every route checks `authorize` again. A request without the hint gets the page unchanged.
 
+When the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Custom `identify` runs after that access check. Without the Console, custom `identify` takes precedence over ViteHub Auth, and Comments reads the Auth session only when `identify` is absent.
+
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
 
 ```vue
@@ -54,6 +56,7 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 - A thread change tells the other tabs of the page through the Realtime events room, and they read the threads again. Changes from the server API reach open pages when they refetch: on focus and every 30 seconds.
 - Without a Realtime authority, such as on Vercel, comments work without presence or cursors.
 - Write routes compare `Origin` with the request origin, and honour `X-Forwarded-Proto` and `X-Forwarded-Host` from a proxy that ends TLS.
+- Page context stores only the URL origin and pathname, validated against the request origin and thread page. Query parameters, URL credentials, and fragments are discarded. Nuxt component files come from its resolved component registry.
 - Guests can comment only when `authorize` allows `user: null`. They name themselves in the browser, and their names and IDs are display data only. Guests cannot delete comments or threads.
 - The overlay is a custom element with a shadow root, so the page's CSS does not reach it.
 
