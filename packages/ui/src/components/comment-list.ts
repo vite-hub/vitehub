@@ -65,7 +65,7 @@ export const CommentList = defineComponent({
       event?.preventDefault();
       const here = thread.subject.kind === comments.subject.value.kind && thread.subject.id === comments.subject.value.id;
       if (here) comments.open(thread, { scroll: true });
-      else (props.navigate ?? ((href: string) => window.location.assign(href)))(comments.link(thread));
+      else if (comments.close()) (props.navigate ?? ((href: string) => window.location.assign(href)))(comments.link(thread));
     }
 
     return () => {

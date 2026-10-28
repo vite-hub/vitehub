@@ -170,7 +170,9 @@ export const CommentComposer = defineComponent({
       const mentions = props.mentions.filter((id) => {
         // A person whose name is not known cannot be checked against the text, so the mention goes.
         const name = nameOf(id);
-        return name !== undefined && payload.text.includes(`@${name}`);
+        if (name === undefined) return false;
+        const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        return new RegExp(`@${escaped}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "u").test(payload.text);
       });
       emit("submit", { body: payload.text, mentions: [...mentions] } satisfies CommentComposerSubmit);
     }

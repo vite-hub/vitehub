@@ -203,13 +203,13 @@ export const CommentThread = defineComponent({
     });
 
     async function send(submit: CommentComposerSubmit) {
-      if (sending.value) return;
+      if (sending.value || !props.onReply) return;
       sending.value = true;
       failure.value = undefined;
       const submitted = reply.value;
       const submittedMentions = mentions.value;
       try {
-        await props.onReply?.(submit.body, [...submit.mentions]);
+        await props.onReply(submit.body, [...submit.mentions]);
         if (reply.value === submitted && mentions.value === submittedMentions) {
           reply.value = "";
           mentions.value = [];

@@ -342,3 +342,56 @@ describe("createCommentsClient", () => {
     })
   })
 })
+
+describe("query reconciliation", () => {
+  it.each([{ mine: true }, { mentions: true }])("uses transport membership for %j without a client user", async query => {
+    const store = createMemoryTransport({ user: ana })
+    const matching = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const list = deferred<CommentThread[]>()
+      store.list = () => list.promise
+      await store.as(ben).create({ subject, anchor, body: "Someone else's comment" })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+      list.resolve([matching])
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+    } finally {
+      stop()
+    }
+  })
+
+  it.each([
+    { page: "/pricing" },
+    { subject },
+    { status: "open" as const },
+    { mine: true },
+    { mentions: true },
+  ])("keeps pushed and local changes within %j", async query => {
+    let now = 1_000
+    const store = createMemoryTransport({ user: ana, now: () => ++now })
+    const client = createCommentsClient({ transport: store, user: ana, query })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const other = store.as(ben)
+      const elsewhere = await other.create({ subject: { kind: "page", id: "/about" }, anchor, body: "Elsewhere" })
+      await other.resolve({ threadId: elsewhere.id })
+      await client.refresh()
+      await other.reply({ threadId: elsewhere.id, body: "Still elsewhere" })
+      expect(client.threads).toEqual([])
+      const matching = await client.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+      await client.resolve({ threadId: matching.id })
+      await client.edit({ threadId: matching.id, messageId: matching.messages[0]!.id, body: "Here", mentions: [] })
+      expect(client.threads.map(thread => thread.id)).toEqual(query.status || query.mentions ? [] : [matching.id])
+      await client.reopen({ threadId: matching.id })
+      await client.edit({ threadId: matching.id, messageId: matching.messages[0]!.id, body: "Here @Ana", mentions: [ana.id] })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+    } finally {
+      stop()
+    }
+  })
+})

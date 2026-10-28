@@ -78,8 +78,18 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const notify = (): void => {
     for (const listener of listeners) listener()
   }
+  const matchesQuery = (thread: CommentThread): boolean => {
+    const user = options.user
+    if (query.subject && (thread.subject.kind !== query.subject.kind || thread.subject.id !== query.subject.id)) return false
+    if (query.page !== undefined && (thread.subject.kind !== "page" || thread.subject.id !== query.page)) return false
+    if (query.status && thread.status !== query.status) return false
+    if (user && query.mine && thread.author.id !== user.id) return false
+    if (user && query.mentions && !thread.messages.some(message => message.mentions.includes(user.id))) return false
+    return true
+  }
   const publish = (): void => {
-    threads = [...byId.values()].sort((a, b) => a.n - b.n)
+    // Keep versions for reconciliation even when an update moves a thread out of the visible query.
+    threads = [...byId.values()].filter(matchesQuery).sort((a, b) => a.n - b.n)
     notify()
   }
   // A thread older than the one that the client holds is a late answer or a late event. It does not replace it.
@@ -155,6 +165,8 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   }
   const apply = (event: CommentEvent): void => {
     if (event.type === "thread") {
+      // Only the transport can evaluate user filters when the client has no signed-in user.
+      if (!options.user && (query.mine || query.mentions)) return refreshQuietly()
       const local = byId.get(event.thread.id)
       if (local?.updatedAt === event.thread.updatedAt) refreshQuietly()
       else upsert(event.thread)
@@ -181,6 +193,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     set query(next) {
       query = next
       generation++
+      publish()
     },
     refresh,
     get: input => transport.get(input),

@@ -114,7 +114,8 @@ export interface CommentsState {
   /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
   send: () => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
-  close: () => void;
+  /** Closes the thread, returning false when unsent text prevents closing or navigation. */
+  close: () => boolean;
   reply: (threadId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
@@ -248,10 +249,14 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   function cancelDraft(): void {
     draft.value = null;
   }
-  function close(): void {
-    if (hasText()) return block();
+  function close(): boolean {
+    if (hasText()) {
+      block();
+      return false;
+    }
     openId.value = null;
     hoverId.value = null;
+    return true;
   }
   function exit(): void {
     if (hasText()) return block();
@@ -423,13 +428,20 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
     });
-    observer.observe(document.documentElement, {
+    const observeOptions = {
       attributeFilter: ["class", "style", "hidden"],
       attributes: true,
       characterData: true,
       childList: true,
       subtree: true,
-    });
+    };
+    stops.push(watch(root, value => {
+      observer.disconnect();
+      observer.observe(document.documentElement, observeOptions);
+      // Shadow mutations do not cross the host. Keep watching the outer layout as well.
+      if (value !== document) observer.observe(value, observeOptions);
+      schedule();
+    }, { immediate: true, flush: "post" }));
     // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
     const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
     const watched = new Set<Element>();

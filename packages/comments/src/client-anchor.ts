@@ -201,6 +201,9 @@ function textAnchor(target: Range | Selection, options: CreateAnchorOptions): Te
   const container = range && elementOfNode(range.commonAncestorContainer)
   if (!range || !container || exact === "") throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "an empty selection" })
   const element = ignoreUp(container, options) ?? container
+  if (options.root && (!options.root.contains(range.startContainer) || !options.root.contains(range.endContainer) || !options.root.contains(element))) {
+    throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "a selection outside the configured root" })
+  }
   const start = textOffset(element, range.startContainer, range.startOffset)
   const text = textNodes(element).map(node => node.data).join("")
   const context = options.context ?? defaultContext
@@ -224,6 +227,7 @@ function isImage(element: Element): boolean {
 }
 
 function boxAnchor(element: Element, options: CreateAnchorOptions, point: AnchorPoint | undefined): ElementAnchor | AreaAnchor | ImageAnchor {
+  if (options.root && !options.root.contains(element)) throw commentsErrorDiagnostics.COMMENTS_R0001({ target: "an element outside the configured root" })
   const box = boxOf(element)
   const selector = selectorFor(element, options.root ?? defaultRoot(element))
   const kind = isImage(element) ? "image" : undefined
@@ -342,11 +346,17 @@ function resolveText(anchor: TextAnchor, element: Element): TextResolution | und
   }
 }
 
+function composedParent(element: Element): Element | null {
+  if (element.parentElement) return element.parentElement
+  const root = element.getRootNode()
+  return root instanceof ShadowRoot ? root.host : null
+}
+
 // A scroll container or a box with `overflow: hidden` cuts off what lies outside of it. A pin there would float over the page.
 function isClipped(element: Element, x: number, y: number): boolean {
   const view = element.ownerDocument.defaultView
   if (!view) return false
-  for (let node = element.parentElement; node; node = node.parentElement) {
+  for (let node = composedParent(element); node; node = composedParent(node)) {
     const { overflow, overflowX, overflowY } = view.getComputedStyle(node)
     const clips = [overflow, overflowX, overflowY].some(value => value !== "" && value !== "visible")
     if (!clips) continue

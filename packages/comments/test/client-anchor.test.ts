@@ -348,3 +348,42 @@ describe("quote matching", () => {
     expect(quote("Go. Go. Go.", { exact: "Go", prefix: "", suffix: "" })).toEqual({ detached: true })
   })
 })
+
+describe("configured root boundaries", () => {
+  it.each(["element", "shadow"])("rejects elements and selections outside an %s root", kind => {
+    page('<main><p id="inside">Inside</p></main><p id="outside">Outside</p>')
+    const host = document.querySelector("main")!
+    const root = kind === "shadow" ? host.attachShadow({ mode: "open" }) : host
+    if (kind === "shadow") root.append(document.getElementById("inside")!)
+    const outside = document.getElementById("outside")!
+    const inside = root.querySelector("p")!
+    expect(() => createAnchor(outside, { root })).toThrowError(expect.objectContaining({ code: "COMMENTS_R0001" }))
+    const range = document.createRange()
+    range.selectNodeContents(outside)
+    expect(() => createAnchor(range, { root })).toThrowError(expect.objectContaining({ code: "COMMENTS_R0001" }))
+    const selection = window.getSelection()!
+    selection.removeAllRanges()
+    selection.addRange(range)
+    expect(() => createAnchor(selection, { root })).toThrowError(expect.objectContaining({ code: "COMMENTS_R0001" }))
+    selection.removeAllRanges()
+    expect(createAnchor(inside, { root })).toMatchObject({ kind: "element" })
+    range.selectNodeContents(inside)
+    expect(createAnchor(range, { root })).toMatchObject({ kind: "text", exact: "Inside" })
+  })
+
+  it.each(["host", "ancestor"])("detects clipping through a shadow %s", kind => {
+    page('<main><section></section></main>')
+    const host = document.querySelector("section")!
+    const root = host.attachShadow({ mode: "open" })
+    root.innerHTML = '<button id="inside">Inside</button>'
+    const inside = root.querySelector("button")!
+    const clipper = kind === "host" ? host : document.querySelector("main")!
+    clipper.style.overflow = "hidden"
+    place(clipper, { left: 0, top: 0, width: 100, height: 100 })
+    place(inside, { left: 150, top: 0, width: 20, height: 20 })
+    const anchor = createAnchor(inside, { root })
+    expect(resolved(resolveAnchor(anchor, root)).clipped).toBe(true)
+    place(inside, { left: 0, top: 0, width: 20, height: 20 })
+    expect(resolved(resolveAnchor(anchor, root)).clipped).toBe(false)
+  })
+})

@@ -1245,3 +1245,106 @@ describe("review regressions", () => {
     expect(document.activeElement).toBe(wrapper.get("[data-slot=comment-toolbar-mode]").element);
   });
 });
+
+describe("comment boundaries", () => {
+  it.each(["draft", "reply", "edit"])("protects an unsent %s before keyboard navigation to another page", async kind => {
+    const navigate = vi.fn();
+    const { wrapper } = await layer([thread(1), thread(2, { subject: about })], { navigate });
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    await wrapper.findAll("[data-slot=comment-list-scope]")[1]!.trigger("click");
+    await flushPromises();
+    if (kind === "draft") await drop(wrapper);
+    else {
+      await wrapper.get("[data-slot=comment-pin]").trigger("click");
+      if (kind === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    }
+    const selector = kind === "edit" ? "[data-variant=edit] textarea" : "textarea";
+    await wrapper.get(selector).setValue("Keep this text");
+    const link = wrapper.findAll("[data-slot=comment-list-item]").find(row => row.attributes("href") === "/about?comment=2")!;
+    (link.element as HTMLElement).focus();
+    await link.trigger("click", { detail: 0 });
+    await flushPromises();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(wrapper.get(selector).element).toHaveProperty("value", "Keep this text");
+    expect(document.activeElement).toBe(wrapper.get(selector).element);
+    await wrapper.get(selector).setValue("");
+    await link.trigger("click", { detail: 0 });
+    expect(navigate).toHaveBeenCalledWith("/about?comment=2");
+  });
+
+  it("keeps a reply until a submit handler is available", async () => {
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    const field = wrapper.get("textarea");
+    await field.setValue("Please answer");
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(field.element).toHaveProperty("value", "Please answer");
+    const onReply = vi.fn().mockResolvedValue(undefined);
+    await wrapper.setProps({ onReply });
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onReply).toHaveBeenCalledWith("Please answer", []);
+    expect(field.element).toHaveProperty("value", "");
+  });
+
+  it.each([
+    { body: "Hi @Anna", mentions: [] },
+    { body: "Hi @Ann_1", mentions: [] },
+    { body: "Hi @Année", mentions: [] },
+    { body: "Hi @Ann!", mentions: ["ann"] },
+    { body: "(@Ann)", mentions: ["ann"] },
+    { body: "Hi @Ann", mentions: ["ann"] },
+  ])("matches complete mention tokens in $body", async ({ body, mentions }) => {
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const message = { ...thread(1).messages[0]!, body: "Hi @Ann", mentions: ["ann"] };
+    const wrapper = mount(CommentReply, {
+      attachTo: document.body,
+      global,
+      props: { editable: true, message, onEdit, people: [{ id: "ann", name: "Ann" }] },
+    });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("textarea").setValue(body);
+    await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onEdit).toHaveBeenCalledWith("message-1", body, mentions);
+  });
+
+  it("remeasures shadow-root mutations and follows a reactive root", async () => {
+    const firstHost = document.createElement("section");
+    const secondHost = document.createElement("section");
+    document.body.append(firstHost, secondHost);
+    const first = firstHost.attachShadow({ mode: "open" });
+    const second = secondHost.attachShadow({ mode: "open" });
+    first.innerHTML = '<button id="cta">Buy</button>';
+    second.innerHTML = '<button id="cta">Buy</button>';
+    target = first.querySelector("button")!;
+    const root = ref<ParentNode>(first);
+    const { client } = setup([thread(1)]);
+    const wrapper = mount(defineComponent({
+      setup() {
+        const comments = useComments({ client, root, subject: pricing });
+        return () => h(CommentLayer, { comments });
+      },
+    }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"));
+      await flushPromises();
+      expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 200px");
+      rect.left = 300;
+      first.prepend(document.createElement("div"));
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 400px"));
+      target = second.querySelector("button")!;
+      rect.left = 500;
+      root.value = second;
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 600px"));
+      rect.left = 700;
+      second.prepend(document.createElement("div"));
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 800px"));
+    } finally {
+      rect.left = 100;
+    }
+  });
+});
