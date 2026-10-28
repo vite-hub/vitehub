@@ -156,7 +156,7 @@ export interface CommentsStore {
    * accepts count, and a message without a thread never shows.
    */
   knownUsers: (query: string, limit: number, canRead: (thread: CommentThread) => Promise<boolean>) => Promise<CommentUser[]>
-  knownUsersByIds: (ids: readonly string[]) => Promise<CommentUser[]>
+  knownUsersByIds: (ids: readonly string[], canRead: (thread: CommentThread) => Promise<boolean>) => Promise<CommentUser[]>
 }
 
 export function createCommentsStore(database: CommentsDatabase, tables: CommentsTables = { commentCounters, commentMessages, commentThreads }): CommentsStore {
@@ -360,11 +360,23 @@ export function createCommentsStore(database: CommentsDatabase, tables: Comments
         : { resolvedAt: null, resolvedBy: null, status })
       return one(threadId)
     },
-    async knownUsersByIds(ids) {
+    async knownUsersByIds(ids, canRead) {
       const seen = new Map<string, CommentUser>()
+      const readable = new Map<string, Promise<boolean>>()
       for (const part of chunks([...new Set(ids)])) {
         const rows = await candidateAuthors(inArray(messages.authorId, part))
-        for (const row of rows) if (!seen.has(row.id)) seen.set(row.id, user(row.id, row.name, row.image))
+        for (const row of rows) {
+          if (seen.has(row.id)) continue
+          let allowed = readable.get(row.threadId)
+          if (!allowed) {
+            allowed = (async () => {
+              const found = await find(row.threadId)
+              return found ? await canRead(found) : false
+            })()
+            readable.set(row.threadId, allowed)
+          }
+          if (await allowed) seen.set(row.id, user(row.id, row.name, row.image))
+        }
       }
       return [...seen.values()]
     },

@@ -400,8 +400,8 @@ export interface OperationCallKind {
  * reads. Every surface (RPC, CLI, agents, MCP) checks access here.
  */
 export function operationAccessAllows(access: OperationAccess, section: string | false | undefined, call?: OperationCallKind): boolean {
-  if (section === false || access.sections === "all") return true
   if (section === undefined) return false
+  if (section === false || access.sections === "all") return true
   if (access.sections.includes(section)) return true
   if (!access.sections.includes(`${section}${readOnlySectionSuffix}`)) return false
   return call === undefined || call.kind === "read" || call.readOnly === true
@@ -536,15 +536,16 @@ export function assertOperationConfirmation(request: Request, call: OperationCal
 
 /** Call one operation over the RPC of a dev server or a deployed app. Never throws. */
 export async function callOperation(target: OperationTarget, name: string, input: unknown): Promise<OperationResult> {
-  const base = new URL(target.url)
-  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
-  const url = new URL(operationRpcPath.slice(1), base)
-  const headers = operationHeaders(target.env)
-  if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
-  if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
-  let response: Response
+  let origin = "the ViteHub app"
   try {
-    response = await (target.fetch ?? fetch)(url.href, {
+    const base = new URL(target.url)
+    if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
+    const url = new URL(operationRpcPath.slice(1), base)
+    origin = url.origin
+    const headers = operationHeaders(target.env)
+    if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
+    if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
+    const response = await (target.fetch ?? fetch)(url.href, {
       // The operation comes first so the server can find large calls within the first bytes.
       body: JSON.stringify({ operation: name, input: input ?? {} }),
       headers,
@@ -552,35 +553,35 @@ export async function callOperation(target: OperationTarget, name: string, input
       redirect: "manual",
       signal: AbortSignal.timeout(target.timeout ?? 30_000),
     })
+    const served = response.headers.get(operationRootHeader)
+    if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
+      const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
+      const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
+      return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
+    }
+    const body = await response.text()
+    let json: unknown
+    try {
+      json = body ? JSON.parse(body) : undefined
+    }
+    catch {
+      json = undefined
+    }
+    if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
+    if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
+      const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
+      if (text(json.fix)) failure.fix = text(json.fix)
+      if (text(json.docs)) failure.docs = text(json.docs)
+      if (isObject(json.details)) failure.details = json.details
+      if ((failure.status === 401 || failure.status === 403) && !hasCredentials(target.env) && !failure.fix) failure.fix = operationCredentialHint
+      return failure
+    }
+    if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
+      return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
+    }
+    return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). Pass the origin of an app that runs ViteHub.`, response.status)
   }
   catch (error) {
-    return unreachable(`The request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}`)
+    return unreachable(`The request to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const served = response.headers.get(operationRootHeader)
-  if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
-    const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
-    const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
-    return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
-  }
-  const body = await response.text()
-  let json: unknown
-  try {
-    json = body ? JSON.parse(body) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
-  if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
-    const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
-    if (text(json.fix)) failure.fix = text(json.fix)
-    if (text(json.docs)) failure.docs = text(json.docs)
-    if (isObject(json.details)) failure.details = json.details
-    if ((failure.status === 401 || failure.status === 403) && !hasCredentials(target.env) && !failure.fix) failure.fix = operationCredentialHint
-    return failure
-  }
-  if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
-    return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
-  }
-  return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). Pass the origin of an app that runs ViteHub.`, response.status)
 }

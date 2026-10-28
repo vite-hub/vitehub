@@ -154,7 +154,7 @@ function pointTarget(point: AnchorPoint, options: CreateAnchorOptions): Element 
   const stack = typeof scope.elementsFromPoint === "function"
     ? scope.elementsFromPoint(point.x, point.y)
     : [scope.elementFromPoint(point.x, point.y)]
-  return stack.find((element): element is Element => element !== null && !options.ignore?.(element))
+  return stack.find((element): element is Element => element !== null && (!node || element !== node && node.contains(element)) && !options.ignore?.(element))
 }
 
 function textNodes(node: Node, into: Text[] = []): Text[] {

@@ -143,6 +143,26 @@ it("returns no threads for an anonymous mine query", async () => {
   expect(await call("comments.list", { mine: true }, null)).toEqual({ ok: true, value: [] })
 })
 
+it.each(["create", "reply", "edit"])("hides unreadable authors when validating %s mentions", async (operation) => {
+  setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id }))
+  await create(admin)
+  const thread = await create()
+  const target = operation === "create" ? input : { threadId: thread.id, ...(operation === "edit" ? { messageId: thread.messages[0]!.id } : {}) }
+  const value = { ...target, body: "No mention token here." }
+  expect(await call(`comments.${operation}`, { ...value, mentions: [admin.id] })).toMatchObject({
+    ok: false,
+    status: 400,
+    message: expect.stringContaining('The mentioned user "admin" does not exist.'),
+  })
+})
+
+it("resolves mention authors from a readable thread even if they also wrote in a hidden thread", async () => {
+  setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || thread.subject.id !== "/hidden" }))
+  await create(admin)
+  await create({ ...admin, name: "Hidden Admin" }, { ...input, subject: { ...page, id: "/hidden" } })
+  expect(await call("comments.create", { ...input, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: true })
+})
+
 it.each([false, true])("scans past repeated authors for mention suggestions (hidden: %s)", async (hidden) => {
   setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden || thread.author.id !== member.id }))
   const prolific = await create()
