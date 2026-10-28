@@ -12,6 +12,7 @@ export default defineConfig({
       onlyBundle: false,
     },
     entry: [
+      "src/client.ts",
       "src/index.ts",
       "src/server.ts",
       "src/vite.ts",

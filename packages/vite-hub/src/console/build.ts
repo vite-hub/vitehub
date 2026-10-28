@@ -2,7 +2,7 @@ import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
 import { collectScheduleContributions, discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
 
-import { consoleContributedSections, consoleDocumentEditorSectionIds } from "./contributions.ts"
+import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
 
 import type { ConsoleSectionDiscoveryContext } from "./contributions.ts"
@@ -20,17 +20,20 @@ export interface ConsoleBuildCatalog {
   content: Record<ConsoleSectionId, ConsoleSectionContent>
   /** Application module of each document editor section that discovery found, such as `server/content.ts`. */
   documents?: Record<ConsoleSectionId, string>
+  /** Record table sections whose application module exists, such as Comments with `server/comments.ts`. */
+  entries?: readonly ConsoleSectionId[]
 }
 
 /**
  * Returns the sections in navigation order with every document editor section that discovery found. A document editor
  * has no Vite option: the Console shows it when its application module exists, such as `server/content.ts`.
  */
-export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents">): ConsoleSectionId[] {
+export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents" | "entries">): ConsoleSectionId[] {
   let result = sections.filter(section => !consoleDocumentEditorSectionIds.includes(section))
   for (const section of consoleDocumentEditorSectionIds) {
     if (catalog.documents && Object.hasOwn(catalog.documents, section)) result = insertConsoleSection(result, section)
   }
+  for (const section of catalog.entries ?? []) result = insertConsoleSection(result, section)
   return result
 }
 
@@ -89,8 +92,10 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     const setup = await registered.documents?.inspect?.({ ...options, scheduleDefinitions: schedules?.map(definition => definition.handler) }, entry)
     content[section] = read.kind === "document-editor" && setup && Object.keys(setup).length ? { ...read, setup } : read
   }
+  const entries = await discoverConsoleEntrySections(options)
+  for (const section of entries) content[section] = await consoleContributedSections.get(section)!.read(options)
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
-  return { agents, content, documents, manualSchedules }
+  return { agents, content, documents, entries, manualSchedules }
 }
