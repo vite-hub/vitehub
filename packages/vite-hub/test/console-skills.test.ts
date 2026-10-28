@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { agentWithSkills, defineAgent } from "@vite-hub/agent"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { withColocatedAgentSkills } from "@vite-hub/agent/server/internal"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleInvocationFallback } from "../src/console/internal.ts"
@@ -25,7 +25,7 @@ function install() {
 function call(query: Record<string, string> = {}) {
   return handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
     method: "POST", headers: { [consoleRpcHeader]: "1", "content-type": "application/json" },
-    body: JSON.stringify({ method: consoleRpcMethods.skills, input: { query } }),
+    body: JSON.stringify({ operation: "skills.inspect", input: query }),
   }))
 }
 afterEach(() => { vi.unstubAllGlobals(); installConsoleAccess({ mode: "open" }) })
@@ -76,5 +76,12 @@ describe("Console bundled Skills", () => {
     const response = await call({ agent: "reviewer" })
     expect(response.status).toBe(403)
     expect(await response.text()).not.toContain(".agents/skills")
+  })
+  it("allows read-only Skills access to inspect bundled files", async () => {
+    install()
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["skills:read"] }) })
+    const response = await call({ agent: "reviewer", path: ".agents/skills/review/SKILL.md" })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({ ok: true, value: { content: "# Review\n\nRead the evidence.\n" } })
   })
 })

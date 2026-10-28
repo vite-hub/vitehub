@@ -7,8 +7,8 @@ import { join, resolve } from "node:path"
 import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
-import { vitehub } from "../src/index.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { vitehub } from "vite-hub"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 async function freePort(): Promise<number> {
@@ -67,12 +67,12 @@ describe("Plugin order with the Nitro Vite plugin", () => {
         expect(page.status).toBe(200)
         expect(await page.text()).toContain("<html")
         const rpc = await fetchServer("/_vitehub/rpc/__call", {
-          body: JSON.stringify({ method: consoleRpcMethods.sections, input: { method: "GET" } }),
-          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          body: JSON.stringify({ operation: "sections.list", input: {} }),
+          headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
-        expect(rpc.status).toBe(200)
         expect(await rpc.json()).toMatchObject({ ok: true })
+        expect(rpc.status).toBe(200)
       })
     }
     finally {

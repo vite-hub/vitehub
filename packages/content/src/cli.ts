@@ -4,14 +4,10 @@ import { basename, join, resolve } from "node:path"
 
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
+import { findViteHubDevServerUrl, readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
+import { callOperation } from "@vite-hub/internal/operations"
 
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute } from "./dev.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { renderContentSitemap } from "./sitemap.ts"
 
@@ -23,9 +19,7 @@ import type {
   ContentDevCollectionsResult,
   ContentDevDiffResult,
   ContentDevListResult,
-  ContentDevOperation,
   ContentDevPublishResult,
-  ContentDevRequestBody,
   ContentDevRevisionsResult,
   ContentDevSaveResult,
   ContentDevSchedulesResult,
@@ -33,9 +27,9 @@ import type {
   ContentDevSitemapResult,
   ContentDevStatusResult,
   ContentDevUnscheduleResult,
-} from "./dev.ts"
+} from "./results.ts"
 
-export type ContentCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
+export type ContentCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface ContentCliOptions {
   /** Ask the user to confirm a publish or schedule. Defaults to a prompt on an interactive terminal; without one, `--yes` is required. */
@@ -92,13 +86,8 @@ interface ParsedContentArgs {
 interface ContentCliFailure {
   code?: string
   details?: unknown
+  fix?: string
   message: string
-}
-
-const contentDevEndpoint = {
-  header: contentDevHeader,
-  headerValue: contentDevHeaderValue,
-  route: contentDevRoute,
 }
 
 const usageError = (message: string) => contentErrorDiagnostics.CONTENT_R0014({ message })
@@ -107,9 +96,6 @@ const contentDevTargetErrors = {
   invalidTimeout: usageError,
   missingValue: usageError,
 }
-
-// Nuxt mounts Vite under `/_nuxt/`, so the Content dev endpoint is not reachable there.
-const contentDevServerHint = "`vitehub content` needs a running Vite + Nitro Development Server of an app with server/content.ts. Nuxt, plain Vite, and deployed apps are not supported."
 
 const contentCommands: readonly ContentCliCommand[] = [
   { description: "List collections and singletons with their fields and document counts.", name: "collections", options: [], positionals: [] },
@@ -178,13 +164,14 @@ function writeUsage(command: ContentCliCommand, stream: ViteHubCliStreams["stdou
     `Usage: ${commandUsage(command)}`,
     "",
     command.description,
-    "The command calls the Content runtime of a running Vite + Nitro Development Server, so it reads and writes",
-    "the same Workspace Store as the app. It does not reach a deployed app.",
+    "The command runs the content.* operation of the running app, so it reads and writes the same Workspace Store",
+    "as the app. Without --url it calls the dev server. With --url it calls a deployed app; set the credentials in",
+    "VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET.",
     "",
     "Options:",
     ...command.options.map(option => optionHelp[option]),
     "  --json               Print JSON.",
-    "  --url <url>          Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>          Dev server or deployed app URL. Defaults to the dev server of this project (.vitehub/dev-server.json).",
     "  --timeout <ms>       Request timeout.",
     "  -h, --help           Show this help.",
     "",
@@ -232,7 +219,7 @@ function setValueOption(parsed: ParsedContentArgs, option: typeof valueOptions[n
 }
 
 function parseArgs(command: ContentCliCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedContentArgs {
-  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: resolveViteHubDevServerUrl(env), xml: false, yes: false }
+  const parsed: ParsedContentArgs = { dryRun: false, help: false, json: false, overrideLease: false, url: "", xml: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -319,34 +306,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && Object(value) === value && !Array.isArray(value)
 }
 
-async function readFailure(response: Response): Promise<ContentCliFailure> {
-  let text: string
-  try { text = await response.text() }
-  catch (error) { return { message: `Could not read the Content error response: ${error instanceof Error ? error.message : String(error)}` } }
-  try {
-    const body: unknown = JSON.parse(text)
-    const error: unknown = isRecord(body) ? body.error : undefined
-    if (isRecord(error) && String(error.message) === error.message) {
-      const failure: ContentCliFailure = { message: error.message }
-      if (String(error.code) === error.code) failure.code = error.code
-      if (error.details !== undefined) failure.details = error.details
-      return failure
-    }
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `Content Dev request failed with HTTP ${response.status}.` }
-}
-
 function writeFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure): number {
   if (parsed.json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}\n`)
+  else context.stderr.write(`${failure.message}\n${failure.fix ? `Fix: ${failure.fix}\n` : ""}`)
   return 1
-}
-
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
 }
 
 function plural(count: number, noun: string): string {
@@ -567,7 +530,10 @@ async function readStandardInput(): Promise<string> {
   return Buffer.concat(chunks).toString("utf8")
 }
 
-type ContentDevRequestOptions = Omit<ContentDevRequestBody, "operation">
+type ContentDevOperation = keyof ContentDevResults
+
+/** The input of a Content operation. The operation validates it. */
+type ContentDevRequestOptions = Record<string, unknown>
 
 interface ContentDevResults {
   collections: ContentDevCollectionsResult
@@ -584,7 +550,7 @@ interface ContentDevResults {
   unschedule: ContentDevUnscheduleResult
 }
 
-/** One request to the dev endpoint, typed by the result that the Nitro handler returns for the operation. */
+/** One call of a `content.*` operation, typed by the result that the operation returns. */
 type ContentDevCall = <TOperation extends ContentDevOperation>(
   operation: TOperation,
   options: ContentDevRequestOptions,
@@ -752,6 +718,16 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
   return 0
 }
 
+/** The roots that a dev server may name for this project: the Vite root and the ViteHub project root. */
+function projectRoots(rootDir: string): string[] {
+  try {
+    return [...new Set([rootDir, resolveViteHubProjectRoot(rootDir)])]
+  }
+  catch {
+    return [rootDir]
+  }
+}
+
 async function runContentCommand(command: ContentCliCommand, args: string[], context: ContentCliContext, options: ContentCliOptions): Promise<number> {
   let parsed: ParsedContentArgs
   try {
@@ -773,49 +749,32 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
     writeUsage(command, context.stdout)
     return 0
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<{ message?: unknown, root?: unknown, runtime?: unknown }>({
-    endpoint: contentDevEndpoint,
-    fetch: fetchImpl,
-    parseDiscovery: value => isRecord(value) ? value : {},
-    rootDir: context.rootDir,
-    ...withTimeout(parsed.timeout),
-    serverUrl: parsed.url,
-    stderr: parsed.json ? { write: (chunk) => { discoveryError += String(chunk); return true } } : context.stderr,
-  })
-  if (!server) {
-    if (parsed.json) return writeFailure(parsed, context, { message: `${discoveryError.trim()} ${contentDevServerHint}` })
-    context.stderr.write(`${contentDevServerHint}\n`)
-    return 1
-  }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed, context, {
-      code: "CONTENT_DEV_RUNTIME_UNAVAILABLE",
-      message: String(server.discovery.message) === server.discovery.message
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the Content runtime.",
-    })
-  }
-  const call: ContentDevCall = async <TOperation extends ContentDevOperation>(operation: TOperation, options: ContentDevRequestOptions) => {
-    const body: ContentDevRequestBody = { ...options, operation }
-    let response: Response
-    try {
-      response = await fetchViteHubDevEndpoint(fetchImpl, server.url, contentDevEndpoint, {
-        body: JSON.stringify(body),
-        headers: { accept: "application/json", "content-type": "application/json" },
-        method: "POST",
-        ...withTimeout(parsed.timeout),
-      })
+  const roots = parsed.url ? undefined : projectRoots(context.rootDir)
+  // The dev server of this project, never a guessed port. Another project may use 5173.
+  if (!parsed.url) {
+    const found = findViteHubDevServerUrl(roots ?? [], context.env)
+    if (!found) {
+      const error = contentErrorDiagnostics.CONTENT_R0015({ message: `No dev server is running for ${context.rootDir}.` })
+      return writeFailure(parsed, context, { code: "CONTENT_R0015", fix: Reflect.get(error, "fix") as string, message: error.message })
     }
-    catch (error) {
-      return { failure: { message: `Content Dev request failed: ${error instanceof Error ? error.message : String(error)}` } }
+    parsed.url = found
+  }
+  const call: ContentDevCall = async <TOperation extends ContentDevOperation>(operation: TOperation, input: ContentDevRequestOptions) => {
+    const result = await callOperation({
+      env: context.env,
+      fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
+      ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+      ...(roots ? { roots } : {}),
+      url: parsed.url,
+    }, `content.${operation}`, input)
+    if (!result.ok) {
+      const failure: ContentCliFailure = { code: result.code, message: result.message }
+      if (result.details !== undefined) failure.details = result.details
+      if (result.fix) failure.fix = result.fix
+      return { failure }
     }
-    if (!response.ok) return { failure: await readFailure(response) }
-    const result: unknown = await response.json().catch(() => undefined)
-    if (result === null || Object(result) !== result || Array.isArray(result)) return { failure: { message: "The Content Dev response is not valid JSON." } }
-    // SAFETY: The Content dev handler of the same package answers each operation with its documented result type.
-    return { result: result as ContentDevResults[TOperation] }
+    // SAFETY: The Content operation of the same name returns its documented result type.
+    return { result: result.value as ContentDevResults[TOperation] }
   }
   const print = (result: unknown) => context.stdout.write(`${JSON.stringify(result, null, 2)}\n`)
   switch (command.name) {
@@ -898,7 +857,7 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
 }
 
 /**
- * Runs one `vitehub content` command against a running Vite + Nitro Development Server.
+ * Runs one `vitehub content` command against the running dev server or a deployed app.
  * `args[0]` is the command name, for example `status` or `publish`.
  */
 export async function runContentCli(args: string[], context: ContentCliContext, options: ContentCliOptions = {}): Promise<number> {
@@ -914,7 +873,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.",
+      description: "Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

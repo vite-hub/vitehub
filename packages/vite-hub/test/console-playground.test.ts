@@ -7,7 +7,7 @@ import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
 const { callConsoleFixture } = await vi.importActual<{
-  callConsoleFixture: (origin: string, payload: unknown) => Promise<unknown>
+  callConsoleFixture: (origin: string, payload: unknown, cookie?: string) => Promise<unknown>
 }>("../../../playground/console/rpc.ts")
 
 afterEach(() => {
@@ -27,6 +27,28 @@ it("loads Console data through the playground's stateless RPC endpoint", async (
     .resolves.toEqual({ sections: ["agents"] })
   expect(fetch).toHaveBeenCalledTimes(2)
   expect(fetch).toHaveBeenLastCalledWith(new URL("http://localhost:5173/api/_vitehub/console/sections"), {
+    body: undefined,
+    headers: { "content-type": "application/json" },
+    method: "GET",
+  })
+})
+
+it("loads bundled Skill files through the playground's operation bridge", async () => {
+  const file = { path: ".agents/skills/review/SKILL.md", content: "# Review", size: 8 }
+  const fetch = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+    if (String(input) === "/_vitehub/rpc/__call") {
+      return Response.json(await callConsoleFixture("http://localhost:5173", JSON.parse(String(init?.body))))
+    }
+    return Response.json(file)
+  })
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(requestConsole("/api/_vitehub/console/skills", { query: { agent: "reviewer", path: file.path } })).resolves.toEqual(file)
+  const fixture = new URL("http://localhost:5173/api/_vitehub/console/skills")
+  fixture.searchParams.set("agent", "reviewer")
+  fixture.searchParams.set("path", file.path)
+  expect(fetch).toHaveBeenCalledTimes(2)
+  expect(fetch).toHaveBeenLastCalledWith(fixture, {
     body: undefined,
     headers: { "content-type": "application/json" },
     method: "GET",
@@ -161,4 +183,21 @@ it("rejects empty and malformed image chats", async () => {
     .resolves.toMatchObject({ error: "A prompt or image is required." })
   await expect(playgroundRequest(endpoint, { files: [{ url: "not-an-image" }] }, 400))
     .resolves.toMatchObject({ error: expect.any(String) })
+})
+
+it("forwards failure cookies while translating write operations to fixture requests", async () => {
+  const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(callConsoleFixture("http://localhost:5173", {
+    operation: "invocations.cancel",
+    input: { id: "run/1" },
+  }, "playground-fail=invocations:503")).resolves.toEqual({
+    code: "CONSOLE_REQUEST_FAILED", message: "Playground failure", ok: false, status: 503,
+  })
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/invocations/run%2F1"), {
+    body: JSON.stringify({ action: "cancel" }),
+    headers: { "content-type": "application/json", cookie: "playground-fail=invocations:503" },
+    method: "POST",
+  })
 })
