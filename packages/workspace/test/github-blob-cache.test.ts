@@ -70,6 +70,16 @@ it("coalesces concurrent reads across stores", async () => {
   expect(blobRequests()).toHaveLength(1);
 });
 
+it("loads an uncached blob through history and reuses it for the store", async () => {
+  fake.seed("docs/a.md", "history first");
+  const current = await store();
+  const view = await current.history!.open(baseSha);
+
+  await expect(view.readFile("a.md")).resolves.toBe("history first");
+  expect(await readBytes(current, "a.md")).toEqual(textBytes("history first"));
+  expect(blobRequests()).toHaveLength(1);
+});
+
 it("keeps cached bytes private from store and history callers", async () => {
   fake.seed("docs/a.md", "original");
   const first = await store();
