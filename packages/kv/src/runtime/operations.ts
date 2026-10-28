@@ -54,6 +54,8 @@ export interface KVDevListResult {
 }
 
 export interface KVDevGetResult {
+  /** With `preview`: whether text/JSON editing preserves the value. */
+  editable?: boolean
   /** `base64` when the stored value is binary. `value` is then the base64 text. */
   encoding?: "base64"
   found: boolean

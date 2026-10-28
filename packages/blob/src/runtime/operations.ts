@@ -197,6 +197,9 @@ function requirePathname(operation: string, input: BlobOperationInput): string {
 
 /** The objects that ViteHub writes for itself, such as media records and Console attachments, are read-only here. */
 function requireWritablePath(operation: string, pathname: string): void {
+  // Match storage normalization: decode once, keeping malformed escapes literal.
+  try { pathname = decodeURIComponent(pathname) }
+  catch { /* Storage also keeps the original pathname when decoding fails. */ }
   if (!isVitehubOwnedPath(pathname)) return
   throw new BlobOperationError(`The ${operation} operation cannot change ${pathname}. ViteHub owns the paths under \`_vitehub/\`.`, 403, "BLOB_RESERVED_PATH", "Use another pathname. Read access (get, head) stays open.")
 }

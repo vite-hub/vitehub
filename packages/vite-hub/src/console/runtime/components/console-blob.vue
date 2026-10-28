@@ -73,15 +73,15 @@ const trail = computed(() => consoleFolderTrail(folder.value).slice(0, -1).map(p
 })));
 
 // `?file=` opens the metadata of one object, also after a reload.
-watch([() => query("file"), client], async ([pathname]) => {
+watch([() => query("file"), client], async ([pathname, currentClient], [, previousClient]) => {
   activeError.value = undefined;
   if (!pathname) {
     active.value = undefined;
     return;
   }
-  if (active.value?.pathname === pathname) return;
+  if (active.value?.pathname === pathname && currentClient === previousClient) return;
   try {
-    active.value = await client.value.get(pathname);
+    active.value = await currentClient.get(pathname);
   }
   catch (error) {
     active.value = undefined;

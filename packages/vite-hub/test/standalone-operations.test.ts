@@ -18,7 +18,7 @@ describe("standalone primitive operation transport", () => {
     try {
       await writeFile(join(root, "package.json"), '{"type":"module"}\n')
       const baseURL = selection === "mounted" ? "/portal/" : "/"
-      const plugins = {
+      const plugins: Record<string, unknown> = {
         kv: hubKv({ driver: "fs-lite", base: join(root, "kv") }),
         blob: hubBlob({ driver: "fs", base: join(root, "blob") }),
         email: hubEmail({ driver: "resend" }),

@@ -204,7 +204,7 @@ describe("blob operations", () => {
   it("refuses to write or delete the paths that ViteHub owns, and still reads them", async () => {
     const [putError] = await blob.put("_vitehub/internal.json", "{}")
     expect(putError).toBeNull()
-    for (const pathname of ["_vitehub/internal.json", "./_vitehub/x.json", "docs/../_vitehub/x.json", "_VITEHUB/x.json"]) {
+    for (const pathname of ["_vitehub/internal.json", "./_vitehub/x.json", "docs/../_vitehub/x.json", "_VITEHUB/x.json", "%5Fvitehub/internal.json", "%2F_vitehub%2Finternal.json", "docs%2F..%2F_vitehub/internal.json"]) {
       await expect(run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
       await expect(run({ operation: "del", pathname })).resolves.toMatchObject({ body: { error: { code: "BLOB_RESERVED_PATH" } }, status: 403 })
     }

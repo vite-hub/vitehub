@@ -113,6 +113,7 @@ describe("kv operations", () => {
     try {
       get.mockResolvedValue([undefined, 9007199254740993n])
       expect((await run({ key: "native", operation: "get" })).body).toMatchObject({ found: true, type: "bigint", value: "9007199254740993" })
+      expect((await run({ key: "native", operation: "get", preview: true })).body).toMatchObject({ editable: false, type: "bigint", value: "9007199254740993" })
       get.mockResolvedValue([undefined, { nested: [42n] }])
       expect((await run({ key: "native", operation: "get" })).body).toMatchObject({ value: { nested: ["42"] } })
       const cyclic: { self?: unknown } = {}

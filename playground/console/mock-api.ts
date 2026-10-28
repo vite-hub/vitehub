@@ -421,6 +421,7 @@ function formattedKVValue(key: string, name: keyof typeof kvStores, value: unkno
   if (!kvStores[name].has(key)) return { found: false, key, store: name }
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2)
   return {
+    editable: true,
     expiry: "unknown",
     format: typeof value === "string" ? "text" : "json",
     found: true,

@@ -99,8 +99,6 @@ Available namespaces:
 | `vitehub email outbox-show` | Available | Email Package | Run `email.outbox-show <id>` and print JSON. |
 | `vitehub email outbox-clear` | Available | Email Package | Run `email.outbox-clear`, which removes every captured message, and print JSON. Asks for `--yes`. |
 | `vitehub email preview` | Available | Email Package | Render a `server/emails` template without sending it. Needs no server. |
-| `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
-| `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub db generate` | Available | Database Package | Refresh generated Database artifacts and generate Drizzle migrations. |
 | `vitehub db migrate` | Available | Database Package | Refresh generated Database artifacts and apply Drizzle migrations. |
 | `vitehub kv list` | Available | KV Package | List the keys of one KV store, one page at a time. |

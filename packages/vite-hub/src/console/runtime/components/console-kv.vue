@@ -25,6 +25,7 @@ interface KVListResponse {
 }
 
 interface KVValueResponse {
+  editable?: boolean;
   found: boolean;
   /** `unknown`: the key may expire, and the store cannot say when. `none`: the store never expires keys. */
   expiry?: "none" | "unknown";
@@ -137,6 +138,7 @@ function parseValue(value: unknown): KVValueResponse {
   // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Console responses are untrusted JSON, so validate the optional serialized value at this boundary.
   if (typeof source.value === "string") parsed.value = source.value;
   if (source.truncated === true) parsed.truncated = true;
+  parsed.editable = source.editable === true;
   if (source.expiry === "none" || source.expiry === "unknown") parsed.expiry = source.expiry;
   return parsed;
 }
@@ -144,10 +146,10 @@ function parseValue(value: unknown): KVValueResponse {
 /** ViteHub keeps its own state under `vitehub:`. The keys can be read here, not changed. */
 const reserved = computed(() => (selectedValue.value?.key ?? "").replaceAll(/[/\\]/g, ":").replace(/^:+/, "").toLowerCase().startsWith("vitehub:"));
 
-/** A value can be edited when the page shows all of it as text. Bytes, cut values, and the keys of ViteHub are read only. */
+/** Only complete previews that round-trip through text/JSON can be edited. */
 const editable = computed(() => {
   const value = selectedValue.value;
-  return Boolean(value?.found) && !value?.truncated && value?.type !== "bytes" && !reserved.value && !readOnly.value;
+  return Boolean(value?.found && value.editable) && !value?.truncated && !reserved.value && !readOnly.value;
 });
 
 function startEdit(): void {
