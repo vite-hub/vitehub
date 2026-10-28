@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { asUnknownBoundary, hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 import { discoverViteHubDevServer, fetchViteHubDevEndpoint, readViteHubDevTargetOption, resolveViteHubDevServerUrl } from "@vite-hub/internal/cli"
+import { invocationOperationNames, operationHeaders, operationRpcPath } from "@vite-hub/internal/operations"
 import { agentInvocationsDevGuard, agentInvocationsDevRoute, agentInvocationsDevRuntimeUnavailableMessage, agentInvocationsDevTokenServerHeader } from "../invocations-dev.ts"
 import { readWorkspaceDevToken, workspaceDevTokenHeader } from "@vite-hub/workspace/server"
 import { isCompatibleAgentDevServerRoot } from "./agent-info-cli.ts"
@@ -442,23 +443,10 @@ function parseInvocationDetail(value: unknown): AgentInvocationDetailResult {
 }
 
 /** Console RPC contract owned by `vite-hub/console`. Its tests drive this client against the real handler. */
-const consoleRpcCallPath = "_vitehub/rpc/__call"
-const consoleRpcHeader = "x-vitehub-console"
-const consoleRpcMethods = {
-  invocation: "vitehub:console:invocation",
-  invocations: "vitehub:console:invocations",
-} as const
 const consoleCredentialHint = "Set VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET."
 /** The Console returns at most 100 records per page. */
 const consolePageLimit = 100
 const consoleDefaultListLimit = 50
-
-interface ConsoleRpcInput {
-  body?: unknown
-  id?: string
-  method: "GET" | "POST"
-  query?: Record<string, string>
-}
 
 interface ConsoleTarget {
   base: URL
@@ -467,28 +455,19 @@ interface ConsoleTarget {
   timeout: number
 }
 
-function consoleHeaders(env: NodeJS.ProcessEnv): Headers {
-  // The Console header proves a non-browser caller, because a foreign page cannot send it without a CORS preflight.
-  const headers = new Headers({ "accept": "application/json", "content-type": "application/json", [consoleRpcHeader]: "1" })
-  if (env.VITEHUB_CONSOLE_AUTHORIZATION) headers.set("authorization", env.VITEHUB_CONSOLE_AUTHORIZATION)
-  if (env.VITEHUB_CONSOLE_COOKIE) headers.set("cookie", env.VITEHUB_CONSOLE_COOKIE)
-  if (env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", env.CF_ACCESS_CLIENT_ID)
-  if (env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", env.CF_ACCESS_CLIENT_SECRET)
-  return headers
-}
-
 function hasConsoleCredentials(env: NodeJS.ProcessEnv): boolean {
   return Boolean(env.VITEHUB_CONSOLE_AUTHORIZATION || env.VITEHUB_CONSOLE_COOKIE || env.CF_ACCESS_CLIENT_ID || env.CF_ACCESS_CLIENT_SECRET)
 }
 
 /** Send one Console RPC call. A failure becomes an error with the HTTP status and the Console message. */
-async function consoleCall<T>(target: ConsoleTarget, method: string, input: ConsoleRpcInput, parseResponse: ResponseParser<T>): Promise<T> {
-  const url = new URL(consoleRpcCallPath, target.base)
+async function consoleCall<T>(target: ConsoleTarget, operation: string, input: Record<string, unknown>, parseResponse: ResponseParser<T>): Promise<T> {
+  const url = new URL(operationRpcPath.slice(1), target.base)
   let response: Response
   try {
     response = await target.fetch(url.href, {
-      body: JSON.stringify({ input, method }),
-      headers: consoleHeaders(target.env),
+      // The operation comes first so the server can find large calls within the first bytes.
+      body: JSON.stringify({ operation, input }),
+      headers: operationHeaders(target.env),
       method: "POST",
       redirect: "manual",
       signal: AbortSignal.timeout(target.timeout),
@@ -549,9 +528,9 @@ async function collectPages(
 /** List through the Console. The Console has no status filter, so the CLI filters and follows cursors until it has enough records. */
 async function listConsoleInvocations(target: ConsoleTarget, wanted: number, statuses?: ReadonlySet<string>): Promise<InvocationSummary[]> {
   return await collectPages(async (cursor, collected) => {
-    const query: Record<string, string> = { limit: String(Math.min(consolePageLimit, statuses ? consolePageLimit : wanted - collected)) }
-    if (cursor !== undefined) query.cursor = cursor
-    return await consoleCall(target, consoleRpcMethods.invocations, { method: "GET", query }, parseInvocationList)
+    const input: Record<string, unknown> = { limit: Math.min(consolePageLimit, statuses ? consolePageLimit : wanted - collected) }
+    if (cursor !== undefined) input.cursor = cursor
+    return await consoleCall(target, invocationOperationNames.list, input, parseInvocationList)
   }, record => !statuses || statuses.has(record.status), wanted)
 }
 
@@ -566,13 +545,10 @@ interface InvocationsTarget {
 
 function consoleInvocationsTarget(target: ConsoleTarget, parsed: ParsedArgs): InvocationsTarget {
   return {
-    cancel: async id => await consoleCall(target, consoleRpcMethods.invocation, { body: { action: "cancel" }, id, method: "POST" }, parseCancelResult),
-    detail: async (id, observations) => await consoleCall(target, consoleRpcMethods.invocation, {
+    cancel: async id => await consoleCall(target, invocationOperationNames.cancel, { id }, parseCancelResult),
+    detail: async (id, observations) => await consoleCall(target, invocationOperationNames.get, {
       id,
-      method: "GET",
-      query: observations === undefined
-        ? undefined
-        : { observationCount: String(observations.count), observationCursor: observations.cursor },
+      ...(observations === undefined ? {} : { observationCount: observations.count, observationCursor: observations.cursor }),
     }, parseInvocationDetail),
     list: async () => ({
       invocations: await listConsoleInvocations(target, parsed.limit ?? consoleDefaultListLimit, parsed.status ? new Set([parsed.status]) : undefined),

@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubComments } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -44,6 +45,7 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
@@ -107,6 +109,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
@@ -1037,12 +1040,16 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 
-  if (options.console) {
+  plugins.push(operationsCheckPlugin())
+  // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
+  const devOperationsOnly = options.console === undefined
+  if (options.console || devOperationsOnly) {
     const invocationRootState = {}
-    plugins.push(consoleVitePlugin({
+    const consolePlugin = consoleVitePlugin({
       contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
-      console: options.console,
+      console: options.console || undefined,
+      rpcOnly: devOperationsOnly,
       connections: options.connections,
       runtimeCapabilityImports,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
@@ -1082,9 +1089,12 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
-      sections: consoleSections,
-    }))
-    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
+      // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
+      sections: devOperationsOnly ? [] : consoleSections,
+    })
+    if (devOperationsOnly) consolePlugin.apply = "serve"
+    plugins.push(consolePlugin)
+    if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
   if (options.auth || consoleAuthConfig(options.console)) {
@@ -1172,17 +1182,42 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
   }
+  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
+  // rooms where Realtime has an authority. Inert without the file.
+  const commentsPlugin = hubComments({
+    auth: Boolean(options.auth),
+    // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
+    ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
+    imports: {
+      auth: "vite-hub/comments/runtime/auth",
+      contentClient: "vite-hub/content/client",
+      database: "vite-hub/comments/database",
+      databases: "vite-hub/database/drizzle",
+      realtime: "vite-hub/comments/realtime",
+      runtime: "vite-hub/comments/runtime",
+    },
+  })
   if (options.realtime) {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
-      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
-      contribute: context => contributeContentRealtime({
-        ...context,
-        contentImport: "vite-hub/content/realtime",
-        realtimeImport: "vite-hub/realtime/server",
-        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
-      }),
+      // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
+      // Other hosts keep one Content editor at a time and show comments without presence.
+      contribute: async (context) => {
+        const [content, comments] = await Promise.all([
+          contributeContentRealtime({
+            ...context,
+            contentImport: "vite-hub/content/realtime",
+            realtimeImport: "vite-hub/realtime/server",
+            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+          }),
+          commentsPlugin.api.contributeRealtime(context),
+        ])
+        return {
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          plugins: content?.plugins ?? [],
+        }
+      },
     }))
   }
   if (options.schedule) {
@@ -1230,9 +1265,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset. It also adds the `vitehub content` commands and their dev endpoint.
+  // default Database. Inert without the preset. It also adds the `vitehub content` commands and the Content operations.
   plugins.push(hubContent({
-    importBase: `${generatedImportBase}/content`,
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
@@ -1242,6 +1276,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
+  plugins.push(commentsPlugin)
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

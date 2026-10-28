@@ -13,6 +13,7 @@ describe("Console section contributions", () => {
     expect([...consoleContributedSections.keys()]).toEqual([
       "auth",
       "content",
+      "comments",
       "email",
       "rate-limits",
       "sandbox-tasks",

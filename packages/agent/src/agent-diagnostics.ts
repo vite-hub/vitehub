@@ -1546,6 +1546,14 @@ const agentDiagnosticHandles = defineDiagnostics({
       why: "[vitehub] content() requires { collections?: string[], operations?: Array<\"read\" | \"write\" | \"publish\">, policy?, user?, lease?: \"override\" }.",
       fix: "Name each collection once, enable at least one operation, pass policy as a decision or function and user as a function, and omit lease or set it to \"override\".",
     },
+    AGENT_C0013: {
+      why: "[vitehub] operations() requires { include: string[], approve?, user? }.",
+      fix: "List the operation names to expose, such as [\"content.*\"], and pass approve as \"destructive\", \"write\", \"all\", \"never\", a list of names, or a function.",
+    },
+    AGENT_R1014: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+      fix: "Add the integration that defines the operation, and check the name with `vitehub inspect definitions --kind operation`.",
+    },
     AGENT_R0003: {
       why: ({ name }: { name: string }) => `[vitehub:agent] Tool "${name}" failed with a retryable policy decision.`,
       fix: "Retry the tool when its policy permits execution. Do not bypass the policy.",
