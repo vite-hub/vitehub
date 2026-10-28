@@ -102,7 +102,7 @@ export function isProviderRateLimit(error: unknown): boolean {
   if (error instanceof Error && error.name === "AbortError") return false;
   if (error instanceof RateLimitedError) return true;
   const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? "")}` : String(error);
-  return /\b429\b|too many requests|rate limit/i.test(text);
+  return /\b429\b|too many requests|rate limit|\busage limit\b/i.test(text);
 }
 
 /** Own one durable PR inbox and its repair passes inside a process host. */

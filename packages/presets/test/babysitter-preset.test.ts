@@ -1993,9 +1993,14 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("retries a provider rate limit, then blocks admission", async () => {
+  it.each([
+    new Error("429 Too Many Requests"),
+    new Error("You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 2nd, 2026 7:49 AM."),
+    new Error("Provider invocation failed", { cause: new Error("You've hit your usage limit.") }),
+  ])("retries a provider quota failure, then resumes after the cooldown: %s", async (error) => {
     const f = await fixture(false, false, { providerRetryDelayMs: 1 });
-    createProviderRuntime.mockImplementation(async () => { throw new Error("429 Too Many Requests") });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async () => { throw error });
     try {
       const startedAt = Date.now();
       await f.reconcile();
@@ -2015,6 +2020,13 @@ describe("Babysitter preset runtime", () => {
       createProviderRuntime.mockClear();
       await f.reconcile().catch(() => {});
       expect(createProviderRuntime).not.toHaveBeenCalled();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(blockedUntil + 1);
+      try {
+        createProviderRuntime.mockImplementation(provider);
+        await f.reconcile();
+        expect(createProviderRuntime).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(1);
+      } finally { clock.mockRestore(); }
     } finally { await f.runtime.inbox.close(); }
   });
 
