@@ -679,7 +679,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -693,6 +693,8 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/_vitehub/**",
+        "/portal/_vitehub",
         "/portal/api/_vitehub/console/status",
         "/portal/api/_vitehub/console/usage",
         "/portal/_vitehub",

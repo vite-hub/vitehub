@@ -30,8 +30,8 @@ function deployedConsole(reply: (call: ConsoleCall) => unknown) {
   const calls: ConsoleCall[] = []
   const fetch = vi.fn(async (url: string, init?: RequestInit) => {
     const envelope: unknown = JSON.parse(String(init?.body))
-    if (!isRuntimeRecord(envelope) || !isRuntimeRecord(envelope.input) || typeof envelope.method !== "string") throw new Error("Invalid Console envelope")
-    const call = { headers: new Headers(init?.headers), input: envelope.input, method: envelope.method, url }
+    if (!isRuntimeRecord(envelope) || !isRuntimeRecord(envelope.input) || typeof envelope.operation !== "string") throw new Error("Invalid Console envelope")
+    const call = { headers: new Headers(init?.headers), input: envelope.input, method: envelope.operation, url }
     calls.push(call)
     const value = reply(call)
     return value instanceof Response ? value : Response.json({ ok: true, value })
@@ -56,8 +56,8 @@ describe("vitehub agent invocations with a deployed Console", () => {
     expect(host.calls).toHaveLength(1)
     const [call] = host.calls
     expect(call!.url).toBe("https://agent.example.com/_vitehub/rpc/__call")
-    expect(call!.method).toBe("vitehub:console:invocation")
-    expect(call!.input).toEqual({ body: { action: "cancel" }, id: "ainv_1", method: "POST" })
+    expect(call!.method).toBe("invocations.cancel")
+    expect(call!.input).toEqual({ id: "ainv_1" })
     expect(call!.headers.get("x-vitehub-console")).toBe("1")
     expect(call!.headers.get("cookie")).toBe("vitehub_console.session_token=abc")
   })
@@ -103,7 +103,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
 
     expect(result.exitCode).toBe(0)
     expect(JSON.parse(result.stdout).invocations.map((record: { id: string }) => record.id)).toEqual(["b", "c"])
-    expect(host.calls.map(call => call.input.query)).toEqual([{ limit: "100" }, { cursor: "page-2", limit: "100" }])
+    expect(host.calls.map(call => call.input)).toEqual([{ limit: 100 }, { cursor: "page-2", limit: 100 }])
   })
 
   it("rejects an unknown status for the Console", async () => {
@@ -117,7 +117,7 @@ describe("vitehub agent invocations with a deployed Console", () => {
     const host = deployedConsole(() => ({ cursor: "next", invocations: [summary("a", "running"), summary("b", "running")] }))
     const result = await run(["list", "--url", "https://agent.example.com", "--limit", "2"], host.fetch)
     expect(result.stdout.trim().split("\n")).toHaveLength(2)
-    expect(host.calls.map(call => call.input.query)).toEqual([{ limit: "2" }])
+    expect(host.calls.map(call => call.input)).toEqual([{ limit: 2 }])
   })
 
   it("tails with the Console observation cursor and prints each observation once", async () => {
@@ -132,8 +132,8 @@ describe("vitehub agent invocations with a deployed Console", () => {
     expect(result.exitCode).toBe(1)
     expect(result.stdout.trim().split("\n").map(line => line.split(" ")[2])).toEqual(["agent.invocation.start", "agent.invocation.cancel"])
     expect(host.calls.map(call => call.input)).toEqual([
-      { id: "ainv_1", method: "GET" },
-      { id: "ainv_1", method: "GET", query: { observationCount: "1", observationCursor: "1-a" } },
+      { id: "ainv_1" },
+      { id: "ainv_1", observationCount: 1, observationCursor: "1-a" },
     ])
   })
 

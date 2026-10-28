@@ -241,7 +241,8 @@ export interface ConsoleAuthorizeContext {
 /**
  * What `console.authorize` returns for one request.
  * - `true` allows every Console section.
- * - `{ sections }` allows only these section ids, for example `["content"]`. An empty list is `403`.
+ * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
+ *   that section that read. An empty list is `403`.
  * - `false` is `403`. A `Response` is returned as-is.
  */
 export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }

@@ -13,6 +13,7 @@ import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -43,13 +44,8 @@ export interface CommentsContent {
   collections(): readonly ContentCollectionLike[]
 }
 
-export interface CommentsHandlerOptions {
+export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
-  /**
-   * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
-   * Omitted when the app has neither. `false` denies access regardless of Comments guest policies.
-   */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -162,7 +158,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
-    return resolveCommentsUser(comments, event, options.session)
+    return resolveCommentsUser(comments, event, options)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
