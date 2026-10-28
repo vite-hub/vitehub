@@ -427,6 +427,14 @@ export function withConsoleAccess<TEvent extends ConsoleRequestEvent, TResult>(
       if (section === undefined || !consoleAccessAllows(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
       if (declared.write === true && !consoleAccessWrites(access, section)) return rejection(403, "CONSOLE_ACCESS_DENIED")
     }
+    // A bound RPC grant may defer its user until a legacy handler asks for it.
+    if (declared.user === true && !access.user) {
+      const user = await readConsoleAccessUser(access)
+      if (user) {
+        access = consoleAccessGrant.issue(access.mode, { ...access, user })
+        checkedEvents.set(event, access)
+      }
+    }
     return handler(event, access)
   }
   routeScopes.set(route, declared)

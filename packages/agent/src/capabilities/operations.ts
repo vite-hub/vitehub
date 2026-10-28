@@ -81,6 +81,8 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
   // The operations see the user that the Actor stands for. `console.authorize` decides which sections that user may use.
   const user = options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
   const sections = await installedOperationSectionResolver()?.({ ...(context.actor ? { actor: context.actor } : {}), user }) ?? "all"
+  // No sections means the policy denied admission, including sectionless and dynamic operations.
+  if (sections !== "all" && sections.length === 0) return {}
   const access = { mode: "agent", sections, ...(user ? { user } : {}) }
   const selected = registry.list()
     .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))

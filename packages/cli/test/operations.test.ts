@@ -210,6 +210,24 @@ describe("generated operation commands", () => {
     expect(result.fetch).not.toHaveBeenCalled()
   })
 
+  it.each(["fales", "TRUE", "1", ""])("rejects the explicit boolean value %j before dispatch", async value => {
+    const result = await run(["reports", "list", "acme", `--dry-run=${value}`, "--json"])
+    expect(result.code).toBe(1)
+    expect(JSON.parse(result.stdout).error).toMatchObject({ code: "CLI_R0003", message: "--dry-run must be true or false." })
+    expect(result.fetch).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ["--dry-run", true],
+    ["--dry-run=true", true],
+    ["--dry-run=false", false],
+    ["--no-dry-run", false],
+  ] as const)("preserves boolean flag %s", async (flag, expected) => {
+    const result = await run(["reports", "list", "acme", flag])
+    expect(result.code).toBe(0)
+    expect(JSON.parse(String(result.fetch.mock.calls[0]![1]!.body)).input.dryRun).toBe(expected)
+  })
+
   it("sends the credentials to the deployed app named by --url", async () => {
     const stdout = stream()
     const stderr = stream()
@@ -399,10 +417,13 @@ describe("generated operation commands", () => {
     const root = await project()
     writeViteHubDevServerFile(root, { root, url: "http://localhost:5199/" })
     const fetch = server("http://localhost:5199")
-    const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000" }, fetch, root })
+    const result = await run(["reports", "list", "acme"], { env: { VITEHUB_DEV_SERVER_URL: "http://localhost:4000", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=token", CF_ACCESS_CLIENT_ID: "client-id", CF_ACCESS_CLIENT_SECRET: "client-secret" }, fetch, root })
     expect(result.code).toBe(0)
     expect(fetch).toHaveBeenCalledOnce()
     expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(root))
+    for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {
+      expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).has(header), header).toBe(false)
+    }
   })
 
   it("refuses a dev server that runs another project", async () => {

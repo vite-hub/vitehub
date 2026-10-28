@@ -506,7 +506,8 @@ export interface OperationTarget {
   confirmed?: boolean
   /**
    * Project roots that the caller accepts. The server checks their hashes before dispatch and rejects a mismatch
-   * with `INTERNAL_R0025`. The response identity is also checked.
+   * with `INTERNAL_R0025`. The response identity is also checked. These discovered development targets never receive
+   * deployment credentials; pass an explicit URL without roots to use them.
    */
   roots?: readonly string[]
 }
@@ -555,7 +556,9 @@ export async function callOperation(target: OperationTarget, name: string, input
     if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
     const url = new URL(operationRpcPath.slice(1), base)
     origin = url.origin
-    const headers = operationHeaders(target.env)
+    // A stale discovery file can point to another local service before its identity is checked.
+    const env = target.roots?.length ? {} : target.env
+    const headers = operationHeaders(env)
     if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
     if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
     const response = await (target.fetch ?? fetch)(url.href, {
@@ -586,7 +589,7 @@ export async function callOperation(target: OperationTarget, name: string, input
       if (text(json.fix)) failure.fix = text(json.fix)
       if (text(json.docs)) failure.docs = text(json.docs)
       if (isObject(json.details)) failure.details = json.details
-      if ((failure.status === 401 || failure.status === 403) && !hasCredentials(target.env) && !failure.fix) failure.fix = operationCredentialHint
+      if ((failure.status === 401 || failure.status === 403) && !hasCredentials(env) && !failure.fix) failure.fix = target.roots?.length ? `Pass --url <origin> to send deployment credentials. ${operationCredentialHint}` : operationCredentialHint
       return failure
     }
     if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
