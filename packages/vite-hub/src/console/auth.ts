@@ -153,18 +153,27 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
   signIn: (event: object, denied?: Response) => Promise<Response>
   authBasePath: (event: object) => Promise<string>
 } {
+  async function requestAuth(event: object) {
+    const request = toEventRequest(event)
+    let auth = resolveAuth(request, undefined, event)
+    let context = await auth.$context
+    // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
+    if (!context.baseURL) {
+      auth = resolveAuth(request, { baseURL: new URL(request.url).origin }, event)
+      context = await auth.$context
+    }
+    return { auth, context, request }
+  }
   return {
     async authBasePath(event) {
-      const context = await resolveAuth(toEventRequest(event), undefined, event).$context
+      const { context } = await requestAuth(event)
       return new URL(context.baseURL).pathname.replace(/\/$/, "")
     },
     signIn: async (event: object, denied?: Response): Promise<Response> => {
-      const request = toEventRequest(event)
+      const { auth, context, request } = await requestAuth(event)
       const url = new URL(request.url)
       const mount = consoleMountBase(url.pathname)
       const page = `${mount}/_vitehub/sign-in`
-      const auth = resolveAuth(request, undefined, event)
-      const context = await auth.$context
       const authURL = new URL(context.baseURL)
       if (denied) {
         const diagnostic = v.safeParse(v.object({ code: v.literal("CONSOLE_ACCESS_DENIED") }), await denied.clone().json().catch(() => undefined))
