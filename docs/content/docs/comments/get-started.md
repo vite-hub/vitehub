@@ -65,7 +65,7 @@ Resize the window. The pin stays on the heading, because it is stored relative t
 Comments signs people in with a GitHub App. Anyone who can push to the app's repository may then comment. Other people see why they cannot.
 
 1. On GitHub, open **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**.
-2. Set **Callback URL** to `http://localhost:3000/api/_vitehub/comments/auth/callback/github`. Add the URL of each site that people will comment on, such as `https://staging.example.com/api/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10.
+2. Set **Callback URL** to `http://localhost:5173/api/_vitehub/comments/auth/callback/github`. Also add `http://localhost:3000/api/_vitehub/comments/auth/callback/github` for the production server below, and the URL of each deployed site, such as `https://staging.example.com/api/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10.
 3. Under **Identifying and authorizing users**, turn off **Expire user authorization tokens**. Under **Webhook**, turn off **Active**. Leave the permissions as they are, then create the App.
 4. Copy the **Client ID**, and select **Generate a new client secret**.
 5. Select **Install App**, and install it on the app's repository.
