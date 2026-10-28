@@ -3,6 +3,7 @@ import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-
 import { describe, expect, it, vi } from "vitest"
 
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
 
@@ -40,6 +41,23 @@ function setup() {
 }
 
 describe("Console invocation history", () => {
+  it("preserves the signed-in Actor without a console.authorize callback", async () => {
+    const fixture = setup()
+    const check = vi.fn(async () => undefined)
+    const user = vi.fn(async () => ({ id: "editor", name: "Ada" }))
+    installConsoleAccess({ mode: "auth", check, user })
+    try {
+      expect(await fixture.request({ prompt: "Use my capabilities." })).toMatchObject({ ok: true })
+      await vi.waitFor(() => expect(fixture.run).toHaveBeenCalledOnce())
+      expect(fixture.run.mock.calls[0]![0].actor).toMatchObject({ id: "editor", kind: "authUser", meta: { authUserId: "editor" } })
+      expect(check).toHaveBeenCalledOnce()
+      expect(user).toHaveBeenCalledOnce()
+    }
+    finally {
+      installConsoleAccess({ mode: "open" })
+    }
+  })
+
   it("carries validated history and the new prompt through RPC into the journal", async () => {
     const fixture = setup()
     const messages = [
