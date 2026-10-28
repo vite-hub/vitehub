@@ -1,29 +1,26 @@
-import { EventEmitter } from "node:events"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Readable, Writable } from "node:stream"
-import { pathToFileURL } from "node:url"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
+import * as v from "valibot"
 
 import { createBlobDatabaseWorkspaceStore, workspaceHistorySchema } from "@vite-hub/workspace/blob-database"
+import { createOperationRegistry, operationExpectedRootsHeader, projectRootHash, runOperation } from "@vite-hub/internal/operations"
 import { registerWorkspace } from "@vite-hub/workspace/test"
 
 import { createBlobStorage } from "../../blob/src/storage.ts"
 import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { createContentCliContributor, runContentCli } from "../src/cli.ts"
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "../src/dev.ts"
 import { contentSessionsSchema } from "../src/database.ts"
 import { documents, singleton } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
-import { handleContentDevRequest } from "../src/runtime/dev.ts"
-import { contentDevRuntimeUnavailableMessage, hubContent } from "../src/vite.ts"
+import { contentOperations } from "../src/operations.ts"
+import { hubContent } from "../src/vite.ts"
 
-import type { IncomingMessage, ServerResponse } from "node:http"
 import type { ContentCliOptions } from "../src/cli.ts"
 
 const migration = [
@@ -36,6 +33,7 @@ const rootDir = "/app"
 
 afterEach(async () => {
   vi.restoreAllMocks()
+  vi.unstubAllEnvs()
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
@@ -88,11 +86,20 @@ function stream() {
   }
 }
 
-/** A fake Vite + Nitro dev server: `GET` discovery, `POST` straight into the Nitro dev handler. */
+/**
+ * A fake dev server: it answers the operation RPC with the Content operations, as the Console does. The local policy
+ * is the one `vite dev` installs, so `content.can()` is not asked for a user the CLI does not have.
+ */
 function devServer(content: unknown) {
-  return vi.fn(async (input: string | URL | Request, init?: RequestInit) => init?.method === "POST"
-    ? await handleContentDevRequest(new Request(input, init), content)
-    : Response.json({ root: rootDir, runtime: "nitro" }))
+  vi.stubEnv("NODE_ENV", "development")
+  const registry = createOperationRegistry([{ operations: contentOperations }])
+  Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), content === undefined ? {} : { content: async () => ({ content }) })
+  cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+  return vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+    const { input, operation } = JSON.parse(String(init?.body)) as { input: unknown, operation: string }
+    const result = await runOperation(registry, operation, input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    return Response.json(result, { status: result.ok ? 200 : result.status })
+  })
 }
 
 function cli(content: unknown, options: ContentCliOptions = {}) {
@@ -100,7 +107,7 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
   const run = async (...args: string[]) => {
     const stdout = stream()
     const stderr = stream()
-    const code = await runContentCli(args, { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch, ...options })
+    const code = await runContentCli(args, { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout }, { fetch, ...options })
     return { code, stderr: stderr.output(), stdout: stdout.output() }
   }
   return { fetch, run }
@@ -124,6 +131,15 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     await posts.save("second", { data: { title: "Second" }, body: "" })
     const json = await cli(withPullRequest).run("publish", "--yes", "--json")
     expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: false, documents: [{ id: "second", change: "add" }], pullRequest })
+  })
+
+  it("checks discovered roots but leaves explicit deployed URLs independent of the local path", async () => {
+    const { content } = await setup()
+    const { fetch, run } = cli(content)
+    expect((await run("collections", "--url", "https://app.example.com")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).has(operationExpectedRootsHeader)).toBe(false)
+    expect((await run("collections")).code).toBe(0)
+    expect(new Headers(fetch.mock.calls.at(-1)?.[1]?.headers).get(operationExpectedRootsHeader)).toContain(projectRootHash(rootDir))
   })
 
   it("lists collections with fields and document states", async () => {
@@ -588,23 +604,25 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(JSON.parse((await run("sitemap", "--json")).stdout)).toMatchObject({ entries: [{ collection: "posts", id: "hello", loc: "https://example.com/blog/hello" }] })
   })
 
-  it("explains when no Vite + Nitro Development Server is reachable", async () => {
-    const run = async (fetch: typeof globalThis.fetch, ...args: string[]) => {
-      const stdout = stream()
-      const stderr = stream()
-      const code = await runContentCli(args, { cwd: rootDir, env: {}, rootDir, stderr, stdout }, { fetch })
-      return { code, stderr: stderr.output(), stdout: stdout.output() }
-    }
-    const offline = await run(vi.fn(async () => { throw new TypeError("fetch failed") }), "status")
-    expect(offline.code).toBe(1)
-    expect(offline.stderr).toContain("No Compatible Vite Development Server found at http://localhost:5173.")
-    expect(offline.stderr).toContain("Nuxt, plain Vite, and deployed apps are not supported.")
+  it("explains when the app is unreachable and when it has no Content", async () => {
+    const stdout = stream()
+    const stderr = stream()
+    const offline = vi.fn(async () => { throw new TypeError("fetch failed") })
+    const code = await runContentCli(["status"], { cwd: rootDir, env: { VITEHUB_DEV_SERVER_URL: "http://localhost:5173" }, rootDir, stderr, stdout }, { fetch: offline })
+    expect(code).toBe(1)
+    expect(stderr.output()).toContain("The request to http://localhost:5173 failed")
+    expect(stderr.output()).toContain("Fix: Start the dev server")
 
-    const unavailable = await run(vi.fn(async () => Response.json({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })), "status", "--json")
-    expect(JSON.parse(unavailable.stdout)).toEqual({ error: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage } })
+    // Without a known dev server the command asks for one. It does not try a port.
+    const unknown = stream()
+    const unknownErr = stream()
+    const none = vi.fn()
+    expect(await runContentCli(["status", "--json"], { cwd: rootDir, env: {}, rootDir, stderr: unknownErr, stdout: unknown }, { fetch: none })).toBe(1)
+    expect(JSON.parse(unknown.output()).error).toMatchObject({ code: "CONTENT_R0015", fix: expect.stringContaining("vite dev") })
+    expect(none).not.toHaveBeenCalled()
 
     const undefinedContent = await cli(undefined).run("collections", "--json")
-    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED" } })
+    expect(JSON.parse(undefinedContent.stdout)).toMatchObject({ error: { code: "CONTENT_UNDEFINED", fix: expect.stringContaining("server/content.ts") } })
   })
 
   it("prints help and contributes the content namespace", async () => {
@@ -612,7 +630,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     const help = await run("publish", "--help")
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
-    expect(help.stdout).toContain("It does not reach a deployed app.")
+    expect(help.stdout).toContain("With --url it calls a deployed app")
     expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
@@ -620,68 +638,109 @@ describe("vitehub content", { timeout: 30_000 }, () => {
   })
 })
 
-describe("Content dev handler", () => {
-  it("rejects requests without the guard header, from another host, or with another method", async () => {
-    const url = `http://localhost:5173${contentDevRuntimeRoute}`
-    const json = { "content-type": "application/json" }
-    expect((await handleContentDevRequest(new Request(url, { body: "{}", headers: json, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(`http://attacker.test${contentDevRuntimeRoute}`, { body: "{}", headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), undefined)).status).toBe(403)
-    expect((await handleContentDevRequest(new Request(url, { headers: { [contentDevHeader]: contentDevHeaderValue } }), undefined)).status).toBe(405)
+describe("Content operations", () => {
+  it("requires collection and document read access for every document in a schedule", async () => {
+    let collectionReadable = false
+    let documentReadable = true
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined ? collectionReadable : documentReadable,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const saved = await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    const schedule = await content.schedule({ at: new Date(Date.now() + 3_600_000), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const list = (input: unknown) => runOperation(registry, "content.schedules", input, context)
+    for (const input of [{}, { collection: "posts" }, { collection: "posts", id: "hello" }]) {
+      expect(await list(input)).toMatchObject({ ok: true, value: { schedules: [] } })
+    }
+    collectionReadable = true
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [{ id: schedule.id }] } })
+    documentReadable = false
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [] } })
+  })
+
+  it("filters document policy before pagination and sitemap output", async () => {
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined || id.startsWith("visible"),
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      seo: { site: "https://example.com" },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    for (const id of ["hidden", "visible-a", "visible-b"]) await content.collection("posts").save(id, { data: { title: id } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const first = await runOperation(registry, "content.list", { collection: "posts", limit: 1 }, context)
+    expect(first).toMatchObject({ ok: true, value: { items: [{ id: "visible-a" }], total: 2, cursor: expect.any(String) } })
+    if (!first.ok) throw new Error(first.message)
+    const page = v.parse(v.object({ cursor: v.string() }), first.value)
+    expect(await runOperation(registry, "content.list", { collection: "posts", limit: 1, cursor: page.cursor }, context))
+      .toMatchObject({ ok: true, value: { items: [{ id: "visible-b" }], total: 2 } })
+    const sitemap = await runOperation(registry, "content.sitemap", {}, context)
+    expect(sitemap).toMatchObject({ ok: true, value: { entries: [{ id: "visible-a" }, { id: "visible-b" }] } })
+  })
+
+  it("does not trust runtime NODE_ENV as production Content authorization", async () => {
+    const content = contentOn(await historyWorkspace())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    vi.stubEnv("NODE_ENV", "development")
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, {
+      access: { mode: "open", sections: "all" }, surface: "cli", user: null,
+    })).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN" })
+  })
+
+  it("rejects a publish that does not pin the digests of a dry run", async () => {
     const { content } = await setup()
-    const post = (body: unknown) => handleContentDevRequest(new Request(url, { body: JSON.stringify(body), headers: { ...json, [contentDevHeader]: contentDevHeaderValue }, method: "POST" }), content)
-    expect((await post({ operation: "clear" })).status).toBe(400)
-    // A publish must pin the digests a dry run listed.
-    for (const body of [
-      { operation: "publish" },
-      { operation: "publish", collection: "posts" },
-      { operation: "publish", expect: [] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello" }] },
-      { operation: "publish", expect: [{ collection: "posts", id: "hello", digest: null }], collection: "posts" },
-      { operation: "publish", dryRun: true, expect: [{ collection: "posts", id: "hello", digest: null }] },
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const run = (input: unknown) => runOperation(registry, "content.publish", input, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    for (const input of [
+      {},
+      { collection: "posts" },
+      { expect: [] },
+      { expect: [{ collection: "posts", id: "hello" }] },
+      { collection: "posts", expect: [{ collection: "posts", digest: null, id: "hello" }] },
+      { dryRun: true, expect: [{ collection: "posts", digest: null, id: "hello" }] },
     ]) {
-      const response = await post(body)
-      expect(response.status, JSON.stringify(body)).toBe(400)
+      const result = await run(input)
+      expect(result, JSON.stringify(input)).toMatchObject({ ok: false, status: 400 })
     }
   })
+
+  it("applies content.can() for a signed-in user and for an Agent Actor", async () => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ action, user }) => action === "read" || user?.id === "editor",
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const text = "---\ntitle: Hello\n---\n\nHi\n"
+    const as = (id: string | undefined) => ({ access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: id ? { id } : null })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("reader"))).toMatchObject({ code: "CONTENT_FORBIDDEN", fix: expect.stringContaining("authorize"), ok: false, status: 403 })
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", ifDigest: null, text }, as("editor"))).toMatchObject({ ok: true })
+    expect(await runOperation(registry, "content.list", { collection: "posts" }, as(undefined))).toMatchObject({ ok: true, value: { items: [{ id: "hello" }] } })
+    // A deployed app without a signed-in user is not the trusted dev CLI.
+    expect(await runOperation(registry, "content.publish", { dryRun: true }, as(undefined))).toMatchObject({ ok: true })
+  })
 })
-
-/** Fake Vite dev server parts that the dev endpoint registration uses. */
-function fakeServer() {
-  const middlewares: Array<(req: IncomingMessage, res: ServerResponse, next: () => void) => void> = []
-  return {
-    middlewares,
-    server: {
-      config: { root: rootDir, server: {} },
-      environments: {},
-      middlewares: { use: (handler: (req: IncomingMessage, res: ServerResponse, next: () => void) => void) => middlewares.push(handler) },
-      resolvedUrls: { local: ["http://localhost:5173/"] },
-    },
-  }
-}
-
-async function call(middleware: (req: IncomingMessage, res: ServerResponse, next: () => void) => void, init: { body?: string, headers?: Record<string, string>, method: string }) {
-  const req = Object.assign(Readable.from(init.body ? [Buffer.from(init.body)] : []), {
-    headers: { host: "localhost:5173", ...init.headers },
-    method: init.method,
-    url: contentDevRoute,
-  }) as unknown as IncomingMessage
-  const done = new EventEmitter()
-  const chunks: Buffer[] = []
-  const res = Object.assign(new Writable({
-    write(chunk, _encoding, callback) {
-      chunks.push(Buffer.from(chunk))
-      callback()
-    },
-    final(callback) {
-      done.emit("end")
-      callback()
-    },
-  }), { setHeader() {}, statusCode: 200 })
-  const ended = new Promise(resolve => done.once("end", resolve))
-  middleware(req, res as unknown as ServerResponse, () => done.emit("end"))
-  await ended
-  return { body: Buffer.concat(chunks).toString("utf8"), status: res.statusCode }
-}
 
 describe("hubContent", () => {
   type ConfigHook = (config: Record<string, unknown>, env: { command: "build" | "serve", mode: string }) => Promise<void>
@@ -701,21 +760,22 @@ describe("hubContent", () => {
     return root
   }
 
-  it("adds the Nitro dev handler for the Content Definition only in serve mode", async () => {
+  it("adds no dev endpoint and contributes the Content operations", async () => {
     const root = await project(true)
-    const plugin = hubContent({ importBase: "vite-hub/_internal/content" })
-    const build: Record<string, unknown> = { nitro: { handlers: [] }, root }
-    await configHook(plugin)(build, { command: "build", mode: "production" })
-    expect(build.nitro).toEqual({ handlers: [] })
-
+    const plugin = hubContent()
     const serve: Record<string, unknown> = { nitro: { handlers: [] }, root }
     await configHook(plugin)(serve, { command: "serve", mode: "development" })
-    const handler = join(root, ".vitehub/nitro/content/dev-handler.ts")
-    expect(serve.nitro).toEqual({ handlers: [{ handler, route: contentDevRuntimeRoute }], plugins: [] })
-    const source = await readFile(handler, "utf8")
-    expect(source).toContain("import { handleContentDevRequest } from \"vite-hub/_internal/content/runtime/dev\"")
-    expect(source).toContain(`import * as definition from ${JSON.stringify(pathToFileURL(join(root, "server", "content.ts")).href)}`)
-    expect(source).toContain("handleContentDevRequest(event.req, definition.content)")
+    expect(serve.nitro).toEqual({ handlers: [] })
+    const operations = plugin.vitehub.operations
+    if (!(operations instanceof Function)) throw new Error("expected a function that reads the project first")
+    const entries = await operations()
+    expect(entries).toEqual([expect.objectContaining({ export: "contentOperations", module: "@vite-hub/content/operations" })])
+    expect(await entries[0]!.load!()).toBe(contentOperations)
+    // An app without server/content.ts has no Content to operate on.
+    const without = hubContent()
+    await configHook(without)({ root: await project(false) }, { command: "serve", mode: "development" })
+    const none = without.vitehub.operations
+    expect(none instanceof Function ? await none() : none).toEqual([])
   })
 
   it("contributes the CLI namespace and the Content inspector only when the app defines Content", async () => {
@@ -740,14 +800,61 @@ describe("hubContent", () => {
     expect(await (without.vitehub.cli as () => Promise<unknown>)()).toBeUndefined()
     expect(await (without.vitehub.inspect as () => Promise<unknown>)()).toBeUndefined()
   })
+})
 
-  it("registers a guarded endpoint that reports hosts without an in-process Nitro environment", async () => {
-    const { middlewares, server } = fakeServer()
-    const plugin = hubContent()
-    const configureServer = plugin.configureServer as unknown as (server: unknown) => void
-    configureServer(server)
-    expect((await call(middlewares[0]!, { method: "GET" })).status).toBe(403)
-    const discovery = await call(middlewares[0]!, { headers: { [contentDevHeader]: contentDevHeaderValue }, method: "GET" })
-    expect(JSON.parse(discovery.body)).toEqual({ message: contentDevRuntimeUnavailableMessage, root: rootDir, runtime: "unavailable" })
+describe("Content operations in a development server and for Agents", () => {
+  async function operationsOn(content: ReturnType<typeof defineContent>) {
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    return (name: string, input: unknown, context: Parameters<typeof runOperation>[3]) => runOperation(registry, name, input, context)
+  }
+
+  async function policed() {
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      authorize: ({ user }) => user?.id === "editor",
+      collections: { posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }) },
+      logger: false,
+      workspace,
+    })
+    cleanup.push(() => content.dispose())
+    return content
+  }
+
+  const text = "---\ntitle: Hello\n---\n\nHi\n"
+  const cli = (mode: string, development = false) => ({ access: { mode, sections: "all" as const }, development, surface: "cli" as const, user: null })
+
+  it("trusts the CLI without a user only in a development server, with local or open access", async () => {
+    const run = await operationsOn(await policed())
+    const list = { collection: "posts" }
+    for (const mode of ["local", "open"]) {
+      vi.stubEnv("NODE_ENV", "development")
+      expect(await run("content.list", list, cli(mode, true)), mode).toMatchObject({ ok: true })
+      vi.stubEnv("NODE_ENV", "production")
+      expect(await run("content.list", list, cli(mode)), mode).toMatchObject({ code: "CONTENT_FORBIDDEN", ok: false, status: 403 })
+    }
+    vi.stubEnv("NODE_ENV", "development")
+    // A Console that signs people in is never trusted this way.
+    expect(await run("content.list", list, cli("auth", true))).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+    expect(await run("content.list", list, { access: { mode: "local", sections: "all" }, development: true, surface: "console", user: null })).toMatchObject({ code: "CONTENT_FORBIDDEN" })
+  })
+
+  it("rejects lease override from an Agent unless the developer allowed it", async () => {
+    const run = await operationsOn(await policed())
+    const input = { collection: "posts", id: "hello", ifDigest: null, lease: "override", text }
+    const agent = { access: { mode: "agent", sections: "all" as const }, actor: { id: "agent_1" }, surface: "agent" as const, user: { id: "editor" } }
+    expect(await run("content.save", input, agent)).toMatchObject({ code: "CONTENT_FORBIDDEN", fix: expect.stringContaining("overrideLeases"), ok: false, status: 403 })
+    expect(await run("content.save", input, { ...agent, overrideLeases: true })).toMatchObject({ ok: true })
+    // Without the override, an Agent saves as before, and a person may still override from the Console.
+    expect(await run("content.save", { ...input, ifDigest: undefined, lease: undefined }, agent)).toMatchObject({ ok: true })
+    expect(await run("content.save", { ...input, ifDigest: undefined }, { access: { mode: "open", sections: "all" }, surface: "console", user: { id: "editor" } })).toMatchObject({ ok: true })
+  })
+
+  it("marks a publish dry run as read only", () => {
+    const publish = contentOperations.find(operation => operation.name === "content.publish")!
+    expect(publish.readOnlyWhen?.({ dryRun: true } as never)).toBe(true)
+    expect(publish.readOnlyWhen?.({ expect: [] } as never)).toBe(false)
+    expect(publish.kind).toBe("destructive")
   })
 })

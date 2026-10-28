@@ -14,6 +14,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
+  | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_NOT_FOUND"
   | "CONSOLE_ORIGIN_REJECTED"
@@ -91,6 +92,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONSOLE_ORIGIN_REJECTED: code(
       "The request did not come from the Console origin.",
       "Open the Console from its own URL. A proxy must forward the public Host and Origin headers.",
+      `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_LOOPBACK_ONLY: code(
+      "The development Console without sign-in accepts only requests from this machine.",
+      "Open the Console from localhost, or set console.auth to \"app\" or a Console Auth config so the Console checks who calls it.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),

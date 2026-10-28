@@ -1,76 +1,14 @@
 import type {
   ContentDocumentState,
   ContentDocumentStatus,
-  ContentPublishExpectation,
   ContentPublishedDocument,
   ContentRef,
 } from "./collections-types.ts"
 import type { ContentFieldIssue, ContentFormat } from "./documents.ts"
-import type { ContentSchedule, ContentScheduleStatus } from "./schedules.ts"
+import type { ContentSchedule } from "./schedules.ts"
 import type { ContentSitemapEntry } from "./sitemap.ts"
 
-/** Vite Development Server route that `vitehub content` commands call. */
-export const contentDevRoute = "/__vitehub/content/dev"
-/** Nitro route that the dev endpoint forwards Content operations to. The route exists only in `vite dev`. */
-export const contentDevRuntimeRoute = "/_vitehub/content/dev"
-export const contentDevHeader = "x-vitehub-content-dev"
-export const contentDevHeaderValue = "1"
-
-/** Operations that the Content dev endpoint accepts. `save`, `publish`, `schedule`, and `unschedule` write. */
-export const contentDevOperations = [
-  "collections",
-  "list",
-  "show",
-  "status",
-  "diff",
-  "revisions",
-  "save",
-  "publish",
-  "schedule",
-  "unschedule",
-  "schedules",
-  "sitemap",
-] as const
-
-export type ContentDevOperation = typeof contentDevOperations[number]
-
-export interface ContentDevRequestBody {
-  operation: ContentDevOperation
-  collection?: string
-  /** Document id. Optional for a singleton. */
-  id?: string
-  /** Documents of `collection` that a `publish` dry run lists. */
-  ids?: string[]
-  /** The draft digests that a `publish` dry run listed and the user confirmed. A publish or schedule requires it. */
-  expect?: ContentPublishExpectation[]
-  /** `draft` or `published`. `revisions` and `list` default to `draft`, `show` to `draft`. */
-  ref?: ContentRef
-  limit?: number
-  cursor?: string
-  /** `list` search text. */
-  search?: string
-  /** Revision message of a write. */
-  message?: string
-  /** `publish` only lists what would change, with the draft digest of each document. */
-  dryRun?: boolean
-  /** `show` returns a new document template when the document does not exist on the draft. */
-  create?: boolean
-  /** `save`: the whole stored file, frontmatter included. */
-  text?: string
-  /** `save`: the draft digest the edit started from, or null for a new document. */
-  ifDigest?: string | null
-  /** `save`: write even while another session holds the edit lease. */
-  lease?: "override"
-  /** `schedule`: when to publish, an ISO timestamp with a time zone. */
-  at?: string
-  /** `unschedule`: the schedule id. */
-  schedule?: string
-  /** `schedules`: only schedules with this status. */
-  status?: ContentScheduleStatus
-  /** `sitemap`: the public origin. */
-  site?: string
-}
-
+/** The results of the Content operations. */
 export interface ContentDevCollection {
   name: string
   /** `documents` for `documents()`, `singleton` for `singleton()`. */
@@ -205,8 +143,4 @@ export interface ContentDevUnscheduleResult {
 
 export interface ContentDevSitemapResult {
   entries: ContentSitemapEntry[]
-}
-
-export function isContentDevOperation(value: unknown): value is ContentDevOperation {
-  return contentDevOperations.some(operation => operation === value)
 }

@@ -174,6 +174,16 @@ describe("Content on the GitHub store", () => {
       .rejects.toMatchObject({ code: "CONTENT_R0016", message: expect.stringContaining("needs the Blob + Database store") })
   })
 
+  it("reports scheduling as unavailable to the Console without calling GitHub", async () => {
+    const { content } = await setup()
+    const actions = createContentConsoleActions({ content })
+
+    expect((await actions.setup!({ user: null })).schedule).toEqual({
+      message: "The GitHub store does not support scheduled publishing. Publish documents with Publish instead.",
+    })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
   it("keeps working in a folder of the repository", async () => {
     fake.commit("main", { "site/content/posts/a.md": page("A") })
     const { posts } = await setup({ root: "site" })
