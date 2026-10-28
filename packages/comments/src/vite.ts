@@ -13,6 +13,7 @@ import type { CommentsRealtimeContributionContext, CommentsVitePluginOptions, Co
 import type { HubCommentsOptions as OperationOptions, CommentsVitePlugin as OperationPlugin } from "./operations-core/vite.ts"
 
 export { commentsConsoleSection } from "./console.ts"
+export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
 export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, commentsDatabaseModulePath, renderCommentsDatabaseModule, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
 export { readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"

@@ -1197,6 +1197,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       runtime: "vite-hub/comments/server",
     },
     auth: Boolean(options.auth),
+    // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
+    ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
     imports: {
       auth: "vite-hub/comments/runtime/auth",
       contentClient: "vite-hub/content/client",

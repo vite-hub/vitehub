@@ -32,15 +32,28 @@ export function wantsCommentMode(request: Request, base = ""): boolean {
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
 }
 
-function scriptTag(src: string): string {
-  return `<script type="module" src="${src.replace(/"/g, "&quot;")}" data-vitehub-comments></script>`
+function scriptTag(src: string, nonce?: string): string {
+  return `<script type="module" src="${src.replace(/"/g, "&quot;")}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-comments></script>`
+}
+
+/**
+ * The script nonce of a page's Content Security Policy. A policy with `'strict-dynamic'`, such as the one of
+ * nuxt-security, blocks a script without it, even from the same origin.
+ */
+export function scriptNonce(headers: Headers): string | undefined {
+  const directives = (headers.get("content-security-policy") ?? "").split(";").map(part => part.trim())
+  // Browsers read `script-src-elem`, else `script-src`, else `default-src` for a script element.
+  const directive = ["script-src-elem", "script-src", "default-src"]
+    .map(name => directives.find(part => part.toLowerCase().startsWith(`${name} `)))
+    .find(Boolean)
+  return directive ? /'nonce-([\w+/=-]+)'/.exec(directive)?.[1] : undefined
 }
 
 /** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
 export function injectOverlay(response: Response, src: string): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src)
+  const tag = scriptTag(src, scriptNonce(response.headers))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -101,13 +114,15 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     const hooks: unknown = Reflect.get(nitroApp, "hooks")
     const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
     if (hook instanceof Function) {
-      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> }, res?: { setHeader?: (name: string, value: string) => void } } } }) => {
+      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> }, res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown } } } }) => {
         const node = context.event.node?.req
         const request = context.event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
         if (!request || !wantsCommentMode(request, base)) return
-        html.bodyAppend.push(scriptTag(options.overlay))
+        const res = context.event.node?.res
+        const policy = res?.getHeader?.("content-security-policy")
+        html.bodyAppend.push(scriptTag(options.overlay, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
         // As on the fetch path: a page with the overlay must never reach a shared cache.
-        context.event.node?.res?.setHeader?.("cache-control", "private, no-store")
+        res?.setHeader?.("cache-control", "private, no-store")
       }])
     }
   }

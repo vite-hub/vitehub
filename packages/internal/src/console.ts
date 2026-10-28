@@ -169,6 +169,12 @@ export interface ViteHubConsoleSectionDescriptor<TView extends ViteHubConsoleSec
   view: TView
   /** Pages next to the main view, in sidebar order. Only document editor sections render pages today. */
   pages?: readonly ViteHubConsoleSectionPage[]
+  /**
+   * An app path, such as `/api/_vitehub/comments/session`, that the Console requests once each time it loads, for each
+   * person who may use the section. The owner package answers it with its own state for that person, such as the
+   * cookie that shows the Comments toolbar on the app's pages. The Console ignores the response.
+   */
+  visit?: string
 }
 
 export interface ViteHubConsoleDefinitionCatalogSection<TOptions = void> extends ViteHubConsoleSectionDescriptor<ViteHubConsoleDefinitionCatalogView> {
@@ -837,6 +843,10 @@ export function describeViteHubConsoleSection<TOptions>(section: ViteHubConsoleS
       : { kind: section.view.kind, notice: section.view.notice }
   const descriptor: ViteHubConsoleSectionDescriptor = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   if (section.pages?.length) descriptor.pages = describePages(section)
+  if (section.visit !== undefined) {
+    if (!/^\/(?!\/)[^\\\r\n\t]*$/.test(section.visit)) throw new TypeError(`[vitehub] Console section ${JSON.stringify(section.id)} visit must be an app path that starts with one /.`)
+    descriptor.visit = section.visit
+  }
   return descriptor
 }
 
