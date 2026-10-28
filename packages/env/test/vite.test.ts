@@ -122,6 +122,43 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export interface ServerEnv")
   })
 
+  it.each(["serve", "build"] as const)("keeps public contract types after %s configuration resolves", async (command) => {
+    const root = await temporaryDirectory("vitehub-env-contract-types-")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "contract-types" }), "utf8")
+    const plugin = hubEnv()
+    const declarations = {
+      public: {
+        mode: env.enum(["draft", "send"], { default: "draft", mode: "build" }),
+        label: env({ default: "label", mode: "build", optional: true, type: "string | undefined" }),
+        settings: env({
+          default: { enabled: true },
+          mode: "build",
+          schema: { safeParse: (input: unknown) => ({ data: input, success: true as const }) },
+          type: "{ enabled: boolean }",
+        }),
+      },
+    }
+    await plugin.api.prepareTypes(declarations, root)
+    const ambientPath = join(root, ".vitehub", "types", "env.d.ts")
+    const publicPath = join(root, ".vitehub", "env", "public.d.ts")
+    const preparedAmbient = await readFile(ambientPath, "utf8")
+    const preparedPublic = await readFile(publicPath, "utf8")
+
+    await resolveConfig({
+      configFile: false,
+      env: declarations,
+      logLevel: "silent",
+      plugins: [plugin],
+      root,
+    }, command)
+
+    expect(await readFile(publicPath, "utf8")).toBe(preparedPublic)
+    expect(await readFile(ambientPath, "utf8")).toBe(preparedAmbient)
+    expect(preparedPublic).toContain('"mode": "draft" | "send"')
+    expect(preparedPublic).toContain('"settings": { enabled: boolean }')
+    expect(plugin.api.getPublicEnv()).toEqual({ mode: "draft", label: "label", settings: { enabled: true } })
+  })
+
   it("rejects unparsed typed defaults in public and nested define config", async () => {
     const root = await temporaryDirectory("vitehub-env-defaults-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "typed-defaults" }), "utf8")
