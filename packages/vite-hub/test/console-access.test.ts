@@ -11,16 +11,17 @@ import { handleAuthRequest, withAuthorization } from "@vite-hub/auth/server"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { createConnectionsHandler } from "@vite-hub/connections/http"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
 import { bindConsoleAccess, consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
+import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import consolePageHandler from "../src/console/runtime/server/page.get.ts"
 import { assertConsoleProductionAccess, consoleVitePlugin, resolveConsoleAccessBuild, resolveConsoleOptions } from "../src/console/vite.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
+import { handleConsoleRpcRequest as handleGuardedRpcRequest } from "./support/console-rpc.ts"
 
 import type { ResolvedAuthViteConfig } from "@vite-hub/auth"
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
@@ -272,7 +273,7 @@ describe("Console access grants", () => {
     installConsoleSections("/console-access", ["agents"])
     const forged: ConsoleAccess = Object.freeze({ mode: "local", sections: "all" })
     const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: {}, method: consoleRpcMethods.sections }),
+      body: JSON.stringify({ input: {}, operation: "sections.list" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { access: forged })
@@ -292,6 +293,51 @@ describe("Console access grants", () => {
     await expect(outer(event())).resolves.toEqual({ mode: "auth", sections: "all" })
     expect(check).toHaveBeenCalledTimes(1)
     expect(inner).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe("read-only section access", () => {
+  const readOnly: ConsoleAuthorize = () => ({ sections: ["agents:read"] })
+
+  function rpc(operation: string, input: unknown = {}) {
+    return handleGuardedRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+      body: JSON.stringify({ input, operation }),
+      headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+      method: "POST",
+    }))
+  }
+
+  it("shows the section but refuses a write route of it", async () => {
+    installConsoleAccess({ mode: "open", authorize: readOnly })
+    const read = vi.fn(() => "data")
+    const write = vi.fn(() => "changed")
+    expect(await withConsoleAccess(read, { section: "agents" })(event())).toBe("data")
+    await expect(rejection(await withConsoleAccess(write, { section: "agents", write: true })(event()))).resolves.toMatchObject({ code: "CONSOLE_ACCESS_DENIED", status: 403 })
+    expect(write).not.toHaveBeenCalled()
+    await expect(rejection(await withConsoleAccess(read, { section: "usage" })(event()))).resolves.toMatchObject({ status: 403 })
+    // The full grant wins over the read-only one.
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["agents:read", "agents"] }) })
+    expect(await withConsoleAccess(write, { section: "agents", write: true })(event())).toBe("changed")
+  })
+
+  it("keeps the reads of the mixed document and media actions for a read-only grant", () => {
+    const registry = consoleOperationRegistry()
+    const documents = registry.get("documents.action")!
+    const media = registry.get("media.action")!
+    expect(documents.readOnlyWhen?.({ action: "list", section: "content" } as never)).toBe(true)
+    expect(documents.readOnlyWhen?.({ action: "save", section: "content" } as never)).toBe(false)
+    expect(media.readOnlyWhen?.({ action: "usage", section: "content" } as never)).toBe(true)
+    expect(media.readOnlyWhen?.({ action: "remove", section: "content" } as never)).toBe(false)
+  })
+
+  it("runs reads over the RPC and refuses writes", async () => {
+    installConsoleAccess({ mode: "open", authorize: readOnly })
+    installConsoleSections("/console-read-only", ["agents"])
+    expect((await rpc("sections.list")).status).toBe(200)
+    expect((await rpc("invocations.list")).status).not.toBe(403)
+    const refused = await rpc("invocations.cancel", { id: "run-1" })
+    expect(refused.status).toBe(403)
+    await expect(refused.json()).resolves.toMatchObject({ message: expect.stringContaining("read-only"), ok: false })
   })
 })
 
@@ -402,6 +448,17 @@ describe("generated Console access", () => {
 
   it("installs the local policy for the development shorthand", async () => {
     await expect(generatedPlugin({}, "serve")).resolves.toContain('installConsoleAccess({ mode: "local" })')
+  })
+
+  it("serves development operations without Console pages or assets", async () => {
+    const assets = [{ baseURL: "/public", dir: "/user-owned-assets" }]
+    const config = { base: "/portal/", nitro: { handlers: [], publicAssets: assets } }
+
+    await expect(generatedPlugin({ rpcOnly: true }, "serve", config)).resolves.toContain('installConsoleAccess({ mode: "local" })')
+
+    expect(config.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/rpc/**" }))
+    expect(config.nitro.handlers).not.toContainEqual(expect.objectContaining({ handler: expect.stringMatching(/server\/(?:page\.get|sign-in|client\.get)\.js$/) }))
+    expect(config.nitro.publicAssets).toEqual(assets)
   })
 
   it("imports console.authorize for open access", async () => {
