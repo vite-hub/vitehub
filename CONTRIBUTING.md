@@ -89,7 +89,7 @@ Replace `vite-hub` with a manifest package name, such as `@vite-hub/agent`, and 
 | User documentation links | `corepack pnpm exec vp run --filter vitehub-docs test:links` |
 | Repository-wide impact | `corepack pnpm exec vp run verify` |
 
-Package typechecks use native TypeScript 7 through the root `typescript-native` alias. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. The explicit compiler path in package scripts avoids choosing either version through a shared `tsc` executable. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
+Package typechecks use the pinned `tsrs` Rust port of TypeScript in its default compatibility mode. The shared `test/package-typecheck.mjs` launcher retains native TypeScript 7 through the `typescript-native` alias on hosts without a `tsrs` payload, including Windows ARM64. Keep `typescript` on version 6 for Vue checks and tools that use the JavaScript compiler API, including Sandbox Task discovery. `tsrs` is experimental; check compatibility before upgrading its pinned version. Package path mappings are relative to their config file because TypeScript 7 no longer supports `baseUrl`.
 
 Root contracts do not include package tests. The full local gate does not replace provider runtime or browser checks. Read [CI](.github/workflows/ci.yml) for checks enabled on each event and the [live smoke workflow](.github/workflows/live-smoke.yml) for external-service requirements. Do not run live tasks without authorization.
 

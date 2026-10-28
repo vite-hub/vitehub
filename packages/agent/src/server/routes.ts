@@ -9590,7 +9590,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       }
     })
   }
-  handler.resume = ({ recoverInterruptedBefore, ...handlerOptions } = {}) => {
+  handler.resume = ({ recoverInterruptedBefore, ...handlerOptions }: AgentChannelWebhookResumeOptions = {}) => {
     const agentScopePrefix = `webhook:${webhookScopeComponent(routeAgentIdentity(handlerOptions)?.name || "agent")}:`
     let recoveryBefore = recoverInterruptedBefore
     let inboxReplayBefore = recoverInterruptedBefore
