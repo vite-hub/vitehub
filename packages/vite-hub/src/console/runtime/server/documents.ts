@@ -8,8 +8,9 @@ import { parseConsoleDocumentSetup } from "../definitions.ts"
 import type { ConsoleDocumentCollection, ConsoleDocumentSetup } from "../definitions.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
-/** The document actions that one Console request may call. It mirrors `ViteHubConsoleDocumentActionName`. */
-export const consoleDocumentActionNames = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"] as const
+import { consoleDocumentActionNames, maximumConsoleDocumentRequestBytes } from "./limits.ts"
+
+export { consoleDocumentActionNames, maximumConsoleDocumentRequestBytes }
 
 export type ConsoleDocumentActionName = (typeof consoleDocumentActionNames)[number]
 
@@ -49,10 +50,8 @@ export interface ConsoleDocumentEditorInstall {
   load: () => Promise<Record<string, unknown>>
 }
 
-/** Bodies carry a whole Markdown document, so they may exceed the ordinary Console request limit. */
-export const maximumConsoleDocumentRequestBytes: number = 1024 * 1024
-
 const actionFailureKey = Symbol.for("vitehub.console.action-failure")
+const sectionModulesKey = Symbol.for("vitehub.console.section-modules")
 
 interface ConsoleActionFailure {
   code: string
@@ -85,7 +84,11 @@ export function consoleActionError(failure: ConsoleActionFailure): Error {
 /** Install the document editor sections of one project. Generated Console output calls this. */
 export function installConsoleDocuments(projectRoot: string, editors: Readonly<Record<string, ConsoleDocumentEditorInstall>>): ConsoleDocumentEditors {
   const loaders: Record<string, () => Promise<ConsoleDocumentActions>> = {}
+  // Operations of the same section, such as the Content operations, read the application module through this slot.
+  const modules: Record<string, () => Promise<Record<string, unknown>>> = {}
+  Reflect.set(globalThis, sectionModulesKey, modules)
   for (const [section, editor] of Object.entries(editors)) {
+    modules[section] = editor.load
     let loading: Promise<ConsoleDocumentActions> | undefined
     loaders[section] = () => {
       loading ??= editor.load().then(module => editor.actions(module))

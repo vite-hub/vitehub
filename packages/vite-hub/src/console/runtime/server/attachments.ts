@@ -8,7 +8,7 @@ const uploadSchema = v.object({ files: v.pipe(v.array(v.object({ url: v.string()
 const attachmentIdsSchema = v.pipe(v.array(v.object({ id: v.pipe(v.string(), v.uuid()), name: v.pipe(v.string(), v.maxLength(255)) })), v.maxLength(10))
 
 const maximumBytes = 10 * 1024 * 1024
-export const consoleAttachmentRequestBytes = Math.ceil(maximumBytes * 4 / 3) + 40960
+export { consoleAttachmentRequestBytes } from "./limits.ts"
 const imageTypes = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"])
 
 function error(statusCode: number, message: string): Error {

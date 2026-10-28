@@ -135,6 +135,12 @@
       "require": "./dist/_internal/blob/runtime/state.js",
       "default": "./dist/_internal/blob/runtime/state.js"
     },
+    "./_internal/content/operations": {
+      "types": "./dist/_internal/content/operations.d.ts",
+      "import": "./dist/_internal/content/operations.js",
+      "require": "./dist/_internal/content/operations.js",
+      "default": "./dist/_internal/content/operations.js"
+    },
     "./_internal/comments/runtime/console": {
       "types": "./dist/_internal/comments/runtime/console.d.ts",
       "import": "./dist/_internal/comments/runtime/console.js",
@@ -146,12 +152,6 @@
       "import": "./dist/_internal/content/runtime/console.js",
       "require": "./dist/_internal/content/runtime/console.js",
       "default": "./dist/_internal/content/runtime/console.js"
-    },
-    "./_internal/content/runtime/dev": {
-      "types": "./dist/_internal/content/runtime/dev.d.ts",
-      "import": "./dist/_internal/content/runtime/dev.js",
-      "require": "./dist/_internal/content/runtime/dev.js",
-      "default": "./dist/_internal/content/runtime/dev.js"
     },
     "./_internal/database/runtime/state": {
       "types": "./dist/_internal/database/runtime/state.d.ts",
@@ -813,6 +813,12 @@
       "require": "./dist/realtime/vue.js",
       "default": "./dist/realtime/vue.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -1300,6 +1306,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "standard-context": "catalog:runtime",
     "@types/node": "catalog:tooling",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",

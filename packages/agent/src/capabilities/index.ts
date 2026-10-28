@@ -29,6 +29,14 @@ export {
   title,
 } from "./title.ts"
 export {
+  operations,
+  operationToolName,
+} from "./operations.ts"
+export type {
+  OperationsApproval,
+  OperationsCapabilityOptions,
+} from "./operations.ts"
+export {
   content,
 } from "./content.ts"
 export type {

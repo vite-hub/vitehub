@@ -3,7 +3,7 @@ import { runAgentInvocationsCli } from "@vite-hub/agent/cli"
 import { createMemoryAgentInvocationStore, defineAgentInvocations } from "@vite-hub/agent/server"
 import { afterAll, describe, expect, it, vi } from "vitest"
 
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleAgentDefinitions } from "../src/console/runtime/server/agents.ts"
 import { installConsoleInvocations } from "../src/console/runtime/server/invocations.ts"
@@ -53,7 +53,7 @@ describe("vitehub agent invocations against the Console RPC handler", () => {
   it("lists, shows, and cancels a running Invocation with the Console credentials", async () => {
     const fixture = setup()
     const started = await handleConsoleRpcRequest(new Request("https://agent.example.com/_vitehub/rpc/__call", {
-      body: JSON.stringify({ input: { agent: "support", body: { prompt: "Wait." }, method: "POST" }, method: consoleRpcMethods.agentInvocations }),
+      body: JSON.stringify({ operation: "agents.invoke", input: { agent: "support", prompt: "Wait." } }),
       headers: { "authorization": token, "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { waitUntil: () => undefined })
