@@ -155,7 +155,7 @@ function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
 function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefined): boolean {
   if (!a || !b) return a === b;
   if (a.detached || b.detached) return a.detached === b.detached;
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
+  return a.element === b.element && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
 }
 
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false'])";

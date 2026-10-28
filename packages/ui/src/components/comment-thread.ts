@@ -296,6 +296,7 @@ export const CommentThread = defineComponent({
             guard: false,
             mentions: mentions.value,
             modelValue: reply.value,
+            onCancel: close,
             onSubmit: send,
             "onUpdate:mentions": (value: string[]) => (mentions.value = value),
             "onUpdate:modelValue": (value: string) => (reply.value = value),

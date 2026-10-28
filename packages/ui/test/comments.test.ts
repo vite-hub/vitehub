@@ -430,6 +430,32 @@ describe("pins and threads", () => {
     expect(wrapper.get("[data-slot=comment-layer]").attributes("data-active")).toBeUndefined();
   });
 
+  it("closes a thread from its empty reply on Esc and restores focus to the pin", async () => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    const field = wrapper.get("[data-slot=comment-thread] textarea");
+    (field.element as HTMLTextAreaElement).focus();
+
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]:not([data-preview])").exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.get("[data-slot=comment-pin]").element);
+  });
+
+  it("protects an unsent edit when Esc cancels an empty reply", async () => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    const edit = wrapper.get("[data-slot=comment-reply] textarea");
+    await edit.setValue("Unsent edit");
+
+    await wrapper.get("[data-slot=comment-thread] > [data-slot=comment-composer] textarea").trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]:not([data-preview])").exists()).toBe(true);
+    expect((edit.element as HTMLTextAreaElement).value).toBe("Unsent edit");
+    expect(wrapper.get("[data-slot=comment-reply] [data-slot=comment-composer]").attributes("data-shake")).toBe("shake");
+  });
+
   it("shows live changes that the transport pushes", async () => {
     const { client, transport, wrapper } = await layer();
     await transport.as(ben).create({ anchor: { kind: "element", selector: "#cta", x: 0, y: 0 }, body: "From Ben", subject: pricing });
@@ -1048,6 +1074,45 @@ describe("links and layout", () => {
     target.setAttribute("class", "moved");
     await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 400px"));
     rect.left = 100;
+  });
+
+  it("reveals and observes a replacement element at the same position", async () => {
+    const observe = vi.fn();
+    const unobserve = vi.fn();
+    vi.spyOn(globalThis, "ResizeObserver").mockImplementation(class {
+      disconnect = vi.fn();
+      observe = observe;
+      unobserve = unobserve;
+    });
+    const { client } = setup([thread(1)]);
+    let comments!: ReturnType<typeof useComments>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        comments = useComments({ client, subject: pricing });
+        return () => h(CommentLayer, { comments });
+      },
+    }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+    const previous = target;
+    expect(observe).toHaveBeenCalledWith(previous);
+
+    target = document.createElement("button");
+    target.id = "cta";
+    target.textContent = "Buy";
+    previous.replaceWith(target);
+    const scroll = vi.spyOn(target, "scrollIntoView");
+    comments.measure();
+    await flushPromises();
+
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    await wrapper.get("[data-slot=comment-list-item]").trigger("click");
+    expect(scroll).toHaveBeenCalledWith({ block: "center" });
+    const position = comments.positions.value.get("thread-1");
+    expect(position && !position.detached && position.element).toBe(target);
+    expect(unobserve).toHaveBeenCalledWith(previous);
+    expect(observe).toHaveBeenCalledWith(target);
   });
 
   it("hides the pin of an element that a scroll container clips", async () => {
