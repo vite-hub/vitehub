@@ -2446,6 +2446,21 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it.each([
+    [true, [], ["nodejs_compat", "nodejs_compat_v2"]],
+    [true, ["custom"], ["custom", "nodejs_compat", "nodejs_compat_v2"]],
+    [true, ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2"]],
+    [false, ["custom"], ["custom"]],
+  ] as const)("keeps native Node compatibility in Cloudflare output with nodeCompat=%s and flags=%j", async (nodeCompat, flags, expected) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const config = { cloudflare: { nodeCompat, wrangler: { compatibility_flags: [...flags] } } }
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(config)
+    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+    await runNitroConfigHook(config)
+    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })

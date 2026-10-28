@@ -1401,6 +1401,15 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
+    if (plan.preset === "cloudflare") {
+      const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>
+      if (cloudflare.nodeCompat === true) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
+        // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
+        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat", "nodejs_compat_v2"])]
+      }
+    }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
