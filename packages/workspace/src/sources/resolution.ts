@@ -2,7 +2,7 @@ import { ownSourceOption } from "./runtime-options.ts"
 import { createWorkspaceTools } from "../ai.ts"
 import { workspaceError } from "../core/errors.ts"
 import { normalizeWorkspacePath } from "../core/path.ts"
-import { createWorkspaceHistory, createWorkspaceHistoryReader, forwardWorkspaceHistoryFiles } from "../core/history.ts"
+import { createWorkspaceHistory, createWorkspaceHistoryReader, forwardWorkspaceHistoryFiles, forwardWorkspaceHistoryMerge } from "../core/history.ts"
 import { workspaceErrorDiagnostics } from "../error-diagnostics.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
@@ -44,6 +44,8 @@ import type {
   WorkspaceSearchQuery,
   WorkspaceStore,
   WorkspaceHistoryCommitOptions,
+  WorkspaceMergeOptions,
+  WorkspaceOpenPullRequestOptions,
   WorkspaceSession,
   WorkspaceSessionOptions,
   WorkspaceSessionWriteFileOptions,
@@ -762,6 +764,18 @@ export async function createWorkspaceSourceResolutionFacade<Name extends Workspa
     const baseHistory = workspace.history
     const writableHistory: WritableWorkspaceFacade["history"] = {
       ...history,
+      // Writes that only some Stores have. They need the complete Workspace, as a commit does.
+      ...(baseHistory.merge ? { merge: async (options: WorkspaceMergeOptions) => {
+        requireCompleteHistory()
+        return await baseHistory.merge!(forwardWorkspaceHistoryMerge(options, async (commitOptions, apply) => {
+          const validator = createWorkspaceHistory(resolvedDefinition, {
+            ...overlayStore,
+            history: { ...createWorkspaceHistoryReader(workspace.history, true), commit: apply },
+          }, sourceView)
+          return await validator.commit(commitOptions)
+        }))
+      } } : {}),
+      ...(baseHistory.openPullRequest ? { openPullRequest: async (options: WorkspaceOpenPullRequestOptions) => { requireCompleteHistory(); return await baseHistory.openPullRequest!(options) } } : {}),
       commit: commitHistory,
       checkpoint: baseHistory.checkpoint.bind(baseHistory),
       rebase,
