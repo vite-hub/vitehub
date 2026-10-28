@@ -28,9 +28,15 @@ function quote(text: string): string {
   return text.split("\n").map(line => `> ${line}`).join("\n")
 }
 
+/** Comment text is plain text in the preview; keep it literal in GitHub Markdown too. */
+function plainText(text: string): string {
+  return unlinked(text).replace(/&/g, "&amp;").replace(/[\\`*_{}[\]<>#+=!|~-]/g, "\\$&")
+    .replace(/^(\s*\d+)([.)])(?=\s)/gm, "$1\\$2")
+}
+
 /** One line for a Markdown table cell. */
 function cell(text: string): string {
-  return text.replace(/\s+/g, " ").replace(/\|/g, "\\|").replace(/</g, "&lt;").trim()
+  return plainText(text).replace(/\s+/g, " ").trim()
 }
 
 /** A code span for a Markdown table cell. GitHub shows `&lt;` in a code span as typed, so only pipes are escaped. */
@@ -88,9 +94,9 @@ function details(thread: CommentThread): string {
  */
 export function renderComment(thread: CommentThread, comment: Comment, postedAs: "author" | "app"): string {
   const first = thread.comments[0]?.id === comment.id
-  const body = unlinked(comment.body)
+  const body = plainText(comment.body)
   const lines: string[] = []
-  if (postedAs === "app") lines.push(first ? `**${authorName(comment)}** commented on the preview:` : `**${authorName(comment)}** replied on ${number(thread)}:`, "", quote(body))
+  if (postedAs === "app") lines.push(first ? `**${plainText(authorName(comment))}** commented on the preview:` : `**${plainText(authorName(comment))}** replied on ${number(thread)}:`, "", quote(body))
   else lines.push(body)
   lines.push("")
   if (first) {
