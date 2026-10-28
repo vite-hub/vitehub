@@ -18,7 +18,7 @@ const page = `<!doctype html>
     <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><p role="status" style="padding:2rem;font:14px/1.5 system-ui">Opening Console…</p><noscript>Enable JavaScript to use the Console.</noscript></div>
     <script type="module" src="/api/_vitehub/console/client.js"></script>
     <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>

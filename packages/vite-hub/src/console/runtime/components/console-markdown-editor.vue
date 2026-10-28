@@ -7,6 +7,7 @@ import { Placeholder } from "@tiptap/extensions";
 import { Plugin } from "@tiptap/pm/state";
 import { EditorContent, nodeViewProps } from "@tiptap/vue-3";
 import { contentEditorComponents, contentEditorKitOptions, contentMarkdownLossOf, describeContentMarkdownLoss } from "@vite-hub/content/editor";
+import { parseMarkdown } from "comark";
 import { defineComarkVueComponent, useComarkEditor } from "comark-tiptap/vue";
 import { computed, defineComponent, h, markRaw, onBeforeUnmount, provide, ref, shallowRef, watch } from "vue";
 
@@ -23,6 +24,7 @@ import { useConsoleMediaPicker } from "../client/media";
 import { useConsoleToast } from "../client/toast";
 import ConsoleComarkComponent from "./console-comark-component.vue";
 import ConsoleMediaDialog from "./console-media-dialog.vue";
+import ConsoleLoading from "./console-loading.vue";
 
 import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "@nuxt/ui";
 import type { Editor, JSONContent } from "@tiptap/vue-3";
@@ -60,7 +62,8 @@ const model = defineModel<string>({ required: true });
 const toast = useConsoleToast();
 const lossy = ref<string>();
 // Mirrors `editor.isEditable`, which is not reactive.
-const editable = ref(!props.disabled);
+const editable = ref(Boolean(props.live) && !props.disabled);
+const hydrating = ref(!props.live);
 // The last Markdown this component wrote or loaded, so an incoming value that matches it is not applied back.
 let written = model.value;
 // The Markdown as loaded and what the editor serializes it to. An unchanged document writes back the loaded text, so
@@ -68,6 +71,7 @@ let written = model.value;
 let loaded = model.value;
 let canonical: string | undefined;
 let loading = 0;
+let loadVersion = 0;
 let pending: ReturnType<typeof setTimeout> | undefined;
 let flushVersion = 0;
 
@@ -139,7 +143,7 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
   components: comarkComponents,
   contentType: "markdown",
   editorOptions: {
-    editable: !props.disabled,
+    editable: Boolean(props.live) && !props.disabled,
     editorProps: { attributes: { "aria-label": props.label ?? "Body", "aria-multiline": "true", class: "vitehub-markdown-editor__content", role: "textbox" } },
   },
   extensions: [
@@ -180,6 +184,7 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
 async function flush(): Promise<void> {
   const version = flushVersion;
   pending = undefined;
+  if (hydrating.value || lossy.value) return;
   const markdown = await getMarkdown();
   if (version !== flushVersion || props.active === false) return;
   if (markdown === null) return;
@@ -201,78 +206,42 @@ async function commit(): Promise<void> {
 }
 
 /** Loads Markdown without an update or an undo step, then records how the editor serializes it. */
-function load(markdown: string): Promise<void> {
+async function load(markdown: string): Promise<void> {
   const instance = editor.value;
-  if (!instance) return Promise.resolve();
-  const token = ++loading;
+  if (!instance) return;
+  const token = ++loadVersion;
+  loading = token;
+  hydrating.value = true;
   lossy.value = undefined;
-  return new Promise((resolve) => {
-    let finished = false;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
-    const done = async () => {
-      if (finished) return;
-      finished = true;
-      instance.off("transaction", onTransaction);
-      if (timeout) clearTimeout(timeout);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      const serialized = await getMarkdown();
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      loaded = markdown;
-      written = markdown;
-      canonical = serialized ?? undefined;
-      const loss = await markdownLoss(markdown, canonical);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      lossy.value ??= loss;
-      if (token === loading) loading = 0;
-      setEditable();
-      publishOutline();
-      resolve();
-    };
-    const onTransaction = ({ transaction }: { transaction: { getMeta: (key: string) => unknown } }) => {
-      if (transaction.getMeta("vitehubLoad") === token) void done();
-    };
-    const fail = (error: unknown) => {
-      if (finished) return;
-      finished = true;
-      instance.off("transaction", onTransaction);
-      if (timeout) clearTimeout(timeout);
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      lossy.value = error instanceof Error ? error.message : "The rich editor cannot show part of this Markdown.";
+  flushVersion++;
+  if (pending) clearTimeout(pending);
+  pending = undefined;
+  setEditable();
+  try {
+    const tree = await parseMarkdown(markdown, { autoClose: false, headingIds: false });
+    if (token !== loading || instance.isDestroyed) return;
+    // An AST applies synchronously, so serialization reads this load rather than an empty editor.
+    await setContent(tree, { contentType: "ast", emitUpdate: false, transactionMeta: { addToHistory: false } });
+    const serialized = await getMarkdown();
+    if (token !== loading || instance.isDestroyed) return;
+    const loss = await markdownLoss(markdown, serialized ?? undefined);
+    if (token !== loading || instance.isDestroyed) return;
+    loaded = markdown;
+    written = markdown;
+    canonical = serialized ?? undefined;
+    lossy.value = loss;
+    publishOutline();
+  }
+  catch (error) {
+    if (token === loading) lossy.value = error instanceof Error ? error.message : "The rich editor cannot show this Markdown.";
+  }
+  finally {
+    if (token === loading) {
       loading = 0;
+      hydrating.value = false;
       setEditable();
-      resolve();
-    };
-    // Parse in this load's scope. This keeps parse failures tied to the active token instead of the editor-wide
-    // onError callback, whose context does not carry transaction metadata.
-    void parseMarkdown(markdown).then((tree) => {
-      if (token !== loading) {
-        resolve();
-        return;
-      }
-      // Parsing is asynchronous. An empty body produces no transaction when the editor is already empty.
-      timeout = setTimeout(() => void done(), 3_000);
-      instance.on("transaction", onTransaction);
-      // setContent may reject after parsing (for example when a node view cannot be created). Keep the
-      // per-load cleanup together so a failed load cannot leave the listener, timeout, or loading guard active.
-      void Promise.resolve()
-        .then(() => setContent(tree, { emitUpdate: false, transactionMeta: { addToHistory: false, vitehubLoad: token } }))
-        .catch(fail);
-    }).catch((error: unknown) => {
-      fail(error);
-    });
-  });
+    }
+  }
 }
 
 /**
@@ -319,7 +288,7 @@ watch(() => props.active, (active) => {
 });
 
 function setEditable(): void {
-  editable.value = !props.disabled && !lossy.value;
+  editable.value = !props.disabled && !lossy.value && !hydrating.value;
   editor.value?.setEditable(editable.value, false);
 }
 
@@ -357,6 +326,8 @@ function focus(position: "end" | "start" = "start"): void {
 }
 
 onBeforeUnmount(() => {
+  loading = 0;
+  flushVersion++;
   if (pending) clearTimeout(pending);
   clearTimeout(outlineTimer);
 });
@@ -517,12 +488,13 @@ watch(editor, (instance) => {
 
 <template>
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
+    <ConsoleLoading v-if="hydrating" label="Loading editor…" />
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
       <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span>Read-only here. {{ lossy }} <span class="text-xs text-dimmed">⌘/</span></span>
+      <span>Read-only here. {{ lossy }} Switch to Source to read or edit the Markdown.</span>
     </p>
     <template v-if="editor">
-      <EditorContent :editor="editor" />
+      <EditorContent v-show="!hydrating" :editor="editor" :aria-busy="hydrating" />
       <UEditorToolbar
         :editor="editor"
         layout="bubble"
