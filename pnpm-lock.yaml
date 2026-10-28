@@ -1672,6 +1672,9 @@ importers:
 
   packages/env:
     dependencies:
+      '@env-spec/parser':
+        specifier: 0.6.2
+        version: 0.6.2
       '@vite-hub/agent':
         specifier: ^0.0.4
         version: link:../agent
@@ -2807,6 +2810,9 @@ importers:
       comark:
         specifier: catalog:markdown
         version: 0.7.0(katex@0.17.0)(shiki@4.5.0)
+      confbox:
+        specifier: ^0.2.4
+        version: 0.2.4
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
@@ -2840,6 +2846,9 @@ importers:
       ocache:
         specifier: catalog:runtime
         version: 0.3.0
+      pkg-types:
+        specifier: ^2.3.3
+        version: 2.3.3
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0
@@ -4263,6 +4272,10 @@ packages:
   '@envelop/instrumentation@1.0.1':
     resolution: {integrity: sha512-FuexE2qd3Yc1Kh1DjTliwGxb9kyyv4ySBNnfJOxnQasVmGdcqX6AkkO5sIMxLWFRftp8PErOcIn2dQW/1RwytQ==}
     engines: {node: '>=18.0.0'}
+
+  '@env-spec/parser@0.6.2':
+    resolution: {integrity: sha512-VTw21XMOwqVqAhZWJtkiH4thp6UrS1nyG85Abu+ISvPBPupw9mOwftwukg7AWj+IIu9qodbqJ2J7w79Su8hYAQ==}
+    engines: {node: '>=22'}
 
   '@esbuild-kit/core-utils@3.3.2':
     resolution: {integrity: sha512-sPRAnw9CdSsRmEtnsl2WXWdyquogVpB3yZ3dgwJfe8zrOzTsV7cJvmwrKVa+0ma5BoiGJ+BoqkMvawbayKUsqQ==}
@@ -19836,6 +19849,8 @@ snapshots:
     dependencies:
       '@whatwg-node/promise-helpers': 1.3.2
       tslib: 2.8.1
+
+  '@env-spec/parser@0.6.2': {}
 
   '@esbuild-kit/core-utils@3.3.2':
     dependencies:
