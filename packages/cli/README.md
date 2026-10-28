@@ -44,7 +44,7 @@ pnpm vitehub --help
 Every project includes `inspect` and `provision`. Other namespaces appear when their Vite integrations are active.
 Each CLI invocation resolves every active plugin's CLI contributor once. Commands and Provision Steps use that contribution for the invocation; the next invocation resolves it again.
 
-The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
+The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored. Generated operations cannot use the built-in `inspect` or `provision` namespaces: registry creation rejects them. Set the operation's `cli.namespace` to another name.
 
 ```txt
 Usage: vitehub <namespace> <feature> [args...]
