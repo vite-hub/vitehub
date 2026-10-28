@@ -21,7 +21,7 @@ const repoRoot = resolve(import.meta.dirname, "../..")
 const maxBuffer = 64 * 1024 * 1024
 // Tiptap packages that the Content editor's comark-ui renderer needs as peers.
 const contentEditorPeers = ["@tiptap/core", "@tiptap/extension-list", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit"] as const
-const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-list", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "comark-ui", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
+const optionalPeers = ["@nuxt/ui", "@tiptap/core", "@tiptap/extension-list", "@tiptap/extension-image", "@tiptap/extension-table", "@tiptap/pm", "@tiptap/starter-kit", "@upstash/redis", "comark", "comark-content", "evalite", "evlog", "openworkflow", "playwright-core", "posthog-node", "postgres", "reka-ui", "vite", "vite-doctor", "vitest", "vue"]
 // @tiptap/pm publishes only subpaths, so its resolution is probed through one of them.
 const optionalPeerProbes = optionalPeers.map(name => name === "@tiptap/pm" ? "@tiptap/pm/state" : name)
 
@@ -535,7 +535,6 @@ async function addOptionalPeers(appDir: string) {
     "@upstash/redis": await installedVersion(join(repoRoot, "packages/kv/node_modules/@upstash/redis/package.json")),
     comark: await installedVersion(join(repoRoot, "packages/content/node_modules/comark/package.json")),
     "comark-content": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-content/package.json")),
-    "comark-ui": await installedVersion(join(repoRoot, "packages/content/node_modules/comark-ui/package.json")),
     evalite: await installedVersion(join(repoRoot, "packages/agent/node_modules/evalite/package.json")),
     evlog: agentManifest.peerDependencies!.evlog!,
     openworkflow: await installedVersion(join(repoRoot, "packages/workflow/node_modules/openworkflow/package.json")),

@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest"
 
 import {
   consoleComponentDefaults,
+  consoleComponentProp,
+  consoleComponentWithProp,
   consoleEditorComponents,
   consoleHeadingSlug,
   consoleSlashGroups,
@@ -35,6 +37,24 @@ describe("Console body editor menus", () => {
     expect(consoleEditorComponents([alert, table, { ...badge, name: "Bad" }])).toEqual([alert, table])
     expect(consoleEditorComponents(undefined)).toEqual([])
     expect(consoleComponentDefaults(alert)).toEqual({ type: "info" })
+  })
+
+  it("reads and edits typed component props without leaving stale bindings", async () => {
+    const codec = createEditorCodec()
+    const doc = await codec.fromMarkdown('::card{:count="3" :enabled="true"}\nHello\n::\n')
+    const component = doc.content?.[0]
+    expect(component?.attrs?.name).toBe("card")
+    const props = component?.attrs?.props ?? {}
+    expect(consoleComponentProp(props, "count", "number")).toBe(3)
+    expect(consoleComponentProp(props, "enabled", "boolean")).toBe(true)
+    const changed = consoleComponentWithProp(props, "enabled", false)
+    expect(changed).not.toHaveProperty(":enabled")
+    if (!component?.attrs) throw new Error("The component has no props")
+    component.attrs.props = changed
+    const markdown = await codec.toMarkdown(doc)
+    const saved = (await codec.fromMarkdown(markdown)).content?.[0]?.attrs?.props ?? {}
+    expect(consoleComponentProp(saved, "enabled", "boolean")).toBe(false)
+    expect(consoleComponentProp(saved, "count", "number")).toBe(3)
   })
 
   it("splits the stored file into frontmatter and body", () => {

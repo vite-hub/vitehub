@@ -30,6 +30,22 @@ export function consoleEditorComponents(components: readonly ConsoleDocumentComp
   return (components ?? []).filter(component => /^[a-z][a-z0-9-]*$/.test(component.name))
 }
 
+/** Comark keeps bound props under `:name`, as JSON text or a parsed object. */
+export function consoleComponentProp(props: Record<string, unknown>, name: string, type: string): unknown {
+  const plain = Object.hasOwn(props, name)
+  const value = plain ? props[name] : props[`:${name}`]
+  if (typeof value !== "string" || (plain && type === "string")) return value
+  try { return JSON.parse(value) }
+  catch { return value }
+}
+
+export function consoleComponentWithProp(props: Record<string, unknown>, name: string, value: unknown): Record<string, unknown> {
+  const next = { ...props }
+  delete next[`:${name}`]
+  next[name] = value
+  return next
+}
+
 /** Default attributes of a new component: each prop's declared default. */
 export function consoleComponentDefaults(component: ConsoleDocumentComponent): Record<string, unknown> {
   return Object.fromEntries(Object.entries(component.props).flatMap(([name, prop]) => (prop.default === undefined ? [] : [[name, prop.default]])))
