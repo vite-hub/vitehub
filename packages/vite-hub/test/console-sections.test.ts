@@ -182,6 +182,7 @@ describe("Console Go to shortcuts", () => {
       auth: "g h",
       agents: "g a",
       content: "g t",
+      comments: "g n",
       usage: "g u",
       databases: "g d",
       kv: "g k",

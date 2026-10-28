@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubComments } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -108,6 +109,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
@@ -556,6 +558,16 @@ function deploymentNitroModule(
   }
 }
 
+function afterApplicationConfig<T extends Plugin>(plugin: T): T {
+  // Deployment defaults use the root returned by ordinary application config hooks.
+  // Keep the owned primitives after those defaults and before Nitro reads their output.
+  const hook = plugin.config
+  if (hook) plugin.config = typeof hook === "function"
+    ? { handler: hook, order: "post" }
+    : { ...hook, order: "post" }
+  return plugin
+}
+
 function deploymentPlugins(
   plan: DeploymentPlan,
   requestedServices: DeploymentService[],
@@ -592,6 +604,24 @@ function deploymentPlugins(
   const nitroPreset = plan.preset === "cloudflare" && options.realtime ? "cloudflare-durable" : plan.nitroPreset
   return [
     {
+      name: "vite-hub/deployment-settings",
+      enforce: "pre",
+      config: {
+        order: "pre",
+        handler(config, environment) {
+          ;(config as { vitehub?: unknown }).vitehub = {
+            ...cloneRecord((config as { vitehub?: unknown }).vitehub),
+            preset: plan.preset,
+          }
+          // Owners such as KV need the host before their early config hooks run.
+          // Resource names wait until ordinary plugins have configured the root.
+          const nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+          if (environment.command === "build" && nitro.preset === undefined) nitro.preset = nitroPreset
+          ;(config as { nitro?: unknown }).nitro = nitro
+        },
+      },
+    },
+    {
       name: "vite-hub/deployment-preset",
       enforce: "pre",
       nitro: {
@@ -621,8 +651,8 @@ function deploymentPlugins(
         }
       },
       config: {
-        // The primitives read deployment settings in their early config hooks.
-        order: "pre",
+        // Resolve identity after ordinary plugins configure the application root.
+        order: "post",
         handler(config, environment) {
           const building = environment.command === "build"
           ;(config as { vitehub?: unknown }).vitehub = {
@@ -1108,11 +1138,11 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   if (sandboxTaskEnabled) {
     const sandboxTaskPolicy = plan.services.sandbox
-    plugins.push(hubSandboxTask({
+    plugins.push(afterApplicationConfig(hubSandboxTask({
       ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
       providerImportSpecifier: "vite-hub/sandbox/task",
-    } as SandboxTaskPublicOptions))
+    } as SandboxTaskPublicOptions)))
   }
   if (options.agent) {
     // The Agent package does not own journal selection; the generated plugin below installs it.
@@ -1152,7 +1182,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   else plugins.push(hubConnectionsTypesCleanup())
   if (options.database) plugins.push(hubDb(options.database === true ? undefined : options.database))
   if (blobEnabled) {
-    plugins.push(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` }))
+    plugins.push(afterApplicationConfig(hubBlob(configuredBlob, { importBase: `${generatedImportBase}/blob` })))
   }
   if (options.email) {
     const emailOptions = options.email === true
@@ -1171,28 +1201,51 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   else plugins.push(hubKvOptionalPeerResolver())
   if (options.queue && plan.services.queue.supported) {
-    plugins.push(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" }))
+    plugins.push(afterApplicationConfig(hubQueue({ provider: plan.services.queue.adapter }, { importBase: "vite-hub/queue" })))
   }
   if (options.rateLimit) {
     const rateLimitPolicy = plan.services.rateLimit
     // SAFETY: ViteHub adds its private generated import base to the public Rate Limit options before calling the owned integration.
-    plugins.push(hubRateLimit({
+    plugins.push(afterApplicationConfig(hubRateLimit({
       ...(options.rateLimit === true ? {} : options.rateLimit),
       provider: rateLimitPolicy.supported ? rateLimitPolicy.adapter : "memory",
       importBase: `${generatedImportBase}/rate-limit`,
-    } as RateLimitModuleOptions))
+    } as RateLimitModuleOptions)))
   }
+  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
+  // rooms where Realtime has an authority. Inert without the file.
+  const commentsPlugin = hubComments({
+    auth: Boolean(options.auth),
+    imports: {
+      auth: "vite-hub/comments/runtime/auth",
+      contentClient: "vite-hub/content/client",
+      database: "vite-hub/comments/database",
+      databases: "vite-hub/database/drizzle",
+      realtime: "vite-hub/comments/realtime",
+      runtime: "vite-hub/comments/runtime",
+    },
+  })
   if (options.realtime) {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
-      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
-      contribute: context => contributeContentRealtime({
-        ...context,
-        contentImport: "vite-hub/content/realtime",
-        realtimeImport: "vite-hub/realtime/server",
-        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
-      }),
+      // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
+      // Other hosts keep one Content editor at a time and show comments without presence.
+      contribute: async (context) => {
+        const [content, comments] = await Promise.all([
+          contributeContentRealtime({
+            ...context,
+            contentImport: "vite-hub/content/realtime",
+            realtimeImport: "vite-hub/realtime/server",
+            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+          }),
+          commentsPlugin.api.contributeRealtime(context),
+        ])
+        return {
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          plugins: content?.plugins ?? [],
+        }
+      },
     }))
   }
   if (options.schedule) {
@@ -1251,6 +1304,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
+  plugins.push(commentsPlugin)
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

@@ -101,8 +101,10 @@ function mergeResultStatus(error: MergeBlockedError): string | undefined {
 export function isProviderRateLimit(error: unknown): boolean {
   if (error instanceof Error && error.name === "AbortError") return false;
   if (error instanceof RateLimitedError) return true;
-  const text = error instanceof Error ? `${error.message}\n${error.cause instanceof Error ? error.cause.message : String(error.cause ?? "")}` : String(error);
-  return /\b429\b|too many requests|rate limit/i.test(text);
+  return [error, error instanceof Error ? error.cause : undefined].some((candidate) =>
+    isRuntimeRecord(candidate) && candidate.code === "AGENT_R0726"
+      && hasRuntimeType(candidate.message, "string")
+      && /\b429\b|too many requests|rate limit|\busage limit\b/i.test(candidate.message));
 }
 
 /** Own one durable PR inbox and its repair passes inside a process host. */

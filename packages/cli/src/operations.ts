@@ -270,7 +270,8 @@ function parseCall(operation: AnyOperation, flags: readonly Flag[], args: readon
         if (!flag) throw usageError(`Unknown option --${name}. Run \`vitehub ${namespace} ${command} --help\` for the input.`)
         if (flag.type === "boolean") {
           const next = args[index + 1]
-          parsed.input[key] = negated ? false : inline !== undefined ? inline !== "false" : next === "true" || next === "false" ? (index++, next === "true") : true
+          const value = inline !== undefined ? convertScalar("boolean", name, inline) : !negated && (next === "true" || next === "false") ? (index++, next === "true") : true
+          parsed.input[key] = negated ? false : value
         }
         else assign(parsed.input, flag, key, name, take())
       }
