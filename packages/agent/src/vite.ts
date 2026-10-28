@@ -3011,17 +3011,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   return {
     name: "@vite-hub/agent/vite",
-    async resolveId(source, importer, options) {
-      if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
-        // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
-        // optional package and its unresolved virtual config out of unrelated Agent builds.
-        if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
-        return
-      }
-      if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
-      // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
-      // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
-      return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
+    resolveId: {
+      // Run before Vite resolves installed optional peers to absolute module paths.
+      order: "pre",
+      async handler(source, importer, options) {
+        if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
+          // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
+          // optional package and its unresolved virtual config out of unrelated Agent builds.
+          if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
+          return
+        }
+        if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
+        // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
+        // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
+        return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
+      },
     },
     async configureServer(server) {
       const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))

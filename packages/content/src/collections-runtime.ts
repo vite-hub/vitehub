@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { array, defineCollection } from "@vite-hub/source"
 import { ViteHubError } from "@vite-hub/runtime"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
-import { isWorkspaceConflict, registerWorkspacePlugin, useWorkspace } from "@vite-hub/workspace"
+import { isWorkspaceConflict, registerWorkspacePlugin, resolveWorkspaceStoreTarget, useWorkspace } from "@vite-hub/workspace"
 
 import {
   comarkJsonSchema,
@@ -177,6 +177,12 @@ export interface ContentWriteOptions {
    * digest throws `WORKSPACE_CONFLICT`. Omit it to overwrite whatever the draft holds.
    */
   ifDigest?: string | null
+  /**
+   * Expected digest of the reviewed `published` document, or null for an absent document. On a forked store, this
+   * explicitly replaces the document's publish base. Use it after merging a published change into your edit;
+   * `ifDigest` still independently protects the draft. A moved published ref throws `WORKSPACE_CONFLICT`.
+   */
+  ifPublishedDigest?: string | null
   /** Revision message. Defaults to a generated one such as `Save posts/hello`. */
   message?: string
   /** JSON-safe revision metadata, such as the author. The `content` key is reserved. */
@@ -449,11 +455,6 @@ function memoize<TValue>(cache: BoundedCache<Promise<TValue>>, key: string, load
   return promise
 }
 
-async function sha256(text: string): Promise<string> {
-  const hash = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(text))
-  return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("")
-}
-
 async function mapLimit<TItem, TResult>(items: readonly TItem[], limit: number, run: (item: TItem) => Promise<TResult>): Promise<TResult[]> {
   const results: TResult[] = Array.from({ length: items.length })
   let next = 0
@@ -562,6 +563,24 @@ function revisionTouches(revision: WorkspaceRevision, collection: string, id: st
   return revisionDocuments(revision).some(document => Reflect.get(Object(document), "collection") === collection && Reflect.get(Object(document), "id") === id)
 }
 
+/**
+ * What a draft commit recorded for each document it changed: the digest that the document had when the draft first
+ * changed it (null when it did not exist), as `content.bases` of the revision metadata. A document that has no entry is
+ * as it was when the draft started, so a difference from `published` there is a change made on `published`.
+ * Undefined when the commit has no record, as on a Store whose draft is a copy of `published`.
+ */
+function draftBases(revision: WorkspaceRevision | null | undefined): Record<string, string | null> | undefined {
+  const content: unknown = revision?.metadata?.content
+  const bases: unknown = content !== null && Object(content) === content ? Reflect.get(Object(content), "bases") : undefined
+  if (bases === null || Object(bases) !== bases || Array.isArray(bases)) return
+  const result: Record<string, string | null> = Object.create(null)
+  for (const [path, digest] of Object.entries(Object(bases))) {
+    if (digest !== null && String(digest) !== digest) return
+    result[path] = digest
+  }
+  return result
+}
+
 function writeMetadata(metadata: Record<string, unknown> | undefined, content: Record<string, unknown>): Record<string, unknown> {
   if (metadata !== undefined && (metadata === null || Object(metadata) !== metadata || Array.isArray(metadata))) {
     throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content revision metadata must be an object." })
@@ -611,13 +630,37 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     return historyPromise
   }
 
-  async function openRevision(revision: WorkspaceRevision | string): Promise<OpenedRevision> {
+  /** The digest of a document's text, as the Store of the Workspace reports digests: SHA-256, or the Git blob sha on GitHub. */
+  async function sha256(text: string): Promise<string> {
+    const bytes = new TextEncoder().encode(text)
+    const retained = await history()
+    if (retained.digest) return await retained.digest(bytes)
+    const hash = await globalThis.crypto.subtle.digest("SHA-256", bytes)
+    return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("")
+  }
+
+  /** Schedules are files on a `schedules` ref of the Workspace, which the GitHub Store does not keep. */
+  async function requireScheduleStore(): Promise<void> {
+    // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
+    const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
+    if (target?.provider === "github") {
+      throw contentErrorDiagnostics.CONTENT_R0016({
+        message: `[vitehub] schedule() needs the Blob + Database store, but Workspace ${JSON.stringify(workspaceName)} uses the GitHub store, which keeps no schedules. Publish with content.publish() instead.`,
+      })
+    }
+  }
+
+  /**
+   * Only the document paths of collections: a repository root holds many other files that Content never reads. The
+   * `schedules` ref holds files that are not documents, so schedules open every file.
+   */
+  async function openRevision(revision: WorkspaceRevision | string, scope: "documents" | "all" = "documents"): Promise<OpenedRevision> {
     const id = hasRuntimeType(revision, "string") ? revision : revision.id
-    return await memoize(revisions, id, async () => {
+    return await memoize(revisions, scope === "all" ? `all:${id}` : id, async () => {
       const view = await (await history()).open(id)
       const files = new Map<string, string>()
       await Promise.all((await view.list("", { recursive: true })).map(async (entry) => {
-        if (entry.type !== "file") return
+        if (entry.type !== "file" || (scope === "documents" && !isDocumentPath(entry.path))) return
         files.set(entry.path, entry.digest ?? await sha256(await view.readFile(entry.path)))
       }))
       return { revision: view.revision, view, files }
@@ -723,12 +766,101 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     })
   }
 
+  /** Recover tracking through ordinary Git/Workspace commits; missing metadata never permits an unguarded publish. */
+  async function trackedDraftBases(head: WorkspaceRevision | null, published: OpenedRevision | undefined): Promise<Record<string, string | null>> {
+    if (!head) return {}
+    const intervening: Array<{ current: OpenedRevision, parent: OpenedRevision }> = []
+    let revision = head
+    for (let scanned = 0; scanned < 100; scanned++) {
+      const bases = draftBases(revision) ?? (revision.id === published?.revision.id ? {} : undefined)
+      if (bases) {
+        for (const { current, parent } of intervening.reverse()) {
+          for (const path of new Set([...current.files.keys(), ...parent.files.keys()])) {
+            const before = parent.files.get(path) ?? null
+            if ((current.files.get(path) ?? null) === before) continue
+            // A prior publish can have made this file equal on both sides before the ordinary commit edited it.
+            if (!Object.hasOwn(bases, path) || before === (published?.files.get(path) ?? null)) bases[path] = before
+          }
+        }
+        return await withoutPublishedBases(bases, head, published)
+      }
+      if (!revision.parentId) break
+      const current = await openRevision(revision)
+      const parent = await openRevision(revision.parentId)
+      intervening.push({ current, parent })
+      revision = parent.revision
+    }
+    throw contentConflict("[vitehub] Content cannot establish the draft's published bases from its recent history. Preserve the draft edits, recreate the draft from published, and reapply the edits through Content before publishing.", { ref: "draft", revision: head.id })
+  }
+
+  /** A publish receipt resolves only documents that have not changed on draft since that publish's source revision. */
+  async function withoutPublishedBases(bases: Record<string, string | null>, head: WorkspaceRevision, published: OpenedRevision | undefined): Promise<Record<string, string | null>> {
+    if (!Object.keys(bases).length || !published) return bases
+    const receipts = new Map<string, Set<string>>()
+    const retained = await history()
+    for (const path of Object.keys(bases)) {
+      // An unpublished edit whose published base is still current needs no receipt lookup.
+      if ((published.files.get(path) ?? null) === bases[path]) continue
+      const remember = (revision: WorkspaceRevision) => {
+        const metadata = Object(revision.metadata?.content)
+        const source: unknown = Reflect.get(metadata, "draft")
+        if (Reflect.get(metadata, "action") !== "publish" || typeof source !== "string" || !contentCommitPaths(revision)?.has(path)) return
+        const paths = receipts.get(source) ?? new Set<string>()
+        paths.add(path)
+        receipts.set(source, paths)
+      }
+      remember(published.revision)
+      // Filter by document so unrelated repository commits do not make every status/save scan the whole repository.
+      let cursor: string | undefined = published.revision.id
+      do {
+        const page = await retained.list({ ref: "published", path, cursor, limit: 100 })
+        for (const revision of page.revisions) remember(revision)
+        cursor = page.cursor
+      } while (cursor)
+    }
+    if (!receipts.size) return bases
+    const changed = new Set<string>()
+    let current: OpenedRevision | undefined = await openRevision(head)
+    while (current) {
+      for (const path of receipts.get(current.revision.id) ?? []) {
+        if (!changed.has(path)) delete bases[path]
+      }
+      receipts.delete(current.revision.id)
+      if (!receipts.size || !Object.keys(bases).length) break
+      const parent: OpenedRevision | undefined = current.revision.parentId ? await openRevision(current.revision.parentId) : undefined
+      for (const path of Object.keys(bases)) {
+        if (current.files.get(path) !== parent?.files.get(path)) changed.add(path)
+      }
+      current = parent
+    }
+    return bases
+  }
+
+  /** Carry unresolved bases forward, unless this write explicitly acknowledges a reviewed published digest. */
+  async function nextBases(
+    published: OpenedRevision | undefined,
+    draftHead: WorkspaceRevision | null,
+    opened: OpenedRevision | undefined,
+    path: string,
+    current: string | null,
+    reviewed: string | null | undefined,
+  ): Promise<Record<string, string | null>> {
+    const next: Record<string, string | null> = {}
+    for (const [carried, base] of Object.entries(await trackedDraftBases(draftHead, published))) {
+      if ((opened?.files.get(carried) ?? null) !== (published?.files.get(carried) ?? null)) next[carried] = base
+    }
+    if (reviewed !== undefined) next[path] = reviewed
+    else if (!Object.hasOwn(next, path)) next[path] = current
+    return next
+  }
+
   // Seed an empty draft from the published ref so a first save does not drop every published document.
   async function seedDraft(retained: WorkspaceRetainedHistory): Promise<void> {
     const published = await retained.head({ ref: "published" })
     if (!published) return
-    const opened = await openRevision(published)
-    const files = Object.fromEntries(await mapLimit([...opened.files.keys()], 8, async path => [path, await opened.view.readFile(path, { encoding: "binary" })] as const))
+    const view = await retained.open(published.id)
+    const paths = (await view.list("", { recursive: true })).filter(entry => entry.type === "file").map(entry => entry.path)
+    const files = Object.fromEntries(await mapLimit(paths, 8, async path => [path, await view.readFile(path, { encoding: "binary" })] as const))
     try {
       await retained.commit({ ref: "draft", ifHead: null, files, message: "Start the draft from published content", metadata: { content: { action: "seed", from: published.id } } })
     }
@@ -749,6 +881,11 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
   const plugin = registerWorkspacePlugin(workspaceName, {
     id: "vitehub.content",
+    // A rule for each collection glob. A Workspace at a repository root denies every other path with a `**` rule, and
+    // the more specific glob of a collection wins over it.
+    get rules() {
+      return Object.fromEntries(Object.values(options.collections).map(definition => [definition.path, { write: true }]))
+    },
     hooks: {
       // Every Workspace writer, including Agents, Sessions, and other history commits, goes through this check.
       "write:validate": async (input) => {
@@ -969,6 +1106,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== null && String(writeOptions.ifDigest) !== writeOptions.ifDigest) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifDigest must be a digest string or null." })
       }
+      if (writeOptions.ifPublishedDigest !== undefined && writeOptions.ifPublishedDigest !== null && String(writeOptions.ifPublishedDigest) !== writeOptions.ifPublishedDigest) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content ifPublishedDigest must be a digest string or null." })
+      }
       if (writeOptions.session !== undefined && (String(writeOptions.session) !== writeOptions.session || !writeOptions.session)) {
         throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content write session must be the content.sessions token of the caller." })
       }
@@ -983,21 +1123,34 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (holder) throw contentLeaseHeld(name, id, holder)
       }
       const retained = await history()
+      // A Store that starts a missing draft from the published ref needs no seed commit: the first save creates it.
+      const baseRef = await retained.forksFrom?.("draft")
       for (let attempt = 1; ; attempt++) {
         let head = await retained.head({ ref: "draft" })
-        if (!head) {
+        if (!head && baseRef === undefined) {
           await seedDraft(retained)
           head = await retained.head({ ref: "draft" })
         }
-        const opened = head ? await openRevision(head) : undefined
+        // The base of a write is the draft, or the published ref while the draft does not exist. The new draft starts
+        // from exactly that revision, so `ifDigest` is checked against the files that the draft begins with.
+        const base = head ?? (baseRef === undefined ? null : await retained.head({ ref: baseRef }))
+        const opened = base ? await openRevision(base) : undefined
         const current = opened?.files.get(path) ?? null
         if (writeOptions.ifDigest !== undefined && writeOptions.ifDigest !== current) {
           throw contentConflict(`[vitehub] Content document ${JSON.stringify(`${name}/${id}`)} changed on the draft.`, {
             actual: current, collection: name, expected: writeOptions.ifDigest, id, path, ref: "draft",
           })
         }
+        const publishedHead = baseRef !== undefined || writeOptions.ifPublishedDigest !== undefined
+          ? await retained.head({ ref: baseRef ?? "published" }) : null
+        const published = publishedHead ? await openRevision(publishedHead) : undefined
+        if (writeOptions.ifPublishedDigest !== undefined && writeOptions.ifPublishedDigest !== (published?.files.get(path) ?? null)) {
+          throw contentConflict(`[vitehub] Content document ${JSON.stringify(`${name}/${id}`)} changed on the published branch.`, {
+            actual: published?.files.get(path) ?? null, collection: name, expected: writeOptions.ifPublishedDigest, id, path, ref: "published",
+          })
+        }
         if ("delete" in change && current === null) throw contentNotFound(name, id)
-        if (!("delete" in change) && current === change.digest && opened) {
+        if (!("delete" in change) && current === change.digest && opened && writeOptions.ifPublishedDigest === undefined) {
           // Unchanged content keeps the current draft revision.
           const parsed = await parseEntry(opened, { path, digest: current })
           if (!parsed.malformed) return documentOf(id, { path, digest: current }, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null)
@@ -1006,12 +1159,15 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           const release = await acquireMutation()
           let revision: WorkspaceRevision
           try {
+            const bases = baseRef === undefined ? undefined : await nextBases(published, head, opened, path, current, writeOptions.ifPublishedDigest)
             revision = await retained.commit({
               ref: "draft",
               ifHead: head?.id ?? null,
+              ...(writeOptions.ifPublishedDigest !== undefined ? { ifHeads: { [baseRef ?? "published"]: publishedHead?.id ?? null } } : {}),
+              ...(!head && base && baseRef !== undefined ? { startFrom: base.id } : {}),
               changes: "delete" in change ? { delete: [path] } : { put: { [path]: change.text } },
               message,
-              metadata,
+              metadata: bases ? writeMetadata(writeOptions.metadata, { action, documents: [{ collection: name, id }], bases }) : metadata,
             })
           }
           finally { release() }
@@ -1095,6 +1251,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function status(id?: string): Promise<ContentDocumentStatus | ContentDocumentStatus[] | null> {
       if (id !== undefined) pathFor(id)
       const [draft, published, scheduled] = await Promise.all([refState("draft"), refState("published"), schedules.documentSchedules()])
+      const bases = (await history().then(retained => retained.forksFrom?.("draft"))) === undefined ? undefined : await trackedDraftBases(draft.revision, published.opened)
       const draftEntries = draft.opened ? entries(draft.opened.files) : new Map<string, CollectionEntry>()
       const publishedEntries = published.opened ? entries(published.opened.files) : new Map<string, CollectionEntry>()
       // Issue counts of the drafts, from the parse cache that list() shares.
@@ -1108,9 +1265,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
         if (draftDigest === null && publishedDigest === null) return null
-        const state: ContentDocumentState = draftDigest === null
-          ? "deleted"
-          : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
+        // A document that only `published` changed is not a change of the draft: publish() leaves it alone.
+        const publishedOnly = bases !== undefined && draftDigest !== publishedDigest && !Object.hasOwn(bases, pathFor(documentId))
+        const state: ContentDocumentState = publishedOnly
+          ? publishedDigest === null ? "deleted" : "published"
+          : draftDigest === null
+            ? "deleted"
+            : publishedDigest === null ? "draft" : draftDigest === publishedDigest ? "published" : "changed"
         const status: ContentDocumentStatus = { collection: name, id: documentId, state, draft: draftDigest, published: publishedDigest }
         const issues = issueCounts.get(documentId)
         if (issues) status.issues = issues
@@ -1309,11 +1470,23 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       const remove: string[] = []
       const documents: ContentPublishedDocument[] = []
       const invalid: ContentInvalidDocument[] = []
+      const moved: ContentPublishMismatch[] = []
+      // On a Store whose draft is a branch of its own, missing metadata must not disable publish protection.
+      const bases = (await retained.forksFrom?.("draft")) === undefined ? undefined : await trackedDraftBases(draftHead, published)
       for (const { collection, id, path } of targets) {
         const draftDigest = draft.files.get(path)
         const publishedDigest = published?.files.get(path)
         // Unchanged documents, and an expected deletion of a document that was never published, publish nothing.
         if (draftDigest === publishedDigest) continue
+        if (bases) {
+          // The draft did not change this document, so it differs because `published` changed. Leave it as it is.
+          if (!Object.hasOwn(bases, path)) continue
+          // Both sides changed it: refuse, so the edit on `published` is not overwritten or deleted.
+          if ((publishedDigest ?? null) !== bases[path]) {
+            moved.push({ collection: collection.name, id, expected: bases[path] ?? null, actual: publishedDigest ?? null })
+            continue
+          }
+        }
         if (draftDigest === undefined) {
           remove.push(path)
           documents.push({ collection: collection.name, id, change: "delete" })
@@ -1328,6 +1501,13 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         }
         put[path] = bytes
         documents.push({ collection: collection.name, id, change: publishedDigest === undefined ? "add" : "update" })
+      }
+      if (moved.length) {
+        const lines = moved.map(({ collection, id, actual }) => `- ${collection}/${id}: ${actual === null ? "deleted on" : "changed on"} the published branch`)
+        throw contentConflict(`[vitehub] These documents changed on the published branch after the draft changed them, so publish() published nothing:\n${lines.join("\n")}\nOpen each document to see the published version with get(id, { ref: 'published' }), reapply your edit, and save with ifPublishedDigest set to that version's digest (null if deleted). Keep ifDigest set to the current draft digest, then publish again.`, {
+          ref: "published",
+          documents: moved.map(entry => ({ ...entry })),
+        })
       }
       // A draft in progress never reaches `published`. Every invalid document is named, and nothing is published.
       if (invalid.length) throw contentInvalidDocuments("publish", invalid)
@@ -1460,7 +1640,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   const schedules = createContentSchedules({
     history,
     open: async (revision) => {
-      const opened = await openRevision(revision)
+      const opened = await openRevision(revision, "all")
       return { files: opened.files, read: path => readText(opened, path) }
     },
     expectations: (method, expect) => expectationTargets(method, expect).map(({ collection, id, digest }) => ({ collection: collection.name, id, digest: digest ?? null })),
@@ -1528,7 +1708,10 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collections: new Map([...collections].map(([name, runtime]) => [name, runtime.collection])),
     collection: name => requireCollection(name).collection,
     publish,
-    schedule: schedules.schedule,
+    schedule: async (scheduleOptions) => {
+      await requireScheduleStore()
+      return await schedules.schedule(scheduleOptions)
+    },
     schedules: schedules.schedules,
     unschedule: schedules.unschedule,
     publishDue: schedules.publishDue,
