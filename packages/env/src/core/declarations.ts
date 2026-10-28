@@ -164,6 +164,11 @@ function typedVariable(schema: RuntimeValueSchema, options: EnvVariableOptions):
   return createDeclaration(options, schema, valueSchema && envValueTypeName(valueSchema))
 }
 
+/** Create an internal built-in declaration whose parser survives runtime serialization. */
+export function descriptorVariable(valueSchema: EnvValueSchema, options: Omit<EnvVariableOptions, "schema" | "type">): EnvVariableDeclaration {
+  return typedVariable(createRuntimeValueSchema(valueSchema), options)
+}
+
 function booleanVariable(options: EnvTypedVariableOptions<boolean> = {}): EnvVariableDeclaration {
   return typedVariable(booleanSchema, options)
 }
