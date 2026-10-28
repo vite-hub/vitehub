@@ -1896,6 +1896,29 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
   }
 }
 
+function latestGithubActivityState(comments: readonly unknown[]): GitHubActivityCommentState {
+  const states = comments.map(comment => ({
+    state: decodeGithubActivityState(isRecord(comment) ? comment.body : undefined),
+    updatedAt: githubActivityDate(isRecord(comment) ? comment.updated_at : undefined) ?? "",
+  }))
+  // Run history establishes causality even when an expired writer settles late
+  // or GitHub gives two writes the same timestamp.
+  const superseded = new Set(states.flatMap(({ state }) => state.previousRunIds))
+  let latest: typeof states[number] | undefined
+  for (const candidate of states) {
+    const current = candidate.state.current
+    if (!current || superseded.has(current.runId)) continue
+    const previous = latest?.state.current
+    // Independent processes may have no shared history. Use their saved activity
+    // times before transport write times; a late write does not start a new run.
+    const sameRun = previous?.runId === current.runId
+    const time = (sameRun ? current.updatedAt : current.startedAt ?? current.updatedAt) ?? candidate.updatedAt
+    const previousTime = (sameRun ? previous?.updatedAt : previous?.startedAt ?? previous?.updatedAt) ?? latest?.updatedAt ?? ""
+    if (!latest || time > previousTime || time === previousTime && candidate.updatedAt > latest.updatedAt) latest = candidate
+  }
+  return latest?.state ?? { history: [], previousRunIds: [] }
+}
+
 function encodeGithubActivityState(state: GitHubActivityCommentState): string {
   const bounded: GitHubActivityCommentState = {
     current: state.current && { ...state.current, links: [...state.current.links] },
@@ -2122,9 +2145,7 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
           existing ||= owned.at(-1)
           if (knownCommentId && !existing) commentIds.delete(activityKey)
           if (mode === "initialize" && existing) return
-          const latest = owned.reduce((latest, comment) =>
-            (githubActivityDate(isRecord(comment) ? comment.updated_at : undefined) ?? "") > (githubActivityDate(isRecord(latest) ? latest.updated_at : undefined) ?? "") ? comment : latest, existing)
-          const previous = decodeGithubActivityState(isRecord(latest) ? latest.body : undefined)
+          const previous = latestGithubActivityState([existing, ...owned.filter(comment => comment !== existing)])
           const sameRun = previous.current?.runId === runId ? previous.current : undefined
           const current: GitHubActivityHistoryEntry = {
             links: githubActivityLinksState(context.activity.links),

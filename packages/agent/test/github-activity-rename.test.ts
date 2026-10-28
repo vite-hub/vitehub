@@ -72,3 +72,53 @@ test('host activity reuses the original App comment across a rename and restart'
   assert.deepEqual(writes, [{ method: 'PATCH', id: 10 }, { method: 'PATCH', id: 10 }])
 })
 
+for (const scenario of ['equal timestamps', 'late duplicate', 'late duplicate without shared history']) test(`host activity preserves logical run order with ${scenario}`, async () => {
+  const runId = (run: string) => createHash('sha256').update(`babysitter-worker\0${run}`).digest('base64url')
+  const entry = (run: string, updatedAt: string) => ({ agentName: 'babysitter-worker', runId: runId(run), status: 'waiting', links: [], updatedAt, summary: `${run} result` })
+  const older = entry('older', '2026-10-28T17:00:00Z')
+  const newer = entry('newer', '2026-10-28T18:00:00Z')
+  if (scenario === 'equal timestamps') older.updatedAt = newer.updatedAt
+  if (scenario === 'late duplicate') older.updatedAt = '2026-10-28T20:00:00Z'
+  const encode = (current: typeof older, previous: typeof older[] = []) =>
+    `<!-- vitehub-agent-activity:${Buffer.from(JSON.stringify({ current, history: previous, previousRunIds: previous.map(item => item.runId) })).toString('base64url')} -->`
+  const tied = scenario === 'equal timestamps'
+  const newerBody = encode(newer, scenario === 'late duplicate without shared history' ? [] : [older])
+  const comments = [comment(10, newLogin, appId, tied ? encode(older) : newerBody), comment(11, newLogin, appId, tied ? newerBody : encode(older))]
+  comments[0]!.updated_at = '2026-10-28T19:00:00Z'
+  comments[1]!.updated_at = tied ? comments[0]!.updated_at : '2026-10-28T20:00:00Z'
+  const duplicateBody = comments[1]!.body
+  const writes: number[] = []
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+    const url = new URL(input instanceof Request ? input.url : input)
+    if (!init?.method || init.method === 'GET') return Response.json(comments)
+    assert.equal(init.method, 'PATCH')
+    const id = Number(url.pathname.split('/').at(-1))
+    writes.push(id)
+    const existing = comments.find(item => item.id === id)!
+    existing.body = JSON.parse(String(init.body)).body
+    existing.updated_at = '2026-10-28T21:00:00Z'
+    return Response.json(existing)
+  })
+  const publish = async (run: string, status: 'waiting' | 'completed') => {
+    // A fresh host must recover ordering from persisted comments after restart.
+    const host = createGitHubHost({ credentials: () => ({ token: 'fixture', rateLimitKey: 'fixture' }), identity: { login: oldLogin, appId } })
+    vi.spyOn(host, 'access').mockImplementation(async () => ({ token: 'fixture', env: {} }))
+    await publishAgentActivity({ name: 'babysitter-worker', channels: { github: host.channel({ activity: true }) } }, {
+      channelId: 'github', target: { repository, issue: 64 },
+      activity: { runId: run, status, links: [], tasks: [], summary: `${run} ${status}`, updatedAt: '2026-10-28T20:00:00Z' },
+    })
+  }
+  if (tied) {
+    await publish('newer', 'waiting')
+    assert.match(comments[0]!.body, /newer waiting/)
+    await publish('newer', 'completed')
+    assert.match(comments[0]!.body, /newer completed/)
+    assert.deepEqual(writes, [10, 10])
+  } else {
+    await publish('older', 'waiting')
+    await publish('older', 'completed')
+    assert.equal(comments[0]!.body, newerBody, 'repeat stale publications must preserve the newer canonical state')
+    assert.deepEqual(writes, [])
+  }
+  assert.equal(comments[1]!.body, duplicateBody, 'historical duplicates remain unchanged')
+})
