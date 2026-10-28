@@ -3,7 +3,7 @@ import { existsSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { join, resolve } from "node:path"
 
-import { resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
+import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
@@ -437,6 +437,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let openAccessBuildWarning: string | undefined
   const consoleBuildCatalogs = new Map<string, Awaited<ReturnType<typeof discoverConsoleBuildCatalog>>>()
   let baseURL = "/"
+  let applicationBase = "/"
   type DeferredConsoleState = {
     config: ResolvedConfig
     root: string
@@ -471,7 +472,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
@@ -569,6 +570,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       if (appAuth) sections = insertConsoleSection(sections, "auth");
       resolvedAppAuth = appAuth
       baseURL = config.base ?? "/"
+      applicationBase = Reflect.get(config, VITEHUB_APP_BASE_URL) ?? baseURL
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
       assertConsoleProductionAccess(configured, {
         auth: appAuth,
@@ -648,6 +650,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           consoleAccess(),
           options.runtimeCapabilityImports,
           development,
+          applicationBase,
         )
       }
       // SAFETY: Nitro extends Vite's user config with this documented top-level configuration object.
@@ -705,6 +708,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       resolvedPlugins = config.plugins
       const previousConsoleAuthHandlers = consoleAuthHandlers
       baseURL = config.base
+      applicationBase = Reflect.get(config, VITEHUB_APP_BASE_URL) ?? baseURL
       if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github") {
         const callbackState = resolvedConfigState
         inlineConsoleAuthConfig = {
@@ -746,6 +750,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 access,
                 callbackState.runtimeCapabilityImports,
                 callbackState.development,
+                Reflect.get(callbackState.config, VITEHUB_APP_BASE_URL) ?? callbackState.baseURL,
               )
             }
             const nitro = (callbackState.config as typeof callbackState.config & { nitro?: ConsoleNitroConfig }).nitro ?? {}

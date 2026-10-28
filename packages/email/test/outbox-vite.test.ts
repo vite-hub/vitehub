@@ -97,7 +97,8 @@ describe("Email development outbox output", () => {
       expect(source).toContain("https://api.resend.com")
       expect(source).not.toContain("createEmailDevOutboxDriver")
       expect(source).not.toContain("vitehub.email.outbox")
-      expect(source).not.toContain("devCapture")
+      await import(pathToFileURL(definition).href)
+      expect(Reflect.get(globalThis, captureState)).toBe(false)
       expect(JSON.stringify(config.nitro)).not.toContain("email/dev")
     }
   })

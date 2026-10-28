@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 
@@ -6,6 +6,8 @@ import { emailOperations } from "../src/operations.ts"
 import { createEmailDevOutboxDriver } from "../src/runtime/outbox.ts"
 
 import type { EmailDriver, EmailMessage } from "../src/types.ts"
+
+vi.mock("#vitehub/email/definition", () => ({}))
 
 const outboxState = Symbol.for("vitehub.email.outbox")
 const captureState = Symbol.for("vitehub.email.devCapture")

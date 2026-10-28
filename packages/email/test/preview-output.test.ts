@@ -15,7 +15,7 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map(dir => rm(dir, { force: true, recursive: true })))
 })
 
-it.each(["serve", "build"] as const)("previews generated %s templates in a separate runtime without source files", async (command) => {
+it.each([["serve", false], ["serve", undefined], ["build", false], ["build", undefined]] as const)("runs generated %s Email operations with outbox=%s in a separate runtime without source files", async (command, outbox) => {
   const root = await mkdtemp(join(tmpdir(), "vitehub-email-runtime-"))
   tempDirs.push(root)
   await symlink(resolve("node_modules"), join(root, "node_modules"), "dir")
@@ -23,7 +23,7 @@ it.each(["serve", "build"] as const)("previews generated %s templates in a separ
   for (const dir of serverDirs) await mkdir(join(dir, "emails"), { recursive: true })
   await writeFile(join(serverDirs[0]!, "emails", "welcome.md"), "# Hello {{ data.name }}\n")
   await writeFile(join(serverDirs[1]!, "emails", "receipt.md"), "Receipt {{ data.id }}\n")
-  const plugin = hubEmail({ driver: "resend" })
+  const plugin = hubEmail({ driver: "resend", outbox })
   if (!(plugin.config instanceof Function) || !(plugin.configResolved instanceof Function)) throw new Error("Expected Email config hooks")
   const config = { root, [VITEHUB_SERVER_DIRS]: serverDirs }
   await Reflect.apply(plugin.config, undefined, [config, { command, mode: command === "serve" ? "development" : "production" }])
@@ -57,21 +57,33 @@ it.each(["serve", "build"] as const)("previews generated %s templates in a separ
         import { emailOperations } from ${JSON.stringify(resolve("src/operations.ts"))}
         const registry = createOperationRegistry([{ operations: emailOperations }])
         const context = { access: { mode: "app", sections: ["email"] }, surface: "console", user: null }
+        const outbox = await Promise.all([
+          runOperation(registry, "email.outbox-list", {}, context),
+          runOperation(registry, "email.outbox-show", { id: "outbox-1" }, context),
+          runOperation(registry, "email.outbox-clear", {}, context),
+        ])
         const results = await Promise.all([
           runOperation(registry, "email.preview", { template: "welcome", data: { name: "Ada" } }, context),
           runOperation(registry, "email.preview", { template: "receipt", data: { id: 42 } }, context),
           runOperation(registry, "email.preview", { template: "missing" }, context),
           runOperation(registry, "email.preview", { template: "welcome" }, { ...context, access: { mode: "app", sections: ["kv"] } }),
         ])
-        console.log(JSON.stringify(results))
+        console.log(JSON.stringify({ outbox, previews: results }))
       `,
       resolveDir: resolve("."),
     },
   })
   await Promise.all([...serverDirs, join(root, ".vitehub")].map(dir => rm(dir, { recursive: true })))
   const { stdout } = await promisify(execFile)(process.execPath, [output], { cwd: tmpdir() })
-  const results: unknown = JSON.parse(stdout)
-  expect(results).toMatchObject([
+  const results: { outbox: unknown, previews: unknown } = JSON.parse(stdout)
+  expect(results.outbox).toMatchObject(command === "serve" && outbox !== false
+    ? [
+        { ok: true, value: { limit: null, messages: [] } },
+        { ok: false, code: "EMAIL_OUTBOX_MESSAGE_NOT_FOUND", status: 404 },
+        { ok: true, value: { cleared: 0 } },
+      ]
+    : Array.from({ length: 3 }, () => ({ ok: false, code: "EMAIL_OUTBOX_DISABLED", status: 409 })))
+  expect(results.previews).toMatchObject([
     { ok: true, value: { file: "app/server/emails/welcome.md", html: '<h1 id="hello-ada">Hello Ada</h1>', template: "welcome", text: "# Hello Ada" } },
     { ok: true, value: { file: "layer/server/emails/receipt.md", template: "receipt", text: "Receipt 42" } },
     { ok: false, code: "EMAIL_TEMPLATE_NOT_FOUND", status: 404, message: expect.stringContaining("Templates: welcome, receipt.") },

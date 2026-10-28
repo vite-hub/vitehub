@@ -220,7 +220,6 @@ function renderConfiguredEmailDefinitionModule(
   cloudflare: boolean,
   cloudflareEmail: boolean,
   outbox?: GeneratedEmailOutbox,
-  serve = false,
 ): string {
   return [
     `import createDriver from ${JSON.stringify(driverImport)}`,
@@ -238,7 +237,7 @@ function renderConfiguredEmailDefinitionModule(
       : renderResolvedOptions(definition.options, "options")})`,
     "}",
     // The `email.outbox-*` operations tell `email.outbox: false` from an app that has not sent a message yet.
-    ...(serve ? [`globalThis[Symbol.for(${JSON.stringify(emailCaptureKey)})] = ${outbox !== undefined}`] : []),
+    `globalThis[Symbol.for(${JSON.stringify(emailCaptureKey)})] = ${outbox !== undefined}`,
     `export const outboxRuntimeId = ${JSON.stringify(outbox?.runtimeId ?? "disabled")}`,
     "export const definition = {",
     outbox
@@ -542,7 +541,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       // The outbox is added only for `vite dev`. A build never imports the outbox module.
       const devOutbox = command === "serve" && outbox ? { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId } : undefined
       const previewImport = `./${relative(dirname(entry), previewRegistryPath()).replaceAll("\\", "/")}`
-      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, devOutbox, command === "serve"))
+      await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, devOutbox))
       try {
         await bundleEsmEntry(entry, definition.handler, {
           define: resolveViteHubBundleDefines(config),
