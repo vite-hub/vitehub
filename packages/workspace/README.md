@@ -446,6 +446,16 @@ that commit. The existing `vitehub workspace history`, `refs`, and `show` CLI co
 inspect this data; the Console Workspace/files view does not yet provide a history
 navigator.
 
+The GitHub Store also writes history. `history.commit()` creates one commit, checks `ifHead` and
+`ifHeads` against the branch heads, and starts a missing branch from the `refs.published` branch when it is set, else from the default branch. `startFrom` names the revision a missing ref starts from. Options:
+`root: ""` is the repository root. `refs: { published?: string, draft?: string }` names the branches
+of the `published` and `draft` history refs and reports revisions with those names. `database` is
+carried on the store target and not used by the Store. `history.digest(bytes)` and every revision
+view use Git blob shas as digests. Commit `metadata` is kept in the commit message as a
+`Vitehub-Metadata: {...}` line, and `history.list({ path })` returns the commits that changed that
+path. `history.head()` keeps a branch head for 5 seconds. The Store reads the repository and token on
+first use, so a missing one throws `WORKSPACE_R0072` then, not when the definition loads.
+
 Built on [`@vite-hub/source`](../source/README.md) and [isomorphic-git](https://isomorphic-git.org/). Shell-backed Workspace tools load `@vite-hub/shell` only when the shell tool executes.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

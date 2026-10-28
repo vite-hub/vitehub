@@ -1,8 +1,10 @@
 import { Readable } from "node:stream"
 
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
+import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
@@ -45,6 +47,25 @@ afterEach(() => {
 })
 
 describe("ViteHub MCP", () => {
+  it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    const config: { handlers: Array<{ handler: string, route: string, method?: "post" }> } = { handlers: [] }
+    addConsoleRpcHandler(config, "/runtime", base)
+    const route = config.handlers.find(candidate => candidate.handler === "/runtime/server/mcp.js")!
+    const app = new H3()
+    app.on(route.method ?? "", route.route, handler)
+    app.get(`${base}_vitehub/**`, () => new Response("Console HTML"))
+
+    const probe = await app.request(route.route)
+    expect(probe.status).toBe(405)
+    expect(probe.headers.get("allow")).toBe("POST")
+    expect(await probe.json()).toEqual({ message: "ViteHub MCP accepts JSON-RPC requests with POST." })
+    const ping = await app.request(route.route, { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }) })
+    expect(ping.status).toBe(200)
+    expect(await ping.json()).toEqual({ jsonrpc: "2.0", id: 1, result: {} })
+  })
+
   it("rejects invalid request IDs before executing tools", async () => {
     installConsoleAccess({ mode: "open" })
     installConsoleSections("/mcp-test", ["comments"])
