@@ -20,7 +20,7 @@ import { operationCell, operationLink } from "../src/console/runtime/client/oper
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
-import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
+import { installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
 import type { CommentsDefinition, CommentThread, CommentUser } from "@vite-hub/comments"
@@ -253,7 +253,9 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
   it("prints the threads for `vitehub comments list --json`", async () => {
     await setup()
     const thread = await create()
+    installConsoleProjectRoot("/app")
     let output = ""
+    let errors = ""
     const code = await runViteHubCli({
       args: ["comments", "list", "--json"],
       cwd: "/app",
@@ -261,10 +263,10 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
       fetch: ((url: string | URL | Request, init?: RequestInit) => handleConsoleRpcRequest(new Request(String(url), init))) as typeof fetch,
       loadConfig: async () => ({ plugins: [{ name: "comments", vitehub: { operations: [{ export: "commentsOperations", load: async () => commentsOperations, module: "@vite-hub/comments/operations" }] } }], root: "/app" }),
       loadNuxtViteConfig: async () => undefined,
-      stderr: { write: () => true },
+      stderr: { write: (chunk: string | Uint8Array) => { errors += String(chunk); return true } },
       stdout: { write: (chunk: string | Uint8Array) => { output += String(chunk); return true } },
     })
-    expect(code).toBe(0)
+    expect(code, errors || output).toBe(0)
     expect(JSON.parse(output)).toEqual([thread])
   })
 

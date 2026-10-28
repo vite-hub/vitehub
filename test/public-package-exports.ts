@@ -49,11 +49,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
-  ["@vite-hub/comments/database", { "drizzle-orm": "both" }],
-  ["@vite-hub/comments/database/postgres", { "drizzle-orm": "both" }],
-  ["@vite-hub/comments/operations", { "drizzle-orm": "runtime" }],
-  ["@vite-hub/comments/server", { "drizzle-orm": "both" }],
-  ["@vite-hub/comments/vite", { "@vite-hub/database": "declaration", "vite": "declaration" }],
+  ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // The editor renders through comark-tiptap, which imports these Tiptap packages. Content keeps all of them external.

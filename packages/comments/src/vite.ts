@@ -34,12 +34,15 @@ export function commentsEntryMode(file: string): "operations" | "live" {
   const module = scanModule(readFileSync(file, "utf8"), file)
   let named = false
   for (const statement of module.program.body) {
-    if (statement.type === "ExportDefaultDeclaration") return "operations"
-    if (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default")) return "operations"
-    if (statement.type === "ExportNamedDeclaration") {
-      if (statement.declaration?.type === "VariableDeclaration" && statement.declaration.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === "comments")) named = true
-      if (statement.specifiers.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "comments")) named = true
+    if (statement.type === "ExportDefaultDeclaration") {
+      if (statement.declaration.type !== "TSInterfaceDeclaration") return "operations"
+      continue
     }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
+    const exports = statement.specifiers.filter(specifier => specifier.exportKind !== "type")
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default")) return "operations"
+    if (statement.declaration?.type === "VariableDeclaration" && statement.declaration.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === "comments")) named = true
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "comments")) named = true
   }
   return named ? "live" : "operations"
 }

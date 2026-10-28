@@ -4,6 +4,9 @@
     "forceConsistentCasingInFileNames": true,
     "rootDir": "..",
     "paths": {
+      "vite": [
+        "./node_modules/vite/dist/vite/node/index.d.ts"
+      ],
       "@vite-hub/internal/*": [
         "../internal/src/*.ts"
       ]

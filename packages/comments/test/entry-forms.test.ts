@@ -12,12 +12,19 @@ import { isCommentsDefinition } from "../src/operations-core/define.ts"
 const projects: string[] = []
 afterEach(async () => { await Promise.all(projects.splice(0).map(root => rm(root, { recursive: true, force: true }))) })
 
-it.each(["default", "named"])("installs only the %s entry's runtime and tables", async (form) => {
+it.each([
+  { form: "default", source: "export default defineComments()" },
+  { form: "named", source: "export const comments = defineComments()" },
+  { form: "named", source: "export const comments = defineComments(); export type { Options as default }" },
+  { form: "named", source: "export const comments = defineComments(); export { type Options as default }" },
+  { form: "named", source: "export const comments = defineComments(); export default interface Options {}" },
+])("installs only the $form entry's runtime and tables: $source", async ({ form, source }) => {
   const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
   projects.push(root)
   await mkdir(join(root, "server"))
   const entry = join(root, "server/comments.ts")
-  await writeFile(entry, form === "default" ? "export default defineComments()" : "export const comments = defineComments()")
+  await writeFile(entry, source)
+  expect(commentsEntryMode(entry)).toBe(form === "default" ? "operations" : "live")
   const plugin = hubComments({ database: "main" })
   const config = { root }
   const hook = plugin.config
@@ -29,8 +36,20 @@ it.each(["default", "named"])("installs only the %s entry's runtime and tables",
   const contributions = plugin.vitehub.operations
   const operations = typeof contributions === "function" ? await contributions() : contributions
   expect(operations).toHaveLength(form === "default" ? 1 : 0)
-  const source = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-  expect(source).toContain(form === "default" ? "validateCommentsDefinition(app.default" : "defineCommentsPlugin({ comments,")
+  const pluginSource = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+  expect(pluginSource).toContain(form === "default" ? "validateCommentsDefinition(app.default" : "defineCommentsPlugin({ comments,")
+})
+
+it.each([
+  "export type { Options as comments }",
+  "export { type Options as comments }",
+  "export declare const comments: Options",
+])("does not select the live runtime for a type-only comments export: %s", async (source) => {
+  const root = await mkdtemp(join(tmpdir(), "comments-entry-"))
+  projects.push(root)
+  const entry = join(root, "comments.ts")
+  await writeFile(entry, source)
+  expect(commentsEntryMode(entry)).toBe("operations")
 })
 
 it("recognizes renamed exports and gives default exports precedence", async () => {
