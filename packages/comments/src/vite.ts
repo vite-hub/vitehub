@@ -18,6 +18,7 @@ import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect
 import type { Plugin, UserConfig } from "vite"
 
 export { commentsConsoleSection }
+export { mountedCommentsRoute } from "./page.ts"
 export { findCommentsEntry } from "./entry.ts"
 
 /** Module paths that generated files import. The `vite-hub` distribution passes its own subpaths. */

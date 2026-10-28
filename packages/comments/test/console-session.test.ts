@@ -19,9 +19,9 @@ function access(input: { allowed: boolean, user?: Record<string, unknown> | null
 }
 
 describe("commentsConsoleSession", () => {
-  it("gives null to people that the Console does not let use the comments section", async () => {
+  it("denies people that the Console does not let use the comments section", async () => {
     const session = commentsConsoleSession(access({ allowed: false, user: { id: "u1", name: "Ada" } }))
-    await expect(session(event())).resolves.toBeNull()
+    await expect(session(event())).resolves.toBe(false)
   })
 
   it("gives the Console user with every field, so authorize policies can read a role", async () => {

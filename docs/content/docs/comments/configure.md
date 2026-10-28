@@ -27,8 +27,8 @@ export const comments = defineComments({
 | Action | Allows |
 | --- | --- |
 | `read` | See pins and threads, join the presence room of the page, and get `@` suggestions. |
-| `comment` | Start threads, reply, and delete your own comments. |
-| `resolve` | Resolve and reopen any thread, and delete any thread or comment. |
+| `comment` | Start threads and reply. Signed-in authors can also delete their own comments. |
+| `resolve` | Resolve and reopen any thread. Signed-in users can also delete any thread or comment. |
 
 `thread` is the thread that the action changes. It is `undefined` for reads and for new threads.
 
@@ -91,7 +91,7 @@ export const comments = defineComments({
 })
 ```
 
-The server does not check a guest name or a guest id. Show them, but do not use them for access or notifications. A guest can pose as another guest, and so can delete that guest's comments.
+The server does not verify a guest name or ID. They are display data, never proof of ownership. Guests cannot delete comments or threads, even when the policy allows `resolve`. Sign in to delete your own comments, or ask a signed-in moderator with `resolve` permission.
 
 ## Choose the Database
 

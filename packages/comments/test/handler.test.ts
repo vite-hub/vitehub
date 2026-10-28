@@ -3,9 +3,10 @@ import { H3 } from "h3"
 import { describe, expect, it } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
+import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { anchor, createComments } from "./harness.ts"
 
-import type { CommentsContent } from "../src/runtime/handler.ts"
+import type { CommentsContent, CommentsHandlerOptions } from "../src/runtime/handler.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
 const origin = "http://site.test"
@@ -46,10 +47,11 @@ function fakeContent(options: { can?: boolean, fail?: Error } = {}) {
   return { runtime, saves }
 }
 
-async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent> } = {}) {
+async function setup(input: { user?: CommentsUser | null, options?: DefineCommentsOptions, content?: ReturnType<typeof fakeContent>, session?: CommentsHandlerOptions["session"] } = {}) {
   const comments = await createComments({ identify: () => input.user === undefined ? { id: "ada", name: "Ada" } : input.user, ...input.options })
   const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({
     comments,
+    session: input.session,
     content: input.content ? { runtime: input.content.runtime, parseField } : undefined,
     realtime: true,
     build: { commit: "abc123", branch: "main" },
@@ -66,6 +68,23 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each([undefined, () => ({ id: "custom", name: "Custom" })])("preserves Console denial before guest policies or custom identity: %s", async (identify) => {
+    const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
+    const { comments, call } = await setup({ session, options: { identify, authorize: () => true } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Private", author: { id: "ada", name: "Ada" } })
+    const current = await call("/session")
+    expect(current.body.data.can).toEqual({ read: false, comment: false, resolve: false })
+    expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+    for (const [path, init] of [
+      ["/threads?page=/", {}],
+      ["/threads", { method: "POST", json: { page: "/", anchor, body: "Denied" } }],
+      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Denied" } }],
+    ] as const) {
+      const denied = await call(path, { ...init, headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" } })
+      expect(denied.response.status).toBe(403)
+    }
+  })
+
   it("answers the session with access, and sets the comment mode hint", async () => {
     const { call } = await setup()
     const { response, body } = await call("/session")
@@ -184,6 +203,31 @@ describe("Comments API", () => {
     expect(created.body.data.createdBy).toEqual({ id: "guest:g1", name: "Lin", guest: true })
     const nameless = await call("/threads", { method: "POST", json: { page: "/", anchor, body: "Hi" } })
     expect(nameless.body.error?.code).toBe("COMMENTS_FORBIDDEN")
+  })
+
+  it.each([false, true])("rejects guest deletion even when a visible author ID is copied, with Console: %s", async (console) => {
+    const session = console ? commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null }) : undefined
+    const { comments, call } = await setup({ session, options: { identify: undefined, authorize: () => true } })
+    const headers = { "x-vitehub-comments-guest-id": "victim", "x-vitehub-comments-guest-name": "Visitor" }
+    const created = await call("/threads", { method: "POST", headers, json: { page: "/", anchor, body: "Root" } })
+    const id = created.body.data.id
+    const reply = await call(`/threads/${id}/comments`, { method: "POST", headers, json: { body: "Reply" } })
+    const exposed = (await call("/threads?page=/")).body.data[0].createdBy.id
+    const copied = { ...headers, "x-vitehub-comments-guest-id": exposed.slice("guest:".length) }
+    for (const path of [`/threads/${id}/comments/${reply.body.data.id}`, `/threads/${id}/comments/${created.body.data.comments[0].id}`, `/threads/${id}`]) {
+      expect((await call(path, { method: "DELETE", headers: copied })).response.status).toBe(403)
+    }
+    const [error, saved] = await comments.get(id)
+    expect(error).toBeUndefined()
+    expect(saved?.comments.map(comment => comment.body)).toEqual(["Root", "Reply"])
+  })
+
+  it("lets a resolve-only moderator delete comments and threads", async () => {
+    const { comments, call } = await setup({ user: { id: "moderator", name: "Moderator" }, options: { authorize: ({ action }) => action !== "comment" } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Root", author: { id: "writer", name: "Writer" } })
+    const [, reply] = await comments.reply(thread!.id, { body: "Reply", author: { id: "writer", name: "Writer" } })
+    expect((await call(`/threads/${thread!.id}/comments/${reply!.id}`, { method: "DELETE" })).response.status).toBe(200)
+    expect((await call(`/threads/${thread!.id}`, { method: "DELETE" })).response.status).toBe(200)
   })
 
   it("lets authors delete their own reply, and only resolvers delete others'", async () => {
