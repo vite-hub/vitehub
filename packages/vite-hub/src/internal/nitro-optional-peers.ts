@@ -18,13 +18,13 @@ export function nitroOptionalPeers(config: { alias?: unknown } = {}): Plugin {
     name: "vite-hub/nitro-optional-peers",
     resolveId(source, importer) {
       if (!importer || (!isAbsolute(importer) && !importer.startsWith("file://")) || /^[./#\0]|:/.test(source)) return
-      if (config.alias && Object.prototype.hasOwnProperty.call(config.alias, source)) return
+      if (config.alias && Object.keys(config.alias).some(alias => source === alias || source.startsWith(`${alias}/`))) return
       const packageName = source.startsWith("@") ? source.split("/").slice(0, 2).join("/") : source.split("/")[0]!
       const parent = importer.startsWith("file://") ? importer : pathToFileURL(importer).href
       let owner: string | undefined
       try { owner = findPackageJSON(parent) }
       catch { return }
-      if (!owner) return
+      if (!owner || !/[\\/]package\.json$/.test(owner)) return
       let optional = manifests.get(owner)
       if (!optional) {
         const input: unknown = JSON.parse(readFileSync(owner, "utf8"))

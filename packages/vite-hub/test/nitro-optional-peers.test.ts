@@ -40,6 +40,7 @@ it("externalizes only absent optional dependencies declared by the importing pac
   const aliasResolver = nitroOptionalPeers({ alias: { "@channel/missing": "/custom-adapter.js" } }).resolveId
   if (typeof aliasResolver !== "function") throw new TypeError("Expected a resolver")
   expect(Reflect.apply(aliasResolver, {}, ["@channel/missing", importer])).toBeUndefined()
+  expect(Reflect.apply(aliasResolver, {}, ["@channel/missing/subpath", importer])).toBeUndefined()
   const app = join(root, "app")
   await mkdir(app)
   await writeFile(join(app, "package.json"), "{}")
