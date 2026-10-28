@@ -25,6 +25,7 @@ import {
   readGitHubFile,
   requireGitHubOption,
   resolveGitHubBranchOption,
+  resolveGitHubRefsOption,
   resolveGitHubRepositoryOption,
   resolveGitHubRootOption,
   resolveGitHubTokenOption,
@@ -211,43 +212,62 @@ class GitHubWorkspaceStore implements WorkspaceStore {
   #archive: { bytes: Uint8Array; revision: string } | undefined;
   #archiveReads = new Map<string, Promise<Uint8Array>>();
   #baselineRefSha: string | undefined;
-  #branch: string;
   #dirty = false;
   #files = new Map<string, GitHubWorkspaceStoreFile>();
   #mutationQueue: Promise<void> = Promise.resolve();
   #ready: Promise<void> | undefined;
   #remoteFiles = new Map<string, GitHubTreeEntry>();
   #remoteMetadataFiles = new Map<string, GitHubTreeEntry>();
-  #repository: string;
-  #client: GitHubRepository;
-  #root: string;
+  #resolved: { branch: string; client: GitHubRepository; repository: string; root: string } | undefined;
   #history: WorkspaceStoreHistory | undefined;
 
   constructor(
-    options: GitHubWorkspaceStoreOptions,
+    private options: GitHubWorkspaceStoreOptions,
     private workspaceName: string,
-  ) {
-    this.#repository = requireGitHubOption(
-      "a repository",
-      resolveGitHubRepositoryOption(options),
-    );
-    this.#branch = resolveGitHubBranchOption(options);
-    this.#root = resolveGitHubRootOption(options, workspaceName);
-    const token = requireGitHubOption("a token", resolveGitHubTokenOption(options));
-    this.#client = connectGitHubRepository(this.#repository, token);
+  ) {}
+
+  /**
+   * The repository, branch, root, and token resolve on first use. The Store is created when the Workspace Definition
+   * loads, even in a build that has no token, and a missing option fails at the first request.
+   */
+  get #connection() {
+    return this.#resolved ||= (() => {
+      const repository = requireGitHubOption(
+        "a repository",
+        resolveGitHubRepositoryOption(this.options),
+      );
+      const token = requireGitHubOption("a token", resolveGitHubTokenOption(this.options));
+      return {
+        branch: resolveGitHubBranchOption(this.options),
+        client: connectGitHubRepository(repository, token),
+        repository,
+        root: resolveGitHubRootOption(this.options, this.workspaceName),
+      };
+    })();
   }
 
+  get #branch() { return this.#connection.branch; }
+  get #client() { return this.#connection.client; }
+  get #repository() { return this.#connection.repository; }
+  get #root() { return this.#connection.root; }
+
   get history(): WorkspaceStoreHistory {
-    return this.#history ||= createGitHubWorkspaceHistory({
+    return this.#history ||= createGitHubWorkspaceHistory(() => ({
       branch: this.#branch,
       client: this.#client,
+      refs: resolveGitHubRefsOption(this.options),
       repository: this.#repository,
       root: this.#root,
-    });
+    }));
   }
 
   [workspaceStoreTarget]() {
-    return { provider: "github" as const, branch: this.#branch, repository: this.#repository };
+    return {
+      provider: "github" as const,
+      branch: this.#branch,
+      repository: this.#repository,
+      ...(this.options.database === undefined ? {} : { database: this.options.database }),
+    };
   }
 
   [workspaceRevisionMaterializer] = {

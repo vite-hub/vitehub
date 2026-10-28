@@ -1,7 +1,7 @@
 import * as v from "valibot"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
-import { collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, projectRootHash, runOperation } from "../src/operations.ts"
+import { callOperation, collectOperationContributions, createOperationRegistry, defineOperation, operationCliPath, operationInputJsonSchema, projectRootHash, runOperation } from "../src/operations.ts"
 
 import type { OperationContext } from "../src/operations.ts"
 
@@ -62,6 +62,40 @@ describe("operations", () => {
     const registry = createOperationRegistry([{ operations: [dynamic] }])
     expect(await runOperation(registry, "demo.dynamic", { section: "a" }, context(["a"]))).toMatchObject({ ok: true })
     expect(await runOperation(registry, "demo.dynamic", { section: "b" }, context(["a"]))).toMatchObject({ ok: false, status: 403 })
+  })
+
+  it("denies an unresolved dynamic section even with access to all sections", async () => {
+    const run = vi.fn(() => "done")
+    const dynamic = defineOperation({
+      description: "Read a known section.",
+      input: v.object({ section: v.string() }),
+      kind: "read",
+      name: "demo.dynamic",
+      run,
+      section: input => input.section === "demo" ? "demo" : undefined,
+    })
+    const registry = createOperationRegistry([{ operations: [dynamic] }])
+    for (const sections of ["all", ["demo"], ["demo:read"]] as const) {
+      expect(await runOperation(registry, "demo.dynamic", { section: "unknown" }, context(sections === "all" ? sections : [...sections]))).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })
+    }
+    expect(run).not.toHaveBeenCalled()
+    expect(await runOperation(registry, "demo.dynamic", { section: "demo" }, context("all"))).toEqual({ ok: true, value: "done" })
+  })
+
+  it("returns a coded failure for an invalid operation target without dispatch", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>()
+    expect(await callOperation({ env: {}, fetch, url: "not a URL" }, "demo.greet", { name: "Ada" })).toMatchObject({ code: "INTERNAL_R0024", ok: false })
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("returns a coded failure when the operation response body is interrupted", async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"ok":true,"value":'))
+        controller.error(new Error("Connection reset"))
+      },
+    })))
+    expect(await callOperation({ env: {}, fetch, url: "https://example.com" }, "demo.greet", { name: "Ada" })).toMatchObject({ code: "INTERNAL_R0024", message: expect.stringContaining("Connection reset"), ok: false })
   })
 
   it("keeps the diagnostic fields of a thrown error", async () => {
