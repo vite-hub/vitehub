@@ -186,6 +186,7 @@ describe("Console Go to shortcuts", () => {
       usage: "g u",
       databases: "g d",
       kv: "g k",
+      logs: "g l",
       blob: "g b",
       workspaces: "g w",
       workflows: "g f",
