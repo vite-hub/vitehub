@@ -106,11 +106,14 @@ export function resolveGitHubWorkspaceStore(
 ): GitHubWorkspaceStoreOptions {
   const branch = gitHubWorkspaceOption(config.branch)
     ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_BRANCH")
-  const root = gitHubWorkspaceOption(config.root)
+  // An empty root is the repository root.
+  const root = config.root === "" ? "" : gitHubWorkspaceOption(config.root)
     ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_ROOT")
   return {
     branch: branch ?? (input.runtime ? undefined : "main"),
+    ...(config.database === undefined ? {} : { database: config.database }),
     provider: "github",
+    ...(config.refs ? { refs: { ...config.refs } } : {}),
     repository: gitHubWorkspaceOption(config.repository)
       ?? gitHubWorkspaceOption(config.repo)
       ?? readEnv(env, "VITEHUB_WORKSPACE_GITHUB_REPOSITORY"),

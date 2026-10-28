@@ -247,7 +247,7 @@ describe("createConnectionsHandler", () => {
 
   it("rejects approval counts when a store never terminates pagination", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => ({
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => ({
       approvals: [],
       nextCursor: `${before ?? "cursor"}-next`,
     }))
@@ -269,7 +269,7 @@ describe("createConnectionsHandler", () => {
 
   it("rejects approval counts when a store returns endlessly distinct pages", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => {
       const index = before ? Number(before) + 1 : 0
       return {
         approvals: [{
@@ -302,7 +302,7 @@ describe("createConnectionsHandler", () => {
 
   it("counts approval pages beyond the old pagination limit", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => {
       const index = before ? Number(before) + 1 : 0
       return {
         approvals: [{

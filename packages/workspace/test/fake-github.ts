@@ -250,7 +250,14 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (rest === "/commits" && method === "GET") {
       const head = resolve(url.searchParams.get("sha") || state.defaultBranch)
       if (!head) return failure(404, "Not Found")
-      return page(ancestors(head.sha).map(restCommit), url)
+      // GitHub lists the commits that changed `path`, a file or a folder.
+      const path = url.searchParams.get("path")
+      const touches = (commit: FakeCommit) => {
+        const before = new Map((commits.get(commit.parents[0] ?? "")?.tree ?? []).map(entry => [entry.path, entry.sha]))
+        const after = new Map(commit.tree.map(entry => [entry.path, entry.sha]))
+        return [...new Set([...before.keys(), ...after.keys()])].some(name => (name === path || name.startsWith(`${path}/`)) && before.get(name) !== after.get(name))
+      }
+      return page(ancestors(head.sha).filter(commit => !path || touches(commit)).map(restCommit), url)
     }
     if (rest.startsWith("/commits/") && method === "GET") {
       const ref = rest.slice("/commits/".length)
