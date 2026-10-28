@@ -717,16 +717,17 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
-  it("publishes the Nuxt dev server for vitehub commands, and removes the file on close", async () => {
+  it.each(["/", "/portal/"])("publishes the Nuxt dev server with base %s, and removes the file on close", async (baseURL) => {
     const file = "/tmp/vitehub-nuxt/.vitehub/dev-server.json"
     await rm(file, { force: true })
     const application = createNuxt(true)
+    Object.assign(application.nuxt.options, { app: { baseURL } })
     await viteHubNuxtModule({ preset: "node" }, application.nuxt)
     expect(application.listenHooks).toHaveLength(1)
     // Nothing is written before Nuxt listens.
     await expect(readFile(file, "utf8")).rejects.toThrow()
     application.listenHooks[0]!({}, { url: "http://localhost:3000/" })
-    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ root: "/tmp/vitehub-nuxt", url: "http://localhost:3000/" })
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ root: "/tmp/vitehub-nuxt", url: `http://localhost:3000${baseURL}` })
     await application.runCloseHook()
     await expect(readFile(file, "utf8")).rejects.toThrow()
   })

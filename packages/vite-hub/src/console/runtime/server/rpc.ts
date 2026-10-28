@@ -1,5 +1,5 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
@@ -221,10 +221,12 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
+  const classification = operationCall(operation, input)
   // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
-  if (section !== false && !operationAccessAllows(context.access, section, operationCall(operation, input))) {
+  if (section !== false && !operationAccessAllows(context.access, section, classification)) {
     throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
   }
+  assertOperationConfirmation(request, classification)
   // Navigation and other reads that do not need a person skip the session lookup.
   const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
