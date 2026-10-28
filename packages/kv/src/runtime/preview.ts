@@ -38,6 +38,7 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
   let truncated = false
   const encoder = new TextEncoder()
   const ancestors = new Set<object>()
+  const seen = new Set<object>()
 
   function append(fragment: string): boolean {
     for (const character of fragment) {
@@ -101,6 +102,8 @@ function boundedJSONStringify(value: unknown): { editable: boolean; truncated: b
       return serialize(boxed, depth, arrayValue, key)
     }
     if (ancestors.has(object)) throw new TypeError("Cannot serialize a circular value as JSON.")
+    if (seen.has(object)) editable = false
+    seen.add(object)
     ancestors.add(object)
 
     if (Array.isArray(object)) {

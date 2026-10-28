@@ -620,145 +620,149 @@ function deploymentPlugins(
           throw viteHubErrorDiagnostics.VITE_HUB_R0079({ message: "[vitehub] Blob is disabled but the application imports " + JSON.stringify(source) + "." })
         }
       },
-      config(config, environment) {
-        const building = environment.command === "build"
-        ;(config as { vitehub?: unknown }).vitehub = {
-          ...cloneRecord((config as { vitehub?: unknown }).vitehub),
-          preset: plan.preset,
-        }
-        for (const service of requestedServices) assertDeploymentService(plan, service)
-        const identity = resolveDeploymentIdentity(
-          typeof config.root === "string" ? config.root : undefined,
-          options.name,
-          plan.preset === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
-        )
-        const name = identity.name
-        if (requestedServices.includes("queue") && plan.services.queue.supported) {
-          ;(config as { queue?: unknown }).queue = {
-            ...cloneRecord((config as { queue?: unknown }).queue),
-            provider: plan.services.queue.adapter,
-            ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: `${name}-` } : {}),
+      config: {
+        // The primitives read deployment settings in their early config hooks.
+        order: "pre",
+        handler(config, environment) {
+          const building = environment.command === "build"
+          ;(config as { vitehub?: unknown }).vitehub = {
+            ...cloneRecord((config as { vitehub?: unknown }).vitehub),
+            preset: plan.preset,
           }
-        }
-        if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
-          ;(config as { rateLimit?: unknown }).rateLimit = {
-            ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
-            ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
-            namespace: name,
-            // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
-            // default for `serve`: one in-memory limiter.
-            provider: building ? plan.services.rateLimit.adapter : "memory",
-          }
-        }
-        if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
-          ;(config as { sandboxTask?: unknown }).sandboxTask = {
-            ...cloneRecord((config as { sandboxTask?: unknown }).sandboxTask),
-            ...(plan.services.sandbox.adapter === "cloudflare"
-              ? { name: cloudflareResourceScope(name) + "-sandbox" }
-              : {}),
-            provider: plan.services.sandbox.adapter,
-          }
-        }
-        let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
-        if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
-          const optionBlob = options.blob === true ? undefined : options.blob
-          const configuredBlob = (config as { blob?: BlobModuleOptions }).blob
-          if (!hasExplicitBlobStore(optionBlob) && !hasExplicitBlobStore(configuredBlob)) {
-            ;(config as { blob?: BlobModuleOptions }).blob = presetBlobOptions(plan, {
-              ...cloneRecord(optionBlob),
-              ...cloneRecord(configuredBlob),
-            }, cloudflareR2BucketName(name))
-          }
-        }
-        if (plan.preset === "cloudflare") {
-          const wasm = cloneRecord(nitro.wasm)
-          if (wasm.lazy === undefined) wasm.lazy = true
-          nitro.wasm = wasm
-          const cloudflare = cloneRecord(nitro.cloudflare)
-          const wrangler = cloneRecord(cloudflare.wrangler)
-          if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
-          if (options.realtime) {
-            const durableObjects = cloneRecord(wrangler.durable_objects)
-            const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
-            if (!bindings.some(binding => cloneRecord(binding).name === "$DurableObject")) {
-              durableObjects.bindings = [...bindings, { class_name: "$DurableObject", name: "$DurableObject" }]
-            }
-            const migrations = Array.isArray(wrangler.migrations) ? wrangler.migrations : []
-            if (!migrations.some(migration => cloneRecord(migration).tag === "vitehub-realtime-v1")) {
-              wrangler.migrations = [...migrations, { new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" }]
-            }
-            wrangler.durable_objects = durableObjects
-          }
-          cloudflare.wrangler = wrangler
-          nitro.cloudflare = cloudflare
-          const hooks = cloneRecord(nitro.hooks)
-          const prerenderConfig = hooks["prerender:config"]
-          hooks["prerender:config"] = async (config: Record<string, unknown>) => {
-            if (typeof prerenderConfig === "function") await prerenderConfig(config)
-            configureCloudflarePrerender(config)
-          }
-          nitro.hooks = hooks
-        }
-        const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
-        const configuredHosting = process.env.VITEHUB_HOSTING
-        if (configuredHosting && deploymentPresetFromNitro(configuredHosting) !== plan.preset) {
-          throw viteHubErrorDiagnostics.VITE_HUB_R0080({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + "." })
-        }
-        if (building) {
-          if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
-            throw viteHubErrorDiagnostics.VITE_HUB_R0081({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + "." })
-          }
-          for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
-            const value = process.env[name]
-            if (value && normalizeNitroPreset(value) !== nitroPreset) {
-              throw viteHubErrorDiagnostics.VITE_HUB_R0082({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + "." })
+          for (const service of requestedServices) assertDeploymentService(plan, service)
+          const identity = resolveDeploymentIdentity(
+            typeof config.root === "string" ? config.root : undefined,
+            options.name,
+            plan.preset === "cloudflare" ? process.env.WRANGLER_CI_OVERRIDE_NAME : undefined,
+          )
+          const name = identity.name
+          if (requestedServices.includes("queue") && plan.services.queue.supported) {
+            ;(config as { queue?: unknown }).queue = {
+              ...cloneRecord((config as { queue?: unknown }).queue),
+              provider: plan.services.queue.adapter,
+              ...(plan.services.queue.adapter === "cloudflare" ? { namePrefix: `${name}-` } : {}),
             }
           }
-          const buildConfigRef: { current: ResolvedBuildConfig } = {
-            current: {
-              alias: [],
-              conditions: [],
-              define: {},
-              extensions: [],
-              hasScheduleIntegration: false,
-              mainFields: [],
-              preserveSymlinks: false,
-            },
-          }
-          const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current)
-          resolvedBuildConfigs.set(module, buildConfigRef)
-          nitro.modules = [
-            module,
-            ...(Array.isArray(nitro.modules) ? nitro.modules : []),
-          ]
-          if (plan.output.packaging === "deno-node-modules") {
-            nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
-            const rollupConfig = cloneRecord(nitro.rollupConfig)
-            const output = Array.isArray(rollupConfig.output)
-              ? rollupConfig.output.map(options => ({ ...cloneRecord(options), entryFileNames: "index.mjs" }))
-              : { ...cloneRecord(rollupConfig.output), entryFileNames: "index.mjs" }
-            nitro.rollupConfig = {
-              ...rollupConfig,
-              output,
+          if (requestedServices.includes("rateLimit") && plan.services.rateLimit.supported) {
+            ;(config as { rateLimit?: unknown }).rateLimit = {
+              ...cloneRecord(options.rateLimit === true ? undefined : options.rateLimit),
+              ...cloneRecord((config as { rateLimit?: unknown }).rateLimit),
+              namespace: name,
+              // Cloudflare Rate Limit bindings exist only in the built wrangler.json, so the dev server keeps the owner
+              // default for `serve`: one in-memory limiter.
+              provider: building ? plan.services.rateLimit.adapter : "memory",
             }
           }
-          nitro.preset = nitroPreset
-        }
-        if (plan.preset === "cloudflare") {
-          deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
-          if (deploymentEnvPlugin.current) {
-            subscribeEnvPlugin(deploymentEnvPlugin.current)
-            const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
-            const providerOutput = useProviderOutputCatalog(config)
-            contributeCloudflareProviderOutput(providerOutput, {
-              owner: "env",
-              requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
-            })
-            nitro = composeNitroCloudflareProviderOutput(providerOutput, nitro)
+          if (requestedServices.includes("sandbox") && plan.services.sandbox.supported) {
+            ;(config as { sandboxTask?: unknown }).sandboxTask = {
+              ...cloneRecord((config as { sandboxTask?: unknown }).sandboxTask),
+              ...(plan.services.sandbox.adapter === "cloudflare"
+                ? { name: cloudflareResourceScope(name) + "-sandbox" }
+                : {}),
+              provider: plan.services.sandbox.adapter,
+            }
           }
-        }
-        if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
-        ;(config as { nitro?: unknown }).nitro = nitro
+          let nitro = cloneRecord((config as { nitro?: unknown }).nitro)
+          if (blobEnabled && plan.services.blob.supported && plan.services.blob.adapter === "cloudflare-r2") {
+            const optionBlob = options.blob === true ? undefined : options.blob
+            const configuredBlob = (config as { blob?: BlobModuleOptions }).blob
+            if (!hasExplicitBlobStore(optionBlob) && !hasExplicitBlobStore(configuredBlob)) {
+              ;(config as { blob?: BlobModuleOptions }).blob = presetBlobOptions(plan, {
+                ...cloneRecord(optionBlob),
+                ...cloneRecord(configuredBlob),
+              }, cloudflareR2BucketName(name))
+            }
+          }
+          if (plan.preset === "cloudflare") {
+            const wasm = cloneRecord(nitro.wasm)
+            if (wasm.lazy === undefined) wasm.lazy = true
+            nitro.wasm = wasm
+            const cloudflare = cloneRecord(nitro.cloudflare)
+            const wrangler = cloneRecord(cloudflare.wrangler)
+            if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+            if (options.realtime) {
+              const durableObjects = cloneRecord(wrangler.durable_objects)
+              const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
+              if (!bindings.some(binding => cloneRecord(binding).name === "$DurableObject")) {
+                durableObjects.bindings = [...bindings, { class_name: "$DurableObject", name: "$DurableObject" }]
+              }
+              const migrations = Array.isArray(wrangler.migrations) ? wrangler.migrations : []
+              if (!migrations.some(migration => cloneRecord(migration).tag === "vitehub-realtime-v1")) {
+                wrangler.migrations = [...migrations, { new_sqlite_classes: ["$DurableObject"], tag: "vitehub-realtime-v1" }]
+              }
+              wrangler.durable_objects = durableObjects
+            }
+            cloudflare.wrangler = wrangler
+            nitro.cloudflare = cloudflare
+            const hooks = cloneRecord(nitro.hooks)
+            const prerenderConfig = hooks["prerender:config"]
+            hooks["prerender:config"] = async (config: Record<string, unknown>) => {
+              if (typeof prerenderConfig === "function") await prerenderConfig(config)
+              configureCloudflarePrerender(config)
+            }
+            nitro.hooks = hooks
+          }
+          const configuredPreset = typeof nitro.preset === "string" ? nitro.preset : undefined
+          const configuredHosting = process.env.VITEHUB_HOSTING
+          if (configuredHosting && deploymentPresetFromNitro(configuredHosting) !== plan.preset) {
+            throw viteHubErrorDiagnostics.VITE_HUB_R0080({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with VITEHUB_HOSTING=" + JSON.stringify(configuredHosting) + "." })
+          }
+          if (building) {
+            if (configuredPreset && normalizeNitroPreset(configuredPreset) !== nitroPreset) {
+              throw viteHubErrorDiagnostics.VITE_HUB_R0081({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with nitro.preset " + JSON.stringify(configuredPreset) + "." })
+            }
+            for (const name of ["NITRO_PRESET", "SERVER_PRESET"] as const) {
+              const value = process.env[name]
+              if (value && normalizeNitroPreset(value) !== nitroPreset) {
+                throw viteHubErrorDiagnostics.VITE_HUB_R0082({ message: "[vitehub] vitehub preset " + JSON.stringify(plan.preset) + " conflicts with " + name + "=" + JSON.stringify(value) + "." })
+              }
+            }
+            const buildConfigRef: { current: ResolvedBuildConfig } = {
+              current: {
+                alias: [],
+                conditions: [],
+                define: {},
+                extensions: [],
+                hasScheduleIntegration: false,
+                mainFields: [],
+                preserveSymlinks: false,
+              },
+            }
+            const module = deploymentNitroModule(plan, services, identity, requestedServices.includes("sandbox"), () => deployCommandOwned, () => buildConfigRef.current)
+            resolvedBuildConfigs.set(module, buildConfigRef)
+            nitro.modules = [
+              module,
+              ...(Array.isArray(nitro.modules) ? nitro.modules : []),
+            ]
+            if (plan.output.packaging === "deno-node-modules") {
+              nitro.commands = { ...cloneRecord(nitro.commands), deploy: "node ./deploy.mjs" }
+              const rollupConfig = cloneRecord(nitro.rollupConfig)
+              const output = Array.isArray(rollupConfig.output)
+                ? rollupConfig.output.map(options => ({ ...cloneRecord(options), entryFileNames: "index.mjs" }))
+                : { ...cloneRecord(rollupConfig.output), entryFileNames: "index.mjs" }
+              nitro.rollupConfig = {
+                ...rollupConfig,
+                output,
+              }
+            }
+            nitro.preset = nitroPreset
+          }
+          if (plan.preset === "cloudflare") {
+            deploymentEnvPlugin.current ??= findEnvPlugin(config.plugins)
+            if (deploymentEnvPlugin.current) {
+              subscribeEnvPlugin(deploymentEnvPlugin.current)
+              const envConfig = (config as { env?: { server?: Parameters<EnvVitePlugin["api"]["createServerEnvRegistry"]>[0] } }).env
+              const providerOutput = useProviderOutputCatalog(config)
+              contributeCloudflareProviderOutput(providerOutput, {
+                owner: "env",
+                requiredSecrets: requiredCloudflareSecretNames(deploymentEnvPlugin.current.api.createServerEnvRegistry(envConfig?.server)),
+              })
+              nitro = composeNitroCloudflareProviderOutput(providerOutput, nitro)
+            }
+          }
+          if (cacheStorage) nitro = applyCacheStorage(nitro, cacheStorage)
+          ;(config as { nitro?: unknown }).nitro = nitro
+        },
       },
     },
     {

@@ -12,6 +12,18 @@ it.each(["hello", 42, false, null, { nested: [1, "hello", null] }])("allows edit
   expect(preview.type === "string" ? preview.value : JSON.parse(preview.value)).toEqual(value)
 })
 
+it.each(["object", "array"])("keeps shared references in an %s read-only", shape => {
+  const shared = { enabled: true }
+  const value = shape === "array" ? [shared, shared] : { first: shared, second: shared }
+  expect(previewKVValue(value)).toMatchObject({ editable: false, format: "json", value: JSON.stringify(value, null, 2) })
+})
+
+it("keeps circular references read-only", () => {
+  const value: { self?: unknown } = {}
+  value.self = value
+  expect(previewKVValue(value)).toMatchObject({ editable: false, format: "text" })
+})
+
 it("keeps truncated previews read-only", () => {
   expect(previewKVValue("a".repeat(256 * 1024 + 1))).toMatchObject({ editable: false, truncated: true })
 })

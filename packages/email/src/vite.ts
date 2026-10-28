@@ -541,7 +541,7 @@ export function hubEmail(options: EmailVitePluginOptions): EmailVitePlugin {
       const entry = definition.handler.replace(/\.mjs$/, ".entry.mjs")
       // The outbox is added only for `vite dev`. A build never imports the outbox module.
       const devOutbox = command === "serve" && outbox ? { ...outbox, import: resolveOutboxImport(), runtimeId: outboxRuntimeId } : undefined
-      const previewImport = previewRegistryPath()
+      const previewImport = `./${relative(dirname(entry), previewRegistryPath()).replaceAll("\\", "/")}`
       await writeFileIfChanged(entry, renderConfiguredEmailDefinitionModule(definition, driverImport, runtimeEnvImport, previewImport, cloudflare, cloudflare && cloudflareEmail, devOutbox, command === "serve"))
       try {
         await bundleEsmEntry(entry, definition.handler, {
