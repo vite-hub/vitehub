@@ -72,17 +72,18 @@ function summary(thread: CommentThread): Record<string, unknown> {
 /**
  * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
  * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
- * With a request event, a configured `identify` takes precedence over either session. Without an event, the tools
- * use the checked `context.user` directly. Replies and resolves show that user as the author.
+ * With a request event, a session denial is final; otherwise `identify` takes precedence over the session user.
+ * Without an event, the tools use the checked `context.user` directly. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
-  async function userFor(context: ViteHubMcpToolContext): Promise<CommentsUser | null> {
+  async function userFor(context: ViteHubMcpToolContext): Promise<CommentsUser | null | false> {
     if (context.event === undefined || context.event === null) return commentsUser(context.user)
     // SAFETY: The MCP transport passes its request event to owner identity readers.
     return resolveCommentsUser(comments, context.event as H3Event, options.session ?? (async () => commentsUser(context.user)))
   }
 
-  async function threadFor(input: Record<string, unknown>, user: CommentsUser | null, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
+  async function threadFor(input: Record<string, unknown>, user: CommentsUser | null | false, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
+    if (user === false) return forbidden(action)
     const id = text(input.id)
     if (!id) return failure("Give the thread id from comments_list_threads.")
     const [error, thread] = await comments.get(id)
@@ -110,7 +111,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       },
       async call(input, context) {
         const user = await userFor(context)
-        if (!await comments.can({ user, action: "read" })) return forbidden("read")
+        if (user === false || !await comments.can({ user, action: "read" })) return forbidden("read")
         const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()

@@ -112,4 +112,16 @@ describe("Console guest comment authors", () => {
     expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
     expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual({ id: "editor-1", name: "Editor" })
   })
+
+  it("keeps server-identified guests on their existing identity", async () => {
+    const user = { id: "external-guest", name: "Invited reviewer", guest: true }
+    const { requests, shadow, button } = await compose(user, true)
+    expect(shadow.querySelector('input[aria-label="Your name"]')).toBeNull()
+    button.click()
+    await vi.waitFor(() => expect(requests).toHaveLength(1))
+    expect(new Headers(requests[0]!.headers).has("x-vitehub-comments-guest-id")).toBe(false)
+    expect(readGuest()).toBeUndefined()
+    expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
+    expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual(user)
+  })
 })
