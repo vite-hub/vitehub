@@ -258,7 +258,7 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
-  Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
+  Reflect.apply(hook, hooks, ["beforeResponse", async (event: Nitro2Event, response: { body?: unknown }) => {
     const request = nitro2Request(event)
     const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
     if (!request || !wantsLoader(nitroApp, request, base)) return
@@ -273,16 +273,9 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     const body = response.body
     if (typeof body !== "string" && !(body instanceof Uint8Array)) return
     const html = typeof body === "string" ? body : new TextDecoder().decode(body)
-    const inline = html.indexOf(viteHubPageToolsInlineStart)
-    const inlineEnd = inline < 0 ? -1 : html.indexOf("</script>", inline)
-    if (inlineEnd < 0 && html.includes(viteHubPageToolsMarker)) return
     const policy = res?.getHeader?.("content-security-policy")
     const tag = loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined)
-    if (inlineEnd >= 0) response.body = html.slice(0, inline) + tag + html.slice(inlineEnd + "</script>".length)
-    else {
-      const end = html.toLowerCase().lastIndexOf("</body>")
-      response.body = end < 0 ? html + tag : html.slice(0, end) + tag + html.slice(end)
-    }
+    response.body = await new Response(new Blob([html]).stream().pipeThrough(pageToolsHtmlTransform(tag))).text()
     res?.removeHeader?.("content-length")
     res?.removeHeader?.("etag")
     res?.setHeader?.("cache-control", "private, no-store")
