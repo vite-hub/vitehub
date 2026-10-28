@@ -32,15 +32,38 @@ export const comments = defineComments({
 
 `thread` is the thread that the action changes. It is `undefined` for reads and for new threads.
 
-Without `authorize`, signed-in users may do everything and anonymous requests may do nothing. The user comes from the ViteHub Auth session when the app has [Auth](/docs/auth), or from `identify`.
+Without `authorize`, signed-in users may do everything and anonymous requests may do nothing. The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth).
 
 Every route of the Comments API checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and the overlay does not open. Write requests must also come from a page of the same origin.
 
 The [runtime methods](/docs/comments/server-api#runtime-methods), such as `comments.create()`, are trusted server API. They do not call `authorize`. Call `comments.can()` first when a route acts for a user.
 
+### Comment as the Console team
+
+When the app has the [Console](/docs/development/console), the people of Comments are the people that the Console lets use its **Comments** section. Visitors and app users without Console access get `null`, so the toolbar never opens for them. `authorize` still runs after that check, with the Console user.
+
+```ts [vite.config.ts]
+import { defineConfig } from 'vite'
+import { vitehub } from 'vite-hub'
+
+export default defineConfig({
+  plugins: [vitehub({ auth: true, console: { auth: 'app', authorize: './server/console-authorize.ts' } })],
+})
+```
+
+See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
+
+When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. That sets the comment mode cookie, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
+
+| Console sign-in | Comment author |
+| --- | --- |
+| `auth: 'app'` or a Console Auth config | The signed-in Console user |
+| `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guest access is allowed. |
+
 ### Use your own login
 
-When the app does not use ViteHub Auth, return the user from `identify`. Return `null` for an anonymous request.
+Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, Comments does not read the ViteHub Auth session. Apps with the Console still check Console section access first.
 
 ```ts [server/comments.ts]
 import { getCookie } from 'h3'
@@ -137,7 +160,7 @@ The API waits for `onComment` before it answers the browser. Keep it short, or s
 
 ## Turn comment mode on and off
 
-Comment mode starts on any page with the `?comments` query, such as `https://example.com/pricing?comments`. The overlay asks the server for the session. When `authorize` allows `read`, the server sets the `vitehub-comments` cookie for 30 days, so every other page of the site opens in comment mode too. When it denies `read`, the server clears the cookie. The cookie is only a hint. Every API request checks access again.
+Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?comments` query, such as `https://example.com/pricing?comments`. The overlay asks the server for the session. When `authorize` allows `read`, the server sets the `vitehub-comments` cookie for 30 days, so every other page of the site opens in comment mode too. When it denies `read`, the server clears the cookie. The cookie is only a hint. Every API request checks access again.
 
 The close button in the toolbar ends comment mode. It clears the cookie and removes the query.
 

@@ -7692,7 +7692,7 @@ function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string,
  * records what ViteHub posts or edits through it, such as a placeholder and its final text. An edit appends the message
  * again with the same id, and the reader keeps the last one.
  */
-function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder, userKey: string | null): Thread {
+export function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder, userKey: string | null): Thread {
   return new Proxy(thread, {
     get(target, property) {
       if (property === "post" || property === "reply") {
@@ -7702,7 +7702,7 @@ function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder,
           return recordTranscriptsOfSent(sent, target.adapter, target.id, recorder, userKey)
         }
       }
-      if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, recorder, userKey)
+      if (property === "adapter") return recordTranscriptsOfAdapter(target.adapter, target.id, recorder, userKey)
       const value = Reflect.get(target, property, target)
       return isRuntimeFunction(value) ? value.bind(target) : value
     },
@@ -7720,7 +7720,8 @@ function postableText(message: unknown): string {
  * The adapter, recording each message that it posts or edits as an assistant message of the thread. An edit appends the
  * message again with the same id, and the reader keeps the last one. A stream is recorded when it ends.
  */
-function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecorder, userKey: string | null): Adapter {
+function recordTranscriptsOfAdapter(adapter: Adapter, sourceThreadId: string, recorder: TranscriptRecorder, userKey: string | null): Adapter {
+  // The captured participant belongs to the wrapped thread; a different destination establishes no ownership.
   return new Proxy(adapter, {
     get(target, property) {
       const value = Reflect.get(target, property, target)
@@ -7728,14 +7729,14 @@ function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecord
       if (property === "postMessage") {
         return async (threadId: string, message: unknown) => {
           const sent = await target.postMessage(threadId, message as never)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message), userKey)
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, postableText(message), threadId === sourceThreadId ? userKey : null)
           return sent
         }
       }
       if (property === "editMessage") {
         return async (threadId: string, messageId: string, message: unknown) => {
           const sent = await target.editMessage(threadId, messageId, message as never)
-          await recorder.outbound(target, threadId, messageId, postableText(message), userKey)
+          await recorder.outbound(target, threadId, messageId, postableText(message), threadId === sourceThreadId ? userKey : null)
           return sent
         }
       }
@@ -7751,7 +7752,7 @@ function recordTranscriptsOfAdapter(adapter: Adapter, recorder: TranscriptRecord
           })()
           // SAFETY: The adapter declares `stream` for the same arguments that this wrapper forwards.
           const sent = await (target.stream as (...args: unknown[]) => Promise<{ id?: string }>)(threadId, collected, options)
-          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed, userKey)
+          await recorder.outbound(target, threadId, isRuntimeString(sent?.id) ? sent.id : undefined, streamed, threadId === sourceThreadId ? userKey : null)
           return sent
         }
       }

@@ -291,6 +291,8 @@ The conversation is stitched from three sources, and a message is never listed t
 
 Two entries are the same message when they have the same platform message id. An entry without an id matches a message with the same role and text within one minute, and each message absorbs at most one such entry. An edit appends the message again with the same id, and the last entry wins. A message that the provider reports as deleted is dropped with its transcript copies. At one time a person speaks before the Agent, so a reply never sorts before its trigger.
 
+When overlapping Invocations have identical recorded replies, the conversation keeps each delivered message but leaves its `invocationId` unset if the available evidence cannot distinguish which Invocation sent it.
+
 ### Keep transcripts
 
 When the Agent State is durable (libSQL, or a Cloudflare Durable Object), ViteHub appends every inbound and outbound message of a chat Channel to the transcript store. This stores the text of the conversations in your State, for the people who wrote them. Set `transcripts: false` on the Channel (or `messages: { transcripts: false }` for all) to keep none, or a config to set the limits:

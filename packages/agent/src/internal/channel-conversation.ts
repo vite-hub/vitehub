@@ -138,8 +138,8 @@ function similar(left: string, right: string): boolean {
  *   message with the same role and text within a minute, and each message absorbs at most one such entry.
  * - A message that the provider reports as deleted is dropped, with its transcript copies.
  * - An Invocation names its trigger by platform id, or the last message from a person before it starts. Recorded reply
- *   text matches deliveries across overlapping Invocations first; remaining replies up to the next person use the
- *   trigger's `invocationId`.
+ *   text matches deliveries across overlapping Invocations first. Identical overlapping replies stay unlinked when
+ *   their provenance is ambiguous; remaining replies up to the next person use the trigger's `invocationId`.
  * - When the journal kept content, an Invocation also adds the prompt, and each reply that no message of its window
  *   already holds.
  */
@@ -244,18 +244,31 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     if (triggerEntry) mark(triggerEntry, invocation.id)
     return { created, invocation, triggerEntry, updated }
   })
-  // Delivery evidence takes precedence over windows: parallel replies can arrive after the next person's message.
-  for (const { created, invocation, triggerEntry, updated } of pending) {
-    const triggerPosition = triggerEntry ? list.indexOf(triggerEntry) : -1
-    for (const reply of invocation.replies) {
-      const body = normalized(reply)
-      if (!body) continue
-      const candidates = list.filter((entry, position) => entry.message.role === "assistant" && !entry.message.invocationId
-        && position > triggerPosition
-        && (entry.time === undefined || (entry.time >= created - replyWindowBeforeMs && entry.time <= updated + replyWindowAfterMs)))
-      const match = candidates.find(entry => normalized(entry.message.text) === body)
-        ?? candidates.find(entry => similar(normalized(entry.message.text), body))
-      if (match) mark(match, invocation.id)
+  const replies = pending.flatMap(item => item.invocation.replies.map((reply, position) => ({
+    ...item, body: normalized(reply), position, reply, triggerPosition: item.triggerEntry ? list.indexOf(item.triggerEntry) : -1,
+  }))).filter(item => item.body)
+  const matchedReplies = new Set<(typeof replies)[number]>()
+  const matchedEntries = new Set<Entry>()
+  const ambiguousEntries = new Set<Entry>()
+  // Reserve exact deliveries across all Invocations before considering truncated text. Identical replies can be
+  // deduplicated by count, but their delivery order does not establish which overlapping Invocation sent them.
+  for (const exact of [true, false]) {
+    for (const [position, entry] of list.entries()) {
+      if (entry.message.role !== "assistant" || entry.message.invocationId || matchedEntries.has(entry)) continue
+      const body = normalized(entry.message.text)
+      const candidates = replies.filter(item => position > item.triggerPosition
+        && (entry.time === undefined || (entry.time >= item.created - replyWindowBeforeMs && entry.time <= item.updated + replyWindowAfterMs))
+        && (exact ? body === item.body : similar(body, item.body)))
+      const available = candidates.find(item => !matchedReplies.has(item))
+      if (!available) continue
+      const owners = new Set(candidates.map(item => item.invocation.id))
+      if (!exact && owners.size > 1) {
+        ambiguousEntries.add(entry)
+        continue
+      }
+      matchedReplies.add(available)
+      matchedEntries.add(entry)
+      if (owners.size === 1) mark(entry, available.invocation.id)
     }
   }
   for (const { created, invocation, triggerEntry, updated } of pending) {
@@ -263,27 +276,27 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     if (triggerEntry) {
       const trigger = list.indexOf(triggerEntry)
       for (let position = trigger + 1; position < list.length && list[position]!.message.role !== "user"; position++) {
-        if (list[position]!.message.role === "assistant" && !list[position]!.message.invocationId) window.push(list[position]!)
+        const entry = list[position]!
+        if (entry.message.role === "assistant" && !entry.message.invocationId && !matchedEntries.has(entry) && !ambiguousEntries.has(entry)) window.push(entry)
       }
     }
     else {
       for (const entry of list) {
-        if (entry.message.role === "assistant" && !entry.message.invocationId && entry.time !== undefined && entry.time >= created - replyWindowBeforeMs && entry.time <= updated + replyWindowAfterMs) window.push(entry)
+        if (entry.message.role === "assistant" && !entry.message.invocationId && !matchedEntries.has(entry) && !ambiguousEntries.has(entry) && entry.time !== undefined && entry.time >= created - replyWindowBeforeMs && entry.time <= updated + replyWindowAfterMs) window.push(entry)
       }
     }
     for (const entry of window) mark(entry, invocation.id)
-    const held = list.filter(entry => entry.message.role === "assistant" && entry.message.invocationId === invocation.id).map(entry => normalized(entry.message.text))
-    invocation.replies.forEach((reply, position) => {
-      const body = normalized(reply)
-      if (!body) return
+    const held = list.filter(entry => entry.message.role === "assistant" && entry.message.invocationId === invocation.id && !matchedEntries.has(entry)).map(entry => normalized(entry.message.text))
+    for (const item of replies.filter(item => item.invocation === invocation)) {
+      if (matchedReplies.has(item)) continue
       // Each reply is checked on its own, so one message in the window does not hide the other replies.
-      const index = held.findIndex(candidate => similar(candidate, body))
+      const index = held.findIndex(candidate => similar(candidate, item.body))
       if (index !== -1) {
         held.splice(index, 1)
-        return
+        continue
       }
-      synthesize(invocation, "assistant", reply, Number.isFinite(updated) ? updated : created, String(position).padStart(10, "0"))
-    })
+      synthesize(invocation, "assistant", item.reply, Number.isFinite(updated) ? updated : created, String(item.position).padStart(10, "0"))
+    }
   }
   return list.map(entry => entry.message)
 }
@@ -342,13 +355,20 @@ export interface ChannelCursor {
 }
 
 export function encodeChannelCursor(cursor: ChannelCursor): string {
-  return btoa(JSON.stringify(cursor)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
+  const bytes = new TextEncoder().encode(JSON.stringify(cursor))
+  return btoa(Array.from(bytes, byte => String.fromCharCode(byte)).join("")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
 }
 
 /** Read a cursor. Returns undefined for a value that is not one. */
 export function decodeChannelCursor(value: string): ChannelCursor | undefined {
   try {
-    const parsed: unknown = JSON.parse(atob(value.replace(/-/g, "+").replace(/_/g, "/")))
+    const binary = atob(value.replace(/-/g, "+").replace(/_/g, "/"))
+    let json = binary
+    try {
+      json = new TextDecoder("utf-8", { fatal: true }).decode(Uint8Array.from(binary, character => character.charCodeAt(0)))
+    }
+    catch { /* Older cursors encoded JSON directly as Latin-1. */ }
+    const parsed: unknown = JSON.parse(json)
     return isRecord(parsed) && typeof parsed.t === "number" && Number.isFinite(parsed.t) && typeof parsed.i === "string" && (parsed.o === undefined || typeof parsed.o === "string") ? { i: parsed.i, ...(typeof parsed.o === "string" ? { o: parsed.o } : {}), t: parsed.t } : undefined
   }
   catch {

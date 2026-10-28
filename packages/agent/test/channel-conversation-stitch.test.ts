@@ -145,6 +145,39 @@ describe("stitchChannelConversation", () => {
     expect(messages.map(message => message.text)).toEqual(["question", ...replies])
   })
 
+  it.each(["provider", "transcript"] as const)("reserves exact %s replies before matching a shorter reply", (source) => {
+    const replies = ["A complete answer", "A complete answer with detail"]
+    const invocations = replies.map((reply, index) => ({
+      createdAt: new Date(at(index + 1)).toISOString(), id: `run-${index + 1}`, replies: [reply],
+      sourceMessageId: String(index + 1), status: "completed", updatedAt: new Date(at(3)).toISOString(),
+    }))
+    const messages = stitch({
+      invocations,
+      provider: [provider("1", "first question", 1), provider("2", "second question", 2),
+        ...(source === "provider" ? [provider("reply", replies[1]!, 3, true)] : [])],
+      transcripts: source === "transcript" ? [transcript("reply", "assistant", replies[1]!, at(3), "reply")] : [],
+    })
+    expect(messages).toHaveLength(4)
+    expect(messages.filter(message => message.role === "assistant").map(message => [message.text, message.invocationId]))
+      .toEqual([[replies[1], "run-2"], [replies[0], "run-1"]])
+  })
+
+  it.each(["provider", "transcript"] as const)("does not infer provenance for identical overlapping %s replies", (source) => {
+    const invocations = [1, 2].map(index => ({
+      createdAt: new Date(at(index)).toISOString(), id: `run-${index}`, replies: ["same answer"],
+      sourceMessageId: String(index), status: "completed", updatedAt: new Date(at(3)).toISOString(),
+    }))
+    const messages = stitch({
+      invocations,
+      provider: [provider("1", "first question", 1), provider("2", "second question", 2),
+        ...(source === "provider" ? [provider("reply-2", "same answer", 3, true), provider("reply-1", "same answer", 3, true)] : [])],
+      transcripts: source === "transcript" ? ["reply-2", "reply-1"].map(id => transcript(id, "assistant", "same answer", at(3), id)) : [],
+    })
+    expect(messages).toHaveLength(4)
+    expect(messages.filter(message => message.role === "assistant").map(message => [message.text, message.invocationId, message.source]))
+      .toEqual([["same answer", undefined, source], ["same answer", undefined, source]])
+  })
+
   it("summarizes the people and the last message", () => {
     const messages = stitch({ provider: [provider("1", "q", 1), provider("2", "a", 9, true)] })
     expect(summarizeChannelConversation(messages)).toEqual({ lastMessageAt: new Date(at(9)).toISOString(), participants: ["Maxi"] })
@@ -170,6 +203,13 @@ describe("cursors", () => {
     expect(decodeChannelCursor(encodeChannelCursor({ i: "a/b", t: 12 }))).toEqual({ i: "a/b", t: 12 })
     expect(encodeChannelCursor({ i: "x", t: 1 })).toMatch(/^[\w-]+$/)
     for (const value of ["", "nope", "e30", btoa("[1]"), btoa(JSON.stringify({ i: 1, t: "x" }))]) expect(decodeChannelCursor(value), value).toBeUndefined()
+  })
+
+  it("round-trips UTF-8 thread and message ids while accepting existing ASCII cursors", () => {
+    const cursor = { i: "会話-😀", o: "1:0:返信-é", t: 12 }
+    expect(decodeChannelCursor(encodeChannelCursor(cursor))).toEqual(cursor)
+    expect(decodeChannelCursor(btoa(JSON.stringify({ i: "legacy", t: 1 })))).toEqual({ i: "legacy", t: 1 })
+    expect(decodeChannelCursor(btoa(JSON.stringify({ i: "café", t: 1 })))).toEqual({ i: "café", t: 1 })
   })
 
   it("starts after the item that the cursor names, even when items arrived or left", () => {
