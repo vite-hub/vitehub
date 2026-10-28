@@ -5,6 +5,15 @@ import { useServerEnv } from "#vitehub/env/server";
 const publicEnv = usePublicEnv();
 const serverEnv = useServerEnv();
 
+const roles: Array<"read" | "write"> = serverEnv.roles;
+const settings: { enabled: boolean; retries: number; tags: string[] } = serverEnv.settings;
+const metadata: Record<string, unknown> | undefined = serverEnv.metadata;
+const tags: string[] = publicEnv.tags;
+// @ts-expect-error JSON enum array elements retain their union.
+const wrongRole: "admin" = serverEnv.roles[0];
+// @ts-expect-error JSON object property types are generated.
+const wrongEnabled: string = serverEnv.settings.enabled;
+
 const appName: string = publicEnv.appName;
 const plan: "free" | "team" = publicEnv.plan;
 const notice: string | undefined = publicEnv.notice;
@@ -26,6 +35,12 @@ const wrongRetries: string = serverEnv.retries;
 const wrongToken: string = serverEnv.apiToken;
 
 void [
+  roles,
+  settings,
+  metadata,
+  tags,
+  wrongRole,
+  wrongEnabled,
   appName,
   plan,
   notice,

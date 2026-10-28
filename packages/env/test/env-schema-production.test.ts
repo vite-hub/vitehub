@@ -24,6 +24,10 @@ const contractKeys = [
   "VITEHUB_TIMEOUT",
   "VITEHUB_LABEL",
   "VITEHUB_API_TOKEN",
+  "VITEHUB_ROLES",
+  "VITEHUB_SETTINGS",
+  "VITEHUB_METADATA",
+  "VITEHUB_PUBLIC_TAGS",
 ];
 const firstToken = "schema-lab-synthetic-runtime-token-first";
 const secondToken = "schema-lab-synthetic-runtime-token-second";
@@ -175,10 +179,13 @@ it("prepares and builds without server credentials, then validates each producti
       VITEHUB_SERVICE_URL: "https://first.example.test",
       VITEHUB_TIMEOUT: "",
       VITEHUB_LABEL: "",
+      VITEHUB_ROLES: '["read","write"]',
+      VITEHUB_SETTINGS: '{"enabled":true,"retries":3,"tags":["one"]}',
+      VITEHUB_METADATA: '{"nested":[1,true,null]}',
     }),
   );
   expect(first).toEqual({
-    public: { appName: "Built application", plan: "team" },
+    public: { appName: "Built application", plan: "team", tags: ["docs"] },
     runtime: {
       retries: 3,
       dryRun: true,
@@ -186,6 +193,9 @@ it("prepares and builds without server credentials, then validates each producti
       serviceUrl: "https://first.example.test",
       timeout: 5,
       label: "",
+      roles: ["read", "write"],
+      settings: { enabled: true, retries: 3, tags: ["one"] },
+      metadata: { nested: [1, true, null] },
     },
     tokenConfigured: true,
     tokenRedacted: "<redacted>",
@@ -204,7 +214,7 @@ it("prepares and builds without server credentials, then validates each producti
     }),
   );
   expect(second).toEqual({
-    public: { appName: "Built application", plan: "team" },
+    public: { appName: "Built application", plan: "team", tags: ["docs"] },
     runtime: {
       retries: 4,
       dryRun: false,
@@ -212,6 +222,8 @@ it("prepares and builds without server credentials, then validates each producti
       serviceUrl: "https://second.example.test",
       timeout: 9,
       label: "restart",
+      roles: ["read"],
+      settings: { enabled: false, retries: 2, tags: [] },
     },
     tokenConfigured: true,
     tokenRedacted: "<redacted>",
@@ -220,6 +232,11 @@ it("prepares and builds without server credentials, then validates each producti
   await expectStartupFailure(runtimeEnvironment(), "env.server.apiToken");
   for (const [key, value, path] of [
     ["VITEHUB_API_TOKEN", "", "apiToken"],
+    ["VITEHUB_ROLES", '["admin"]', "roles"],
+    ["VITEHUB_ROLES", "[", "roles"],
+    ["VITEHUB_SETTINGS", '{"enabled":"true","retries":2,"tags":[]}', "settings"],
+    ["VITEHUB_SETTINGS", '{"enabled":true}', "settings"],
+    ["VITEHUB_METADATA", '{"__proto__":{"polluted":true}}', "metadata"],
     ["VITEHUB_RETRIES", "", "retries"],
     ["VITEHUB_RETRIES", "0xff", "retries"],
     ["VITEHUB_RETRIES", "11", "retries"],

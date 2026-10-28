@@ -33,3 +33,5 @@ corepack pnpm --dir packages/env exec vp test test/env-schema-production.test.ts
 ```
 
 The test requires the initial Env build above. It uses an operating-system-assigned production server port and does not start a development server.
+
+The lab also proves enum arrays, typed object properties, optional open JSON objects, and public string arrays. It injects JSON into the built process, checks generated consumer types, and rejects malformed JSON, invalid members and unsafe prototype keys.
