@@ -78,6 +78,12 @@ describe("hubRealtime", () => {
     expect(config).toMatchObject({
       define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/wiki/") },
     })
+    // Nitro 2 upgrades sockets in the Durable Object: a plugin gives Realtime its storage at `cloudflare:durable:init`.
+    const plugins = (config.nitro as { plugins?: string[] }).plugins ?? []
+    const durable = plugins.find(file => file.endsWith("durable-object.mjs"))
+    expect(durable).toBeDefined()
+    const { readFile } = await import("node:fs/promises")
+    await expect(readFile(durable!, "utf8")).resolves.toContain(`hook("cloudflare:durable:init", (_durable, { state, env }) => registerRealtimeDurableObject(state, env))`)
   })
 
   it("loads the Yjs packages as one module graph in the Nitro environment", async () => {
@@ -193,7 +199,8 @@ describe("hubRealtime", () => {
     expect(contexts).toEqual([{ authority, directory: join(root, ".vitehub/nitro/realtime"), projectRoot: root, serverDirs: undefined }])
     const registry = await import("node:fs/promises").then(fs => fs.readFile(join(root, ".vitehub/nitro/realtime/registry.mjs"), "utf8"))
     expect(registry).toContain("content.mjs")
-    expect(config.nitro).toMatchObject({ plugins: [join(root, ".vitehub/nitro/realtime/content-live.mjs")] })
+    const durable = authority === "cloudflare" ? [join(root, ".vitehub/nitro/realtime/durable-object.mjs")] : []
+    expect(config.nitro).toMatchObject({ plugins: [...durable, join(root, ".vitehub/nitro/realtime/content-live.mjs")] })
   })
 
   it.each(["vercel", "netlify", "deno-deploy"])("leaves contributions out without an error on %s", async (preset) => {

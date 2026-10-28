@@ -323,7 +323,7 @@ class WorkspaceFileSystem implements WorkspaceShellFileSystem {
   #toRelativePath(path: string) {
     const absolutePath = this.#resolveFromRoot(path)
     if (absolutePath === workspaceMountPoint) return ""
-    return absolutePath.slice(`${workspaceMountPoint}/`.length)
+    return absolutePath.slice(`${workspaceMountPoint}/`.length).replace(/\/$/, "")
   }
 
   async #refreshPaths() {

@@ -1,4 +1,5 @@
-import { ask, defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
+import { ask } from "@vite-hub/gateways"
+import { defineAgent, type AgentDefinition, type AgentInvokerProfile, type AgentInvocationContextValues, type AgentRuntimeConfig, type ConfiguredAgentDefinition } from "@vite-hub/agent"
 import { gmail } from "@vite-hub/agent/channels"
 import type { GmailChannelOptions, GmailClient, GmailLabelSettings, GmailMessage } from "@vite-hub/agent/channels"
 import { channelMessageContextKey } from "@vite-hub/agent/channels"

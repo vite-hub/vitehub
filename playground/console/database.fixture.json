@@ -381,6 +381,17 @@
           "createdAt": "2026-08-31 14:07:36"
         }
       ]
+    },
+    {
+      "name": "passkey",
+      "position": { "x": 24, "y": 720 },
+      "columns": [
+        { "name": "id", "type": "text", "primary": true },
+        { "name": "userId", "type": "text" },
+        { "name": "deviceType", "type": "text" },
+        { "name": "createdAt", "type": "timestamp" }
+      ],
+      "rows": []
     }
   ],
   "relationships": [
@@ -411,6 +422,10 @@
     {
       "from": { "table": "invitation", "column": "organizationId" },
       "to": { "table": "organization", "column": "id" }
+    },
+    {
+      "from": { "table": "passkey", "column": "userId" },
+      "to": { "table": "user", "column": "id" }
     }
   ]
 }
