@@ -20,6 +20,7 @@ import type {
   ReplyInput,
 } from "./types.ts"
 
+export { describeCommentContext } from "./context.ts"
 export { commentRoom, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "./page.ts"
 export type * from "./types.ts"
 

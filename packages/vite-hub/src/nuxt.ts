@@ -42,6 +42,7 @@ import { assertConsoleAccess, assertConsoleProductionAccess, closeConsoleInvocat
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { DatabaseNuxtIntegrationOptions } from "@vite-hub/database"
+import type { CommentsVitePlugin } from "@vite-hub/comments/vite"
 import type { AuthModuleOptions } from "@vite-hub/auth"
 import type { EnvIntegrationOptions, EnvViteConfigOptions, EnvViteUserConfig } from "@vite-hub/env"
 import type { KVModuleOptions } from "@vite-hub/kv"
@@ -107,10 +108,11 @@ function publishNuxtDevServer(nuxt: NuxtLike): void {
 
 type NuxtLike = {
   callHook?: (name: "restart") => Promise<void>
-  hook?: ((
-    name: "close" | "nitro:config",
-    callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>),
-  ) => void) & ((name: "listen", callback: (server: unknown, listener: { url: string }) => void) => void)
+  hook?: {
+    (name: "app:templatesGenerated", callback: (app: { components: Parameters<CommentsVitePlugin["api"]["setComponents"]>[0] }) => Promise<void>): void
+    (name: "close" | "nitro:config", callback: ((config: Record<string, unknown>) => Promise<void>) | (() => Promise<void>)): void
+    (name: "listen", callback: (server: unknown, listener: { url: string }) => void): void
+  }
   options: {
     _layers?: NuxtServerDirOptions["_layers"]
     alias?: Record<string, string>
@@ -1076,6 +1078,14 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       && !plugins.some(candidate => candidate.name === plugin.name),
     ),
   ]
+  // Nuxt rewrites production component names using its resolved registry, including directory prefixes and modes.
+  // SAFETY: The plugin name identifies the Comments plugin and its public component registry API.
+  const commentsPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/comments/vite") as CommentsVitePlugin | undefined
+  if (commentsPlugin) {
+    await commentsPlugin.api.setComponents([])
+    // Templates are generated after the entire components:extend chain, including later modules and dev rescans.
+    nuxt.hook?.("app:templatesGenerated", app => commentsPlugin.api.setComponents(app.components))
+  }
   const retainedKVPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/kv/vite")
   const envPlugin = replayPlugins.find(plugin => plugin.name === "@vite-hub/env/vite") as Plugin & {
     api?: {

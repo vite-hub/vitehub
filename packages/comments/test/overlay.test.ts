@@ -37,7 +37,7 @@ function thread(): CommentThread {
   const now = new Date().toISOString()
   return {
     id: "thread", page: "/", status: "open", createdBy: author, resolvedBy: null, resolvedAt: null,
-    createdAt: now, updatedAt: now,
+    createdAt: now, updatedAt: now, context: null,
     anchor: { selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
     comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now, editedAt: null }],
   }
@@ -204,10 +204,11 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
-  it.each([true, false])("shows deletion only to authenticated resolve-only users: %s", async (authenticated) => {
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+    const authenticated = Boolean(user && !user.guest)
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
-      user: authenticated ? { id: "moderator", name: "Moderator" } : null,
+      user,
       can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
     }])
     vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])
