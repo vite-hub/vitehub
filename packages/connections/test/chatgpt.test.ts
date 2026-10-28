@@ -1,17 +1,22 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as v from "valibot"
 
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
-import { chatgptTransfers } from "../src/internal/chatgpt-transfer.ts"
+import { chatgptTransfers, chatgptTransferSchema } from "../src/internal/chatgpt-transfer.ts"
 import { chatgpt } from "../src/chatgpt.ts"
 import { defineConnection } from "../src/definition.ts"
 import { useChatGPTCredential } from "../src/internal/agent-credential.ts"
 import { chatgptHostId } from "../src/internal/chatgpt-host.ts"
 import { createConnectionsRuntime } from "../src/runtime.ts"
+import { createConnectionsHandler } from "../src/http.ts"
 import { createChatGPTFake } from "./chatgpt-fake.ts"
 import { createStore } from "./helpers.ts"
 
 const cleanup: Array<() => Promise<void>> = []
-afterEach(async () => { await Promise.all(cleanup.splice(0).map(close => close())) })
+afterEach(async () => {
+  vi.unstubAllGlobals()
+  await Promise.all(cleanup.splice(0).map(close => close()))
+})
 
 async function setup() {
   const clock = { now: Date.now() }
@@ -231,6 +236,49 @@ describe("ChatGPT plan Connections", () => {
     expect(test.fake.state.refreshes).toBe(1)
     await expect(test.use(destination)).resolves.toBeDefined()
     await expect(chatgptTransfers(destination).import({ name: "chatgpt", actor: "user:local", credential })).rejects.toMatchObject({ code: "CONNECTIONS_CHATGPT_TRANSFER" })
+  })
+
+  it.each([
+    ["one public origin", "http://agent.example.com", { url: "https://agent.example.com" }],
+    ["per-Agent public origin", "http://agent.example.com", { agents: { assistant: "https://agent.example.com" } }],
+    ["internal proxy host", "http://internal:3000", { agents: { assistant: "https://agent.example.com" } }],
+    ["direct HTTPS", "https://agent.example.com", undefined],
+    ["IPv4 loopback", "http://127.0.0.1:5173", undefined],
+    ["IPv6 loopback", "http://[::1]:5173", undefined],
+    ["localhost", "http://localhost:5173", undefined],
+  ])("transfers credentials through %s", async (_description, origin, publicUrl) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", publicUrl)
+    const test = await setup()
+    await test.connect()
+    const destination = createConnectionsRuntime({ ...test.options, store: createStore(), chatgptHostId: async () => "urn:uuid:destination" })
+    const sourceHandler = createConnectionsHandler({ agentName: "assistant", actor: () => "user:local", runtime: () => test.runtime })
+    const destinationHandler = createConnectionsHandler({ agentName: "assistant", actor: () => "user:local", runtime: () => destination })
+    const post = (body: unknown) => new Request(`${origin}/_vitehub/connections`, {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: publicUrl ? "https://agent.example.com" : origin },
+      body: JSON.stringify(body),
+    })
+    const exported = await sourceHandler(post({ action: "chatgpt-export", name: "chatgpt" }))
+    expect(exported.status).toBe(200)
+    const { credential } = v.parse(v.object({ credential: chatgptTransferSchema }), await exported.json())
+    const imported = await destinationHandler(post({ action: "chatgpt-import", name: "chatgpt", credential }))
+    expect(imported.status).toBe(200)
+    expect(await imported.json()).toMatchObject({ connection: { status: "connected", chatgpt: { hostId: "urn:uuid:destination" } } })
+    await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    await expect(test.use(destination)).resolves.toBeDefined()
+    expect(test.fake.state.refreshes).toBe(1)
+  })
+
+  it.each(["chatgpt-export", "chatgpt-import"])("rejects %s over public HTTP despite forwarded HTTPS headers", async (action) => {
+    const test = await setup()
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+    const response = await handler(new Request("http://agent.example.com/_vitehub/connections", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-proto": "https", forwarded: "proto=https" },
+      body: JSON.stringify({ action, name: "chatgpt", credential: {} }),
+    }))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_FORBIDDEN" } })
   })
 
   it("verifies expired transfer identity before rotating and rejects a forged subject", async () => {

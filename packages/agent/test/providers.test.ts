@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
 import { dirname, join, relative, resolve } from "node:path"
@@ -14,7 +14,7 @@ import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { mergeConfig, build as viteBuild } from "vite"
+import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
 import type { ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -1307,6 +1307,7 @@ describe("agent Vite plugin", () => {
     const previousHosting = process.env.VITEHUB_HOSTING
     const previousNetlifyDev = process.env.NETLIFY_DEV
     try {
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       delete process.env.VITEHUB_HOSTING
       process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1317,14 +1318,13 @@ describe("agent Vite plugin", () => {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
-      if (typeof plugin.configResolved !== "function") throw new Error("Expected a callable configResolved hook")
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
-      // SAFETY: This fixture supplies the config fields the hook reads; it does not use the plugin context.
-      await plugin.configResolved.call({} as never, {
+      await resolveConfig({
         build: { outDir: "dist/client" },
-        command: "serve",
-        plugins: kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [],
+        configFile: false,
+        envDir: false,
+        plugins: [{ name: plugin.name, configResolved: plugin.configResolved }, ...(kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [])],
         resolve: {
           alias: [
             { find: "@", replacement: join(root, "src") },
@@ -1333,7 +1333,7 @@ describe("agent Vite plugin", () => {
           ],
         },
         root,
-      } as never)
+      }, "serve")
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
       const capabilityOption = kvMode === "configured" ? " capabilities: vitehubAgentRouteCapabilities," : ""

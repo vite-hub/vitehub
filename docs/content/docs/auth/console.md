@@ -2,7 +2,7 @@
 title: Auth Console
 description: Inspect auth activity, sign-in counts, users, sessions, organizations, and approved clients.
 navigation.title: Console
-navigation.order: 7
+navigation.order: 8
 icon: i-lucide-users-round
 ---
 
