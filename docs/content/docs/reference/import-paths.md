@@ -25,6 +25,10 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
+| `vite-hub/logs` | Evlog's logger API and readable LogSource helpers. Requires the optional `evlog` peer. |
+| `vite-hub/logs/source` | Server-side LogSource contract, query validation, and cursor errors without Evlog. |
+| `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runtime independent from Evlog; its types require `evlog`. |
+| `vite-hub/logs/host` | Install and resolve a project's LogSource through the process-shared registry without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |

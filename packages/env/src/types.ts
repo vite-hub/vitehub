@@ -136,8 +136,11 @@ export interface EnvTypedVariableOptions<TValue> extends Omit<EnvVariableOptions
 export type EnvValueSchema =
   | { kind: "boolean" }
   | { kind: "enum", values: readonly string[] }
-  | { kind: "number" }
-  | { kind: "string" }
+  | { kind: "number", min?: number, max?: number, isInt?: boolean, decimal?: boolean }
+  | { kind: "string", minLength?: number, maxLength?: number }
+  | { kind: "url" }
+  | { kind: "array", items?: EnvValueSchema }
+  | { kind: "object", properties?: Record<string, EnvValueSchema> }
 
 export type EnvBuildStaticValue = null | string | number | boolean | EnvBuildStaticValue[]
 
