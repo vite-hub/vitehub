@@ -2461,6 +2461,16 @@ describe("ViteHub Nuxt integration", () => {
     expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
   })
 
+  it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {
+    for (const override of [undefined, "/custom/env.mjs"]) {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      const config: Record<string, unknown> = { cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } } }
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+      await runNitroConfigHook(config)
+      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/tmp/vitehub-nuxt/.vitehub/env/server.mjs")
+    }
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
@@ -2555,6 +2565,7 @@ describe("ViteHub Nuxt integration", () => {
     const nitroConfig = {
       cloudflare: {
         wrangler: {
+          alias: { "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs" },
           d1_databases: [d1Binding, d1Binding],
           observability: { enabled: true },
         },

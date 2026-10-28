@@ -1208,7 +1208,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       throw viteHubErrorDiagnostics.VITE_HUB_B0011({ message: `[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.` })
     }
   }
-  const generatedAliases = {
+  const generatedAliases: Record<string, string> = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
     ...(!nuxt.options.dev ? Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
         `#vitehub/emails/${name}`,
@@ -1403,6 +1403,12 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
     if (plan.preset === "cloudflare") {
       const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>
+      const envServer = generatedAliases["#vitehub/env/server"]
+      if (envServer) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const alias = (wrangler.alias ??= {}) as Record<string, string>
+        alias["#vitehub/env/server"] ??= envServer
+      }
       if (cloudflare.nodeCompat === true) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
