@@ -19,6 +19,7 @@ const runtime = () => ({
 })
 
 const emptyWorkspace = () => ({
+  history: writableWorkspace().history,
   fs: {
     exists: vi.fn(async () => false),
     glob: vi.fn(async () => []),
@@ -52,6 +53,7 @@ const workspaceWithFiles = (files: Record<string, string>) => {
     }
   }
   return {
+    history: writableWorkspace().history,
     fs: {
       exists: vi.fn(async (path: string) => paths.has(path)),
       glob: vi.fn(async () => [...paths].map(path => ({ path, type: files[path] === undefined ? "directory" : "file" }))),
