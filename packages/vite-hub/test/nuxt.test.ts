@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build } from "esbuild"
@@ -20,6 +20,7 @@ import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 
+const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
 function fixtureDocument(id?: string) {
@@ -482,7 +483,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
+      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
       external,
       trace: false,
     })
@@ -2623,7 +2624,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] },
+      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -3858,7 +3859,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
       external: ["external-package"],
       trace: false,
     }
@@ -3889,7 +3890,7 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] })
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] })
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)

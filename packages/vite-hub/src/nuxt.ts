@@ -155,6 +155,7 @@ type NuxtLike = {
 }
 
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
+const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
@@ -1430,7 +1431,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     normalizeGeneratedNitroPlugins(config, projectRoot)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
