@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 import { mergeConfig, resolveConfig } from "vite";
-import type { ConfigEnv, UserConfig } from "vite";
+import type { ConfigEnv, InlineConfig } from "vite";
 import { describe, expect, it, vi } from "vitest";
 import evlog from "evlog/nitro/v3";
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite";
@@ -13,7 +13,7 @@ vi.mock("evlog/nitro/v3", async (importOriginal) => {
   return { ...module, default: vi.fn(module.default) };
 });
 
-type LogsConfig = UserConfig & {
+type LogsConfig = InlineConfig & {
   [VITEHUB_PROJECT_ROOT]: string;
   nitro: { plugins: string[]; modules?: { name: string }[] };
 };

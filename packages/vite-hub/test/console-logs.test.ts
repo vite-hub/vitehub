@@ -92,18 +92,20 @@ describe("Console Logs", () => {
   });
   it.each(["HTTP", "RPC"])("cancels a pending source read when %s aborts", async (transport) => {
     installConsoleAccess({ mode: "open" });
-    const started = Promise.withResolvers<AbortSignal | undefined>();
-    const pending = Promise.withResolvers<LogPage>();
+    let markStarted!: (signal: AbortSignal | undefined) => void;
+    const started = new Promise<AbortSignal | undefined>((resolve) => { markStarted = resolve; });
+    let finish!: (page: LogPage) => void;
+    const pending = new Promise<LogPage>((resolve) => { finish = resolve; });
     let aborted = false;
     const source: LogSource = {
       info: createLogBuffer().source.info,
       query: (_query, options) => {
-        started.resolve(options?.signal);
+        markStarted(options?.signal);
         options?.signal?.addEventListener("abort", () => {
           aborted = true;
-          pending.resolve({ entries: [] });
+          finish({ entries: [] });
         }, { once: true });
-        return pending.promise;
+        return pending;
       },
     };
     installLogSource("/logs-abort-tests", source);
@@ -118,12 +120,12 @@ describe("Console Logs", () => {
         });
     const reading = transport === "HTTP" ? logsRoute({ req }) : handleConsoleRpcRequest(req);
     try {
-      const signal = await started.promise;
+      const signal = await started;
       controller.abort();
       expect(signal).toBe(req.signal);
       expect(aborted).toBe(true);
     } finally {
-      pending.resolve({ entries: [] });
+      finish({ entries: [] });
       await reading;
     }
   });

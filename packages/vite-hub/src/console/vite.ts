@@ -195,6 +195,9 @@ function consoleAccessTargets(base: string | undefined, sections?: readonly Cons
   return [
     { route: consoleMountPath(base, "/_vitehub/**") },
     { method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") },
+    ...(sections?.includes("logs")
+      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
+      : []),
     ...(sections?.includes("agents") && sections.includes("usage")
       ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/usage") }]
       : []),
