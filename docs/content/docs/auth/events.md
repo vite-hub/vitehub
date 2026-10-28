@@ -2,7 +2,7 @@
 title: Auth event log
 description: Record auth changes and read activity or daily sign-in counts from SQLite and D1.
 navigation.title: Event log
-navigation.order: 8
+navigation.order: 9
 icon: i-lucide-history
 ---
 

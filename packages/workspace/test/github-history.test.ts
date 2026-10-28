@@ -136,6 +136,7 @@ beforeEach(() => {
         ? json([commits.c2], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
         : page === 2 ? json([commits.c1]) : json([])
       if (ref === "feature/draft") return json(page === 1 ? [commits.c3, commits.c1] : [])
+      if (ref === "c2") return json(page === 1 ? [commits.c2, commits.c1] : [])
       return new Response("missing", { status: 404 })
     }
     const commitId = url.pathname.split("/commits/")[1]
@@ -179,7 +180,7 @@ describe("GitHub Workspace history", () => {
     const first = await history.list({ ref: "main", limit: 1 })
     expect(first.revisions).toHaveLength(1)
     expect(first.revisions[0]).toMatchObject({ id: "c2", parentId: "c1" })
-    expect(first.cursor).toBe("main:2")
+    expect(first.cursor).toBe("main:after:c2")
     await expect(history.list({ ref: "feature/draft", cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
     await expect(history.list({ ref: "main", cursor: first.cursor, limit: 1 })).resolves.toMatchObject({ revisions: [{ id: "c1" }] })
 

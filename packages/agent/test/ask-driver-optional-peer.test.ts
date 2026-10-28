@@ -21,7 +21,7 @@ describe("ask Driver without advocaat", () => {
 describe("Agent Vite plugin", () => {
   it("keeps advocaat external only when the application does not install it", async () => {
     // SAFETY: The test calls the hook with the only plugin context member it uses.
-    const resolveId = hubAgent().resolveId as (...args: unknown[]) => Promise<unknown>
+    const resolveId = (hubAgent().resolveId as { handler: (...args: unknown[]) => Promise<unknown> }).handler
     const installed = { external: false, id: "/app/node_modules/advocaat/dist/index.mjs" }
 
     const agentImporter = "/app/node_modules/@vite-hub/agent/dist/internal/ask-runtime.js"
