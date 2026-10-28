@@ -66,6 +66,9 @@ async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Respons
   }
   const method = text(message?.method)
   if (!message || message.jsonrpc !== "2.0" || !method) return rpcError(null, -32600, "The body is not one JSON-RPC message.", 400)
+  if ("id" in message && message.id !== null && typeof message.id !== "string" && (typeof message.id !== "number" || !Number.isFinite(message.id))) {
+    return rpcError(null, -32600, "The request id must be a string, number, or null.", 400)
+  }
   const id = idOf(message.id)
   const version = request.headers.get("mcp-protocol-version")
   if (method !== "initialize" && version !== null && !viteHubMcpProtocolVersions.includes(version)) {

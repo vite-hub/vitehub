@@ -21,8 +21,8 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubComments>, root: string) {
-  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+async function configure(plugin: ReturnType<typeof hubComments>, root: string, extra: UserConfig & Record<string, unknown> = {}) {
+  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
   const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
   await hook.handler(config)
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
@@ -176,6 +176,26 @@ describe("hubComments", () => {
   })
 
   it.each([
+    { base: "/portal/" },
+    { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/" },
+  ])("mounts Comments below the application base: %j", async (config) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
+    const nitro = await configure(plugin, root, config)
+    expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
+    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
+    expect(mcpPlugin).toContain('session: commentsConsoleSession(consoleRealtimeAccess("comments"))')
+    const transform = plugin.transformIndexHtml
+    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
+    expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
+  })
+
+  it.each([
+    ['import { defineComments as defineSiteComments } from "vite-hub/comments"; export const comments = defineSiteComments({ database: "content" })', "content"],
+    ['import { defineComments as defineSiteComments } from "@vite-hub/comments"; const site = defineSiteComments({ database: "content" }); export { site as comments }', "content"],
     ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
     ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
     ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],

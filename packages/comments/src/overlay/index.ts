@@ -1,7 +1,7 @@
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
@@ -11,6 +11,10 @@ import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } fro
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
+
+function contentConsolePath(): string {
+  return `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`
+}
 
 interface Cursor {
   selector: string
@@ -123,6 +127,8 @@ class CommentsOverlay extends HTMLElement {
   private toastTimer?: ReturnType<typeof setTimeout>
   private toast?: HTMLElement
   private lastCursor = 0
+  private loadRevision = 0
+  private navigationRevision = 0
   private readonly cleanups: Array<() => void> = []
 
   async connectedCallback() {
@@ -134,6 +140,7 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => style.remove())
 
     const [error, session] = await api.session()
+    if (!this.isConnected) return
     if (error || !session.can.read) {
       // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
       // route already cleared the cookie.
@@ -153,8 +160,11 @@ class CommentsOverlay extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.loadRevision++
+    this.navigationRevision++
     for (const cleanup of this.cleanups.splice(0)) cleanup()
     this.room?.destroy()
+    this.room = undefined
     cancelAnimationFrame(this.frame)
   }
 
@@ -276,7 +286,7 @@ class CommentsOverlay extends HTMLElement {
     }
     if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.key === "c" && this.session?.can.comment) this.setMode(this.mode === "comment" ? "view" : "comment")
-    if (event.key === "e" && this.session?.content) this.setMode(this.mode === "edit" ? "view" : "edit")
+    if (event.key === "e" && this.session?.content && this.session.can.comment) this.setMode(this.mode === "edit" ? "view" : "edit")
   }
 
   private setMode(mode: Mode) {
@@ -292,6 +302,7 @@ class CommentsOverlay extends HTMLElement {
   private async navigated() {
     const page = normalizeCommentPage(location.pathname)
     if (page === this.page) return
+    const revision = ++this.navigationRevision
     this.page = page
     this.threads = []
     this.openThread = undefined
@@ -300,7 +311,7 @@ class CommentsOverlay extends HTMLElement {
     this.room = undefined
     this.render()
     await this.load()
-    this.joinRoom()
+    if (revision === this.navigationRevision) this.joinRoom()
   }
 
   private openFromHash() {
@@ -319,8 +330,9 @@ class CommentsOverlay extends HTMLElement {
 
   private async load() {
     const page = this.page
+    const revision = ++this.loadRevision
     const [error, threads] = await api.threads(page)
-    if (page !== this.page) return
+    if (page !== this.page || revision !== this.loadRevision || !this.isConnected) return
     if (error) {
       this.showToast(error.why, "error")
       return
@@ -335,18 +347,19 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  /** The signed-in person. A guest of a Console without accounts names itself like any guest. */
+  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
   private account(): CommentAuthor | undefined {
     const user = this.session?.user
-    return user && !user.guest ? user : undefined
+    return user && !(user.guest && user.id === "guest:console") ? user : undefined
   }
 
-  private joinRoom() {
-    if (!this.session?.realtime) return
+  private joinRoom(reconnect = false) {
+    if (!this.session?.realtime || !this.isConnected || (this.room && !reconnect)) return
     this.room?.destroy()
     const guest = readGuest()
     const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
-    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })
+    const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
+    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true, baseURL })
     room.onUpdate(() => {
       this.renderToolbar()
       this.schedule()
@@ -359,6 +372,7 @@ class CommentsOverlay extends HTMLElement {
 
   /** Tells the other people on this page that its threads changed. They read them again. */
   private changed() {
+    this.loadRevision++
     this.room?.notify({ operation: "update", path: commentRoom(this.page) })
   }
 
@@ -375,7 +389,7 @@ class CommentsOverlay extends HTMLElement {
       return false
     }
     saveGuest(name)
-    this.joinRoom()
+    this.joinRoom(true)
     return true
   }
 
@@ -433,7 +447,7 @@ class CommentsOverlay extends HTMLElement {
     const [error, value] = await api.field(field)
     if (error) return this.failed(error)
     if (!value.editable || value.value === null) {
-      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", "/_vitehub/content"] })
+      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", contentConsolePath()] })
       return
     }
     this.editing = { element, field, digest: value.digest, original: element.textContent ?? "", initial: value.value }
@@ -486,7 +500,7 @@ class CommentsOverlay extends HTMLElement {
       return this.failed(error)
     }
     this.drafted.add(field)
-    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", "/_vitehub/content"] })
+    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", contentConsolePath()] })
     this.schedule()
   }
 
@@ -511,7 +525,7 @@ class CommentsOverlay extends HTMLElement {
       h("span", { className: "avatar", title: person.name, style: `background:${person.color}` }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name)))
     this.toolbar.replaceChildren(...present(
       session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, icons.comment(), "Comment", h("kbd", {}, "C")),
-      session.content && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
+      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
       h("span", { className: "sep" }),
       h("button", { className: "tool", "aria-pressed": String(this.panel), title: "Threads on this page", onClick: () => {
         this.panel = !this.panel
@@ -640,7 +654,8 @@ class CommentsOverlay extends HTMLElement {
     }
     if (this.toast) nodes.push(this.toast)
     // Keep focus and typed text: only replace the cards when what they show changed.
-    const key = JSON.stringify([this.panel, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, this.threads.length, Boolean(this.toast)])
+    const panelThreads = this.panel ? this.visibleThreads().map(thread => [thread.id, thread.status, thread.updatedAt, thread.comments.length, thread.comments[0]?.body]) : undefined
+    const key = JSON.stringify([this.panel, panelThreads, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, thread?.can, this.threads.length, Boolean(this.toast)])
     if (this.floating.dataset.key === key) {
       for (const card of this.floating.querySelectorAll<HTMLElement>(".card")) {
         const fresh = nodes.find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.card === card.dataset.card)
@@ -687,12 +702,12 @@ class CommentsOverlay extends HTMLElement {
 
   private renderThread(thread: PageThread): HTMLElement {
     const session = this.session!
-    const me = this.account()?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
+    const can = thread.can ?? session.can
     const resolved = thread.status === "resolved"
     const card = h("div", { className: "card", role: "dialog", "aria-label": "Comment thread", "data-card": `thread-${thread.id}` },
       h("div", { className: "card-head" },
         h("span", { className: "grow" }, thread.anchor.field ? `On ${thread.anchor.field}` : resolved ? `Resolved by ${thread.resolvedBy?.name ?? "someone"}` : "Thread"),
-        session.can.resolve && h("button", { className: "icon", title: resolved ? "Reopen" : "Resolve", "aria-label": resolved ? "Reopen" : "Resolve", onClick: () => void this.setStatus(thread, !resolved) }, resolved ? icons.reopen() : icons.check()),
+        can.resolve && h("button", { className: "icon", title: resolved ? "Reopen" : "Resolve", "aria-label": resolved ? "Reopen" : "Resolve", onClick: () => void this.setStatus(thread, !resolved) }, resolved ? icons.reopen() : icons.check()),
         h("button", { className: "icon", "aria-label": "Close", onClick: () => {
           this.openThread = undefined
           this.render()
@@ -702,9 +717,9 @@ class CommentsOverlay extends HTMLElement {
           h("span", { className: "avatar", style: `background:${colorOf(comment.author.id)}` }, comment.author.image ? h("img", { src: comment.author.image, alt: "" }) : initials(comment.author.name)),
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("span", { className: "time" }, ago(comment.createdAt)),
-          (comment.author.id === me || session.can.resolve) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
-      !resolved && session.can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
+      !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )
     return card
   }
@@ -725,13 +740,20 @@ class CommentsOverlay extends HTMLElement {
     let options: CommentMention[] = []
     let selected = 0
     let query: { start: number, text: string } | undefined
+    let sending = false
 
     const send = async () => {
       const body = input.value.trim()
-      if (!body) return
+      if (!body || sending) return
+      sending = true
       button.disabled = true
-      await submit(body, mentions, name)
-      button.disabled = false
+      try {
+        await submit(body, mentions, name)
+      }
+      finally {
+        sending = false
+        button.disabled = !input.value.trim()
+      }
     }
     const pick = (person: CommentMention) => {
       if (!query) return
@@ -751,7 +773,7 @@ class CommentsOverlay extends HTMLElement {
       } }, person.name)))
     }
     input.addEventListener("input", async () => {
-      button.disabled = !input.value.trim()
+      button.disabled = sending || !input.value.trim()
       const before = input.value.slice(0, input.selectionStart)
       const match = /(^|\s)@([^\s@]{0,32})$/.exec(before)
       if (!match) {

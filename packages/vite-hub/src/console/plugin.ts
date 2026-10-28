@@ -181,6 +181,7 @@ function renderConsoleNitroPlugin(
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
+  applicationBase = "/",
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -204,7 +205,7 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections)
+  const contributedSections = describeConsoleContributedSections(sections, applicationBase)
   const runtimeReaders = describeConsoleRuntimeReaders(sections)
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
@@ -294,6 +295,7 @@ export async function writeConsoleNitroPlugin(
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
+  applicationBase = "/",
 ): Promise<string> {
   const snapshot = fixture ? readConsoleFixture(fixture) : undefined
   const identity = createConsoleInvocationsIdentity(
@@ -303,7 +305,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

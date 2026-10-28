@@ -28,6 +28,8 @@ export interface RealtimeRoomOptions {
   identity?: { id: string, name?: string, image?: string }
   /** Also join the workspace events room of the definition, for `notify()` and `onChange()`. Default `false`. */
   changes?: boolean
+  /** Application mount path for prebuilt clients. Defaults to the base supplied by the host integration. */
+  baseURL?: string
 }
 
 export interface RealtimeRoom {
@@ -69,7 +71,9 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   }
   const url = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`)}`
+    const path = `/api/_vitehub/realtime/${encodeURIComponent(definition)}`
+    const mounted = options.baseURL === undefined ? resolveRealtimeApplicationPath(path) : `${options.baseURL.replace(/\/+$/, "")}${path}`
+    return `${protocol}//${window.location.host}${mounted}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}

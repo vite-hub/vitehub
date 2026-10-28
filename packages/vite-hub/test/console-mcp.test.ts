@@ -45,6 +45,24 @@ afterEach(() => {
 })
 
 describe("ViteHub MCP", () => {
+  it("rejects invalid request IDs before executing tools", async () => {
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    registerViteHubMcpTools("comments", [tool("comments_reply", "comments")])
+    for (const id of [true, false, {}, [], [1]]) {
+      const result = await rpc({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "comments_reply" } })
+      expect(result.status).toBe(400)
+      expect(result.body).toMatchObject({ id: null, error: { code: -32600 } })
+    }
+    expect(calls).toHaveLength(0)
+    for (const id of ["request", 0, 1, null]) {
+      const result = await rpc({ jsonrpc: "2.0", id, method: "tools/call", params: { name: "comments_reply" } })
+      expect(result.status).toBe(200)
+      expect(result.body.id).toBe(id)
+    }
+    expect(calls).toHaveLength(4)
+  })
+
   it("negotiates only revisions supported by the transport", async () => {
     installConsoleAccess({ mode: "open" })
     installConsoleSections("/mcp-test", ["comments"])

@@ -191,8 +191,8 @@ export interface CommentsForgeOptions {
 
 /**
  * - `read`: see pins and threads, and join the page room.
- * - `comment`: start threads, reply, and delete own comments.
- * - `resolve`: resolve, reopen, and delete any thread.
+ * - `comment`: start threads and reply; signed-in authors can delete their own comments.
+ * - `resolve`: resolve and reopen; signed-in users can delete any thread or comment.
  */
 export type CommentsAction = "read" | "comment" | "resolve"
 
