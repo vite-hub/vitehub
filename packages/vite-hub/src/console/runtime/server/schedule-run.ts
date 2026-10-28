@@ -70,7 +70,7 @@ async function runScheduleOperation(event: ConsoleRequestEvent): Promise<{ run: 
 }
 
 /** Console RPC operation behind the Schedules page "Run now" button. */
-export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation, { section: "schedules" })
+export const consoleScheduleRunHandler: ConsoleAccessRoute<typeof runScheduleOperation> = withConsoleAccess(runScheduleOperation, { section: "schedules", write: true })
 
 function failure(message: string, status: number): Response {
   return Response.json({ message }, { headers: responseHeaders, status })
@@ -149,7 +149,7 @@ export async function handleDispatchScheduleRunRequest(request: Request, env: Re
     : failure(outcome.message, outcome.status)
 }
 
-const consoleGuardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(toEventRequest(event)), { section: "schedules" })
+const consoleGuardedHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event) => handleConsoleScheduleRunRequest(toEventRequest(event)), { section: "schedules", write: true })
 const guardedHandler = (event: H3Event): Promise<Response> => {
   const request = toEventRequest(event)
   return hasViteHubDispatch(request.headers)

@@ -116,13 +116,15 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
   const viteServerCreatedHooks: Array<(server: { watcher: { add: (paths: string[]) => void; on: (event: string, callback: (path: string) => void) => void } }, context: { isClient: boolean }) => void> = []
   const closeHooks: Array<() => Promise<void>> = []
+  const listenHooks: Array<(server: unknown, listener: { url: string }) => void> = []
   const nitroConfigHooks: Array<(config: Record<string, unknown>) => Promise<void>> = []
   const doctorExtensionHooks: Array<(entries: string[]) => void> = []
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void)) {
-      if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
+    hook(name: "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void)) {
+      if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
+      else if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
       else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
       else if (name === "builder:watch") builderWatchHooks.push(callback as (event: string, path: string) => Promise<void>)
@@ -157,6 +159,7 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     closeHooks,
+    listenHooks,
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
@@ -711,6 +714,31 @@ describe("ViteHub Nuxt integration", () => {
     finally {
       await application.runCloseHook()
     }
+  })
+
+  it.each(["/", "/portal/"])("publishes the Nuxt dev server with base %s, and removes the file on close", async (baseURL) => {
+    const file = "/tmp/vitehub-nuxt/.vitehub/dev-server.json"
+    await rm(file, { force: true })
+    const application = createNuxt(true)
+    Object.assign(application.nuxt.options, { app: { baseURL } })
+    await viteHubNuxtModule({ preset: "node" }, application.nuxt)
+    expect(application.listenHooks).toHaveLength(1)
+    // Nothing is written before Nuxt listens.
+    await expect(readFile(file, "utf8")).rejects.toThrow()
+    application.listenHooks[0]!({}, { url: "http://localhost:3000/" })
+    expect(JSON.parse(await readFile(file, "utf8"))).toEqual({ root: "/tmp/vitehub-nuxt", url: `http://localhost:3000${baseURL}` })
+    await application.runCloseHook()
+    await expect(readFile(file, "utf8")).rejects.toThrow()
+  })
+
+  it("does not publish a dev server for a build or for CLI discovery", async () => {
+    const build = createNuxt(false)
+    await viteHubNuxtModule({ preset: "node" }, build.nuxt)
+    expect(build.listenHooks).toHaveLength(0)
+    const discovery = createNuxt(true)
+    discovery.nuxt.options.vitehubCliDiscovery = true
+    await viteHubNuxtModule({ preset: "node" }, discovery.nuxt)
+    expect(discovery.listenHooks).toHaveLength(0)
   })
 
   it.each([true, false])("carries the Node data directory into the Nuxt Console bootstrap (dev: %s)", async (dev) => {
