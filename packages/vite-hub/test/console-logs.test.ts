@@ -4,7 +4,7 @@ import { installLogSource } from "../src/logs/host.ts";
 import logsRoute, { consoleLogsHandler } from "../src/console/runtime/server/logs.get.ts";
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts";
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts";
-import type { LogSource } from "../src/logs/source.ts";
+import type { LogPage, LogSource } from "../src/logs/source.ts";
 
 const request = (query = "") => ({
   req: { method: "GET", url: `http://localhost/api/_vitehub/console/logs${query}` },
@@ -89,6 +89,43 @@ describe("Console Logs", () => {
       ok: true,
       value: { page: { entries: [{ id: "rpc-event" }] } },
     });
+  });
+  it.each(["HTTP", "RPC"])("cancels a pending source read when %s aborts", async (transport) => {
+    installConsoleAccess({ mode: "open" });
+    const started = Promise.withResolvers<AbortSignal | undefined>();
+    const pending = Promise.withResolvers<LogPage>();
+    let aborted = false;
+    const source: LogSource = {
+      info: createLogBuffer().source.info,
+      query: (_query, options) => {
+        started.resolve(options?.signal);
+        options?.signal?.addEventListener("abort", () => {
+          aborted = true;
+          pending.resolve({ entries: [] });
+        }, { once: true });
+        return pending.promise;
+      },
+    };
+    installLogSource("/logs-abort-tests", source);
+    const controller = new AbortController();
+    const req = transport === "HTTP"
+      ? new Request("http://localhost/api/_vitehub/console/logs", { signal: controller.signal })
+      : new Request("http://localhost/_vitehub/rpc/__call", {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-vitehub-console": "1" },
+          body: JSON.stringify({ operation: "logs.list", input: {} }),
+          signal: controller.signal,
+        });
+    const reading = transport === "HTTP" ? logsRoute({ req }) : handleConsoleRpcRequest(req);
+    try {
+      const signal = await started.promise;
+      controller.abort();
+      expect(signal).toBe(req.signal);
+      expect(aborted).toBe(true);
+    } finally {
+      pending.resolve({ entries: [] });
+      await reading;
+    }
   });
   it("bounds responses from external adapters", async () => {
     const source: LogSource = {

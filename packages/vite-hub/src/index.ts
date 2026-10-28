@@ -1020,6 +1020,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
+  const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
   if (options.observability) {
     if (options.observability.posthog && !envPlugin) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: "[vitehub] observability.posthog reads its API key from Server Env. Remove env: false." })
@@ -1028,13 +1029,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
     }
     // Before Env, so Env reads the PostHog key declaration.
-    plugins.push(observabilityVitePlugin(options.observability, { agent: options.agent, hosting: plan.nitroPreset }))
+    const observability = logsOwnsEvlog && options.observability.evlog?.enabled === false
+      ? { ...options.observability, evlog: { ...options.observability.evlog, enabled: true } }
+      : options.observability
+    plugins.push(observabilityVitePlugin(observability, { agent: options.agent, hosting: plan.nitroPreset }))
   }
   if (options.logs) plugins.push(logsVitePlugin(options.logs))
-  const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
-  const evlogRecordsErrors = options.observability
-    ? options.observability.evlog?.enabled !== false
-    : logsOwnsEvlog
+  const evlogRecordsErrors = logsOwnsEvlog || (options.observability && options.observability.evlog?.enabled !== false)
   if (!evlogRecordsErrors) plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
