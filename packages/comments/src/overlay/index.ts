@@ -206,6 +206,7 @@ class CommentsOverlay extends HTMLElement {
   private followTheme() {
     const apply = () => {
       this.root.dataset.theme = this.toolbar.dataset.theme = hostIsDark() ? "dark" : "light"
+      if (this.panelBody) this.panelBody.dataset.theme = this.root.dataset.theme
     }
     apply()
     const classes = new MutationObserver(apply)
@@ -451,6 +452,12 @@ class CommentsOverlay extends HTMLElement {
     const [error, comment] = await api.reply(thread.id, { body, mentions: keptMentions(body, mentions) })
     if (error) return this.failed(error)
     thread.comments.push(comment)
+    // Clear only the submitted reply; unrelated drafts and text typed during the request stay intact.
+    for (const root of [this.panelBody, this.floating]) {
+      for (const input of root?.querySelectorAll<HTMLTextAreaElement>("textarea") ?? []) {
+        if (input.closest<HTMLElement>("[data-card]")?.dataset.card === `thread-${thread.id}` && input.value.trim() === body) input.value = ""
+      }
+    }
     this.changed()
     this.render()
   }
@@ -606,8 +613,9 @@ class CommentsOverlay extends HTMLElement {
           onClick: (event: MouseEvent) => {
             event.stopPropagation()
             this.draft = undefined
-            this.openThread = this.openThread === thread.id ? undefined : thread.id
-            this.render()
+            this.openThread = this.openThread === thread.id && (!this.pageWindow || this.panel) ? undefined : thread.id
+            if (this.openThread && this.pageWindow) this.showPanel()
+            else this.render()
           },
         }))
         this.pinElements.set(thread.id, pin)
@@ -723,7 +731,7 @@ class CommentsOverlay extends HTMLElement {
       nodes.push(card)
     }
     const thread = this.threads.find(candidate => candidate.id === this.openThread)
-    if (thread && !this.panel) {
+    if (thread && !this.pageWindow) {
       const placed = placeAnchor(thread.anchor)
       const card = this.renderThread(thread)
       if (placed.state !== "hidden") this.place(card, placed.x, placed.y)
@@ -732,7 +740,7 @@ class CommentsOverlay extends HTMLElement {
     }
     if (this.toast) nodes.push(this.toast)
     // Keep focus and typed text: only replace the cards when what they show changed.
-    const key = JSON.stringify([this.panel, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, this.threads.length, Boolean(this.toast)])
+    const key = JSON.stringify([this.page, this.panel, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, this.threads.length, Boolean(this.toast)])
     if (this.panelBody && this.panel && this.panelBody.dataset.key !== key) {
       const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, input.value]))
       this.panelBody.dataset.key = key
@@ -775,9 +783,7 @@ class CommentsOverlay extends HTMLElement {
           this.render()
         } }, "Show resolved", h("span", { className: "track", "aria-hidden": "true" })),
         h("button", { className: "icon", "aria-label": "Close comments", title: "Close", onClick: () => {
-          this.panel = false
-          this.renderToolbar()
-          this.render()
+          this.pageWindow?.hide()
         } }, icons.close())),
       threads.length
         ? h("div", { className: "panel-list" }, ...threads.map((thread) => {

@@ -10,14 +10,14 @@ vi.mock("@vite-hub/realtime/client", () => ({
 const tool = { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", hotkey: "c", script: "/overlay.js" }
 
 /** The page tools session and the Comments API of a site where this person may `read`, and `comment` when `comment`. */
-function site(can: { read: boolean, comment: boolean }, realtime = false) {
+function site(can: { read: boolean, comment: boolean }, realtime = false, threads: unknown[] = []) {
   vi.stubGlobal("fetch", vi.fn(async (input: string) => {
     const path = String(input)
     if (path === "/_vitehub/page/session") return Response.json({ tools: [tool] })
     if (path === "/api/_vitehub/comments/session") {
       return Response.json({ data: { user: { id: "ada", name: "Ada Lovelace" }, can: { ...can, resolve: can.comment }, realtime, content: false } })
     }
-    if (path.startsWith("/api/_vitehub/comments/threads")) return Response.json({ data: [] })
+    if (path.startsWith("/api/_vitehub/comments/threads")) return Response.json({ data: threads })
     return Response.json({ error: { code: "NOT_FOUND", why: `No route ${path}.` } }, { status: 404 })
   }))
 }
@@ -31,13 +31,33 @@ async function start() {
 
 const comment = (bar: HTMLElement) => bar.shadowRoot?.querySelector<HTMLButtonElement>("button[title=\"Comment (C)\"]")
 
+async function openPanel() {
+  const { bar } = await start()
+  await vi.waitFor(() => expect(comment(bar)).toBeTruthy())
+  bar.shadowRoot!.querySelector<HTMLButtonElement>("button[title=\"Comments on this page\"]")!.click()
+  const window = document.querySelector<HTMLElement>("vitehub-window")!
+  const panel = window.shadowRoot!.querySelector(".body > div")!.shadowRoot!
+  return { bar, window, panel }
+}
+
+function pageThread() {
+  const author = { id: "ada", name: "Ada Lovelace" }
+  return {
+    id: "thread-1", number: 1, page: "/", status: "open", createdBy: author,
+    anchor: { selector: "body", label: "body", x: 0, y: 0 },
+    comments: [{ id: "comment-1", author, body: "Original comment", mentions: [], createdAt: new Date().toISOString() }],
+  }
+}
+
 beforeEach(() => {
   vi.clearAllMocks()
+  vi.stubGlobal("confirm", vi.fn(() => true))
   history.replaceState(null, "", "/?vitehub")
   vi.spyOn(console, "error").mockImplementation(() => {})
 })
 
 afterEach(() => {
+  vi.mocked(window.confirm).mockReturnValue(true)
   document.querySelector("vitehub-pill")?.shadowRoot?.querySelector<HTMLButtonElement>("button")?.click()
   for (const element of document.querySelectorAll("vitehub-pill, vitehub-comments")) element.remove()
   document.documentElement.className = ""
@@ -46,6 +66,71 @@ afterEach(() => {
 })
 
 describe("the Comments page tool", () => {
+  it("hides its retained window from the panel close control", async () => {
+    site({ read: true, comment: true })
+    const { window, panel, bar } = await openPanel()
+    panel.querySelector<HTMLButtonElement>("button[aria-label=\"Close comments\"]")!.click()
+    expect(window.hidden).toBe(true)
+    expect(bar.shadowRoot!.querySelector("button[title=\"Comments on this page\"]")!.getAttribute("aria-pressed")).toBe("false")
+  })
+
+  it("updates the retained panel when the page theme changes", async () => {
+    site({ read: true, comment: true })
+    const { panel } = await openPanel()
+    document.documentElement.classList.add("dark")
+    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("dark"))
+    document.documentElement.classList.remove("dark")
+    await vi.waitFor(() => expect(panel.querySelector<HTMLElement>(".root")!.dataset.theme).toBe("light"))
+  })
+
+  it("updates the page label when navigating between empty pages", async () => {
+    site({ read: true, comment: true })
+    const { panel } = await openPanel()
+    expect(panel.querySelector(".page")!.textContent).toBe("/")
+    history.pushState(null, "", "/next")
+    await vi.waitFor(() => expect(panel.querySelector(".page")!.textContent).toBe("/next"))
+  })
+
+  it("keeps a minimized thread and its reply draft inside the retained window", async () => {
+    site({ read: true, comment: true }, false, [pageThread()])
+    const { panel, window: pageWindow, bar } = await openPanel()
+    await vi.waitFor(() => expect(panel.querySelector(".panel-item")).toBeTruthy())
+    panel.querySelector<HTMLButtonElement>(".panel-item")!.click()
+    const input = panel.querySelector<HTMLTextAreaElement>("textarea")!
+    input.value = "Unsent reply"
+    pageWindow.shadowRoot!.querySelector<HTMLButtonElement>(".hide")!.click()
+    // A theme/scroll change schedules the same render as polling and resize.
+    document.documentElement.classList.add("dark")
+    window.dispatchEvent(new Event("scroll"))
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(document.querySelector("vitehub-comments")!.shadowRoot!.querySelector(".card")).toBeNull()
+    bar.shadowRoot!.querySelector<HTMLButtonElement>("button[title=\"Comments on this page\"]")!.click()
+    expect(panel.querySelector("textarea")).toBe(input)
+    expect(input.value).toBe("Unsent reply")
+  })
+
+  it("clears sent replies before restoring drafts and permits exiting without a warning", async () => {
+    const thread = pageThread()
+    site({ read: true, comment: true }, false, [thread])
+    const serve = fetch
+    vi.stubGlobal("fetch", vi.fn((input: string, init?: RequestInit) => String(input).endsWith("/thread-1/comments")
+      ? Promise.resolve(Response.json({ data: { ...thread.comments[0], id: "reply-1", body: "Sent reply" } }))
+      : serve(input, init)))
+    const { panel } = await openPanel()
+    await vi.waitFor(() => expect(panel.querySelector(".panel-item")).toBeTruthy())
+    panel.querySelector<HTMLButtonElement>(".panel-item")!.click()
+    const input = panel.querySelector<HTMLTextAreaElement>("textarea")!
+    input.value = "Sent reply"
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    panel.querySelector<HTMLButtonElement>(".compose button.primary")!.click()
+    await vi.waitFor(() => expect(panel.querySelectorAll(".message")).toHaveLength(2))
+    expect(panel.querySelector<HTMLTextAreaElement>("textarea")!.value).toBe("")
+    expect(panel.querySelector<HTMLButtonElement>(".compose button.primary")!.disabled).toBe(true)
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
+    document.querySelector("vitehub-pill")!.shadowRoot!.querySelector<HTMLButtonElement>("button[aria-label=\"Turn off ViteHub tools\"]")!.click()
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
   it.each([
     ["session", "exit"],
     ["threads", "exit"],

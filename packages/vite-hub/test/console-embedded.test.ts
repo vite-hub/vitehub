@@ -25,10 +25,11 @@ describe("embedded Console access", () => {
 
   it("does not offer Content to a Console user whose sections exclude it", async () => {
     installConsoleSections("/embedded-test", ["content", "kv"])
-    installConsolePageTool({})
+    const app = { fetch: (request: Request) => session({ method: "GET", req: request }) }
+    installConsolePageTool(app)
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })
-    expect(await (await session(event("/_vitehub/page/session"))).json()).toMatchObject({ tools: [{ id: "console" }] })
+    expect(await (await app.fetch(event("/_vitehub/page/session").req)).json()).toMatchObject({ tools: [{ id: "console" }] })
     installConsoleAccess({ mode: "open", authorize: async () => ({ sections: ["content"] }) })
-    expect(await (await session(event("/_vitehub/page/session"))).json()).toMatchObject({ tools: [{ id: "console" }, { id: "content", lazy: true }] })
+    expect(await (await app.fetch(event("/_vitehub/page/session").req)).json()).toMatchObject({ tools: [{ id: "console" }, { id: "content", lazy: true }] })
   })
 })
