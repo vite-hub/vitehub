@@ -53,7 +53,7 @@ Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted So
 
 ## Markdown rendering
 
-Content parses Markdown with the full [Comark UI](https://comark-ui.onmax.me) preset. Callouts, steps, tabs, cards, badges, diagrams, tables, and the other Comark UI blocks use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`.
+Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.
 
 Render a page with ViteHub UI. Its `Markdown` primitive accepts both a parsed Content page and a Markdown string, with Comark UI components and document styles already configured:
 

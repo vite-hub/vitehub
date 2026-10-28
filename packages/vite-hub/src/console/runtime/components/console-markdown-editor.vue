@@ -205,7 +205,7 @@ async function load(markdown: string): Promise<void> {
   try {
     const [document, result] = await Promise.all([codec.fromMarkdown(markdown), codec.verify(markdown)]);
     if (token !== loading || instance.isDestroyed) return;
-    instance.commands.setContent(document, { emitUpdate: false });
+    instance.chain().setMeta("addToHistory", false).setContent(document, { emitUpdate: false }).run();
     loaded = markdown;
     written = markdown;
     canonical = await codec.toMarkdown(instance.getJSON());

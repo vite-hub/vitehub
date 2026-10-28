@@ -320,7 +320,7 @@ See [Limits and errors](/docs/content/limits-and-errors) before running Content 
 
 ## Render Markdown with Comark UI
 
-Content bundles the full Comark UI parser preset. ViteHub UI includes the matching components and document styles. Render a Content page directly:
+Content bundles the Comark UI parser preset with the HTML-only `annotate`, `diff`, and `quiz` plugins disabled. ViteHub UI includes the matching components and document styles. Render a Content page directly:
 
 ```vue
 <script setup lang="ts">

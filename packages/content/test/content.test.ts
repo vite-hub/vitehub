@@ -3,6 +3,7 @@ import sqlite from "comark-content/database/sqlite-node"
 import json from "comark-content/plugins/json"
 import media from "comark-content/plugins/media"
 import sqliteFullTextSearch from "comark-content/plugins/sqlite-full-text-search"
+import comarkUi from "comark-ui/html"
 import { setTimeout as delay } from "node:timers/promises"
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
@@ -106,6 +107,24 @@ describe("contentSource", () => {
       markdown: { plugins: [{ name: "alert", post: state => { state.tree.nodes = [["p", {}, "Custom callout"]] } }] },
     })
     expect((await custom.get("/"))?.nodes).toEqual(expect.arrayContaining([["p", {}, "Custom callout"]]))
+  })
+
+  it("leaves HTML-only quiz processing opt-in for a custom renderer", async () => {
+    const markdown = "::question\nChoose one.\n\n- [x] Yes\n- [ ] No\n::\n"
+    const source = { keys: () => ["index.md"], getItem: () => markdown, getItemRaw: () => markdown }
+    const content = defineContent({ source })
+    const custom = defineContent({ source, markdown: { plugins: comarkUi().plugins.filter(plugin => plugin.name === "comark-quiz") } })
+    try {
+      const page = await content.get("/")
+      const question = page?.nodes.find(node => Array.isArray(node) && node[0] === "question")
+      expect(question?.[1]).not.toHaveProperty("number")
+      const customPage = await custom.get("/")
+      const customQuestion = customPage?.nodes.find(node => Array.isArray(node) && node[0] === "question")
+      expect(customQuestion?.[1]).toHaveProperty("number", "1")
+    } finally {
+      await content.dispose()
+      await custom.dispose()
+    }
   })
 
   it("accepts source name arrays from another JavaScript realm", async () => {

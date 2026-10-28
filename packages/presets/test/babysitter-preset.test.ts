@@ -44,7 +44,8 @@ import { babysitter, resolveBabysitterLifecycleFilter } from "../src/babysitter.
 import type { BabysitterPlacement } from "../src/babysitter.ts";
 import { babysitterInstructions } from "../src/babysitter/instructions.ts";
 import { boundedMergeReady } from "../src/babysitter/merge-ready.ts";
-import { createBabysitterRuntime } from "../src/babysitter/server.ts";
+import { createBabysitterRuntime, isProviderRateLimit } from "../src/babysitter/server.ts";
+import { agentDiagnostics } from "../../agent/src/agent-diagnostics.ts";
 import { getAgentLayerOptions } from "../../agent/src/agent-layers.ts";
 import { github as githubChannel } from "@vite-hub/agent/channels";
 import { readForgeAccess } from "../../agent/src/internal/forge-access.ts";
@@ -1993,9 +1994,18 @@ describe("Babysitter preset runtime", () => {
     } finally { await f.runtime.inbox.close(); }
   });
 
-  it("retries a provider rate limit, then blocks admission", async () => {
+  it.each([
+    "429 Too Many Requests",
+    "You’ve hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at Nov 2nd, 2026 7:49 AM.",
+  ])("retries a provider quota failure, then resumes after the cooldown: %s", async (message) => {
     const f = await fixture(false, false, { providerRetryDelayMs: 1 });
-    createProviderRuntime.mockImplementation(async () => { throw new Error("429 Too Many Requests") });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async (...args: unknown[]) => {
+      const runtime = await provider(...args);
+      return { ...runtime, sendTurn: async () => ({ turnId: "quota-turn" }), events: { async *[Symbol.asyncIterator]() {
+        yield { type: "turn.completed", turnId: "quota-turn", payload: { state: "failed", errorMessage: message } };
+      } } };
+    });
     try {
       const startedAt = Date.now();
       await f.reconcile();
@@ -2015,7 +2025,47 @@ describe("Babysitter preset runtime", () => {
       createProviderRuntime.mockClear();
       await f.reconcile().catch(() => {});
       expect(createProviderRuntime).not.toHaveBeenCalled();
+      const clock = vi.spyOn(Date, "now").mockReturnValue(blockedUntil + 1);
+      try {
+        createProviderRuntime.mockImplementation(provider);
+        await f.reconcile();
+        expect(createProviderRuntime).toHaveBeenCalledOnce();
+        expect(f.passes).toHaveLength(1);
+      } finally { clock.mockRestore(); }
     } finally { await f.runtime.inbox.close(); }
+  }, 30_000);
+
+  it.each([
+    new Error("Invalid usage limit configuration."),
+    new Error("Invocation setup failed", { cause: new Error("Invalid usage limit configuration.") }),
+    agentDiagnostics.AGENT_R0725({ message: "Invalid usage limit configuration." }),
+  ])("keeps internal failures out of provider quota recovery: %s", async (error) => {
+    const f = await fixture(false, false, { providerRetryDelayMs: 1 });
+    const provider = createProviderRuntime.getMockImplementation()!;
+    createProviderRuntime.mockImplementation(async () => { throw error });
+    try {
+      await f.reconcile("babysitter.owner.failed");
+      expect(createProviderRuntime).toHaveBeenCalledOnce();
+      expect(await f.runtime.inbox.metaNumber("provider-quota-blocked-until")).toBeUndefined();
+      expect(await f.runtime.inbox.metaNumber("provider-quota-strikes")).toBeUndefined();
+      const failed = (await f.runtime.inbox.get("acme/app", 12))!;
+      expect(failed.progressBudget?.count).toBe(1);
+      createProviderRuntime.mockImplementation(provider);
+      createProviderRuntime.mockClear();
+      f.errors.mockClear();
+      await f.runtime.inbox.ingest("retry-feedback", "issue_comment", { repository: { full_name: "acme/app" }, action: "created",
+        issue: { number: 12, pull_request: {} }, comment: { id: 9, body: "Please retry", user: { login: "human", type: "User" } } });
+      await f.reconcile();
+      expect(createProviderRuntime).toHaveBeenCalledOnce();
+      expect(f.passes).toHaveLength(1);
+    } finally { await f.runtime.inbox.close(); }
+  });
+
+  it("preserves provider quota provenance through a cause without treating cancellation as quota", () => {
+    const quota = agentDiagnostics.AGENT_R0726({ message: "You've hit your usage limit." });
+    expect(isProviderRateLimit(new Error("Invocation failed", { cause: quota }))).toBe(true);
+    expect(isProviderRateLimit(Object.assign(new Error("Aborted", { cause: quota }), { name: "AbortError" }))).toBe(false);
+    expect(isProviderRateLimit(new Error("usage limit", { cause: agentDiagnostics.AGENT_R0726({ message: "Invalid model." }) }))).toBe(false);
   });
 
   it("leaves PRs queued while admission is refused and logs each pause reason once", async () => {
@@ -2507,7 +2557,7 @@ describe("Babysitter preset runtime", () => {
       const runtime = await implementation(...args);
       const sendTurn = runtime.sendTurn;
       return { ...runtime, sendTurn: async (input: unknown) => {
-        await sendTurn(input); accepting = false; throw new Error("429 Too Many Requests");
+        await sendTurn(input); accepting = false; throw agentDiagnostics.AGENT_R0726({ message: "429 Too Many Requests" });
       } };
     });
     try {
