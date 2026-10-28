@@ -1,5 +1,6 @@
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
-import { chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
+import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
+import { startChatGPTTransport } from "./internal/chatgpt-transport.ts"
 import { chatgptProtocolSource } from "./internal/chatgpt-protocol.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
@@ -3023,6 +3024,7 @@ async function* runProvider<
   let codexCredentialHome: CodexCredentialHome | undefined
   let codexHomeActivity: CodexHomeActivity | undefined
   let toolServer: Awaited<ReturnType<typeof startToolServer>> | undefined
+  let chatgptTransport: Awaited<ReturnType<typeof startChatGPTTransport>> | undefined
   const pendingToolEvents: StreamEvent[] = []
   const capabilityApprovals = new Map<string, (approved: boolean) => boolean>()
   const capabilityApprovalIds = new Set<string>()
@@ -3248,7 +3250,7 @@ async function* runProvider<
           Promise.resolve(resolveRuntimeValue(options.env, resolverContext)),
           effectiveSignal,
         ))
-    const gateway = options.gateway === undefined
+    let gateway = options.gateway === undefined
       ? undefined
       : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
     if (gateway?.chatgpt && chatgptExpiry) {
@@ -3257,6 +3259,19 @@ async function* runProvider<
       if (remaining <= 0) expire()
       else chatgptExpiryTimer = setTimeout(expire, Math.min(remaining, 2_147_483_647))
       effectiveSignal?.throwIfAborted()
+    }
+    if (gateway?.chatgpt) {
+      chatgptTransport = await waitForProviderOperation(
+        startChatGPTTransport(gateway.chatgpt, effectiveSignal),
+        effectiveSignal,
+        transport => transport.close(),
+        observeLateCleanup,
+      )
+      gateway = {
+        ...gateway,
+        environment: { [chatgptTokenEnvironment]: chatgptTransport.key },
+        launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
+      }
     }
     // driver.env can override the forge access environment. The gateway owns its own variables.
     const providerEnvironmentOverrides = withAgentDriverGatewayEnvironment(gateway, githubEnvironment
@@ -4004,7 +4019,10 @@ async function* runProvider<
         releaseWorkspaceCleanup?.()
       }
     })()
-    const toolCleanup = Promise.resolve().then(() => toolServer?.close())
+    const toolCleanup = Promise.all([
+      Promise.resolve().then(() => toolServer?.close()),
+      Promise.resolve().then(() => chatgptTransport?.close()),
+    ])
     const shutdownTask = (async () => {
       const runtimeCleanup = runtimeCleanupDeferred
         ? deferredRuntimeStopped.finally(() => runtimeCleanupSettled = true)

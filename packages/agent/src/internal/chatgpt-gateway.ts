@@ -19,9 +19,9 @@ function primitive(context: AgentProviderCredentialContext, connection: string):
   return parsed.output as ConnectionsAgentPrimitive
 }
 
-export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgentDriverGateway {
+export function chatgptCodexLaunchArgs(api: string): string {
   const provider = {
-    name: "ChatGPT plan", base_url: credential.api, wire_api: "responses",
+    name: "ChatGPT plan", base_url: api, wire_api: "responses",
     env_key: chatgptTokenEnvironment, requires_openai_auth: false, supports_websockets: false,
     request_max_retries: 2, stream_max_retries: 0,
   }
@@ -31,11 +31,13 @@ export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgen
     ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent", "hooks", "codex_hooks"].map(feature => codexConfigArg(`features.${feature}`, "false")),
     codexConfigArg(`shell_environment_policy.set.${chatgptTokenEnvironment}`, '""'),
   ]
-  return {
-    environment: { [chatgptTokenEnvironment]: credential.accessToken },
-    launchArgs: args.join(" "),
-    chatgpt: { expiresAt: credential.expiresAt, clientInfo: credential.clientInfo },
-  }
+  return args.join(" ")
+}
+
+export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgentDriverGateway {
+  // Reserve the variable against driver.env overrides. The invocation replaces
+  // it with a relay key; the grant itself never enters a child environment.
+  return { environment: { [chatgptTokenEnvironment]: "" }, chatgpt: credential }
 }
 
 export async function resolveChatGPTGateway(gateway: ChatGPTGateway, context: AgentProviderCredentialContext): Promise<ResolvedAgentDriverGateway> {

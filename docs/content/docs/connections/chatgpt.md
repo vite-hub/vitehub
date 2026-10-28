@@ -85,7 +85,7 @@ One Connections store identifies one host. Do not clone the whole database onto 
 
 Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSettings.launchArgs`, `binaryPath`, `homePath`, `shadowHomePath` and Agent `sandbox` are rejected with `AGENT_R1015`. They would let caller code replace the runtime-owned launch or receive its credentials. Install `@openai/codex` in the app; this gateway does not fall back to a command from `PATH`. The first-party Codex `auth.json` login is a separate credential flow.
 
-ViteHub selects `openai_chatgpt_plan`, the public Responses endpoint, HTTP streaming and the token as the provider key. It sets Codex `clientInfo` from `appName` and `appVersion`. The token stays in the child environment; shell tools receive an empty token variable. The launcher redacts the token from protocol output and errors.
+ViteHub selects `openai_chatgpt_plan` and relays HTTP streaming to the public Responses endpoint. It sets Codex `clientInfo` from `appName` and `appVersion`. The ChatGPT token stays in runtime memory. An Invocation-owned loopback relay adds it to upstream requests; Codex receives only a temporary relay key, which shell tools have cleared. The relay accepts only Responses and model discovery requests, redacts the token from responses, and closes on cancellation or cleanup. The grant never enters child environments, launch arguments or Codex credential files, including environments readable by same-user commands on Linux.
 
 Codex's internal helper commands use the host executable search path. `driver.env.PATH`, toolchains and managed browser settings apply to command tools separately. Managed Chromium's library and font settings reach those tools without entering the credential-bearing process.
 

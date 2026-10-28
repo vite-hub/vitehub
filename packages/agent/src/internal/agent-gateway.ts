@@ -5,6 +5,7 @@ import { codexConfigArg } from "./codex-launch-args.ts"
 import { gatewayEnvValue } from "./gateway-env.ts"
 import type { AiGatewayDefinition, ChatGPTGateway } from "@vite-hub/gateways"
 import type { AiGatewayDriverRoute } from "@vite-hub/gateways/internal"
+import type { ChatGPTCredential } from "@vite-hub/connections/agent"
 import type { AgentProviderCredentialContext, BuiltInAgentDriverName } from "../types.ts"
 
 const codexProviderId = "vitehub"
@@ -15,7 +16,8 @@ const codexApiKeyEnvironment = "VITEHUB_GATEWAY_API_KEY"
 const codexGatewayStreamRetries = 10
 
 export interface ResolvedAgentDriverGateway {
-  chatgpt?: { expiresAt: number, clientInfo: { name: string, title: string, version: string } }
+  /** Runtime-only grant. Never forward this object to the provider process. */
+  chatgpt?: ChatGPTCredential
   /** Values for the provider process. Every value is a secret. */
   environment: Record<string, string>
   /** Codex `-c` overrides that select the gateway. */
