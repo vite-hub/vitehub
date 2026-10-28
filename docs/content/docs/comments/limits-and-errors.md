@@ -1,47 +1,94 @@
 ---
 title: Comments limits and errors
-description: Size limits, numbering, and the errors that comments raise.
+description: Comment, mention, list, and refresh limits for Comments, and the fix for each error code.
 navigation.title: Limits and errors
-navigation.order: 5
+navigation.order: 7
 icon: i-lucide-circle-alert
 ---
+
+## Handle errors
+
+The [runtime methods](/docs/comments/server-api#runtime-methods) return `[error, data]`. When `error` is set, `error.code` names the failure, `error.why` tells what went wrong, `error.fix` tells what to do, and `error.docs` links to the code on this page.
+
+```ts [server/api/threads/[id].get.ts]
+import { createError, defineEventHandler, getRouterParam } from 'h3'
+import { comments } from '../../comments'
+
+export default defineEventHandler(async (event) => {
+  const [error, thread] = await comments.get(getRouterParam(event, 'id')!)
+  if (error?.code === 'COMMENTS_NOT_FOUND') throw createError({ status: 404, message: error.why })
+  if (error) throw error
+  return thread
+})
+```
+
+The HTTP routes answer with the same error object as `{ error }`, and an HTTP status for each code. See [HTTP routes](/docs/comments/server-api#http-routes). The overlay shows `why` and `fix` in a message.
+
+Build errors throw when Vite reads the config. When the build cannot choose the Database for the Comments tables, it fails with [`DATABASE_INVALID_CONTRIBUTION_TARGET`](/docs/database/limits-and-errors#database_invalid_contribution_target). See [Choose the Database](/docs/comments/configure#choose-the-database).
 
 ## Limits
 
 | Limit | Value |
 | --- | --- |
-| Message length | 10,000 characters. |
-| Mentions per message | 20. |
-| Attachments per message | None yet: only an empty list. |
-| Selector, quote | 500 and 2,000 characters. |
-| Threads per `list` | 200 by default, 500 at most. Page with `before`. |
-| Suggestions per `users` | 10, for a query of at least 2 characters. |
-| Page subject id | 500 characters, an app path without `//`, `\`, whitespace, `?`, or `#`. |
+| Comment body | 1 to 4,000 characters of plain text, after trimming |
+| Mentions in one comment | 20 |
+| `@` suggestions | 20 |
+| Threads in one `list()` call | 200 by default, 500 at most |
+| Threads in the Console section | The 500 with the newest activity |
+| Page path | 1,024 characters, starting with `/` |
+| Guest name | 64 characters |
+| Content field address | 512 characters |
+| Edited field value | 20,000 characters |
+| Thread refresh without presence | On tab focus, and every 30 seconds while the tab is visible |
+| Cursor updates | One every 80 ms for each person |
+| Presence rooms with `authority: 'memory'` | One process. See [Realtime limits](/docs/realtime/limits-and-errors#limits). |
 
-## Numbering
+## Runtime errors
 
-Each scope has a counter in `vitehub_comment_counters`. A creator advances it with one `UPDATE … SET next = next + 1 … RETURNING`, so two creators never share a number, and a number is never used twice, also after a delete: `?comment=3` keeps naming one thread. A scope with threads from before the counter starts after its highest number. A unique index on `(scope, n)` is the backstop: if it refuses a number, the creator takes the next one, up to 12 times, and then gets `COMMENTS_R0011`.
+### COMMENTS_NOT_INSTALLED
 
-A thread and its first message are written together: with `batch()` on libSQL and D1, and in a transaction on Postgres. A driver with neither writes the message first and removes it if the thread fails, so a failure leaves nothing visible. Deleting a thread deletes its messages in the same batch.
+The Comments runtime has no Database yet. ViteHub installs it from `server/comments.ts` when the server starts. Call the method from a server route or a Nitro plugin, not at import time. When the server log shows `Comments has no Database`, turn on a Database with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.
 
-## Errors
+### COMMENTS_NOT_FOUND
 
-| Code | Status | Meaning |
-| --- | --- | --- |
-| `COMMENTS_R0002` | 404 | The thread does not exist, or you may not read it. |
-| `COMMENTS_R0003` | 404 | The message does not exist in the thread. |
-| `COMMENTS_R0004` | 403 | Only the author can edit a message. |
-| `COMMENTS_R0005` | 400 | The text is empty. |
-| `COMMENTS_R0006` | 403 | `server/comments.ts` has no `authorize`, so nobody can read or write. |
-| `COMMENTS_R0007` | 400 | A mention is not a real person, or the text does not name them. |
-| `COMMENTS_R0008` | 400 | The subject kind is not defined. |
-| `COMMENTS_R0009` | 403 | `authorize` returned false. |
-| `COMMENTS_R0010` | 503 | The comments runtime is not installed. |
-| `COMMENTS_R0011` | 409 | The numbers of the scope stayed busy. Try again. |
-| `COMMENTS_R0012` | 401 | Writing needs a signed-in user. |
-| `COMMENTS_R0013` | 0 | The browser transport got no answer. |
-| `COMMENTS_R0014` | 400 | The comment has attachments, which are not supported yet. |
-| `COMMENTS_B0001` | build | The app has `server/comments.ts` and sets `database: false`. |
-| `COMMENTS_B0002` | build | `server/comments.ts` does not default-export `defineComments()`. |
+No thread or comment has the id. A deleted thread does not come back. List the threads with `comments.list()` and use one of their ids. The HTTP API also returns this code, with status `404`, for a route that does not exist.
 
-An input that does not match the schema fails with `INTERNAL_R0022` and names the fields.
+### COMMENTS_INVALID_INPUT
+
+The input of `create()` or `reply()`, or the body of an API request, is not valid. `why` names the first issue, such as `body: The comment is empty.` Send a page path that starts with `/`, an anchor from the overlay, and a body of 1 to 4,000 characters, with at most 20 mentions.
+
+### COMMENTS_FORBIDDEN
+
+The `authorize` policy of `defineComments()` denied the action for this user. `why` names the action: `read`, `comment`, or `resolve`. Sign in as a user that the policy allows, or change `authorize` in `server/comments.ts`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
+
+The API also returns this code for a `POST` or `DELETE` from another origin. Behind a proxy that ends TLS, set `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Proxies that end TLS](/docs/comments/hosts#proxies-that-end-tls).
+
+### COMMENTS_RESOLVED
+
+The thread is resolved, so it takes no new replies. Reopen it with `comments.reopen(id)`, or with the reopen button on the page, then reply.
+
+## Content edit errors
+
+### COMMENTS_CONTENT_MISSING
+
+Edits in place need Content, and the app has no `server/content.ts` with document collections. Define collections with `defineContent()` in `server/content.ts`, mark rendered fields with `contentField()`, and restart the dev server.
+
+### COMMENTS_FIELD_INVALID
+
+The `data-content-field` value is not a Content field address, or its collection or document does not exist, or the document has no draft yet. Write the attribute with `contentField(collection, id, field)` from `vite-hub/content/client`, so the address matches a collection of `server/content.ts`. A singleton has no document until its first save. Save it once in the Console.
+
+### COMMENTS_FIELD_NOT_EDITABLE
+
+The draft value of the field is not a string, so the page cannot edit it as text. Edit the field in the Console Content editor.
+
+### COMMENTS_FIELD_FORBIDDEN
+
+`content.can()` denied `write` on the document for this user. Sign in as a user that the `authorize` policy of `defineContent()` lets write the collection. See [Content access](/docs/content/configure#access).
+
+### COMMENTS_FIELD_CONFLICT
+
+The document changed after the page read it, for example in the Console or in another tab. Open the field again to read the current draft, then repeat the edit.
+
+### COMMENTS_FIELD_LOCKED
+
+Another person holds the edit lease of this document in the Console. `why` names them. Wait until they close the document, or edit it together with them in the Console. See [Editing together](/docs/content/editing-together).

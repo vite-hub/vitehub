@@ -1,11 +1,12 @@
+import { commentsEntryMode, commentsOperationsConsoleSection, findCommentsEntry } from "@vite-hub/comments/vite"
+import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
-import { findCommentsEntry } from "@vite-hub/comments/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { collectOperationContributions, createOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
 import { inspectDatabaseDefinitions } from "@vite-hub/database/vite"
 import { collectScheduleContributions, discoverScheduleDefinitions } from "@vite-hub/schedule/vite"
 
-import { consoleContributedSections, consoleDocumentEditorSectionIds } from "./contributions.ts"
+import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections } from "./contributions.ts"
 import { insertConsoleSection } from "./runtime/sections.ts"
 
 import type { CollectedOperationContribution } from "@vite-hub/internal/operations"
@@ -24,22 +25,24 @@ export interface ConsoleBuildCatalog {
   content: Record<ConsoleSectionId, ConsoleSectionContent>
   /** Application module of each document editor section that discovery found, such as `server/content.ts`. */
   documents?: Record<ConsoleSectionId, string>
-  /** Sections that exist because the app has their file, such as `server/comments.ts`. */
-  extraSections?: readonly ConsoleSectionId[]
   /** The operations that Vite plugins contribute through `vitehub.operations`. */
   operations?: readonly CollectedOperationContribution[]
+  /** Record table sections whose application module exists, such as Comments with `server/comments.ts`. */
+  entries?: readonly ConsoleSectionId[]
+  /** Per-app view descriptors when a contribution supports multiple entry forms. */
+  sectionOverrides?: Record<ConsoleSectionId, ReturnType<typeof describeViteHubConsoleSection>>
 }
 
 /**
  * Returns the sections in navigation order with every document editor section that discovery found. A document editor
  * has no Vite option: the Console shows it when its application module exists, such as `server/content.ts`.
  */
-export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents"> & { extraSections?: readonly ConsoleSectionId[] }): ConsoleSectionId[] {
+export function withConsoleDocumentEditorSections(sections: readonly ConsoleSectionId[], catalog: Pick<ConsoleBuildCatalog, "documents" | "entries">): ConsoleSectionId[] {
   let result = sections.filter(section => !consoleDocumentEditorSectionIds.includes(section))
-  for (const section of catalog.extraSections ?? []) result = insertConsoleSection(result, section)
   for (const section of consoleDocumentEditorSectionIds) {
     if (catalog.documents && Object.hasOwn(catalog.documents, section)) result = insertConsoleSection(result, section)
   }
+  for (const section of catalog.entries ?? []) result = insertConsoleSection(result, section)
   return result
 }
 
@@ -90,9 +93,7 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
       kind: "definition-catalog",
     }
   }
-  // A section whose file exists in the app, such as server/comments.ts, joins the enabled sections.
-  const extraSections: ConsoleSectionId[] = findCommentsEntry({ projectRoot, ...(serverDirs ? { serverDirs } : {}) }) ? ["comments"] : []
-  for (const section of [...sections, ...extraSections.filter(extra => !sections.includes(extra))]) {
+  for (const section of sections) {
     const contributed = consoleContributedSections.get(section)
     if (contributed && !contributed.documents) content[section] = await contributed.read(options)
   }
@@ -119,11 +120,19 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
     const setup = await registered.documents?.inspect?.({ ...options, scheduleDefinitions: schedules?.map(definition => definition.handler) }, entry)
     content[section] = read.kind === "document-editor" && setup && Object.keys(setup).length ? { ...read, setup } : read
   }
+  const entries = await discoverConsoleEntrySections(options)
+  for (const section of entries) content[section] = await consoleContributedSections.get(section)!.read(options)
+  const commentsEntry = findCommentsEntry({ projectRoot, serverDirs })
+  const sectionOverrides: NonNullable<ConsoleBuildCatalog["sectionOverrides"]> = {}
+  if (commentsEntry && commentsEntryMode(commentsEntry) === "operations") {
+    content.comments = await readViteHubConsoleSection(commentsOperationsConsoleSection, undefined)
+    sectionOverrides.comments = describeViteHubConsoleSection(commentsOperationsConsoleSection)
+  }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
   const contributed = await collectOperationContributions(await flattenPluginOptions(options.plugins))
   await assertUniqueOperationNames(contributed)
   const operations = contributed.filter(contribution => contribution.runtime !== false)
-  return { agents, content, documents, extraSections, manualSchedules, operations }
+  return { agents, content, documents, entries, sectionOverrides, manualSchedules, operations }
 }

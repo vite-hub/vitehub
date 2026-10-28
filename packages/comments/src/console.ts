@@ -1,34 +1,29 @@
-import type { ViteHubConsoleOperationSection } from "@vite-hub/internal/console"
+import { findCommentsEntry } from "./entry.ts"
+
+import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 
 /**
- * Console section for the comment inbox. It lists the result of `comments.list`, called with the Console user, so
- * `authorize` applies to each thread. A page thread links to `<page>?comment=<n>`.
+ * Console section for Comments: every thread with its page, first comment, author, replies, and status. People reply
+ * and resolve on the page itself, where the context is; each record links there in comment mode. The Console shows it
+ * when the app has `server/comments.ts`.
  */
-export const commentsConsoleSection: ViteHubConsoleOperationSection = {
-  description: "Read the comment threads of the site and jump to the page.",
-  icon: "i-lucide-message-square",
+export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ projectRoot: string, serverDirs?: string[] }> = {
+  entry: ({ projectRoot, serverDirs }) => findCommentsEntry(projectRoot, serverDirs),
+  description: "Triage comments that the team left on the site's pages.",
+  icon: "i-lucide-message-square-text",
   id: "comments",
   label: "Comments",
+  runtime: { export: "readCommentsConsoleRecords", module: "@vite-hub/comments/runtime/console" },
   view: {
     columns: [
-      { key: "n", label: "#" },
-      { key: "subject.id", label: "Subject" },
+      { key: "page", label: "Page" },
+      { key: "comment", label: "Comment" },
+      { key: "author", label: "Author" },
+      { key: "replies", label: "Replies" },
       { key: "status", label: "Status" },
-      { key: "author.name|author.id", label: "Author" },
-      { key: "messages.0.body", label: "Comment", format: "excerpt" },
-      { key: "updatedAt", label: "Updated", format: "datetime" },
+      { key: "updated", label: "Updated" },
     ],
-    filters: [
-      { id: "all", input: {}, label: "All" },
-      { id: "open", input: { status: "open" }, label: "Open" },
-      { id: "resolved", input: { status: "resolved" }, label: "Resolved" },
-      { id: "mine", input: { mine: true }, label: "Mine" },
-      { id: "mentions", input: { mentions: true }, label: "Mentions" },
-    ],
-    kind: "operation-view",
-    link: { label: "Open page", template: "{subject.id:path}?comment={n}", when: { equals: "page", path: "subject.kind" } },
-    notice: "The list comes from the comments.list operation with your sign-in, so it shows only the threads that authorize lets you read. Without an authorize policy nobody can read comments: add one to defineComments(). `vitehub comments list` lists the same threads.",
-    operation: "comments.list",
-    pagination: { limit: 200, cursor: { id: "id", updatedAt: "updatedAt" } },
+    kind: "record-table",
+    notice: "Threads come from the Comments Database on each request. Open any page with `?comments` to comment, reply, and resolve on the page. `comments.list()` in server code reads the same threads.",
   },
 }

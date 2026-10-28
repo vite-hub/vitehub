@@ -413,8 +413,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
     });
-    observer.observe(document.documentElement, {
-      attributeFilter: ["class", "style", "hidden"],
+    observer.observe(root(), {
       attributes: true,
       characterData: true,
       childList: true,

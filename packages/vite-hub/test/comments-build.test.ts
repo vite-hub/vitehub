@@ -9,7 +9,7 @@ import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { startBuiltServer } from "./content-preview-fixture.ts"
 import { createProject, path, runCli, serverBuild } from "./support/content-cms.ts"
 
-import type { CommentThread } from "@vite-hub/comments"
+import type { CommentThread } from "@vite-hub/comments/client"
 
 // Own file: it chdirs into the fixture, because the default libSQL file is relative to the working directory.
 describe("Comments in a built Nitro 3 app", () => {

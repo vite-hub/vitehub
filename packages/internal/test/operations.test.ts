@@ -88,6 +88,21 @@ describe("operations", () => {
     expect(fetch).not.toHaveBeenCalled()
   })
 
+  it.each([true, false])("forwards deployment credentials only without a discovered project root (discovered: %s)", async discovered => {
+    const env = {
+      VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token",
+      VITEHUB_CONSOLE_COOKIE: "session=token",
+      CF_ACCESS_CLIENT_ID: "client-id",
+      CF_ACCESS_CLIENT_SECRET: "client-secret",
+    }
+    const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(Response.json({ ok: true, value: "done" }))
+    expect(await callOperation({ env, fetch, url: "http://localhost:5173", ...(discovered ? { roots: ["/app"] } : {}) }, "demo.greet", { name: "Ada" })).toMatchObject({ ok: true })
+    const headers = new Headers(fetch.mock.calls[0]![1]?.headers)
+    for (const header of ["authorization", "cookie", "cf-access-client-id", "cf-access-client-secret"]) {
+      expect(headers.has(header), header).toBe(!discovered)
+    }
+  })
+
   it("returns a coded failure when the operation response body is interrupted", async () => {
     const fetch = vi.fn<typeof globalThis.fetch>().mockResolvedValue(new Response(new ReadableStream({
       start(controller) {

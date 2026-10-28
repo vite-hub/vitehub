@@ -173,6 +173,10 @@ The hook runs for every Better Auth path that refreshes a stored session: `/get-
 
 `onRefresh` needs a Better Auth `database` or `secondaryStorage` adapter. Without one, Auth fails with `AUTH_C0042`. Better Auth refreshes a stateless cookie cache (`session.cookieCache.refreshCache`) without a hook, so ViteHub cannot run `onRefresh` there. With a cookie cache in front of a database, the hook runs only when Better Auth reads the database. It does not run when `session.disableSessionRefresh` is set or for a session created without "remember me". With `session.deferSessionRefresh`, it runs on the `POST` that writes the refresh.
 
+## Session marker cookie
+
+When a response sets the session cookie, ViteHub Auth also sets `vitehub_session=1`. It has the session cookie's lifetime, path, domain, `SameSite`, `Secure`, and `Partitioned` attributes, and Better Auth clears it when it clears the session cookie, such as on sign-out. Unlike the session cookie it is not `HttpOnly`, so a page script can read it. It holds no secret and proves nothing: the server still checks the session on every request. The [comments overlay](/docs/comments/configure#privacy) can use it to skip the session request for visitors who never signed in when marker mode is enabled.
+
 ## Storage placement metadata
 
 The `database` and `secondaryStorage` fields describe intended ViteHub primitive placement for inspection. ViteHub removes these values before it calls `betterAuth()`. They do not connect Better Auth to `@vite-hub/database` or `@vite-hub/kv`.

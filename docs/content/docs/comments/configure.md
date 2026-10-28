@@ -1,115 +1,207 @@
 ---
-title: Configure comments
-description: Set the access policy, add subject kinds, react to mentions, and choose the Database.
+title: Comments configuration
+description: Decide who can comment, let guests in, choose the Database, mention and notify people, turn comment mode on and off, and mark Content fields for edits in place.
 navigation.title: Configure
 navigation.order: 3
-icon: i-lucide-settings
+icon: i-lucide-sliders-horizontal
 ---
 
-## Access: `authorize`
+All options go to `defineComments()` in `server/comments.ts`. Every option is optional. The [Server API](/docs/comments/server-api#definecomments-options) lists them in one table.
+
+## Decide who can comment
+
+`authorize` gets the user and the action. Return `false` to deny.
 
 ```ts [server/comments.ts]
-export default defineComments({
-  authorize: ({ user, actor, action, thread, subject }) => { /* … */ },
-})
-```
+import { defineComments } from 'vite-hub/comments'
 
-| Field | Meaning |
-| --- | --- |
-| `user` | The signed-in user, including application fields such as `role`, or `null`. Stored authors and mention suggestions contain only `id`, `name`, and `image`. |
-| `actor` | The Agent Actor when an agent acts for `user`. |
-| `action` | `read`, `write`, `resolve`, or `delete`. |
-| `thread` | The thread, when the action is about one. Not set for `create`, `list`, and `users`. |
-| `subject` | What the action is about: the subject of `thread`, the subject that `create` starts a thread on, or the subject that a `list` filters by. Not set for a `list` with no filter and for `users`. |
-
-Return `true` to allow. The policy runs for every operation, on every surface: the Console, the CLI, MCP, and agents.
-
-- Without `authorize`, nobody can read or write. Calls fail with `COMMENTS_R0006`, and the Console list shows that error with its fix.
-- Creating a thread asks `read`, then `write`, with its subject. Mention suggestions ask `read`, then `write`, without a thread or subject.
-- Every operation on a thread asks `read` for that thread first. A thread you may not read looks missing: `get` answers `null`, and `reply`, `edit`, `delete`, `resolve`, and `reopen` fail with `COMMENTS_R0002`, the same as for a thread that does not exist.
-- People edit their own messages and delete their own messages, once they may read the thread. Nobody else edits a message. An Agent has no such right, even when it acts for the author: `edit` needs `write`, and `delete` needs `delete`.
-- `delete` covers the messages of other people. A person deletes a whole thread, or its first message, only when every message in it is theirs; otherwise it needs `delete`.
-- `resolve` covers resolving and reopening.
-- `list` asks `read` for each thread, with up to 16 checks at once, and drops the threads you may not read.
-- `users()` suggests people only to someone who may `write`, and the store looks only at authors of threads you may read.
-
-The operations also sit behind the Console section `comments`, so `console.authorize` decides who reaches them at all.
-
-## Subjects
-
-A thread is about a subject: `{ kind, id }`. `kind` picks the numbering scope.
-
-| Kind | `id` | Scope |
-| --- | --- | --- |
-| `page` | An app path such as `/pricing` | `site` |
-| `content` | `<collection>/<id>` | `site` |
-
-Numbers are unique inside a scope, so `?comment=3` names one thread of the site. Add your own kinds:
-
-```ts [server/comments.ts]
-import { defineCommentSubject, defineComments } from 'vite-hub/comments'
-
-export default defineComments({
-  authorize: ({ user }) => Boolean(user),
-  subjects: [
-    // Every version of a drop shares one number sequence.
-    defineCommentSubject({ kind: 'drop', scope: id => `drop:${id.split('@')[0]}` }),
-  ],
-})
-```
-
-## Mentions
-
-A message mentions people by id, and its text names each one with `@name`. The server checks both: the id must belong to a real person, and the text must contain `@` and that person's name. Where people come from:
-
-- With [Auth](/docs/auth), `users()` and the mention check read the Better Auth users. `users()` searches their name, and returns only `id`, `name`, and `image`.
-- Without Auth, they are the authors that comments know, and only those with a thread that you may read.
-
-```ts [server/comments.ts]
-export default defineComments({
-  authorize: ({ user }) => Boolean(user),
-  onMention: async ({ thread, message, mentioned }) => {
-    await notify(mentioned, `/pricing?comment=${thread.n}`, message.body)
+export const comments = defineComments({
+  authorize: ({ user, action, thread }) => {
+    if (!user) return false
+    if (action === 'resolve') return user.role === 'editor' || thread?.createdBy.id === user.id
+    return true
   },
 })
 ```
 
-`onMention` runs after the comment is saved, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives only the people that the message mentions for the first time and that `authorize({ action: 'read', user: <mentioned>, thread })` lets read the thread. The mention stays in the text for the others.
+| Action | Allows |
+| --- | --- |
+| `read` | See pins and threads, join the presence room of the page, and get `@` suggestions. |
+| `comment` | Start threads and reply. Signed-in authors can also delete their own comments. |
+| `resolve` | Resolve and reopen any thread. Signed-in users can also delete any thread or comment. |
 
-## Overlay
+`thread` is the thread that the action changes. It is `undefined` for reads and for new threads.
 
-In production, enable `console` with your access policy to serve the operation RPC that the overlay needs. With `console` omitted, the overlay runs only in development. With `console: false`, it is disabled in both modes.
+Without `authorize`, signed-in users may do everything and anonymous requests may do nothing. The user comes from the ViteHub Auth session when the app has [Auth](/docs/auth), or from `identify`.
 
-`vitehub({ comments: { overlay } })` controls the comment UI that [the loader](/docs/comments/get-started#the-overlay) puts on your pages.
+Every route of the Comments API checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and the overlay does not open. Write requests must also come from a page of the same origin.
 
-| Option | Type | Default | Description |
-| --- | --- | --- | --- |
-| `overlay` | `false \| { paths?, exclude?, session? }` | `{}` | `false` adds no loader. |
-| `overlay.paths` | `string[]` | every page | Globs of the pages that get the overlay, relative to the app base. `*` is one path segment, `**` any depth: `/docs/**` is `/docs` and everything below it. |
-| `overlay.exclude` | `string[]` | none | Globs of the pages that never get it. |
-| `overlay.session` | `"marker" \| "always"` | `"always"` | When the loader asks the server whether the visitor may read comments. `"always"` asks on page load and client-side navigation; `"marker"` also requires an app-managed `vitehub_session` cookie. See [Privacy](#content-security-policy-and-privacy). |
+The [runtime methods](/docs/comments/server-api#runtime-methods), such as `comments.create()`, are trusted server API. They do not call `authorize`. Call `comments.can()` first when a route acts for a user.
 
-The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all. The loader follows navigation: when a visitor moves to a page that the globs leave out, the overlay hides and its `C` hotkey stops, and when they move to an allowed page it shows again. If the landing page was left out, the loader waits, and the first allowed page loads the overlay.
+### Use your own login
 
-The loader and the overlay are served by your app below `/_vitehub/comments/`, as `loader.<hash>.js` and `overlay.<hash>.js`. The file names carry a hash of their content, and the tag names both, so a page always loads a loader and an overlay of the same build. They are sent with `Cache-Control: max-age=31536000`, and a new release has new names.
+When the app does not use ViteHub Auth, return the user from `identify`. Return `null` for an anonymous request.
 
-### Content Security Policy and privacy
+```ts [server/comments.ts]
+import { getCookie } from 'h3'
+import { defineComments } from 'vite-hub/comments'
+import { findSession } from './utils/session'
 
-- **CSP.** Both files come from your own origin, so `script-src 'self'` is enough, and `connect-src 'self'` covers the loader's `fetch`. With a nonce policy (`script-src 'nonce-…' 'strict-dynamic'`) the loader tag gets the nonce of the response's `Content-Security-Policy` automatically, in the Nitro middleware and in the Nuxt `render:html` hook. The loader loads the overlay with a dynamic `import()`, which `'strict-dynamic'` allows from a trusted script. The overlay builds its icons from SVG elements and sets no `innerHTML`, so it works under Trusted Types. It adopts its styles as a constructed stylesheet, which needs no `style-src 'unsafe-inline'`; where the browser has none, it falls back to a `<style>` element that carries the loader's nonce.
-- **What gets the tag.** The middleware rewrites only UTF-8 `text/html` that is not compressed and has a `</body>` or `</html>`: streamed pages are rewritten as they stream, and fragments, JSON, and other types are never touched.
-- **Privacy.** On each allowed page load and client-side navigation, the loader sends `POST /_vitehub/rpc/__call` with the session cookie and no other data. It receives your own user, and whether you may read and write, and nothing about anyone else. Everything else is downloaded only after `authorize` says you may read comments. Navigation rechecks authorization; a denied session removes the overlay and stops its comment client. The Console page never gets the loader.
-- **Anonymous visitors.** The default works with ViteHub Auth, other session providers, and local development. Anonymous visitors receive no comments or overlay bundle. To skip even the session request for anonymous visitors, opt into `overlay: { session: 'marker' }` only if your app sets a readable `vitehub_session=1` cookie when signing in and clears it on sign-out. ViteHub Auth does not currently manage this marker. The marker holds no secret and grants no access: the server still authorizes every session request. The loader rereads it on navigation and destroys the overlay when it disappears.
-
-```ts [vite.config.ts]
-vitehub({ comments: { overlay: { session: 'always' } } })
+export const comments = defineComments({
+  identify: async ({ event }) => {
+    const session = await findSession(getCookie(event, 'sid'))
+    return session ? { id: session.userId, name: session.name, image: session.avatar } : null
+  },
+})
 ```
 
-## Database
+The user must have a string `id`. Comments shows `name`, else `email`, else "Someone", and `image` when it is a string. `identify` also sets the person that the presence room shows, so a signed-in person cannot show under another name.
 
-With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on and adds an empty default Database Definition (`.vitehub/comments/database.ts`) when the app has none, the way the Content cms preset does. Comments then use the default Database. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
+### Let guests comment
 
-```ts [vite.config.ts]
-vitehub({ comments: { database: 'main' } })
+Return `true` for `user: null` to let people without an account comment. The overlay asks for a display name once and keeps it in the browser's `localStorage`. Their comments show the name with "(guest)".
+
+```ts [server/comments.ts]
+export const comments = defineComments({
+  // Guests may read and comment. Only editors resolve.
+  authorize: ({ user, action }) => action !== 'resolve' || user?.role === 'editor',
+})
 ```
 
-For Postgres set `comments: { dialect: 'postgresql' }`. To wire the tables yourself, import `commentsSchema` from `vite-hub/comments/database` (SQLite, libSQL, D1) or `commentsPostgresSchema` from `vite-hub/comments/database/postgres`, and add it to your Database Definition.
+The server does not verify a guest name or ID. They are display data, never proof of ownership. Guests cannot delete comments or threads, even when the policy allows `resolve`. Sign in to delete your own comments, or ask a signed-in moderator with `resolve` permission.
+
+## Choose the Database
+
+Comments adds two tables, `vitehub_comment_threads` and `vitehub_comments`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+
+To use another Database, give its name:
+
+```ts [server/comments.ts]
+export const comments = defineComments({
+  database: 'team',
+})
+```
+
+ViteHub reads the name from the file without running it, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when the app has several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
+
+Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts` or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+
+## Mention people
+
+Type `@` in a comment to mention someone. Without `people`, the list shows the authors of earlier comments. Return your own list to suggest the team:
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+import { team } from './utils/team'
+
+export const comments = defineComments({
+  people: ({ query }) => team
+    .filter(person => person.name.toLowerCase().includes(query.toLowerCase()))
+    .map(person => ({ id: person.id, name: person.name })),
+})
+```
+
+`query` is the text after `@`, and can be empty. Comments filters the result by name again and returns at most 20 people. A comment keeps at most 20 mentions.
+
+## Notify mentioned people
+
+`onComment` runs after each new thread and each reply saves. Compose it with [Email](/docs/email) to tell people that someone mentioned them:
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+import { email } from 'vite-hub/email/server'
+import { team } from './utils/team'
+
+export const comments = defineComments({
+  people: () => team.map(person => ({ id: person.id, name: person.name })),
+  onComment: async ({ thread, comment, mentions }) => {
+    for (const mention of mentions) {
+      // Mentions come from the browser. Look each person up in your own list.
+      const person = team.find(member => member.id === mention.id)
+      if (!person) continue
+      const [error] = await email.send({
+        from: 'comments@example.com',
+        to: person.email,
+        subject: `${comment.author.name} mentioned you on ${thread.page}`,
+        text: `${comment.body}\n\nhttps://example.com${thread.page}?comments#comment-${thread.id}`,
+      })
+      if (error) console.error(error.why)
+    }
+  },
+})
+```
+
+The link `<page>?comments#comment-<thread id>` opens the page in comment mode with the thread open.
+
+The API waits for `onComment` before it answers the browser. Keep it short, or send the work to a [Queue](/docs/queue). Comments logs an error that `onComment` throws and still returns the saved comment.
+
+## Turn comment mode on and off
+
+Comment mode starts on any page with the `?comments` query, such as `https://example.com/pricing?comments`. The overlay asks the server for the session. When `authorize` allows `read`, the server sets the `vitehub-comments` cookie for 30 days, so every other page of the site opens in comment mode too. When it denies `read`, the server clears the cookie. The cookie is only a hint. Every API request checks access again.
+
+The close button in the toolbar ends comment mode. It clears the cookie and removes the query.
+
+| Key | Action |
+| --- | --- |
+| <kbd>C</kbd> | Turn **Comment** on or off. While it is on, a click anywhere starts a thread. |
+| <kbd>E</kbd> | Turn **Edit** on or off, when the app has Content. |
+| <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
+| <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
+
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one `<script type="module">` before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. Paths under `/_vitehub` and `/api` never get the overlay.
+
+- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook.
+- A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
+- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
+
+The overlay is a custom element with a closed shadow root. Your CSS does not change it, and its CSS does not change your page.
+
+## Mark Content fields
+
+Edit mode lets people change Content text on the page. Each editable element needs the address of its field. `contentField()` from `vite-hub/content/client` writes it as a `data-content-field` attribute. In Vue, spread it with `v-bind`:
+
+```vue [src/pages/Customers.vue]
+<script setup lang="ts">
+import { contentField } from 'vite-hub/content/client'
+
+defineProps<{
+  about: { hero: { title: string } }
+  customers: { id: string, data: { name: string } }[]
+}>()
+</script>
+
+<template>
+  <!-- A singleton: collection and field -->
+  <h1 v-bind="contentField('about', 'hero.title')">{{ about.hero.title }}</h1>
+  <ul>
+    <!-- A document collection: collection, document id, and field -->
+    <li v-for="customer in customers" :key="customer.id">
+      <span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
+    </li>
+  </ul>
+</template>
+```
+
+| Collection | Call | Attribute value |
+| --- | --- | --- |
+| `singleton()` | `contentField('about', 'hero.title')` | `about#hero.title` |
+| `documents()` | `contentField('customers', 'acme', 'name')` | `customers:acme#name` |
+
+The field is a dot path into the document fields, such as `hero.title` or `cards.0.title`. Without Vue, write the attribute yourself, or build its value with `formatContentField({ collection, id, field })`.
+
+- Put the attribute on the element that holds only the field text. An edit replaces the text of the element, so other elements inside it go away until the page renders again.
+- A field is editable on the page when its draft value is a string. For other fields and for the Markdown body, the overlay links to the Console editor.
+- An edit needs `comment` from Comments and `write` from the [Content `authorize`](/docs/content/configure#access) policy for that document. Guests can edit only when the Content policy allows `user: null`.
+- <kbd>Enter</kbd> or leaving the field saves. <kbd>Esc</kbd> cancels.
+
+A save writes the whole document to `draft` with the message `Edit <field> on the page`. If the document changed after the page read it, the save fails with [`COMMENTS_FIELD_CONFLICT`](/docs/comments/limits-and-errors#comments_field_conflict). If someone holds the [edit lease](/docs/content/editing-together) in the Console, it fails with [`COMMENTS_FIELD_LOCKED`](/docs/comments/limits-and-errors#comments_field_locked).
+
+In edit mode, the overlay marks the fields you edited with **Draft**. After a reload, the page shows the published text again and the mark is gone. Publish in the [Console](/docs/content/console), where review and approval rules apply. Comment mode does not turn on [draft preview](/docs/content/preview).
+
+A pin on an element with a Content field, or inside one, stores the field address. The pin stays with that text when the layout changes.
+
+## Triage in the Console
+
+The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity: page, first comment, author, replies, status, and last update. A thread's **Open on page** field is its `?comments#comment-<id>` link. Reply and resolve on the page, where the context is.
+
+`vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.

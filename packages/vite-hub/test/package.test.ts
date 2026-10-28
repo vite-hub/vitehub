@@ -119,6 +119,7 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/database/config",
   "@vite-hub/env/seal",
   "@vite-hub/kv/errors",
+  "@vite-hub/realtime/client",
   "@vite-hub/ui/primitive-rail",
   "@vite-hub/workspace/source-metadata",
 ]);
@@ -134,6 +135,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/dev",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/operations",
+  "@vite-hub/comments/runtime/console",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",

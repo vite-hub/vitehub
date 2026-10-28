@@ -641,9 +641,10 @@ const schedules = defineOperation({
       ...(id === undefined ? {} : { id }),
       ...(input.status === undefined ? {} : { status: input.status }),
     })
-    // Show a schedule only when the user may read every document it publishes.
+    // Show a schedule only when the user may enumerate each collection and read every document it publishes.
     const readable = new Map<string, Set<string>>()
     for (const name of new Set(found.flatMap(entry => entry.expect.map(document => document.collection)))) {
+      if (!await access.can("read", name)) continue
       readable.set(name, await access.readable(name, found.flatMap(entry => entry.expect.filter(document => document.collection === name).map(document => document.id))))
     }
     return { schedules: found.filter(entry => entry.expect.every(document => readable.get(document.collection)?.has(document.id))) }

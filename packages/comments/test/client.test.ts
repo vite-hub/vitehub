@@ -1,7 +1,8 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
-import { createMemoryTransport } from "../src/testing.ts"
+import { createCommentsClient, type CommentThread, type CommentUser } from "../src/operations-core/client.ts"
+import { createMemoryTransport } from "../src/operations-core/testing.ts"
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const ben: CommentUser = { id: "ben", name: "Ben Soto" }

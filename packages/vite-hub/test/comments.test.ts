@@ -8,7 +8,7 @@ import { defineCommentSubject, defineComments } from "@vite-hub/comments"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { commentsOperations } from "@vite-hub/comments/operations"
-import { commentsConsoleSection } from "@vite-hub/comments/vite"
+import { commentsOperationsConsoleSection as commentsConsoleSection } from "@vite-hub/comments/vite"
 import { describeViteHubConsoleSection } from "@vite-hub/internal/console"
 import { createOperationRegistry, runOperation } from "@vite-hub/internal/operations"
 import { createRpcTransport } from "@vite-hub/comments/rpc"
@@ -357,7 +357,7 @@ describe("the Console section", () => {
       expect(withConsoleDocumentEditorSections(["env"], without)).toEqual(["env"])
       await writeFile(join(root, "server", "comments.ts"), "export default {}\n")
       const catalog = await discover()
-      expect(catalog.extraSections).toEqual(["comments"])
+      expect(catalog.entries).toEqual(["comments"])
       expect(withConsoleDocumentEditorSections(["env"], catalog)).toContain("comments")
       expect(catalog.content.comments).toMatchObject({ kind: "operation-view" })
     }
