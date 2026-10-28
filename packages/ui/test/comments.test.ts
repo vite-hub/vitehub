@@ -954,7 +954,7 @@ describe("thread actions", () => {
     expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Ana Ruiz only", ["ana"]);
   });
 
-  it("drops a mention of a person whose name is not known", async () => {
+  it("keeps an existing mention on an unchanged edit even when its name is not known", async () => {
     const onEdit = vi.fn().mockResolvedValue(undefined);
     const wrapper = mount(CommentReply, {
       attachTo: document.body,
@@ -965,7 +965,7 @@ describe("thread actions", () => {
     await wrapper.get("[aria-label=Edit]").trigger("click");
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
     await flushPromises();
-    expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Cleo", []);
+    expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Cleo", ["cleo"]);
   });
 });
 
@@ -1247,6 +1247,40 @@ describe("review regressions", () => {
 });
 
 describe("comment boundaries", () => {
+  it.each(["reply", "thread"])("hides actions without persistence handlers in a %s", async kind => {
+    const wrapper = kind === "reply"
+      ? mount(CommentReply, { attachTo: document.body, global, props: { editable: true, message: thread(1).messages[0]! } })
+      : mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    expect(wrapper.find("[aria-label=Edit]").exists()).toBe(false);
+    expect(wrapper.find("[aria-label=Delete]").exists()).toBe(false);
+  });
+
+  it("preserves unresolved mentions on an unchanged thread edit", async () => {
+    const item = thread(1);
+    item.messages[0]!.body = "Ask @Cleo";
+    item.messages[0]!.mentions = ["cleo"];
+    const onEdit = vi.fn();
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { thread: item, user: ana, onEdit } });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("[data-variant=edit] textarea").trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onEdit).toHaveBeenCalledWith("message-1", "Ask @Cleo", ["cleo"]);
+  });
+
+  it.each(["keyboard", "pointer"])("closes the mention menu after a %s caret move", async kind => {
+    const { wrapper } = await layer([], { users: async () => [ben] });
+    await drop(wrapper);
+    const field = textarea(wrapper);
+    await field.setValue("@be");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
+    (field.element as HTMLTextAreaElement).setSelectionRange(2, 2);
+    await field.trigger(kind === "keyboard" ? "keyup" : "click", { key: "ArrowLeft" });
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect(field.element).toHaveProperty("value", "@be");
+  });
+
   it.each(["draft", "reply", "edit"])("protects an unsent %s before keyboard navigation to another page", async kind => {
     const navigate = vi.fn();
     const { wrapper } = await layer([thread(1), thread(2, { subject: about })], { navigate });

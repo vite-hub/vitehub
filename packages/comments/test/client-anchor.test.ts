@@ -87,17 +87,28 @@ describe("createAnchor selectors", () => {
   })
 })
 
-it("only hit-tests descendants of an element root", () => {
+it("only hit-tests the configured element root and its descendants", () => {
   page('<aside id="outside"></aside><main id="root"><button id="inside">Buy</button></main>')
   const root = document.getElementById("root")!
   const inside = document.getElementById("inside")!
   const outside = document.getElementById("outside")!
+  place(root, { left: 0, top: 0, width: 200, height: 200 })
   place(inside, { left: 0, top: 0, width: 100, height: 100 })
   document.elementsFromPoint = () => [outside, inside, root, document.body]
   const anchor = createAnchor({ x: 20, y: 20 }, { root })
   expect(resolved(resolveAnchor(anchor, root)).element).toBe(inside)
   document.elementsFromPoint = () => [outside, root, document.body]
+  expect(resolved(resolveAnchor(createAnchor({ x: 20, y: 20 }, { root }), root)).element).toBe(root)
+  document.elementsFromPoint = () => [outside, document.body]
   expect(() => createAnchor({ x: 20, y: 20 }, { root })).toThrow()
+})
+
+it.each(["div", "img"])("crops the leading part of an area outside a %s", tag => {
+  page(`<${tag} id="target"></${tag}>`)
+  const target = document.getElementById("target")!
+  place(target, { left: 100, top: 100, width: 200, height: 100 })
+  const anchor = createAnchor(target, { area: { left: 0, top: 50, width: 200, height: 100 } })
+  expect(anchor).toMatchObject({ x: 0, y: 0, width: 500, height: 500 })
 })
 
 describe("anchor round trips", () => {

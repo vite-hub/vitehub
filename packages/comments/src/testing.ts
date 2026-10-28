@@ -91,8 +91,8 @@ function message(store: Store, user: CommentUser, input: { threadId: string, bod
     threadId: input.threadId,
     body,
     author: copy(user),
-    mentions: input.mentions ?? [],
-    attachments: input.attachments ?? [],
+    mentions: [...(input.mentions ?? [])],
+    attachments: [...(input.attachments ?? [])],
     createdAt: store.now(),
   }
 }

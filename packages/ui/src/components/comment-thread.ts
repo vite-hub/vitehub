@@ -71,12 +71,18 @@ export const CommentReply = defineComponent({
       editing.value = true;
     }
     async function save(submit: CommentComposerSubmit) {
+      if (!props.onEdit) return;
       const submitted = draft.value;
       const submittedMentions = mentions.value;
-      if (await run(() => props.onEdit?.(props.message.id, submit.body, submit.mentions))
+      // An unchanged edit cannot remove a mention whose name was not supplied in `people`.
+      const savedMentions = submit.body === props.message.body
+        ? [...new Set([...props.message.mentions, ...submit.mentions])]
+        : submit.mentions;
+      if (await run(() => props.onEdit?.(props.message.id, submit.body, savedMentions))
         && draft.value === submitted && mentions.value === submittedMentions) editing.value = false;
     }
     async function remove() {
+      if (!props.onDelete) return;
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
     }
 
@@ -127,15 +133,15 @@ export const CommentReply = defineComponent({
           ]),
           props.editable && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }),
-                h(UButton, {
+                props.onEdit ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                props.onDelete ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
                   icon: "i-ph-trash-light",
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
-                }),
+                }) : null,
               ])
             : null,
         ],

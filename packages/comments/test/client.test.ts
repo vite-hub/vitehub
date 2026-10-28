@@ -24,6 +24,37 @@ function setup() {
 afterEach(() => vi.restoreAllMocks())
 
 describe("createCommentsClient", () => {
+  it.each(["mine", "mentions"] as const)("keeps transport-owned %s membership authoritative", async filter => {
+    const store = createMemoryTransport({ user: ana });
+    const included = await store.create({ subject, anchor, body: "Included", mentions: [ana.id] });
+    const excluded = await store.as(ben).create({ subject, anchor, body: "Excluded" });
+    const client = createCommentsClient({ transport: store });
+    await client.refresh();
+    expect(client.threads).toHaveLength(2);
+    client.query = { [filter]: true };
+    expect(client.threads).toEqual([]);
+    await client.refresh();
+    expect(client.threads.map(item => item.id)).toEqual([included.id]);
+    await client.reply({ threadId: excluded.id, body: "Still excluded" });
+    expect(client.threads.map(item => item.id)).not.toContain(excluded.id);
+    await client.refresh();
+    expect(client.threads.map(item => item.id)).toEqual([included.id]);
+  });
+
+  it("copies message arrays on create and reply", async () => {
+    const store = createMemoryTransport({ user: ana });
+    const mentions = [ben.id];
+    const attachments = ["attachment"];
+    const first = await store.create({ subject, anchor, body: "First", mentions, attachments });
+    await store.reply({ threadId: first.id, body: "Reply", mentions, attachments });
+    mentions.push("unexpected");
+    attachments.length = 0;
+    for (const message of store.threads[0]!.messages) {
+      expect(message.mentions).toEqual([ben.id]);
+      expect(message.attachments).toEqual(["attachment"]);
+    }
+  });
+
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
     const { client } = setup()
     const changes = vi.fn()

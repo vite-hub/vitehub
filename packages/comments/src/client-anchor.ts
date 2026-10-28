@@ -157,7 +157,7 @@ function pointTarget(point: AnchorPoint, options: CreateAnchorOptions): Element 
   const stack = typeof scope.elementsFromPoint === "function"
     ? scope.elementsFromPoint(point.x, point.y)
     : [scope.elementFromPoint(point.x, point.y)]
-  return stack.find((element): element is Element => element !== null && (!node || (element !== node && node.contains(element))) && !options.ignore?.(element))
+  return stack.find((element): element is Element => element !== null && (!node || node.contains(element)) && !options.ignore?.(element))
 }
 
 function textNodes(node: Node, into: Text[] = []): Text[] {
@@ -238,8 +238,8 @@ function boxAnchor(element: Element, options: CreateAnchorOptions, point: Anchor
       selector,
       x,
       y,
-      width: Math.min(thousandths(options.area.width, box.width), 1000 - x),
-      height: Math.min(thousandths(options.area.height, box.height), 1000 - y),
+      width: Math.max(0, thousandths(options.area.left + options.area.width - box.left, box.width) - x),
+      height: Math.max(0, thousandths(options.area.top + options.area.height - box.top, box.height) - y),
     }
     if (area.width > 0 && area.height > 0) return kind ? { kind, ...area } : { kind: "area", ...area }
   }

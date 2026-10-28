@@ -66,6 +66,8 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const { transport } = options
   const listeners = new Set<() => void>()
   const byId = new Map<string, CommentThread>()
+  // Without a user identity, membership in user filters comes only from the transport's list.
+  let listed = new Set<string>()
   // What changed while a list was on its way. The list answers for the time it was asked, so it must not undo these.
   let changed = new Set<string>()
   let removed = new Set<string>()
@@ -74,6 +76,8 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   let error: unknown
   let query = options.query ?? {}
   let generation = 0
+
+  const transportOwnsMembership = (): boolean => !options.user && Boolean(query.mine || query.mentions)
 
   const notify = (): void => {
     for (const listener of listeners) listener()
@@ -85,6 +89,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (query.status && thread.status !== query.status) return false
     if (user && query.mine && thread.author.id !== user.id) return false
     if (user && query.mentions && !thread.messages.some(message => message.mentions.includes(user.id))) return false
+    if (transportOwnsMembership() && !listed.has(thread.id)) return false
     return true
   }
   const publish = (): void => {
@@ -98,7 +103,9 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (removed.has(thread.id) || (stored && stored.updatedAt > thread.updatedAt)) return stored ?? thread
     byId.set(thread.id, thread)
     changed.add(thread.id)
+    if (transportOwnsMembership()) listed.delete(thread.id)
     publish()
+    if (transportOwnsMembership()) refreshQuietly()
     return thread
   }
   const drop = (threadId: string): void => {
@@ -146,6 +153,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
       }
       byId.clear()
       for (const [id, thread] of next) byId.set(id, thread)
+      listed = new Set(list.map(thread => thread.id))
       status = "ready"
       error = undefined
       publish()
@@ -193,6 +201,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     set query(next) {
       query = next
       generation++
+      listed.clear()
       publish()
     },
     refresh,
