@@ -13,6 +13,7 @@ import {
   VITEHUB_SERVER_DIRS,
 } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
+import { hubComments } from "@vite-hub/comments/vite"
 import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
@@ -113,6 +114,8 @@ import viteHubNuxtModule from "../src/nuxt.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
 
 function createNuxt(dev = false, plugins: PluginOption[] = []) {
+  const componentsExtendHooks: Array<(components: Array<{ pascalName: string, filePath: string }>) => Promise<void>> = []
+  const templatesGeneratedHooks: Array<(app: { components: Array<{ pascalName: string, filePath: string }> }) => Promise<void>> = []
   const builderWatchHooks: Array<(event: string, path: string) => Promise<void>> = []
   const viteServerCreatedHooks: Array<(server: { watcher: { add: (paths: string[]) => void; on: (event: string, callback: (path: string) => void) => void } }, context: { isClient: boolean }) => void> = []
   const closeHooks: Array<() => Promise<void>> = []
@@ -122,8 +125,10 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   const devtoolsCustomTabsHooks: Array<(tabs: unknown[]) => void> = []
   const nuxt = {
     callHook: vi.fn(async (_name: "restart") => {}),
-    hook(name: "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void)) {
-      if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
+    hook(name: "components:extend" | "app:templatesGenerated" | "builder:watch" | "close" | "devtools:customTabs" | "doctor:extendExtensions" | "listen" | "nitro:config" | "vite:serverCreated", callback: (() => Promise<void>) | ((config: Record<string, unknown>) => Promise<void>) | ((entries: string[]) => void) | ((server: unknown, listener: { url: string }) => void)) {
+      if (name === "components:extend") componentsExtendHooks.push(callback as (typeof componentsExtendHooks)[number])
+      else if (name === "app:templatesGenerated") templatesGeneratedHooks.push(callback as (typeof templatesGeneratedHooks)[number])
+      else if (name === "listen") listenHooks.push(callback as (typeof listenHooks)[number])
       else if (name === "devtools:customTabs") devtoolsCustomTabsHooks.push(callback as (tabs: unknown[]) => void)
       else if (name === "doctor:extendExtensions") doctorExtensionHooks.push(callback as (entries: string[]) => void)
       else if (name === "nitro:config") nitroConfigHooks.push(callback as (config: Record<string, unknown>) => Promise<void>)
@@ -159,10 +164,15 @@ function createNuxt(dev = false, plugins: PluginOption[] = []) {
   }
   return {
     closeHooks,
+    componentsExtendHooks,
     listenHooks,
     nitroConfigHooks,
     nuxt,
     viteServerCreatedHooks,
+    async runComponentScan(components: Array<{ pascalName: string, filePath: string }>) {
+      for (const hook of componentsExtendHooks) await hook(components)
+      for (const hook of templatesGeneratedHooks) await hook({ components })
+    },
     async runBuilderWatchHook(path = "/tmp/vitehub-nuxt/console.fixture.json", event = "change") {
       for (const hook of builderWatchHooks) await hook(event, path)
     },
@@ -327,6 +337,55 @@ describe("ViteHub Nuxt integration", () => {
         config: mocks.envHook,
       },
     ])
+  })
+
+  it("passes Nuxt's resolved component registry to the retained Comments plugin", async () => {
+    const setComponents = vi.fn(async (_components: Array<{ pascalName: string, filePath: string }>) => {})
+    const retained = { name: "@vite-hub/comments/vite", api: { setComponents } }
+    const unused = vi.fn()
+    mocks.vitehub.mockReturnValue([{ name: retained.name, api: { setComponents: unused } }])
+    const { nuxt, runComponentScan } = createNuxt(false, [retained])
+    await viteHubNuxtModule({ preset: "node" }, nuxt)
+    expect(setComponents).toHaveBeenCalledWith([])
+    const components = [{ pascalName: "CustomCard", filePath: "/tmp/vitehub-nuxt/widgets/Card.client.vue" }]
+    await runComponentScan(components)
+    expect(setComponents).toHaveBeenLastCalledWith(components)
+    expect(unused).not.toHaveBeenCalled()
+  })
+
+  it("writes the final component map after later hooks on initial scans and development rescans", async () => {
+    const root = await mkdtemp("/tmp/vitehub-comments-nuxt-")
+    try {
+      await mkdir(resolve(root, "server"))
+      await mkdir(resolve(root, "widgets"))
+      await writeFile(resolve(root, "server/comments.ts"), "export const comments = defineComments()")
+      await writeFile(resolve(root, "widgets/Card.vue"), "<template />")
+      const plugin = hubComments()
+      const { nuxt, componentsExtendHooks, runComponentScan } = createNuxt(true, [plugin])
+      nuxt.options.rootDir = root
+      await viteHubNuxtModule({ preset: "node" }, nuxt)
+      const config: UserConfig = { root }
+      const configure = plugin.config as { handler: (config: UserConfig) => Promise<void> }
+      await configure.handler(config)
+      let finalName = "InitialCard"
+      // A module registered after Comments can rename, remove, and add components asynchronously.
+      componentsExtendHooks.push(async (components) => {
+        await Promise.resolve()
+        components.splice(0, components.length, { pascalName: finalName, filePath: resolve(root, "widgets/Card.vue") })
+      })
+      const readMap = async () => (await import(`data:text/javascript,${encodeURIComponent(await readFile(resolve(root, ".vitehub/nitro/comments/components.mjs"), "utf8"))}`)).default
+      for (const name of ["InitialCard", "RescannedCard"]) {
+        finalName = name
+        await runComponentScan([{ pascalName: "RemovedCard", filePath: resolve(root, "widgets/Card.vue") }])
+        const map = await readMap()
+        expect(map[name]).toEqual(["widgets/Card.vue"])
+        expect(map).not.toHaveProperty("RemovedCard")
+        if (name === "RescannedCard") expect(map).not.toHaveProperty("InitialCard")
+      }
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
   })
 
   it.each(["cloudflare", "vercel"] as const)("retains %s deployment inspection metadata without installing the writer", async (preset) => {
@@ -2446,6 +2505,71 @@ describe("ViteHub Nuxt integration", () => {
     })
   })
 
+  it.each([
+    [true, [], ["nodejs_compat", "nodejs_compat_v2"]],
+    [true, ["custom"], ["custom", "nodejs_compat", "nodejs_compat_v2"]],
+    [true, ["no_nodejs_compat_v2"], ["no_nodejs_compat_v2"]],
+    [false, ["custom"], ["custom"]],
+  ] as const)("keeps native Node compatibility in Cloudflare output with nodeCompat=%s and flags=%j", async (nodeCompat, flags, expected) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    const config = { cloudflare: { nodeCompat, wrangler: { compatibility_flags: [...flags] } } }
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    await runNitroConfigHook(config)
+    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+    await runNitroConfigHook(config)
+    expect(config.cloudflare.wrangler.compatibility_flags).toEqual(expected)
+  })
+
+  it("passes generated server Env to Wrangler while preserving an explicit alias", async () => {
+    for (const override of [undefined, "/custom/env.mjs"]) {
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      const config: Record<string, unknown> = { cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } } }
+      await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+      await runNitroConfigHook(config)
+      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/tmp/vitehub-nuxt/.vitehub/env/server.mjs")
+    }
+  })
+
+  it.each([undefined, "/wrangler/env.mjs"])("passes a Nitro server Env override to Wrangler while preserving its explicit alias %s", async (wranglerOverride) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    nuxt.options.nitro.alias = { "#vitehub/env/server": "/nitro/env.mjs" }
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    const config = nitroOptions(nuxt)
+    config.cloudflare = { wrangler: { alias: wranglerOverride ? { "#vitehub/env/server": wranglerOverride } : {} } }
+    for (let replay = 0; replay < 2; replay++) {
+      await runNitroConfigHook(config)
+      expect(config).toHaveProperty("alias.#vitehub/env/server", "/nitro/env.mjs")
+      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", wranglerOverride ?? "/nitro/env.mjs")
+    }
+  })
+
+  it.each([
+    ["json", JSON.stringify({ alias: { "#vitehub/env/server": "/project/env.mjs" } })],
+    ["jsonc", '{ // Project Env implementation\n "alias": { "#vitehub/env/server": "/project/env.mjs" }, }'],
+    ["toml", '[alias]\n"#vitehub/env/server" = "/project/env.mjs"'],
+  ])("preserves a project Wrangler Env alias from wrangler.%s", async (extension, contents) => {
+    const rootDir = await mkdtemp("/tmp/vitehub-nuxt-wrangler-")
+    try {
+      await writeFile(resolve(rootDir, `wrangler.${extension}`), contents)
+      await mkdir(resolve(rootDir, "app"))
+      for (const override of [undefined, "/inline/env.mjs"]) {
+        const { nuxt, runNitroConfigHook } = createNuxt()
+        const config: Record<string, unknown> = {
+          rootDir: resolve(rootDir, "app"),
+          cloudflare: { wrangler: { alias: override ? { "#vitehub/env/server": override } : {} } },
+        }
+        await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+        await runNitroConfigHook(config)
+        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
+        await runNitroConfigHook(config)
+        expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", override ?? "/project/env.mjs")
+      }
+    }
+    finally {
+      await rm(rootDir, { force: true, recursive: true })
+    }
+  })
+
   it("preserves explicit Nuxt WASM loading and leaves other presets unchanged", async () => {
     const { nuxt: cloudflareNuxt } = createNuxt()
     Object.assign(cloudflareNuxt.options, { nitro: { wasm: { lazy: false } } })
@@ -2614,6 +2738,7 @@ describe("ViteHub Nuxt integration", () => {
       },
       cloudflare: {
         wrangler: {
+          alias: { "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs" },
           d1_databases: [d1Binding, d1Binding],
           name: "vitehub-nuxt",
           observability: { enabled: true },

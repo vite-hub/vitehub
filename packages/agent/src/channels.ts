@@ -252,8 +252,8 @@ export interface GitHubAppOptions<TRuntimeConfig extends AgentRuntimeConfig = Ag
    * credential. It receives the target `repository`.
    */
   token?: string | ((context: GitHubAppContext<TRuntimeConfig>, scope: { repository?: string, signal?: AbortSignal }) => string | undefined | Promise<string | undefined>)
-  /** Trusted login of the host's authenticated GitHub identity. */
-  identity?: { login: string }
+  /** Trusted identity of the host's authenticated GitHub user or App. */
+  identity?: { login: string, appId?: number }
   apiBaseUrl?: string
   appId?: GitHubAppValue<number | string | undefined, TRuntimeConfig>
   artifacts?: false | {
@@ -1813,6 +1813,8 @@ async function githubActivityIdentity<TRuntimeConfig extends AgentRuntimeConfig>
   context: GitHubAppContext<TRuntimeConfig>,
   signal?: AbortSignal,
 ): Promise<GitHubActivityIdentity> {
+  const configured = githubAppOptions(app)?.identity
+  if (configured?.appId) return configured
   try {
     return await forgeIdentity(provider, { kind: "token" })
   }
@@ -1892,6 +1894,29 @@ function decodeGithubActivityState(body: unknown): GitHubActivityCommentState {
   catch {
     return { history: [], previousRunIds: [] }
   }
+}
+
+function latestGithubActivityState(comments: readonly unknown[]): GitHubActivityCommentState {
+  const states = comments.map(comment => ({
+    state: decodeGithubActivityState(isRecord(comment) ? comment.body : undefined),
+    updatedAt: githubActivityDate(isRecord(comment) ? comment.updated_at : undefined) ?? "",
+  }))
+  // Run history establishes causality even when an expired writer settles late
+  // or GitHub gives two writes the same timestamp.
+  const superseded = new Set(states.flatMap(({ state }) => state.previousRunIds))
+  let latest: typeof states[number] | undefined
+  for (const candidate of states) {
+    const current = candidate.state.current
+    if (!current || superseded.has(current.runId)) continue
+    const previous = latest?.state.current
+    // Independent processes may have no shared history. Use their saved activity
+    // times before transport write times; a late write does not start a new run.
+    const sameRun = previous?.runId === current.runId
+    const time = (sameRun ? current.updatedAt : current.startedAt ?? current.updatedAt) ?? candidate.updatedAt
+    const previousTime = (sameRun ? previous?.updatedAt : previous?.startedAt ?? previous?.updatedAt) ?? latest?.updatedAt ?? ""
+    if (!latest || time > previousTime || time === previousTime && candidate.updatedAt > latest.updatedAt) latest = candidate
+  }
+  return latest?.state ?? { history: [], previousRunIds: [] }
 }
 
 function encodeGithubActivityState(state: GitHubActivityCommentState): string {
@@ -2117,10 +2142,10 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
             const raw = known && (services ? forgeActivityComment(known) : known.raw)
             if (known && isOwnedGithubActivityComment(raw, identity)) existing = raw
           }
-          existing ||= owned[0]
+          existing ||= owned.at(-1)
           if (knownCommentId && !existing) commentIds.delete(activityKey)
           if (mode === "initialize" && existing) return
-          const previous = decodeGithubActivityState(isRecord(existing) ? existing.body : undefined)
+          const previous = latestGithubActivityState([existing, ...owned.filter(comment => comment !== existing)])
           const sameRun = previous.current?.runId === runId ? previous.current : undefined
           const current: GitHubActivityHistoryEntry = {
             links: githubActivityLinksState(context.activity.links),
@@ -2132,13 +2157,6 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
             updatedAt: githubActivityDate(context.activity.updatedAt) ?? new Date().toISOString(),
             summary: terminal || context.activity.status === "waiting" ? context.activity.summary?.replace(/<!--[^]*?-->/g, "").trim().slice(0, 2_000) : undefined,
           }
-          const reconcileDuplicates = async () => {
-            for (const duplicate of owned.filter(comment => comment !== existing)) {
-              const duplicateId = isRecord(duplicate) ? maybeNumber(duplicate.id) : undefined
-              if (!duplicateId) continue
-              await activityComments.edit(duplicateId, "This Agent activity was superseded by a newer managed comment.")
-            }
-          }
           const staleRun = previous.current?.runId !== current.runId
             && (knownActiveRun
               || previous.previousRunIds.includes(current.runId)
@@ -2147,7 +2165,6 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
                 return state.current?.runId === current.runId || state.previousRunIds.includes(current.runId)
               }))
           if (staleRun) {
-            await reconcileDuplicates()
             if (terminal) activeRuns.delete(runId)
             if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
             return
@@ -2179,7 +2196,6 @@ function githubAgentActivity<TRuntimeConfig extends AgentRuntimeConfig>(
             activeRuns.add(runId)
             githubActivityActiveRuns.set(activityKey, activeRuns)
           }
-          await reconcileDuplicates()
           if (terminal) activeRuns.delete(runId)
           if (!activeRuns.size) githubActivityActiveRuns.delete(activityKey)
         }

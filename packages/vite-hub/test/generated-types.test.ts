@@ -792,6 +792,29 @@ describe("framework generated types", () => {
     await expect(abortedResponse.json()).resolves.toMatchObject({ aborted: true })
   })
 
+  it("removes the Content API route without removing preview or SEO routes", async () => {
+    const { root } = await createNestedProject()
+    await mkdir(join(root, "server"), { recursive: true })
+    const file = join(root, "server/content.ts")
+    const write = async (route: string) => await writeFile(file, `import { defineContent } from "vite-hub/content"
+const publicRoute = ${route}
+export const content = defineContent({ route: publicRoute, source: { async items() { return [] } }, seo: { sitemap: true, robots: true } })
+`)
+    await write("true")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
+    await write("false")
+    const handlers = await sourcePlugin().api.prepareSources({ projectRoot: root })
+    expect(handlers).toEqual(expect.arrayContaining([
+      { handler: join(root, ".vitehub/content/preview.mjs"), plugin: true },
+      { handler: join(root, ".vitehub/content/sitemap.mjs"), method: "get", route: "/sitemap.xml" },
+      { handler: join(root, ".vitehub/content/robots.mjs"), method: "get", route: "/robots.txt" },
+    ]))
+    expect(handlers.some((handler: { route?: string }) => handler.route === "/api/content/**")).toBe(false)
+    await expect(readFile(join(root, ".vitehub/content/route.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    await write("true")
+    expect(await sourcePlugin().api.prepareSources({ projectRoot: root })).toContainEqual({ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" })
+  })
+
   it("generates /sitemap.xml and /robots.txt when defineContent() sets seo", async () => {
     const { root } = await createNestedProject()
     await Promise.all([

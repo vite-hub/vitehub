@@ -116,6 +116,42 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it.each([
+    { paths: ["content/posts/**/*.md", "content/news/*.md"], id: "news/fresh", path: "content/news/fresh.md" },
+    { paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], id: "packages/zoom/docs/fresh", path: "packages/zoom/docs/fresh.md" },
+  ])("creates a document at $path in a multi-folder collection", async ({ paths, id, path }) => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({ workspace, collections: { pages: documents({ path: paths, fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const editor = vi.fn(async (file: string) => {
+      expect(await readFile(file, "utf8")).toBe("---\ntitle: null\n---\n")
+      await writeFile(file, "---\ntitle: Fresh\n---\n")
+    })
+    const { run } = cli(content, { editor })
+    const template = await runOperation(createOperationRegistry([{ operations: contentOperations }]), "content.show", { collection: "pages", id, create: true }, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    expect(template).toMatchObject({ ok: true, value: { path, digest: null, ref: "draft" } })
+    expect((await run("edit", "pages", id)).code).toBe(0)
+    expect(editor).toHaveBeenCalledOnce()
+    expect(await content.collection("pages").raw(id, { ref: "draft" })).toMatchObject({ path, text: "---\ntitle: Fresh\n---\n" })
+  })
+
+  it("prints the pull request that a publish opened", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const pullRequest = { number: 7, url: "https://github.com/onmax/docs/pull/7" }
+    // A project with `publish: 'pr'` answers a publish with the pull request that it opened.
+    const withPullRequest = { ...content, publish: async (options: Parameters<typeof content.publish>[0]) => ({ ...await content.publish(options), pullRequest, pending: true as const }) }
+    const published = await cli(withPullRequest).run("publish", "--yes")
+    expect(published).toEqual({
+      code: 0,
+      stderr: "",
+      stdout: `Opened pull request #7 for 1 document:\n  add     posts/hello\n${pullRequest.url}\nThe documents are published when it merges.\n`,
+    })
+    await posts.save("second", { data: { title: "Second" }, body: "" })
+    const json = await cli(withPullRequest).run("publish", "--yes", "--json")
+    expect(JSON.parse(json.stdout)).toMatchObject({ dryRun: false, documents: [{ id: "second", change: "add" }], pullRequest })
+  })
+
   it("checks discovered roots but leaves explicit deployed URLs independent of the local path", async () => {
     const { content } = await setup()
     const { fetch, run } = cli(content)
@@ -759,6 +795,23 @@ describe("hubContent", () => {
     await configHook(without)({ root: await project(false) }, { command: "serve", mode: "development" })
     const none = without.vitehub.operations
     expect(none instanceof Function ? await none() : none).toEqual([])
+  })
+
+  it.each([
+    "export const content = defineContent({ route: false })",
+    "const route = false; const options = { route }; export const content = defineContent({ ...options })",
+  ])("reports a disabled public Content route: %s", async (definition) => {
+    const root = await project(true)
+    await writeFile(join(root, "server", "content.ts"), `import { defineContent } from "vite-hub/content"\n${definition}\n`)
+    const plugin = hubContent()
+    await configHook(plugin)({ root }, { command: "serve", mode: "development" })
+    const inspection = await (plugin.vitehub.inspect as () => Promise<{ definitions: Array<{ list: () => unknown }> }>)()
+    expect(inspection.definitions[0]!.list()).toEqual([{
+      fields: [{ label: "Route", value: "Disabled" }, { label: "Collections", value: "vitehub content collections" }],
+      file: "server/content.ts",
+      name: "content",
+      source: "server-content",
+    }])
   })
 
   it("contributes the CLI namespace and the Content inspector only when the app defines Content", async () => {

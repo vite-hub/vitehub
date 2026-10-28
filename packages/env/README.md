@@ -109,6 +109,41 @@ env: {
 
 `useServerEnv().dryRun` is a `boolean`, `minConfidence` is a `number`, and `mode` is `"draft" | "send"`. Defaults use the parsed type. `env.enum()` cannot be secret because its allowed values are public metadata. An invalid value throws `ENV_RUNTIME_VALUE_INVALID` with the declaration path; the value is never included. `env.server` does not accept custom `schema` parsers because the generated runtime must serialize the parser.
 
+## `.env.example` schemas
+
+Opt in with `envSchema()` when a committed `.env.example` should own variable names, types, requiredness, sensitivity, and defaults:
+
+```ts
+import { envSchema, hubEnv } from "@vite-hub/env/vite";
+import { defineConfig } from "vite";
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: envSchema(new URL("./.env.example", import.meta.url)),
+});
+```
+
+```dotenv
+# @public
+VITEHUB_PUBLIC_APP_NAME=Acme
+
+# @type=number(min=1, max=10, isInt=true) @public
+VITEHUB_RETRIES=3
+
+# @example="get-this-from-your-secret-manager"
+VITEHUB_API_TOKEN=
+```
+
+This uses the restricted `env-spec-v1` profile shared with the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me). Its [@env-spec syntax](https://varlock.dev/env-spec/reference/) parser reads static metadata. It does not run Varlock, load developer `.env` files, or evaluate expansions and functions.
+
+A nonempty assignment is a real default. `KEY=` has no default; `KEY=""` is an explicit empty string. Put documentation samples in `@example`, which never supplies a value. Review existing example assignments before opting in. All fields default to required and sensitive; the default type is always string, so `CODE=00123` preserves its zeroes.
+
+Only `VITEHUB_PUBLIC_` names enter Public Env. Mark them `@public` or `@sensitive=false`; a sensitive public field is rejected. `@public` alone does not expose an unprefixed or private field. Private fields become runtime Server Env and do not require deployment secrets during prepare or build. For the example above, server code reads `useServerEnv().apiToken`, and the token is a `SecretEnv<string>`.
+
+`envSchema(file, { prefix: "APP_", paths: { APP_DATABASE_URL: "database.url" } })` changes the prefix and maps exact schema keys to explicit output paths. The default mapping strips `VITEHUB_` and uses camel case, without guessing groups. With an empty prefix, `PUBLIC_` marks public fields. Public output paths stay flat. Every declaration reads its original schema key exactly; canonical aliases do not override it.
+
+Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Optional non-string empty inputs become missing before defaulting; optional strings preserve empty inputs and still obey length constraints. Required present empty or invalid inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
+
 ## Presets
 
 Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
@@ -279,3 +314,5 @@ Migration: replace `runtimeContext: () => ({ actor })` with `runtimeActor: actor
 Database previews are opt-in. Short and structured values have no preview. Previews remain protected metadata and are excluded from activity. The database adapter uses AES-256-GCM with per-write IVs and authenticates the namespace, key, and revision. Host administration and database backup security remain application responsibilities.
 
 The Agent integration verifies the exact identity object registered during Agent Definition resolution. A name, a copied identity, or an authenticated Agent token cannot establish Agent runtime authority. The optional Agent peer is used only by this integration; the Env bridge and HTTP authenticator do not load it.
+
+JSON types support nested constraints, for example `@type=array(string)` and `@type=object(enabled=boolean, retries=number(min=0))`. Defaults use quoted JSON such as `VITEHUB_TAGS='["one"]'`. Runtime JSON members must already match their types. Object shapes require every declared property and reject additional properties. Bare `array` and `object` accept JSON without a fixed shape. Sensitive declarations reject nested enums because enum choices are public metadata. Existing code-first declarations remain supported.

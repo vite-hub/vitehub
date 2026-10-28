@@ -51,6 +51,10 @@ configured on the content runtime.
 
 Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
 
+Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
+Server reads, Console editing, draft preview, and configured SEO routes remain available.
+`defineContentHandler(content)` also returns 404 when this option is false.
+
 ## Document collections
 
 `collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`. `@vite-hub/content` exports every field helper: `image()` and `file()` from Blob, `seo()`, and `optional()`.
@@ -82,7 +86,7 @@ await content.revisions("posts", "hello")
 content.collections() // [posts], each with name, kind, format, path, fields, and schema
 ```
 
-To keep documents in a Git repository, pass `extends: [cms, { store: "github", repo: "owner/name" }]`. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. The preset needs a Database for editor sessions and no Blob store. `publish: "commit"` is the only mode, `content.schedule()` throws `CONTENT_R0016`, and digests are Git blob shas. Options: `store`, `repo`, `branch`, `draftBranch`, `root` (default `""`, the repository root), and `publish`. See the [CMS preset docs](https://vitehub.dev/docs/content/cms-preset#github-store).
+To keep documents in a Git repository, pass `extends: [cms, { store: "github", repo: "owner/name" }]`. Published content is on `branch` (default `main`) and drafts on `draftBranch` (default `vitehub/content`), created by the first save. The preset needs a Database for editor sessions and no Blob store. `publish: "commit"` (default) commits to `branch`, and `publish: "pr"` opens a pull request from a `vitehub/publish/*` branch and returns `pullRequest` with `pending: true`. `branch` is merged into the draft when it moves. `content.schedule()` throws `CONTENT_R0016`, and digests are Git blob shas. Options: `store`, `repo`, `branch`, `draftBranch`, `root` (default `""`, the repository root), and `publish`. See the [CMS preset docs](https://vitehub.dev/docs/content/cms-preset#github-store).
 
 `await content.supportsScheduling()` reports whether the Workspace store supports scheduled publishing. It returns `false` for the GitHub store and does not check for a Schedule runner. The Console marks scheduling unavailable for GitHub Workspaces, and the GitHub CMS preset does not ask for a `content.publishDue()` runner.
 
