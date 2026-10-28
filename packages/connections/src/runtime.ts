@@ -405,7 +405,10 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const parsedError = v.safeParse(v.object({ error: v.string() }), body)
     const error = parsedError.success ? parsedError.output.error : undefined
     if (!response.ok || error) {
-      onResponse?.()
+      // An infrastructure error may follow rotation. Only named OAuth rejections
+      // prove that a ChatGPT grant was not changed; keep every other failure fenced.
+      if (!provider.chatgpt || (response.status === 400 || response.status === 401)
+        && error !== undefined && (error === "invalid_client" || chatgptTerminalRefreshErrors.has(error))) onResponse?.()
       throw error === "invalid_grant" || provider.chatgpt && error !== undefined && chatgptTerminalRefreshErrors.has(error)
         ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: connectionName ?? provider.id, problem: "rejected" })
         : connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: provider.chatgpt ? error === "invalid_client" ? "invalid_client" : undefined : error, problem: "token-request", provider: provider.id, status: response.status })

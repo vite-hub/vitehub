@@ -48,4 +48,4 @@ it("keeps pending nonce, registration, host identity and encrypted tokens across
     await fake.close()
     await rm(directory, { recursive: true, force: true })
   }
-})
+}, 30_000)

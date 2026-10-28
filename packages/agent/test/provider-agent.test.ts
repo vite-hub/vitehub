@@ -73,7 +73,8 @@ vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
+import { chatgpt, cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
+import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -250,6 +251,46 @@ describe("Provider Agent Driver", () => {
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_BASE_URL")
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
     vi.unstubAllEnvs()
+  })
+
+  it("excludes startup injection from both credential-bearing ChatGPT processes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-startup-"))
+    const probe = join(root, "preload.cjs")
+    const marker = join(root, "preload-ran")
+    const executable = join(root, "codex.cjs")
+    const output = join(root, "environment.json")
+    await writeFile(probe, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, process.env.VITEHUB_CHATGPT_ACCESS_TOKEN || "ran")`)
+    await writeFile(executable, `require("node:fs").writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.env))`)
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "startup-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    resolveInstalledProviderExecutable.mockReturnValueOnce(executable)
+    const threadId = "thread-chatgpt-startup"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { env: options?.environment, encoding: "utf8" })
+        expect(launched.status, launched.stderr).toBe(0)
+        await expect(access(marker)).rejects.toThrow()
+        const environment = JSON.parse(await readFile(output, "utf8"))
+        expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "startup-test-token", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "capability-token" })
+        for (const key of ["NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "BASH_ENV"]) {
+          expect(options?.environment).not.toHaveProperty(key)
+          expect(environment).not.toHaveProperty(key)
+        }
+      },
+    })
+    try {
+      await createProviderAgentAdapter({
+        provider: "codex", gateway: chatgpt(),
+        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, T3_MCP_BEARER_TOKEN: "capability-token" },
+      }).generate(context(threadId) as never)
+    }
+    finally {
+      gateway.mockRestore()
+      await rm(root, { force: true, recursive: true })
+    }
   })
 
   it("adds the Agent forge access environment to the Driver environment", async () => {

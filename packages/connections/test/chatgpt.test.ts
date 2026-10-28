@@ -148,16 +148,47 @@ describe("ChatGPT plan Connections", () => {
     expect(new URL((await test.authorize()).url).searchParams.get("client_id")).toBe("oaiapp_test_1")
   })
 
-  it("preserves the grant on temporary rejection and omits provider error text", async () => {
+  it("preserves credentials but quarantines an ambiguous refresh failure", async () => {
     const test = await setup()
     await test.connect()
     test.clock.now += 3_550_000
     test.fake.state.tokenError = "test-secret-do-not-echo"
     test.fake.state.tokenStatus = 503
+    const stored = await test.store.secrets.read("connection/chatgpt")
     const failure: unknown = await test.use().catch((error: unknown) => error)
     expect(failure).toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect(String(failure)).not.toContain("test-secret-do-not-echo")
+    expect((await test.runtime.inspect("chatgpt")).status).toBe("reauth_required")
+    expect(await test.store.secrets.read("connection/chatgpt")).toEqual(stored)
+    test.fake.state.tokenError = undefined
+    await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(test.fake.calls.filter(call => call.parameters.get("grant_type") === "refresh_token")).toHaveLength(1)
+  })
+
+  it("keeps a definite invalid-client rejection retryable", async () => {
+    const test = await setup()
+    await test.connect()
+    test.clock.now += 3_550_000
+    test.fake.state.tokenError = "invalid_client"
+    await expect(test.use()).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
     expect((await test.runtime.inspect("chatgpt")).status).toBe("connected")
+    test.fake.state.tokenError = undefined
+    await expect(test.use()).resolves.toBeDefined()
+  })
+
+  it("retains the import fence after an ambiguous provider failure", async () => {
+    const test = await setup()
+    await test.connect()
+    const credential = await chatgptTransfers(test.runtime).export({ name: "chatgpt", actor: "user:local" })
+    const destination = createConnectionsRuntime({ ...test.options, store: createStore(), chatgptHostId: async () => "urn:uuid:destination" })
+    test.fake.state.tokenError = "test-secret-do-not-echo"
+    test.fake.state.tokenStatus = 503
+    const input = { name: "chatgpt", actor: "user:local", credential }
+    await expect(chatgptTransfers(destination).import(input)).rejects.toMatchObject({ code: "CONNECTIONS_PROVIDER_FAILED" })
+    test.fake.state.tokenError = undefined
+    test.clock.now += 61_000
+    await expect(chatgptTransfers(destination).import(input)).rejects.toMatchObject({ code: "CONNECTIONS_NEEDS_RECONNECT" })
+    expect(test.fake.calls.filter(call => call.parameters.get("grant_type") === "refresh_token")).toHaveLength(1)
   })
 
   it("revokes the rotating refresh token with the issued client ID and keeps the host", async () => {

@@ -521,6 +521,19 @@ function providerEnvironment(env: Record<string, string | undefined> | undefined
   return Object.fromEntries(Object.entries({ ...host, ...env }).filter((entry): entry is [string, string] => hasRuntimeType(entry[1], "string")))
 }
 
+// Credential-bearing Node and native processes must not accept startup loaders from driver.env.
+const chatgptLaunchEnvironmentKeys = new Set<string>([
+  ...providerHostEnvironmentKeys,
+  "CODEX_HOME",
+  chatgptTokenEnvironment,
+  "T3_MCP_BEARER_TOKEN",
+  "VITEHUB_BROWSER_ACTIVE",
+  "AGENT_BROWSER_SESSION",
+  "AGENT_BROWSER_SOCKET_DIR",
+  "AGENT_BROWSER_EXECUTABLE_PATH",
+  "AGENT_BROWSER_ARGS",
+])
+
 function withPathPrefix(env: NodeJS.ProcessEnv, prefix: readonly string[] | undefined): NodeJS.ProcessEnv {
   if (!prefix?.length) return env
   return { ...env, PATH: [...prefix, env.PATH].filter(Boolean).join(delimiter) }
@@ -3343,6 +3356,7 @@ async function* runProvider<
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
       providerRuntimeEnvironment.CODEX_HOME = chatgptHome
+      providerRuntimeEnvironment = Object.fromEntries(Object.entries(providerRuntimeEnvironment).filter(([key]) => chatgptLaunchEnvironmentKeys.has(key)))
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment])
       const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
