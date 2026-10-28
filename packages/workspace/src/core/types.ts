@@ -341,6 +341,11 @@ export interface WorkspaceHistoryCommitBase extends WorkspaceHistoryRefOptions {
   ifHead: string | null
   /** Expected heads of other refs that must remain unchanged for the commit. */
   ifHeads?: Record<string, string | null>
+  /**
+   * With `ifHead: null`, start the new ref from this revision instead of from the ref that `history.forksFrom(ref)`
+   * names. Only Stores with `forksFrom` accept it. The caller has read the files of that revision.
+   */
+  startFrom?: string
   message?: string
   metadata?: Record<string, unknown>
 }
@@ -384,13 +389,23 @@ export interface WorkspaceHistoryRef {
 
 export interface WorkspaceRevisionView {
   readonly revision: WorkspaceRevision
-  /** File digests, when provided, are SHA-256 of the retained bytes. */
+  /** File digests, when provided, are the digests of the retained bytes: SHA-256, or the Git blob sha for the GitHub Store. Compute one with `history.digest`. */
   list(path?: string, options?: ListOptions): Promise<WorkspaceEntry[]>
   stat(path: string): Promise<WorkspaceStat>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
 }
 
 export interface WorkspaceHistoryReader {
+  /**
+   * The digest of file bytes, as `WorkspaceEntry.digest` reports it for this Store: SHA-256 by default, the Git blob sha
+   * for the GitHub Store. Compare digests only with this function.
+   */
+  digest?(bytes: Uint8Array): Promise<string>
+  /**
+   * The ref that a missing `ref` starts from when a commit creates it with `ifHead: null`, or undefined when the ref
+   * starts empty. The GitHub Store starts `draft` from the head of `published`.
+   */
+  forksFrom?(ref: string): Promise<string | undefined>
   head(options?: WorkspaceHistoryRefOptions): Promise<WorkspaceRevision | null>
   list(options?: WorkspaceHistoryListOptions): Promise<WorkspaceHistoryListResult>
   /** Refs that have at least one revision, sorted by name. */
@@ -739,11 +754,27 @@ export interface VercelBlobWorkspaceStoreOptions {
 
 export type GitHubWorkspaceOption = string | (() => string | undefined)
 
+/**
+ * Branch names for the history refs `published` and `draft`. A history call on `published` reads or writes
+ * `refs.published`, and revisions on that branch report the ref `published`. A ref without an alias is its own branch name.
+ */
+export interface GitHubWorkspaceRefs {
+  published?: string
+  draft?: string
+}
+
 export interface GitHubWorkspaceStoreOptions {
   provider: "github"
   branch?: GitHubWorkspaceOption
+  /**
+   * An opaque value that the store target carries for consumers that keep their own rows next to the Workspace, such as a
+   * Drizzle Database. The store does not use it.
+   */
+  database?: unknown
+  refs?: GitHubWorkspaceRefs
   repo?: GitHubWorkspaceOption
   repository?: GitHubWorkspaceOption
+  /** The folder of the Workspace in the repository. An empty string is the repository root. Defaults to `.vitehub/workspaces/<workspace>`. */
   root?: GitHubWorkspaceOption
   token?: GitHubWorkspaceOption
 }

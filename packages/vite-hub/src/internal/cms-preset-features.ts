@@ -1,6 +1,6 @@
 import { resolve } from "node:path"
 
-import { usesCmsPreset } from "@vite-hub/content/vite"
+import { cmsPresetStore } from "@vite-hub/content/vite"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 
 import { isIncludedNitroPlugin } from "../nitro-plugin.ts"
@@ -19,8 +19,8 @@ type CmsPresetConfig = UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_
 const resolvedFeatureOptions = new WeakSet<object>()
 
 /** The features that the Content `cms` preset needs. `vitehub()` turns on the ones left unset. */
-function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T): T {
-  return { ...options, blob: options.blob ?? true, database: options.database ?? true, workspace: options.workspace ?? true }
+function withCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, store: "blob-database" | "github"): T {
+  return { ...options, blob: options.blob ?? (store === "blob-database" ? true : undefined), database: options.database ?? true, workspace: options.workspace ?? true }
 }
 
 /** Whether `vitehub()` can leave a `cms` preset feature unset for these options. */
@@ -33,7 +33,9 @@ function hasUnsetCmsPresetFeature(options: CmsPresetFeatureOptions): boolean {
  * Pass the final options to `markCmsPresetFeaturesResolved()` so `vitehub()` builds one plugin list.
  */
 export function resolveCmsPresetFeatures<T extends CmsPresetFeatureOptions>(options: T, project: { projectRoot: string, serverDirs?: string[] }): T {
-  return hasUnsetCmsPresetFeature(options) && usesCmsPreset(project) ? withCmsPresetFeatures(options) : options
+  if (!hasUnsetCmsPresetFeature(options)) return options
+  const store = cmsPresetStore(project)
+  return store ? withCmsPresetFeatures(options, store) : options
 }
 
 /** Marks options whose `cms` preset features are resolved, so `vitehub()` does not resolve them again. */
@@ -42,11 +44,11 @@ export function markCmsPresetFeaturesResolved<T extends CmsPresetFeatureOptions>
   return options
 }
 
-function selectsCmsPreset(config: CmsPresetConfig): boolean {
+function selectedCmsPresetStore(config: CmsPresetConfig): "blob-database" | "github" | undefined {
   const projectRoot = config[VITEHUB_PROJECT_ROOT]
     ? resolve(config[VITEHUB_PROJECT_ROOT])
     : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
-  return usesCmsPreset({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
+  return cmsPresetStore({ projectRoot, serverDirs: config[VITEHUB_SERVER_DIRS] })
 }
 
 /**
@@ -120,16 +122,23 @@ function switchPlugin(plain: Plugin, cms: Plugin, selection: { cms: boolean }, s
  */
 export function withCmsPresetPlugins<T extends CmsPresetFeatureOptions>(options: T, create: (options: T) => PluginOption[]): PluginOption[] {
   if (resolvedFeatureOptions.has(options) || !hasUnsetCmsPresetFeature(options)) return create(options)
-  let cmsPlugins: unknown[]
-  try {
-    cmsPlugins = flattenPluginOptions(create(withCmsPresetFeatures(options)), [])
+  const createPreset = (store: "blob-database" | "github"): unknown[] => {
+    try {
+      return flattenPluginOptions(create(withCmsPresetFeatures(options, store)), [])
+    }
+    catch (error) {
+      return [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
+    }
   }
-  catch (error) {
-    // An invalid combination with the preset's features fails only in apps that use the preset.
-    cmsPlugins = [{ name: "vite-hub/cms-preset-features", apply: () => { throw error } }]
-  }
+  const blob = createPreset("blob-database")
+  const github = createPreset("github")
   // Built last, so it reports invalid options as before and is the latest instance of each integration.
   const plain = flattenPluginOptions(create(options), [])
+  return mergePresetPlugins(mergePresetPlugins(plain, blob, config => selectedCmsPresetStore(config) === "blob-database"), github, config => selectedCmsPresetStore(config) === "github")
+}
+
+/** Merge one preset's plugin list while preserving both plugin order and explicit feature options. */
+function mergePresetPlugins(plain: unknown[], cmsPlugins: unknown[], selectsCmsPreset: (config: CmsPresetConfig) => boolean): PluginOption[] {
   const selection = { cms: false }
   const plainByKey = new Map<string, Plugin>()
   const plainSeen = new Map<string, number>()
