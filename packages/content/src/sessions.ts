@@ -170,7 +170,7 @@ function readSession(options: unknown): string {
   return session
 }
 
-/** Create `content.sessions` over the Database of the Workspace's Blob + Database Store. */
+/** Create `content.sessions` over the Database of the Workspace's Store target: the Blob + Database Store, or the GitHub Store with a `database`. */
 export function createContentSessions(options: {
   workspace: string
   collection: (name: unknown) => SessionCollection
@@ -190,11 +190,11 @@ export function createContentSessions(options: {
       const workspace = useWorkspace(options.workspace as never, { mode: "write" })
       const target = await resolveWorkspaceStoreTarget(workspace)
       const database: unknown = target && Reflect.get(Object(target), "database")
-      if (target?.provider !== "blob-database" || database === null || Object(database) !== database) {
-        throw setupError(`Content sessions keep presence and edit leases in the Database of the Workspace history, but Workspace ${JSON.stringify(options.workspace)} uses the ${JSON.stringify(target?.provider ?? "unknown")} Store. Use the Blob + Database Store.`)
+      if (database === null || Object(database) !== database) {
+        throw setupError(`Content sessions keep presence and edit leases in a Database, but Workspace ${JSON.stringify(options.workspace)} uses the ${JSON.stringify(target?.provider ?? "unknown")} Store, which has none. Use the Blob + Database Store, or the GitHub Store with a database.`)
       }
       const { createSessionStore } = await import("./sessions-store.ts")
-      // SAFETY: The Blob + Database Store target carries the Drizzle Database its history uses.
+      // SAFETY: A Store target with a database carries a Drizzle Database, as the Blob + Database Store target does.
       return createSessionStore(database as Parameters<typeof createSessionStore>[0], options.workspace, contentSessionTimeouts)
     })()
     storePromise.catch(() => {
