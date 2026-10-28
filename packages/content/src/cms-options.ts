@@ -59,5 +59,4 @@ export function cmsOptionsProblem(options: object): string | undefined {
   const branch = get("branch") ?? cmsGitHubDefaults.branch
   const draft = get("draftBranch") ?? cmsGitHubDefaults.draftBranch
   if (branch === draft) return `option "draftBranch" must differ from "branch". Both are ${JSON.stringify(branch)}.`
-  if (get("publish") === "pr") return `option "publish" is "pr", which is not available yet: pull request publishing comes in a follow-up release. Use publish: "commit", which commits to the branch directly.`
 }

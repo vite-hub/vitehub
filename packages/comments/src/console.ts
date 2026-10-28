@@ -1,4 +1,5 @@
 import { findCommentsEntry } from "./entry.ts"
+import { commentsRoute } from "./page.ts"
 
 import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 
@@ -14,6 +15,8 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
   id: "comments",
   label: "Comments",
   runtime: { export: "readCommentsConsoleRecords", module: "@vite-hub/comments/runtime/console" },
+  // The session sets the cookie that turns comment mode on, so the Console's people see the toolbar on every page.
+  visit: `${commentsRoute}/session`,
   view: {
     columns: [
       { key: "page", label: "Page" },
@@ -24,6 +27,6 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
       { key: "updated", label: "Updated" },
     ],
     kind: "record-table",
-    notice: "Threads come from the Comments Database on each request. Open any page with `?comments` to comment, reply, and resolve on the page. `comments.list()` in server code reads the same threads.",
+    notice: "Threads come from the Comments Database on each request. After you open the Console, the app's pages show the Comments toolbar: comment, reply, and resolve on the page. `comments.list()` in server code reads the same threads.",
   },
 }
