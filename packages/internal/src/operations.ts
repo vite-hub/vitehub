@@ -29,6 +29,8 @@ export function projectRootHash(root: string): string {
 }
 /** Header that names the tool behind a call. `cli` marks `vitehub` commands. */
 export const operationSurfaceHeader = "x-vitehub-surface"
+/** Generated CLI commands ask the server to check confirmation after it parses the input. */
+export const operationConfirmationHeader = "x-vitehub-confirmation"
 
 /** `read` never changes state. `write` changes state. `destructive` deletes or publishes. */
 export type OperationKind = "read" | "write" | "destructive"
@@ -400,8 +402,8 @@ export interface OperationCallKind {
  * reads. Every surface (RPC, CLI, agents, MCP) checks access here.
  */
 export function operationAccessAllows(access: OperationAccess, section: string | false | undefined, call?: OperationCallKind): boolean {
-  if (section === false || access.sections === "all") return true
   if (section === undefined) return false
+  if (section === false || access.sections === "all") return true
   if (access.sections.includes(section)) return true
   if (!access.sections.includes(`${section}${readOnlySectionSuffix}`)) return false
   return call === undefined || call.kind === "read" || call.readOnly === true
@@ -448,12 +450,23 @@ export async function runOperation(registry: OperationRegistry, name: string, in
     const operation = registry.get(name)
     if (!operation) throw Object.assign(internalErrorDiagnostics.INTERNAL_R0021({ message: `No operation is named ${JSON.stringify(name)}.` }), { status: 404 })
     const parsed = await parseOperationInput(operation, input)
+    return await runParsedOperation(operation, parsed, context, options)
+  }
+  catch (error) {
+    return { ok: false, ...failure(error) }
+  }
+}
+
+/** Run input already validated by parseOperationInput, so approval and execution can share one normalization. */
+export async function runParsedOperation(operation: AnyOperation, parsed: unknown, context: OperationContext, options: RunOperationOptions = {}): Promise<OperationResult> {
+  const failure = options.failure ?? toOperationFailure
+  try {
     const section = operationSection(operation, parsed)
     if (!operationAccessAllows(context.access, section)) {
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${name} needs.` }), { status: 403 })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access does not include the ${JSON.stringify(section)} section, which ${operation.name} needs.` }), { status: 403 })
     }
     if (!operationAccessAllows(context.access, section, operationCall(operation, parsed))) {
-      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
+      throw Object.assign(internalErrorDiagnostics.INTERNAL_R0023({ message: `This access to the ${JSON.stringify(section)} section is read-only, and ${operation.name} is a ${operation.kind} operation. Grant the section without ":read" to allow it.` }), { status: 403 })
     }
     // SAFETY: The schema of the operation produced `parsed`.
     return { ok: true, value: await (operation.run as (value: unknown, context: OperationContext) => unknown)(parsed, context) }
@@ -478,6 +491,8 @@ export interface OperationTarget {
   fetch?: typeof fetch
   /** Milliseconds. Defaults to 30 seconds. */
   timeout?: number
+  /** Generated commands set this after --yes or a prompt. False requires confirmation if the server parses a destructive call. */
+  confirmed?: boolean
   /**
    * Project roots that the caller accepts. The server checks their hashes before dispatch and rejects a mismatch
    * with `INTERNAL_R0025`. The response identity is also checked.
@@ -514,16 +529,25 @@ export function assertOperationProject(request: Request, root: string | undefine
   throw Object.assign(internalErrorDiagnostics.INTERNAL_R0025({ message: "The server runs another project than the command expects." }), { status: 409 })
 }
 
+/** Check a generated CLI command against the same classification that the server will execute. */
+export function assertOperationConfirmation(request: Request, call: OperationCallKind): void {
+  if (request.headers.get(operationSurfaceHeader) !== "cli" || request.headers.get(operationConfirmationHeader) !== "required") return
+  if (call.kind !== "destructive" || call.readOnly) return
+  throw Object.assign(internalErrorDiagnostics.INTERNAL_R0026(), { status: 409 })
+}
+
 /** Call one operation over the RPC of a dev server or a deployed app. Never throws. */
 export async function callOperation(target: OperationTarget, name: string, input: unknown): Promise<OperationResult> {
-  const base = new URL(target.url)
-  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
-  const url = new URL(operationRpcPath.slice(1), base)
-  const headers = operationHeaders(target.env)
-  if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
-  let response: Response
+  let origin = "the ViteHub app"
   try {
-    response = await (target.fetch ?? fetch)(url.href, {
+    const base = new URL(target.url)
+    if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
+    const url = new URL(operationRpcPath.slice(1), base)
+    origin = url.origin
+    const headers = operationHeaders(target.env)
+    if (target.confirmed !== undefined) headers.set(operationConfirmationHeader, target.confirmed ? "confirmed" : "required")
+    if (target.roots?.length) headers.set(operationExpectedRootsHeader, target.roots.map(projectRootHash).join(","))
+    const response = await (target.fetch ?? fetch)(url.href, {
       // The operation comes first so the server can find large calls within the first bytes.
       body: JSON.stringify({ operation: name, input: input ?? {} }),
       headers,
@@ -531,37 +555,37 @@ export async function callOperation(target: OperationTarget, name: string, input
       redirect: "manual",
       signal: AbortSignal.timeout(target.timeout ?? 30_000),
     })
+    const served = response.headers.get(operationRootHeader)
+    if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
+      const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
+      const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
+      return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
+    }
+    const body = await response.text()
+    let json: unknown
+    try {
+      json = body ? JSON.parse(body) : undefined
+    }
+    catch {
+      json = undefined
+    }
+    if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
+    if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
+      const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
+      if (text(json.fix)) failure.fix = text(json.fix)
+      if (text(json.docs)) failure.docs = text(json.docs)
+      if (isObject(json.details)) failure.details = json.details
+      if ((failure.status === 401 || failure.status === 403) && !hasCredentials(target.env) && !failure.fix) failure.fix = operationCredentialHint
+      return failure
+    }
+    if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
+      return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
+    }
+    return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). Pass the origin of an app that runs ViteHub.`, response.status)
   }
   catch (error) {
-    return unreachable(`The request to ${url.origin} failed: ${error instanceof Error ? error.message : String(error)}`)
+    return unreachable(`The request to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`)
   }
-  const served = response.headers.get(operationRootHeader)
-  if (served && target.roots?.length && !target.roots.some(root => projectRootHash(root) === served)) {
-    const message = `The server at ${url.origin} runs another project than ${target.roots[0]}.`
-    const error = internalErrorDiagnostics.INTERNAL_R0025({ message })
-    return { ok: false, code: "INTERNAL_R0025", fix: Reflect.get(error, "fix") as string, message, status: 409 }
-  }
-  const body = await response.text()
-  let json: unknown
-  try {
-    json = body ? JSON.parse(body) : undefined
-  }
-  catch {
-    json = undefined
-  }
-  if (isObject(json) && json.ok === true) return { ok: true, value: json.value }
-  if (isObject(json) && String(json.code) === json.code && String(json.message) === json.message) {
-    const failure: OperationResult = { ok: false, code: json.code, message: json.message, status: Number.isInteger(json.status) ? Number(json.status) : response.status }
-    if (text(json.fix)) failure.fix = text(json.fix)
-    if (text(json.docs)) failure.docs = text(json.docs)
-    if (isObject(json.details)) failure.details = json.details
-    if ((failure.status === 401 || failure.status === 403) && !hasCredentials(target.env) && !failure.fix) failure.fix = operationCredentialHint
-    return failure
-  }
-  if (response.status === 401 || (response.status >= 300 && response.status < 400)) {
-    return unreachable(`${url.origin} asked for authentication (HTTP ${response.status}).`, 401)
-  }
-  return unreachable(`${url.origin} did not answer as a ViteHub app (HTTP ${response.status}). Pass the origin of an app that runs ViteHub.`, response.status)
 }
 
 /** What a command-line tool passes to {@link callOperationFromCli}. */

@@ -1,4 +1,4 @@
-import { installedOperationRegistry, installedOperationSectionResolver, operationAccessAllows, operationInputJsonSchema, runOperation } from "@vite-hub/internal/operations"
+import { installedOperationRegistry, installedOperationSectionResolver, operationAccessAllows, operationCall, operationInputJsonSchema, parseOperationInput, runParsedOperation, toOperationFailure } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -6,7 +6,7 @@ import { defineCapability } from "../capability-runtime.ts"
 import { isRuntimeRecord } from "../internal/runtime-type.ts"
 import { defineInternalTool, primitiveHandle } from "./internal.ts"
 
-import type { AnyOperation, OperationKind, OperationRegistry, OperationUser } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationKind, OperationRegistry, OperationResult, OperationUser } from "@vite-hub/internal/operations"
 import type { AgentActor, AgentCapabilityContext, AgentCapabilityDefinition, AgentToolPolicyDecision, AgentToolSet, MaybePromise } from "../types.ts"
 
 /** Which operations need approval before an Agent runs them. */
@@ -81,6 +81,8 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
   // The operations see the user that the Actor stands for. `console.authorize` decides which sections that user may use.
   const user = options.user && context.actor ? operationUser(await options.user(context.actor)) : await authUser(context)
   const sections = await installedOperationSectionResolver()?.({ ...(context.actor ? { actor: context.actor } : {}), user }) ?? "all"
+  // No sections means the policy denied admission, including sectionless and dynamic operations.
+  if (sections !== "all" && sections.length === 0) return {}
   const access = { mode: "agent", sections, ...(user ? { user } : {}) }
   const selected = registry.list()
     .filter(operation => options.include.some(pattern => matches(pattern, operation.name)))
@@ -90,16 +92,28 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
   const tools: AgentToolSet = {}
   for (const operation of selected) {
     const approval: AgentToolPolicyDecision = needsApproval(options.approve, operation) ? "require-approval" : "allow"
+    // Keep an allowed dry run's parsed input until execution. Re-parsing could change a default or transform.
+    const parsedInputs = new Map<unknown, Promise<unknown>>()
     tools[operationToolName(operation.name)] = defineInternalTool({
       description: operation.description,
       execute: async (input) => {
-        const result = await runOperation(registry, operation.name, input, {
-          access,
-          ...(context.actor ? { actor: context.actor } : {}),
-          ...(options.overrideLeases ? { overrideLeases: true } : {}),
-          surface: "agent",
-          user,
-        })
+        let result: OperationResult
+        try {
+          const parsed = await (parsedInputs.get(input) ?? parseOperationInput(operation, input))
+          result = await runParsedOperation(operation, parsed, {
+            access,
+            ...(context.actor ? { actor: context.actor } : {}),
+            ...(options.overrideLeases ? { overrideLeases: true } : {}),
+            surface: "agent",
+            user,
+          })
+        }
+        catch (error) {
+          result = { ok: false, ...toOperationFailure(error) }
+        }
+        finally {
+          parsedInputs.delete(input)
+        }
         if (result.ok) return result.value
         // Input, access, and conflict failures are results the model can act on. Server failures stay errors.
         if (result.status < 500) return { error: { code: result.code, ...(result.details ? { details: result.details } : {}), ...(result.fix ? { fix: result.fix } : {}), message: result.message }, ok: false as const }
@@ -109,7 +123,17 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
       metadata: { operations: { kind: operation.kind, name: operation.name } },
       name: operationToolName(operation.name),
       // A call that only reads, such as a dry run, needs no approval.
-      policy: approval === "allow" ? approval : ({ input }) => operation.readOnlyWhen?.((input ?? {}) as never) === true ? "allow" : approval,
+      policy: approval === "allow" || !operation.readOnlyWhen ? approval : async ({ input }) => {
+        const parsed = parseOperationInput(operation, input)
+        try {
+          if (!operationCall(operation, await parsed).readOnly) return approval
+        }
+        catch {
+          // Execution returns the shared coded input failure without asking to approve an invalid call.
+        }
+        parsedInputs.set(input, parsed)
+        return "allow"
+      },
       title: operation.description,
     })
   }

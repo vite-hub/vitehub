@@ -55,5 +55,8 @@ export const contentErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Start `vite dev` in this project, or pass `--url <origin>` of a running or deployed app. `VITEHUB_DEV_SERVER_URL` also names a server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    CONTENT_R0016: {
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
   },
 })
