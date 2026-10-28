@@ -5,12 +5,12 @@
 A `LogSource` describes retention and supported filters, then reads newest-first pages. Keep provider credentials on the server. Apply redaction before events reach the source. A source must reject a filter that it cannot apply. Its query receives an optional abort signal. Cursor semantics and expiration belong to the source.
 
 ```ts
-import { createLogBuffer, initLogger } from 'vite-hub/logs'
+import { createLogBuffer, initLogger } from "vite-hub/logs";
 
-const buffer = createLogBuffer()
-initLogger({ drain: buffer.drain, redact: true })
+const buffer = createLogBuffer();
+initLogger({ drain: buffer.drain, redact: true });
 
-const page = await buffer.source.query({ level: 'error', limit: 50 })
+const page = await buffer.source.query({ level: "error", limit: 50 });
 ```
 
 Attach `buffer.drain` to an existing Evlog drain hook instead when Evlog is already configured. The buffer never calls `initLogger`. Keep one exporter route to each destination.
