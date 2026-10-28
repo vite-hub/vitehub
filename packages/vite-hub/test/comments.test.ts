@@ -23,7 +23,8 @@ import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
-import type { CommentsDefinition, CommentThread, CommentUser } from "@vite-hub/comments"
+import type { CommentsDefinition, CommentUser } from "@vite-hub/comments"
+import type { CommentThread } from "@vite-hub/comments/client"
 
 const ddl = [
   `create table vitehub_comment_threads (id text primary key, scope text not null, n integer not null, subject_kind text not null, subject_id text not null, anchor text not null, status text not null, resolved_by text, resolved_at integer, author_id text not null, author_name text, author_image text, actor text, created_at integer not null, updated_at integer not null)`,
@@ -129,7 +130,7 @@ describe("comment operations over the Console RPC", () => {
   })
 
   it("filters the list by what authorize lets the user read", async () => {
-    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id }))
+    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
     await create("Mine")
     signedIn = ben
     await create("Ben's")
@@ -287,7 +288,7 @@ describe("comments in the CLI, the Console, and the browser transport", () => {
   })
 
   it("shows the Console user only the threads that authorize lets that user read", async () => {
-    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id }))
+    await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
     await create("Ana's")
     signedIn = ben
     await create("Ben's")
@@ -397,7 +398,7 @@ const stub = { author: ana, id: "m", mentions: [], attachments: [], now: 1 }
 const newThread = (threadId: string, id: string, scope = "site") => ({ ...stub, anchor: { kind: "page" as const }, body: "Hi", id, scope, subject: page, threadId })
 
 describe("who can see and change a thread", () => {
-  const ownOnly: CommentsDefinition = defineComments({ authorize: ({ action, thread, user }) => action === "read" ? !thread || thread.author.id === user?.id : true })
+  const ownOnly: CommentsDefinition = defineComments({ authorize: ({ action, thread, user }) => action === "read" ? !thread || thread.author.id === user?.id : true } satisfies CommentsDefinition)
 
   it("treats a thread you may not read as missing, in every operation", async () => {
     await setup(ownOnly)
@@ -497,7 +498,7 @@ describe("mention suggestions", () => {
   })
 
   it("search only authors of threads that the caller can read, and never an orphaned message", async () => {
-    const { client } = await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id }))
+    const { client } = await setup(defineComments({ authorize: ({ action, thread, user }) => action !== "read" || !thread || thread.author.id === user?.id } satisfies CommentsDefinition))
     signedIn = ben
     await create("Ben's private thread")
     signedIn = ana
