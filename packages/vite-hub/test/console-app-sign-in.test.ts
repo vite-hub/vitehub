@@ -1,16 +1,26 @@
 import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthForRequest, createAuthAccessHandler, requireAuthAccessRoutes } from "@vite-hub/auth/server"
+import { getAuthForRequest, resetAuth } from "../../auth/src/server.ts"
 import { H3 } from "h3"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthPages } from "../src/console/auth.ts"
 import { installConsoleAccess, consoleRequest } from "../src/console/runtime/server/access.ts"
 import signInMiddleware from "../src/console/runtime/server/sign-in.ts"
 import consolePage from "../src/console/runtime/server/page.get.ts"
 
 const origin = "https://app.example.com"
+vi.mock("../../auth/dist/runtime/empty-definition.js", () => ({
+  default: { options: {
+    appName: "Static Console App",
+    secret: "test-secret-at-least-32-bytes-long",
+    basePath: "/portal/api/auth",
+    socialProviders: { github: { clientId: "test-github", clientSecret: "test-secret" } },
+  } },
+}))
 const databases: DatabaseSync[] = []
 afterEach(() => {
+  resetAuth()
   for (const database of databases.splice(0)) database.close()
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.access"))
 })
@@ -46,6 +56,18 @@ async function setup(mount = "", providers = true) {
 }
 
 describe("Console reuses app Auth sign-in", () => {
+  it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
+    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const event = { req: new Request(`${origin}/portal/_vitehub/sign-in`) }
+    await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
+    const response = await pages.signIn(event)
+    expect(response.status).toBe(200)
+    expect(await response.text()).toContain("Sign in with GitHub")
+    const start = await pages.signIn({ req: new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }) })
+    expect(start.status).toBe(303)
+    expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+  })
+
   it.each(["", "/portal"])("provides social sign-in before app Auth at %s", async (mount) => {
     const { visit, authForRequest } = await setup(mount)
     const redirect = await visit("/_vitehub/content?file=home.md", { headers: { accept: "text/html" } })
