@@ -333,6 +333,11 @@ const contentFilePattern = /^content\.[cm]?[jt]s$/
  * Content plugins report those cases.
  */
 export function usesCmsPresetSync(input: { projectRoot: string, serverDirs?: readonly string[] }, parseAst: ParseAst): boolean {
+  return cmsPresetStoreSync(input, parseAst) !== undefined
+}
+
+/** The selected preset store, without executing the Content Definition. */
+export function cmsPresetStoreSync(input: { projectRoot: string, serverDirs?: readonly string[] }, parseAst: ParseAst): "blob-database" | "github" | undefined {
   const root = resolve(input.projectRoot)
   const serverDirs = input.serverDirs?.map(directory => resolve(root, directory)) ?? [resolve(root, "server")]
   const files = serverDirs.flatMap((directory) => {
@@ -345,17 +350,18 @@ export function usesCmsPresetSync(input: { projectRoot: string, serverDirs?: rea
       return []
     }
   })
-  if (files.length !== 1) return false
+  if (files.length !== 1) return undefined
   const file = files[0]!
   const source = readFileSync(file, "utf8")
   // Vite asks once per plugin while it filters them, so parse each version of the file once.
   if (lastPresetCheck?.file !== file || lastPresetCheck.source !== source) {
-    lastPresetCheck = { file, source, uses: Boolean(readCmsPresetUsage(source, file, root, parseAst)) }
+    const usage = readCmsPresetUsage(source, file, root, parseAst)
+    lastPresetCheck = { file, source, store: usage ? usage.options.store ?? "blob-database" : undefined }
   }
-  return lastPresetCheck.uses
+  return lastPresetCheck.store
 }
 
-let lastPresetCheck: { file: string, source: string, uses: boolean } | undefined
+let lastPresetCheck: { file: string, source: string, store: "blob-database" | "github" | undefined } | undefined
 
 /** Import paths that the generated Workspace module uses. */
 export interface CmsWorkspaceImports {

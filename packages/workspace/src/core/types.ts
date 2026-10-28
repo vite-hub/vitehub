@@ -416,9 +416,9 @@ export interface WorkspaceOpenPullRequestOptions {
   title: string
   body?: string
   draft?: boolean
-  /** Delete the head ref when the pull request cannot be opened, so a failed publish leaves no branch behind. */
+  /** Delete the head ref after GitHub definitively rejects the pull request. Unknown outcomes keep it for recovery. */
   deleteHeadOnFailure?: boolean
-  /** Atomically exclude overlapping open PRs from this prefix while creating the request, across Store instances. */
+  /** Exclude overlapping open PRs across Store instances. Ambiguous requests retain their reservations until reconciled. */
   reservation?: { headPrefix: string, paths: string[] }
 }
 

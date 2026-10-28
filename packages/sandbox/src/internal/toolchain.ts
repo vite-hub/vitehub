@@ -12,6 +12,7 @@ import type {
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts";
 import { abortable } from "./abortable.ts";
 import { isRuntimeString, runtimeRecord } from "./runtime-type.ts";
+import { shellQuote } from "./shell-quote.ts";
 
 /** Project files that can pin the toolchain, relative to the project root. */
 export const toolchainProjectFiles = ["package.json", ".node-version", ".nvmrc"] as const;
@@ -659,8 +660,4 @@ function trimSlash(value: string) {
 
 function processEnvironment(): Readonly<Record<string, string | undefined>> {
   return globalThis.process?.env ?? {};
-}
-
-export function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }

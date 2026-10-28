@@ -15,6 +15,20 @@
       "when": 1792005895365,
       "tag": "0001_content_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1792751400000,
+      "tag": "0002_comments",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1793001600000,
+      "tag": "0003_comments_context",
+      "breakpoints": true
     }
   ]
 }

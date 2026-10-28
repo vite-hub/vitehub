@@ -2,6 +2,7 @@
 import { onMounted, ref } from "vue";
 import type * as v from "valibot";
 import { envActivitySchema, requestEnvManagement } from "../client/env-management";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 const props = defineProps<{ endpoint: string; path: string }>();
 const events = ref<v.InferOutput<typeof envActivitySchema>["events"]>([]);
@@ -61,7 +62,7 @@ onMounted(() => load());
         </div>
         <p class="break-all text-muted">{{ event.actor.kind }} · {{ event.actor.id }}</p>
         <time :datetime="event.timestamp" class="text-muted tabular-nums">{{
-          new Date(event.timestamp).toLocaleString()
+          consoleDateTime(event.timestamp)
         }}</time>
         <p v-if="event.target" class="break-all text-muted">
           {{ event.target.kind }} · {{ event.target.id

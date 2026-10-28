@@ -757,7 +757,9 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
           const ref = normalizeHistoryRef(options.ref)
           const head = await history.head({ ref })
           if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
-          const previous = head ? await history.open(head.id) : undefined
+          const forkRef = head || options.startFrom ? undefined : await history.forksFrom?.(ref)
+          const startId = head?.id ?? options.startFrom ?? (forkRef ? (await history.head({ ref: forkRef }))?.id : undefined)
+          const previous = startId ? await history.open(startId) : undefined
           const entries = new Map<string, WorkspaceEntry>()
           for (const entry of previous ? await previous.list("", { recursive: true }) : []) {
             if (entry.type === "file") entries.set(entry.path, entry)
@@ -802,7 +804,7 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               if (!unchanged) await assertWritableCurrentPath(entry.path)
             }
           }
-          return await apply({ ...options, ref })
+          return await apply({ ...options, ref, startFrom: head ? options.startFrom : startId })
         })
       }
     },

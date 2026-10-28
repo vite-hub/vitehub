@@ -79,5 +79,5 @@ async function channelReplayHandler(event: ConsoleRequestEvent, access: ConsoleA
   return await handleChannelReplayRequest(agent, replay, { actor, maxLimit: maximumReplayItemsPerRequest, runtime: context })
 }
 
-const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true })
+const guardedHandler: ConsoleAccessRoute<typeof channelReplayHandler> = withConsoleAccess(channelReplayHandler, { section: "agents", user: true, write: true })
 export default guardedHandler

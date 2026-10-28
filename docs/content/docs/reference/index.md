@@ -24,24 +24,25 @@ instead of one root barrel.
 
 | Package | Owns | Primary imports |
 | --- | --- | --- |
-| `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/channels`, `@vite-hub/agent/eval`, `@vite-hub/agent/gateways`, `@vite-hub/agent/vite` |
+| `@vite-hub/agent` | Agent Definitions, Agent Invocations, Agent Driver boundary, Capability composition, Agent Evals, Agent Trigger API | `@vite-hub/agent`, `@vite-hub/agent/capabilities`, `@vite-hub/agent/channels`, `@vite-hub/agent/eval`, `@vite-hub/agent/vite` |
 | `@vite-hub/auth` | Auth Definitions, Better Auth server wiring, generated Auth route behavior | `@vite-hub/auth`, `@vite-hub/auth/server`, `@vite-hub/auth/vite` |
 | `@vite-hub/blob` | Blob Stores, Default Blob Store behavior, Blob Driver Modules, provider storage output | `@vite-hub/blob`, `@vite-hub/blob/vite`, `@vite-hub/blob/drivers/*` |
 | `@vite-hub/browser` | Browser Definitions, invocation-scoped sessions, controllers and providers, live handoff, and Browser Run output | `@vite-hub/browser`, `@vite-hub/browser/controllers/*`, `@vite-hub/browser/providers/*`, `@vite-hub/browser/vite` |
-| `@vite-hub/sandbox` | Sandbox Definitions and provider-neutral execution sessions | `@vite-hub/sandbox` |
+| `@vite-hub/sandbox` | Sandbox Definitions, provider-neutral execution sessions, and Sandbox Tasks | `@vite-hub/sandbox`, `@vite-hub/sandbox/ssh`, `@vite-hub/sandbox/task`, `@vite-hub/sandbox/task/vite` |
 | `@vite-hub/channels` | Provider-neutral outbound Channel Definitions (`defineOutboundChannel()`), server access, and Vite discovery | `@vite-hub/channels`, `@vite-hub/channels/server`, `@vite-hub/channels/vite` |
+| `@vite-hub/comments` | Comment threads on site pages, anchors, the Comments API and overlay, page presence rooms, and edits of Content fields in place | `@vite-hub/comments`, `@vite-hub/comments/anchor`, `@vite-hub/comments/database`, `@vite-hub/comments/realtime`, `@vite-hub/comments/runtime`, `@vite-hub/comments/vite` |
 | `@vite-hub/connections` | Connection Definitions, OAuth 2 grants, API keys, access rules, activity, typed Operations, and Agent access | `@vite-hub/connections`, `@vite-hub/connections/google`, `@vite-hub/connections/server`, `@vite-hub/connections/http`, `@vite-hub/connections/agent`, `@vite-hub/connections/vite` |
 | `@vite-hub/content` | Comark Content runtime, document collections and the `cms` preset, ViteHub Source adaptation, server handler, and typed client | `@vite-hub/content`, `@vite-hub/content/client`, `@vite-hub/content/database`, `@vite-hub/content/presets/cms`, `@vite-hub/content/vite` |
 | `@vite-hub/database` | Database Definitions, Drizzle schema generation, D1 and hosted database wiring | `@vite-hub/database`, `@vite-hub/database/drizzle`, `@vite-hub/database/vite` |
 | `@vite-hub/email` | Portable provider integration, built-in transports, runtime delivery, Dynamic Markdown composition, and test capture | `@vite-hub/email`, `@vite-hub/email/markdown`, `@vite-hub/email/server`, `@vite-hub/email/test`, `@vite-hub/email/vite` |
 | `@vite-hub/env` | Env Declarations, Public Env, Server Env, Secret Env, generated env access | `@vite-hub/env`, `@vite-hub/env/vite`, `@vite-hub/env/server`, `@vite-hub/env/secret` |
+| `@vite-hub/gateways` | AI gateways: Driver routes for Codex and Claude Code, `ask()` for TypeSafe Jev, the `ask` question builders. No Agent, Vite, or Nitro code. | `@vite-hub/gateways` |
 | `@vite-hub/kv` | KV Runtime Helper and configured KV Stores | `@vite-hub/kv`, `@vite-hub/kv/vite` |
 | `@vite-hub/markdown-template` | Markdown files and strings with data bindings, conditions, and fragments | `@vite-hub/markdown-template` |
 | `@vite-hub/queue` | Queue Definitions, queue dispatch Runtime Helpers, provider queue output | `@vite-hub/queue`, `@vite-hub/queue/vite` |
 | `@vite-hub/rate-limit` | Rate Limit declarations, runtime decisions, drivers, and provider output | `@vite-hub/rate-limit`, `@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/drivers/*`, `@vite-hub/rate-limit/vite` |
 | `@vite-hub/realtime` | Realtime documents, server routes, history, and Vue bindings | `@vite-hub/realtime`, `@vite-hub/realtime/server`, `@vite-hub/realtime/vue`, `@vite-hub/realtime/vite` |
 | `@vite-hub/runtime` | Runtime Host Context, Runtime Capability handles, Policy Decisions, approvals, Trace Events, leases | `@vite-hub/runtime` |
-| `@vite-hub/sandbox-task` | Sandbox Task Definitions, Sandbox Task runs, Sandbox provider integration | `@vite-hub/sandbox-task`, `@vite-hub/sandbox-task/vite` |
 | `@vite-hub/schedule` | Static schedules, manual runs, cron Provider Output | `@vite-hub/schedule`, `@vite-hub/schedule/runtime`, `@vite-hub/schedule/vite` |
 | `@vite-hub/shell` | Shell-shaped runtime execution providers and Workspace shell integration helpers | `@vite-hub/shell`, `@vite-hub/shell/workspace` |
 | `@vite-hub/source` | Source Definitions and Source Loaders for file, glob, markdown, GitHub, custom, and MCP resource retrieval | `@vite-hub/source`, `@vite-hub/source/*` |

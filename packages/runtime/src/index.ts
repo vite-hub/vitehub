@@ -1061,11 +1061,13 @@ export function deriveTraceRuns(events: Iterable<TraceEventLogEntry>): TraceRunV
   const groups = new Map<string, TraceEventLogEntry[]>()
   for (const event of events) {
     const id = runId(event)
-    groups.set(id, [...(groups.get(id) || []), event])
+    const group = groups.get(id)
+    if (group) group.push(event)
+    else groups.set(id, [event])
   }
 
   return [...groups.entries()].map(([id, group]) => {
-    const sorted = group.slice().sort((a, b) => a.sequence - b.sequence)
+    const sorted = group.sort((a, b) => a.sequence - b.sequence)
     const first = sorted[0]!
     const steps = new Map<string, TraceStepView>()
     for (const event of sorted) {

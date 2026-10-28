@@ -33,6 +33,12 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -56,7 +62,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/realtime#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/realtime#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/realtime#build && vp test"
   },
   "dependencies": {

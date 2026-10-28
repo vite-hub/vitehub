@@ -88,7 +88,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
-      ["@vite-hub/sandbox-task/vite", "vite"],
+      ["@vite-hub/sandbox/task/vite", "vite"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["@vite-hub/workspace/nitro", "vite"],
@@ -157,7 +157,7 @@ describe("public package export contracts", () => {
   })
 
   it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
-    const source = readFileSync(join(packageDir("sandbox-task"), "src/internal/shared/request-payload.ts"), "utf8")
+    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/json: \(\) => Promise<unknown>/)
     expect(source).not.toMatch(/json\?:/)
   })

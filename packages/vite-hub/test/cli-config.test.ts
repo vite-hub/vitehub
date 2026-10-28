@@ -312,7 +312,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
       expect(stdout).toBe("ainv_1 cancel requested\n");
       expect(calls).toEqual([{
         authorization: "Bearer cli-test",
-        body: { input: { body: { action: "cancel" }, id: "ainv_1", method: "POST" }, method: "vitehub:console:invocation" },
+        body: { input: { id: "ainv_1" }, operation: "invocations.cancel" },
         url: "/_vitehub/rpc/__call",
       }]);
     }

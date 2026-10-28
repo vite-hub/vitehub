@@ -72,8 +72,8 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     ...(eventPlugin ? {
-      plugins: [...plugins, eventPlugin],
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {
         // Capture the endpoint outcome before application/plugin after-hooks replace it.
         eventPlugin.captureOutcome(args[0])

@@ -1,10 +1,11 @@
-import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
+import { describeViteHubConsoleDocumentActions, describeViteHubConsoleRuntimeReader, describeViteHubConsoleSection, isViteHubConsoleDocumentEditorSection, isViteHubConsoleRuntimeSection, readViteHubConsoleSection, resolveViteHubConsoleSectionPages } from "@vite-hub/internal/console"
 import { authConsoleSection } from "@vite-hub/auth/console";
+import { commentsConsoleSection, mountedCommentsRoute } from "@vite-hub/comments/vite"
 import { contentConsoleSection } from "@vite-hub/content/vite"
 import { emailConsoleSection } from "@vite-hub/email/vite"
 import { queueConsoleSection } from "@vite-hub/queue/vite"
 import { rateLimitConsoleSection } from "@vite-hub/rate-limit/vite"
-import { sandboxTaskConsoleSection } from "@vite-hub/sandbox-task/vite"
+import { sandboxTaskConsoleSection } from "@vite-hub/sandbox/task/vite"
 import { scheduleConsoleSection } from "@vite-hub/schedule/vite"
 import { workflowConsoleSection } from "@vite-hub/workflow/vite"
 import { workspaceConsoleSection } from "@vite-hub/workspace/vite"
@@ -52,11 +53,15 @@ export interface ConsoleDocumentEditorRegistration {
 
 export interface ConsoleRegisteredSection {
   readonly descriptor: ConsoleContributedSection
+  /** Resolves the visit using the owner package's application mount contract. */
+  readonly visit?: (base: string) => string
   read(context: ConsoleSectionDiscoveryContext): Promise<ConsoleSectionContent>
   /** Request-time reader. The Console adds its records to the build-time content on each request. */
   readonly runtime?: ConsoleRuntimeReader
   /** Present for a document editor section. */
   readonly documents?: ConsoleDocumentEditorRegistration
+  /** Finds the application module that turns a record table section on. The section is shown only when it finds one. */
+  readonly entry?: (context: ConsoleSectionDiscoveryContext) => Promise<string | undefined>
 }
 
 /**
@@ -70,18 +75,24 @@ export function consoleRuntimeReaderModule(module: string): string {
 function registerConsoleSection<TOptions>(
   section: ViteHubConsoleSectionContribution<TOptions>,
   options: (context: ConsoleSectionDiscoveryContext) => TOptions,
+  visit?: (base: string) => string,
 ): ConsoleRegisteredSection {
   const descriptor: ConsoleContributedSection = describeViteHubConsoleSection(section)
   const runtime = describeViteHubConsoleRuntimeReader(section)
   const actions = describeViteHubConsoleDocumentActions(section)
   const registered: { -readonly [K in keyof ConsoleRegisteredSection]: ConsoleRegisteredSection[K] } = {
     descriptor,
+    ...(visit ? { visit } : {}),
     read: async (context) => {
       const content: ConsoleSectionContent = await readViteHubConsoleSection(section, options(context))
       return content
     },
   }
   if (runtime) registered.runtime = { export: runtime.export, module: consoleRuntimeReaderModule(runtime.module) }
+  if (isViteHubConsoleRuntimeSection(section) && section.entry) {
+    const entry = section.entry
+    registered.entry = async context => await entry(options(context))
+  }
   if (actions && isViteHubConsoleDocumentEditorSection(section)) {
     const inspect = section.inspect
     registered.documents = {
@@ -105,6 +116,7 @@ const registeredSections: readonly ConsoleRegisteredSection[] = [
     schedules: context.scheduleDefinitions,
     serverDirs: context.serverDirs,
   })),
+  registerConsoleSection(commentsConsoleSection, context => ({ projectRoot: context.projectRoot, serverDirs: context.serverDirs }), base => `${mountedCommentsRoute(base)}/session`),
   registerConsoleSection(emailConsoleSection, () => undefined),
   registerConsoleSection(rateLimitConsoleSection, context => ({
     projectRoot: context.projectRoot,
@@ -160,11 +172,12 @@ export function isConsoleContributedSectionId(section: ConsoleSectionId): boolea
  * Returns the descriptors of the enabled contributed sections in navigation order. Each keeps only the pages whose
  * required sections are enabled too, such as Content Media with Blob.
  */
-export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[]): ConsoleContributedSection[] {
+export function describeConsoleContributedSections(sections: readonly ConsoleSectionId[], base = "/"): ConsoleContributedSection[] {
   return sections.flatMap((section) => {
     const registered = consoleContributedSections.get(section)
     if (!registered) return []
     const { pages: _pages, ...descriptor } = registered.descriptor
+    if (registered.visit) descriptor.visit = registered.visit(base)
     const pages = resolveViteHubConsoleSectionPages(registered.descriptor, sections)
     return [pages.length ? { ...descriptor, pages } : descriptor]
   })
@@ -180,6 +193,15 @@ export function describeConsoleRuntimeReaders(sections: readonly ConsoleSectionI
 
 /** Ids of the contributed document editor sections. Discovery adds each one whose application module exists. */
 export const consoleDocumentEditorSectionIds: readonly ConsoleSectionId[] = registeredSections.flatMap(section => section.documents ? [section.descriptor.id] : [])
+
+/** Ids of the contributed record table sections that an application module turns on, such as `server/comments.ts`. */
+export const consoleEntrySectionIds: readonly ConsoleSectionId[] = registeredSections.flatMap(section => section.entry ? [section.descriptor.id] : [])
+
+/** The entry sections whose application module exists. */
+export async function discoverConsoleEntrySections(context: ConsoleSectionDiscoveryContext): Promise<ConsoleSectionId[]> {
+  const found = await Promise.all(consoleEntrySectionIds.map(async section => await consoleContributedSections.get(section)?.entry?.(context) ? [section] : []))
+  return found.flat()
+}
 
 /** Returns the document editor sections of the enabled sections with their application module, in navigation order. */
 export function describeConsoleDocumentEditors(
