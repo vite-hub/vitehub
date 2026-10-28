@@ -2530,6 +2530,19 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it.each([undefined, "/wrangler/env.mjs"])("passes a Nitro server Env override to Wrangler while preserving its explicit alias %s", async (wranglerOverride) => {
+    const { nuxt, runNitroConfigHook } = createNuxt()
+    nuxt.options.nitro.alias = { "#vitehub/env/server": "/nitro/env.mjs" }
+    await viteHubNuxtModule({ preset: "cloudflare" }, nuxt)
+    const config = nitroOptions(nuxt)
+    config.cloudflare = { wrangler: { alias: wranglerOverride ? { "#vitehub/env/server": wranglerOverride } : {} } }
+    for (let replay = 0; replay < 2; replay++) {
+      await runNitroConfigHook(config)
+      expect(config).toHaveProperty("alias.#vitehub/env/server", "/nitro/env.mjs")
+      expect(config).toHaveProperty("cloudflare.wrangler.alias.#vitehub/env/server", wranglerOverride ?? "/nitro/env.mjs")
+    }
+  })
+
   it.each([
     ["json", JSON.stringify({ alias: { "#vitehub/env/server": "/project/env.mjs" } })],
     ["jsonc", '{ // Project Env implementation\n "alias": { "#vitehub/env/server": "/project/env.mjs" }, }'],

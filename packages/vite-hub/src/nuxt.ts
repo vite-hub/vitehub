@@ -1431,7 +1431,8 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       if (envServer) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
         const alias = (wrangler.alias ??= {}) as Record<string, string>
-        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? envServer
+        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
+        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
       }
       if (cloudflare.nodeCompat === true) {
         const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
