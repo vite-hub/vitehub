@@ -13,7 +13,10 @@ import type { ConsoleDocumentComponent } from "../definitions";
  */
 const props = defineProps<NodeViewProps & { definition: ConsoleDocumentComponent }>();
 
-const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => ({ name, type: prop.type, value: consoleComponentProp(props.node.attrs.props ?? {}, name, prop.type) ?? prop.default })));
+const entries = computed(() => Object.entries(props.definition.props).map(([name, prop]) => {
+  const value = consoleComponentProp(props.node.attrs.props ?? {}, name, prop.type);
+  return { name, type: prop.type, value: value === undefined ? prop.default : value };
+}));
 const editable = computed(() => props.editor.isEditable);
 
 function display(value: unknown): string {

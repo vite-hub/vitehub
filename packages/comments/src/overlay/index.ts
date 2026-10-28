@@ -3,10 +3,11 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
 import { commentRoom, commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
+import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
-import type { CommentAnchor, CommentMention } from "../types.ts"
+import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
 import type { CommentsApiError, CommentsSession, CommentsThread as CommentThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
@@ -114,7 +115,7 @@ class CommentsOverlay extends HTMLElement {
   private threads: CommentThread[] = []
   private mode: Mode = "view"
   private openThread?: string
-  private draft?: { anchor: CommentAnchor, x: number, y: number }
+  private draft?: { anchor: CommentAnchor, context: CommentContext, x: number, y: number }
   private panel = false
   private showResolved = false
   private room?: RealtimeRoom
@@ -269,7 +270,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target), x: event.clientX, y: event.clientY }
     this.render()
   }
 
@@ -346,10 +347,17 @@ class CommentsOverlay extends HTMLElement {
     this.render()
   }
 
-  private joinRoom() {
-    if (!this.session?.realtime || this.room || !this.isConnected) return
+  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
+  private account(): CommentAuthor | undefined {
+    const user = this.session?.user
+    return user && !(user.guest && user.id === "guest:console") ? user : undefined
+  }
+
+  private joinRoom(reconnect = false) {
+    if (!this.session?.realtime || !this.isConnected || (this.room && !reconnect)) return
+    this.room?.destroy()
     const guest = readGuest()
-    const identity = this.session.user ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
+    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
     const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
     const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true, baseURL })
     room.onUpdate(() => {
@@ -373,7 +381,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private ensureAuthor(nameInput?: HTMLInputElement): boolean {
-    if (this.session?.user) return true
+    if (this.account()) return true
     if (readGuest()) return true
     const name = nameInput?.value.trim()
     if (!name) {
@@ -381,12 +389,13 @@ class CommentsOverlay extends HTMLElement {
       return false
     }
     saveGuest(name)
+    this.joinRoom(true)
     return true
   }
 
   private async create(body: string, mentions: CommentMention[], nameInput?: HTMLInputElement) {
     if (!this.draft || !this.ensureAuthor(nameInput)) return
-    const [error, thread] = await api.create({ page: this.page, anchor: this.draft.anchor, body, mentions: keptMentions(body, mentions) })
+    const [error, thread] = await api.create({ page: this.page, anchor: this.draft.anchor, context: this.draft.context, body, mentions: keptMentions(body, mentions) })
     if (error) return this.failed(error)
     this.threads = [thread, ...this.threads]
     this.draft = undefined
@@ -708,7 +717,7 @@ class CommentsOverlay extends HTMLElement {
           h("span", { className: "avatar", style: `background:${colorOf(comment.author.id)}` }, comment.author.image ? h("img", { src: comment.author.image, alt: "" }) : initials(comment.author.name)),
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("span", { className: "time" }, ago(comment.createdAt)),
-          session.user && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
       !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )
@@ -723,9 +732,9 @@ class CommentsOverlay extends HTMLElement {
   /** A text box with `@` suggestions, and a name field for guests. */
   private renderCompose(label: string, submit: (body: string, mentions: CommentMention[], name?: HTMLInputElement) => Promise<void>, autofocus = false): HTMLElement {
     const mentions: CommentMention[] = []
-    const needsName = !this.session?.user && !readGuest()
+    const needsName = !this.account() && !readGuest()
     const name = needsName ? h("input", { placeholder: "Your name", "aria-label": "Your name", maxlength: 64 }) : undefined
-    const input = h("textarea", { placeholder: this.session?.user || readGuest() ? `${label}… Use @ to mention` : `${label}…`, "aria-label": label, "data-autofocus": autofocus || undefined, maxlength: 4000 })
+    const input = h("textarea", { placeholder: this.account() || readGuest() ? `${label}… Use @ to mention` : `${label}…`, "aria-label": label, "data-autofocus": autofocus || undefined, maxlength: 4000 })
     const button = h("button", { className: "primary", disabled: true }, label)
     const suggest = h("div", { className: "suggest", role: "listbox", hidden: true })
     let options: CommentMention[] = []

@@ -617,6 +617,10 @@ async function runPublish(
     context.stderr.write("Nothing to publish: every selected document is published as drafted.\n")
     return 0
   }
+  if (result.pullRequest) {
+    context.stdout.write(`Opened pull request #${result.pullRequest.number} for ${plural(result.documents.length, "document")}:\n${changeLines(result.documents)}\n${result.pullRequest.url}\nThe documents are published when it merges.\n`)
+    return 0
+  }
   context.stdout.write(`Published ${plural(result.documents.length, "document")} in revision ${result.revision.id}:\n${changeLines(result.documents)}\n`)
   return 0
 }
