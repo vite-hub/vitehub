@@ -254,6 +254,25 @@ describe("Provider Agent Driver", () => {
     vi.unstubAllEnvs()
   })
 
+  it("reports token expiry before starting a ChatGPT provider", async () => {
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "expired-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() - 1,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    try {
+      await expect(createProviderAgentAdapter({ provider: "codex", gateway: chatgpt() }).generate(context("thread-chatgpt-expired") as never)).rejects.toMatchObject({
+        code: "AGENT_R1024",
+        message: "The ChatGPT access token expired during this Invocation.",
+        fix: expect.stringContaining("new Invocation"),
+      })
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+    }
+    finally {
+      gateway.mockRestore()
+    }
+  })
+
   it("excludes startup injection from both credential-bearing ChatGPT processes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-startup-"))
     const probe = join(root, "preload.cjs")

@@ -133,7 +133,7 @@ realCodex.each([
 realCodex("stops an Invocation at token expiry and resolves a fresh token for the next Invocation", async () => {
   const test = await fixture({ expiresIn: 3 })
   test.fake.state.stallResponses = true
-  await expect(test.run()).rejects.toMatchObject({ code: "AGENT_R1014" })
+  await expect(test.run()).rejects.toMatchObject({ code: "AGENT_R1024" })
   test.fake.state.stallResponses = false
   test.fake.state.expiresIn = 3600
   expect(await test.run()).toMatchObject({ text: expect.stringContaining("Hello from the local ChatGPT fake.") })

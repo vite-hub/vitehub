@@ -95,7 +95,7 @@ The gateway disables apps, plugins, image generation, computer/browser use, tool
 
 Connections refreshes when less than 15 minutes remain, subject to OpenAI's `earliest_refresh_at`. It serializes refreshes and stores the replacement access token, expiry and rotating refresh token together. Terminal refresh errors such as `refresh_token_reused` clear the unusable grant and require sign-in.
 
-If a token expires during an Invocation, ViteHub stops Codex and reports `AGENT_R1014`. Review completed tool effects, then start another Invocation. ViteHub resolves a new token and replays the supplied conversation history when the caller continues the same thread. It does not replay the interrupted Invocation automatically. Transient inference failures get at most three HTTP attempts.
+If a token expires during an Invocation, ViteHub stops Codex and reports `AGENT_R1024`. Review completed tool effects, then start another Invocation. ViteHub resolves a new token and replays the supplied conversation history when the caller continues the same thread. It does not replay the interrupted Invocation automatically. Transient inference failures get at most three HTTP attempts.
 
 Model Drivers through the AI SDK are a follow-up. This Codex path cannot run in Cloudflare Workers. An AI SDK path needs its own runtime-owned credential transport, request restrictions and streaming error handling.
 
@@ -103,7 +103,7 @@ Model Drivers through the AI SDK are a follow-up. This Codex path cannot run in 
 
 | Diagnostic | Recovery |
 | --- | --- |
-| `AGENT_R1014` | Token expired during a run. Review tool effects and start another Invocation. |
+| `AGENT_R1024` | Token expired during a run. Review tool effects and start another Invocation. |
 | `AGENT_R1016` | Check Connection access and plan scopes, then sign in if required. For `invalid_user`, check OpenAI status before replacing the grant. |
 | `AGENT_R1017` | The usage limit was reached. Check [ChatGPT usage settings](https://chatgpt.com/settings/usage). |
 | `AGENT_R1018` | Check the account's plan and app eligibility. |

@@ -1486,7 +1486,7 @@ const agentDiagnosticHandles = defineDiagnostics({
     AGENT_R1011: dynamicError,
     AGENT_R1012: dynamicError,
     AGENT_R1013: dynamicError,
-    AGENT_R1014: {
+    AGENT_R1024: {
       why: "The ChatGPT access token expired during this Invocation.",
       fix: "Start a new Invocation to resolve a fresh token. Review completed tool effects before retrying. ViteHub does not replay the interrupted Invocation automatically.",
     },

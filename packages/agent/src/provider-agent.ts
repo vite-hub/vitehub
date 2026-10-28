@@ -3254,7 +3254,7 @@ async function* runProvider<
       ? undefined
       : await waitForProviderOperation(resolveAgentDriverGateway(options.gateway, options.provider, resolverContext), effectiveSignal)
     if (gateway?.chatgpt && chatgptExpiry) {
-      const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1014())
+      const expire = () => chatgptExpiry.abort(agentDiagnostics.AGENT_R1024())
       const remaining = gateway.chatgpt.expiresAt - Date.now()
       if (remaining <= 0) expire()
       else chatgptExpiryTimer = setTimeout(expire, Math.min(remaining, 2_147_483_647))
