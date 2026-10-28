@@ -35,6 +35,45 @@ const file = (path: string, content: string) => ({ path, content })
 const aliases = { published: "main", draft: "vitehub/content" }
 
 describe("GitHub history commit", () => {
+  it.each([false, true])("authorizes full draft snapshots against their fork baseline (explicit start: %s)", async (explicit) => {
+    const baseline = fake.commit("main", { "posts/a.md": "a" })
+    if (explicit) fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const target = createWorkspace({ name: "content", store, rules: { "posts/a.md": { write: false } } }).history!
+    const revision = await target.commit({ ref: "draft", ifHead: null, ...(explicit ? { startFrom: baseline } : {}), files: { "posts/a.md": "a", "posts/b.md": "b" } })
+    expect(revision.parentId).toBe(baseline)
+    expect(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]).sort()).toEqual([["posts/a.md", textSha("a")], ["posts/b.md", textSha("b")]])
+    await expect(target.commit({ ref: "draft", ifHead: revision.id, files: { "posts/a.md": "changed", "posts/b.md": "b" } })).rejects.toThrow()
+    await expect(target.commit({ ref: "draft", ifHead: revision.id, files: { "posts/b.md": "b" } })).rejects.toThrow()
+    expect(fake.head("vitehub/content")).toBe(revision.id)
+  })
+
+  it("pins the fork baseline before write hooks can advance the published branch", async () => {
+    const baseline = fake.commit("main", { "posts/a.md": "a" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "", refs: aliases }, "content")
+    const target = createWorkspace({ name: "content", store, hooks: { "write:before": () => {
+      fake.commit("main", { "posts/a.md": "new published", "posts/c.md": "c" })
+    } } }).history!
+    const revision = await target.commit({ ref: "draft", ifHead: null, files: { "posts/a.md": "a", "posts/b.md": "b" } })
+    expect(revision.parentId).toBe(baseline)
+    expect(fake.tree("vitehub/content").map(entry => entry.path).sort()).toEqual(["posts/a.md", "posts/b.md"])
+  })
+
+  it("keeps later continuation cursors bound to their ref while limits change", async () => {
+    const ids = Array.from({ length: 12 }, (_, index) => fake.commit("main", { "posts/a.md": String(index) })).reverse()
+    const target = history({ refs: aliases })
+    const collected: string[] = []
+    let cursor: string | undefined
+    for (const limit of [2, 3, 1, 4, 5]) {
+      const page = await target.list({ ref: "published", cursor, limit })
+      collected.push(...page.revisions.map(revision => revision.id))
+      cursor = page.cursor
+      if (cursor) await expect(target.list({ ref: "draft", cursor, limit })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
+    }
+    expect(cursor).toBeUndefined()
+    expect(collected).toEqual([...ids, baseSha])
+  })
+
   it("rejects a stale ifHead before it writes", async () => {
     fake.commit("main", { "posts/a.md": "a" })
     const stale = fakeSha("stale")
@@ -199,10 +238,33 @@ describe("GitHub history commit", () => {
     const target = history()
     const page = await target.list({ ref: "main", cursor: third, limit: 1 })
     expect(page.revisions.map(revision => revision.id)).toEqual([second])
-    expect(page.cursor).toBe(second)
+    expect(page.cursor).toBe(`main:after:${second}`)
     const next = await target.list({ ref: "main", cursor: page.cursor, limit: 2 })
     expect(next.revisions.map(revision => revision.id)).toEqual([first, baseSha])
     expect(next.cursor).toBeUndefined()
+  })
+
+  it("continues after the last revision when the page limit changes", async () => {
+    const ids = Array.from({ length: 25 }, (_, index) => fake.commit("main", { "posts/a.md": String(index) })).reverse()
+    const first = await history().list({ ref: "main", limit: 20 })
+    const next = await history().list({ ref: "main", cursor: first.cursor, limit: 5 })
+    expect(next.revisions.map(revision => revision.id)).toEqual(ids.slice(20))
+  })
+
+  it.each([
+    aliases,
+    { published: "main", draft: "published" },
+    { published: "draft", draft: "vitehub/content" },
+    { published: "draft", draft: "published" },
+  ])("keeps configured branches visible and opens older drafts ($published/$draft)", async (refs) => {
+    const published = fake.commit(refs.published, { "posts/a.md": "published" })
+    const old = await history({ refs }).commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    const draft = await history({ refs }).commit({ ref: "draft", ifHead: old.id, changes: { put: { "posts/b.md": file("posts/b.md", "next") } } })
+    expect((await history({ refs }).open(old.id)).revision.ref).toBe("draft")
+    await expect(history({ refs }).refs()).resolves.toEqual(expect.arrayContaining([
+      { name: "published", head: expect.objectContaining({ id: published, ref: "published" }) },
+      { name: "draft", head: expect.objectContaining({ id: draft.id, ref: "draft" }) },
+    ]))
   })
 
   it("keeps a branch head for a short time", async () => {
@@ -314,6 +376,24 @@ describe("GitHub history commit", () => {
     await expect(workspace.history!.merge!({ from: "incoming", into: "main" })).rejects.toThrow()
     expect(fake.head("main")).toBe(main)
     expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it("denies repository pull-request listings to a resolved partial Workspace scope", async () => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("private/change", main, fake.tree("main"))
+    fake.commit("private/change", { "private/secret.md": "secret" })
+    const number = fake.openPull("private/change", "main", "Private change")
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const definition = { name: "content", store }
+    const base = useWorkspace("content", { mode: "write", definition })
+    const invocation = { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false } }
+    const complete = await createWorkspaceSourceResolutionFacade(base, definition, { invocation })
+    await expect(complete.workspace.history.pullRequests!({ headPrefix: "private/" })).resolves.toMatchObject([{ number, title: "Private change" }])
+
+    const scoped = await createWorkspaceSourceResolutionFacade(base, definition, { invocation, selectedWorkspaceScope: { all: false, name: "posts", paths: ["posts/a.md"] } })
+    const requestCount = fake.requests.length
+    await expect(scoped.workspace.history.pullRequests!({ headPrefix: "private/" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    expect(fake.requests).toHaveLength(requestCount)
   })
 
   it("runs resolved merge validators once and applies their normalized bytes", async () => {

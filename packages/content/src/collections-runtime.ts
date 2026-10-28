@@ -549,6 +549,7 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
    * trailing slash are ignored. When two collections give one path, the first collection defined wins.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved | null>
+  supportsScheduling(): Promise<boolean>
   /** Revisions of one document. `id` may be omitted for a singleton. */
   revisions(collection: string, id: string | undefined, options?: ContentRevisionsOptions): Promise<ContentRevisionsResult>
   /** Content revisions of every collection on one ref, newest first. */
@@ -723,10 +724,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   /** Schedules are files on a `schedules` ref of the Workspace, which the GitHub Store does not keep. */
-  async function requireScheduleStore(): Promise<void> {
+  async function supportsScheduling(): Promise<boolean> {
     // SAFETY: Content accepts any Workspace name; the registry rejects unknown names when the facade resolves.
     const target = await resolveWorkspaceStoreTarget(useWorkspace(workspaceName as never, { mode: "write" }))
-    if (target?.provider === "github") {
+    return target?.provider !== "github"
+  }
+
+  async function requireScheduleStore(): Promise<void> {
+    if (!await supportsScheduling()) {
       throw contentErrorDiagnostics.CONTENT_R0016({
         message: `[vitehub] schedule() needs the Blob + Database store, but Workspace ${JSON.stringify(workspaceName)} uses the GitHub store, which keeps no schedules. Publish with content.publish() instead.`,
       })
@@ -874,7 +879,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             if (!Object.hasOwn(bases, path) || before === (published?.files.get(path) ?? null)) bases[path] = before
           }
         }
-        return bases
+        return await withoutPublishedBases(bases, head, published)
       }
       if (!revision.parentId) break
       const current = await openRevision(revision)
@@ -883,6 +888,49 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       revision = parent.revision
     }
     throw contentConflict("[vitehub] Content cannot establish the draft's published bases from its recent history. Preserve the draft edits, recreate the draft from published, and reapply the edits through Content before publishing.", { ref: "draft", revision: head.id })
+  }
+
+  /** A publish receipt resolves only documents that have not changed on draft since that publish's source revision. */
+  async function withoutPublishedBases(bases: Record<string, string | null>, head: WorkspaceRevision, published: OpenedRevision | undefined): Promise<Record<string, string | null>> {
+    if (!Object.keys(bases).length || !published) return bases
+    const receipts = new Map<string, Set<string>>()
+    const retained = await history()
+    for (const path of Object.keys(bases)) {
+      // An unpublished edit whose published base is still current needs no receipt lookup.
+      if ((published.files.get(path) ?? null) === bases[path]) continue
+      const remember = (revision: WorkspaceRevision) => {
+        const metadata = Object(revision.metadata?.content)
+        const source: unknown = Reflect.get(metadata, "draft")
+        if (Reflect.get(metadata, "action") !== "publish" || typeof source !== "string" || !contentCommitPaths(revision)?.has(path)) return
+        const paths = receipts.get(source) ?? new Set<string>()
+        paths.add(path)
+        receipts.set(source, paths)
+      }
+      remember(published.revision)
+      // Filter by document so unrelated repository commits do not make every status/save scan the whole repository.
+      let cursor: string | undefined = published.revision.id
+      do {
+        const page = await retained.list({ ref: "published", path, cursor, limit: 100 })
+        for (const revision of page.revisions) remember(revision)
+        cursor = page.cursor
+      } while (cursor)
+    }
+    if (!receipts.size) return bases
+    const changed = new Set<string>()
+    let current: OpenedRevision | undefined = await openRevision(head)
+    while (current) {
+      for (const path of receipts.get(current.revision.id) ?? []) {
+        if (!changed.has(path)) delete bases[path]
+      }
+      receipts.delete(current.revision.id)
+      if (!receipts.size || !Object.keys(bases).length) break
+      const parent: OpenedRevision | undefined = current.revision.parentId ? await openRevision(current.revision.parentId) : undefined
+      for (const path of Object.keys(bases)) {
+        if (current.files.get(path) !== parent?.files.get(path)) changed.add(path)
+      }
+      current = parent
+    }
+    return bases
   }
 
   /** Carry unresolved bases forward, unless this write explicitly acknowledges a reviewed published digest. */
@@ -909,7 +957,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   let mergedKey: string | undefined
   let conflictKey: string | undefined
 
-  /** Only the draft's first-parent history since its recorded base/sync can identify its own publishes. */
+  /** Follow draft history across syncs that preserve this document, stopping at its imported published baseline. */
   async function draftHeld(path: string, digest: string | null | undefined, head: WorkspaceRevision): Promise<boolean> {
     const retained = await history()
     let revision: WorkspaceRevision | undefined = head
@@ -922,7 +970,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       if ((opened.files.get(path) ?? null) === (digest ?? null)) matched = true
       // An ordinary Git commit may have no metadata. Keep walking until the recorded boundary is known.
       const content = revision.metadata?.content
-      if (content && typeof content === "object" && "action" in content && content.action === "sync") return matched
+      if (content && typeof content === "object" && "action" in content && content.action === "sync") {
+        const parent: OpenedRevision | undefined = revision.parentId ? await openRevision(revision.parentId) : undefined
+        if (!parent || parent.files.get(path) !== opened.files.get(path)) return matched
+        // An unrelated sync must not hide a version still waiting in a publish PR.
+        boundary = undefined
+        revision = parent.revision
+        continue
+      }
       if (boundary && matched) return true
       revision = revision.parentId ? (await retained.open(revision.parentId)).revision : undefined
     }
@@ -1010,6 +1065,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const published = (await refState("published")).opened?.files
     // Newest first: a document that two pull requests change shows the newest.
     for (const request of requests) {
+      if (request.base !== "published") continue
       const head = await retained.head({ ref: request.head })
       const base = request.mergeBase ?? head?.parentId
       if (!head || !base) continue
@@ -1756,7 +1812,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
             reservation: { headPrefix: publishBranchPrefix, paths: documents.map(({ collection, id }) => requireCollection(collection).pathFor(id)) },
             title: pullRequestTitle(commitMessage),
             body: `${lines.join("\n")}\n\nMessage:\n\n${markdownFence(commitMessage)}\n\nPublished from the Content draft ${markdownCode(draftHead.id.slice(0, 7))}. The documents go live when this pull request merges.`,
-            // A branch without a pull request is no use, so a refusal from GitHub leaves nothing behind.
+            // Clean up a definitive refusal; unknown outcomes keep the branch for reconciliation.
             deleteHeadOnFailure: true,
           })
         }
@@ -1988,6 +2044,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     collection: name => requireCollection(name).collection,
     publish,
     resolve,
+    supportsScheduling,
     schedule: async (scheduleOptions) => {
       await requireScheduleStore()
       return await schedules.schedule(scheduleOptions)

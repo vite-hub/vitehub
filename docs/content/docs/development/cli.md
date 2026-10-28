@@ -29,7 +29,7 @@ can install `@vite-hub/cli` directly.
 
 Expected help lists available namespaces.
 The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
-The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
+The Agent Package contributes `agent` and `channels` when `hubAgent()` is active, Blob contributes `blob` when `hubBlob()` is active, Content contributes `content` when the app defines `server/content.ts`, Database contributes `db` when `hubDb()` is active, Env contributes `env` when `hubEnv()` is active, KV contributes `kv` when `hubKv()` is active, Rate Limit contributes `rate-limit` when `hubRateLimit()` is active, Schedule contributes `schedule` when `hubSchedule()` is active, Workflow contributes `workflow` when `hubWorkflow()` is active, Workspace contributes `workspace` when `hubWorkspace()` is active, and the Console integration contributes `console` when `console` is enabled. The framework contributes `types`, `task`, and `sandbox`, and the CLI includes the built-in `inspect` and `provision` namespaces. `sandbox` does not load the project config, so it also runs in a deployed container without Vite.
 
 ```txt [Output]
 Usage: vitehub <namespace> <feature> [args...]
@@ -40,9 +40,10 @@ Available namespaces:
   agent       Agent development workflows.
   blob        Read and write blobs of the Blob stores in a running Vite + Nitro Development Server.
   channels    External Channel registration workflows.
-  content     Inspect, edit, publish, and schedule Content documents in a running Vite + Nitro Development Server.
+  content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
   kv          Read and write keys of the KV stores in a running Vite + Nitro Development Server.
+  rate-limit  Read and reset Rate Limit counters in a running Vite + Nitro Development Server.
   env         Server Env inspection workflows.
   secret      Generate and derive application secrets.
   email       Inspect and preview development Email messages.
@@ -102,6 +103,8 @@ Available namespaces:
 | `vitehub kv has` | Available | KV Package | Check if a key exists. The exit status is 0 or 1. |
 | `vitehub kv set` | Available | KV Package | Write the value of one key and print what changed. |
 | `vitehub kv del` | Available | KV Package | Delete one key and print what changed. |
+| `vitehub rate-limit peek` | Available | Rate Limit Package | Show the counter of one key without consuming a token. |
+| `vitehub rate-limit reset` | Available | Rate Limit Package | Delete the counter of one key, where the provider supports it. |
 | `vitehub schedule runs` | Available | Schedule Package | List the recorded runs of one Schedule, newest first. |
 | `vitehub schedule attempts` | Available | Schedule Package | List the attempts of one Schedule Run. |
 | `vitehub schedule run` | Available | Schedule Package | Run a manual Static Schedule Definition locally, or on a deployment with a signed dispatch. |
@@ -192,40 +195,6 @@ VITEHUB_SECRET=... pnpm vitehub secret derive vitehub:dispatch
 ```
 
 `secret generate` prints 32 random bytes as base64 for [`VITEHUB_SECRET`](/docs/env/app-secret). `secret derive <purpose>` prints what `deriveSecret(purpose)` returns for the `VITEHUB_SECRET` (or `NUXT_APP_SECRET`) in the shell environment. Neither command loads the project.
-
-## Inspect Definitions and Provider Output
-
-`vitehub inspect` reads the same package-owned summaries that the Console shows. It does not start a server or call a provider. Each active package contributes its own kind: `agent`, `auth`, `browser`, `channel`, `collection`, `content`, `database`, `queue`, `rate-limit`, `realtime`, `sandbox`, `schedule`, `workflow`, and `workspace`.
-
-```bash [Terminal]
-pnpm vitehub inspect definitions
-pnpm vitehub inspect definitions --kind rate-limit
-pnpm vitehub inspect definitions --json
-```
-
-```txt [Output]
-Rate Limits (rate-limit): 1
-  checkout  server/api/checkout.post.ts  [require-rate-limit]
-    Limit: 10
-    Window: 1m
-    Enforcement: Strict
-    Provider failure: Deny
-    Source location: 4:9
-```
-
-`--json` prints `{ "definitions": [{ "kind", "label", "definitions": [...] }] }`. Each Definition has `name`, `file` relative to the project root, `source`, and `fields`. An unknown `--kind` exits with status 1 and lists the available kinds.
-
-`inspect provider-output` lists the Provider Output files that active packages and the deployment preset write, and shows which ones exist. Deployment paths use the preset's default output directory, for example `.output` or `.vercel/output`. Run a production build first to generate deployment output.
-
-```bash [Terminal]
-pnpm build
-pnpm vitehub inspect provider-output
-pnpm vitehub inspect provider-output --json
-```
-
-`--json` includes the parsed content of each JSON file. The CLI redacts values under keys that name secrets, such as `token`, `secret`, `password`, or `apiKey`, every Worker `vars` value, and URLs with embedded credentials. Read [Provider output](/docs/reference/provider-output) for each file's owner and purpose.
-
-Packages contribute inspection through `vitehub.inspect` on their Vite plugin. The owner package defines the summary; the CLI and the Console only render it.
 
 ## Inspect Definitions and Provider Output
 
@@ -434,7 +403,7 @@ Set `nitro: { experimental: { tasks: false } }` to turn tasks off. A task that `
 
 ## Edit and publish Content
 
-Start the app's Vite Development Server, then run `vitehub content` from another terminal. The commands call the app's `server/content.ts` in the Nitro dev environment, so they see the same drafts and published documents as the app.
+Start the app's Vite Development Server, then run `vitehub content` from another terminal. Each command runs a `content.*` [operation](/docs/development/operations) that uses the app's `server/content.ts`, so it sees the same drafts and published documents as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -445,9 +414,36 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`.
+`edit` opens the draft in `$EDITOR`, or saves `--file`, and prints the field issues the draft was saved with. It fails with `CONTENT_LEASE_HELD` while another session holds the edit lease, unless you pass `--override-lease`. `publish` and `schedule` list the pending changes with their draft digests, ask for confirmation, and pin exactly those digests. A draft saved in between fails the command and nothing is published. Pass `--yes` to skip the prompt, or `--dry-run` to only list the changes. Without an interactive terminal, they fail unless you pass `--yes`. Omit the id for a singleton. Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, it calls the dev server of this project (see [Run any operation](#run-any-operation)). With `--url`, the command calls a deployed app that enables the Console, with the credentials from [the table below](#run-a-schedule-on-demand). Read [Content CLI](/docs/content/cli) for each command's output.
 
-The commands use a guarded dev endpoint that the Content Vite plugin registers only on the Development Server. They cannot reach a deployed app, and Nuxt and plain Vite hosts are not supported. Read [Content CLI](/docs/content/cli) for each command's output.
+## Run any operation
+
+Every [operation](/docs/development/operations) that a package contributes is also a command: `vitehub <namespace> <command> [positional] [--key value]`. The namespace is the operation section (or its `cli.namespace`) and the command is its verb (or its `cli.command`), so `agents.list` is `vitehub agents list`. `vitehub inspect definitions --kind operation` lists each operation and its command. Run `vitehub <namespace> <command> --help` to see the input.
+
+```bash [Terminal]
+pnpm vitehub agents list
+pnpm vitehub agents status --agent support
+pnpm vitehub invocations list --limit 10
+pnpm vitehub invocations get ainv_123 --json
+pnpm vitehub invocations delete ainv_123 --yes
+pnpm vitehub invocations list --url https://app.example.com
+```
+
+The built-in commands are `vitehub agents list|invoke|status`, `vitehub invocations list|get|cancel|delete|workspace|capabilities`, `vitehub blob list`, `vitehub kv list|get`, `vitehub databases browse`, `vitehub definitions list`, `vitehub env get`, `vitehub schedules run`, `vitehub search query`, `vitehub sections list`, `vitehub usage get`, `vitehub documents action`, and `vitehub media action`. A package with a hand-written command of the same name, such as `vitehub blob list`, keeps its own command.
+
+| Option | Use it for |
+| --- | --- |
+| `--json` | Print JSON, also for a failure: `{ "error": { "code", "message", "fix" } }`. |
+| `--yes` | Run an operation that deletes or publishes without asking. On a terminal the command asks first. Without a terminal it fails. A call that the operation marks as read only (`readOnlyWhen`), such as `content publish --dry-run`, needs no `--yes`. |
+| `--url <origin>` | Call a deployed app with the credentials in the table below. |
+| `--input <json>` or `--input @file.json` | Pass the whole input. Flags and positional arguments override it. |
+| `--timeout <ms>` | Wait this long for the answer. |
+
+Flags come from the JSON Schema of the input. A number, whole number, boolean, or string flag takes its text. A list takes repeated flags or commas (`--tags a,b`). An object, an unknown value, or a list of objects takes JSON (`--body '{"a":1}'`). A nullable value takes the text `null`. A `string | number` input stays a string. The names `url`, `timeout`, `json`, `yes`, and `input` are reserved, so an operation cannot use them as input keys.
+
+Without `--url`, a command calls the dev server of its own project. The dev server writes `.vitehub/dev-server.json` (`{ url, root }`) when it listens and removes it when it closes. Without that file the command uses `VITEHUB_DEV_SERVER_URL`. With neither it fails with `CLI_R0005` and asks you to start `vite dev` or pass `--url`; it never tries `localhost:5173` on its own, because another project may use that port. The local dev RPC names its project in a response header, and the command stops with `INTERNAL_R0025` when that is not the project it runs in. A Nuxt dev server does not write the file, so pass `--url` or set `VITEHUB_DEV_SERVER_URL`.
+
+A failed command prints `<code>: <message>` and a `Fix:` line on stderr, and exits with `1`. A bad flag value fails with `CLI_R0003` and the usage line. Two operations with the same namespace and command fail the build and the CLI load with `INTERNAL_B0049`. A package can also write a command by hand. When a hand-written command has the same name as a generated one, the hand-written one runs, as `vitehub content edit` does.
 
 ## Run a Schedule on demand
 
@@ -760,6 +756,9 @@ VERCEL_TOKEN=... VERCEL_PROJECT_ID=... pnpm vitehub provision run --provider ver
 | Agent eval times out | The eval case, model call, or provider run exceeds `agent.eval.testTimeout`. | Increase `agent.eval.testTimeout` in `vite.config.ts` or narrow the eval case. |
 | Vite config fails while loading a ViteHub plugin import | A fresh npm project is loading `vite.config.ts` as CommonJS, but ViteHub packages are ESM-only. | Set `"type": "module"` in `package.json` or rename the config to `vite.config.mts`. |
 | `No Compatible Vite Development Server found` | The app dev server is not running or `--url` points at the wrong port. | Start Vite separately, then pass the dev server URL. |
+| `CLI_R0005` from an operation command | No dev server of this project wrote `.vitehub/dev-server.json`, and `VITEHUB_DEV_SERVER_URL` is not set. | Start `vite dev` in this project, or pass `--url`. |
+| `INTERNAL_R0025` from an operation command | The server at the URL runs another project. | Start `vite dev` in this project, or pass the right `--url`. |
+| `INTERNAL_R0024` from an operation command | The command could not reach the app, or the app asked for sign-in. | Start `vite dev`, or pass `--url` and set `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or the Cloudflare Access variables. |
 | `vitehub schedule` reports that the host is not supported | The Development Server is plain Vite without Nitro, or Nuxt with Nitro 2, so Nitro does not run in the Vite process. | Run the commands against a Vite + Nitro app or Nuxt with Nitro 3. |
 | `vitehub schedule run` exits with status 1 | The Definition does not set `manual: true`, is not in the registry, or its handler failed. | Read the printed error or run record, then set `manual: true` or fix the handler. |
 | `Unknown Workspace Dev target` | The named Workspace is not discovered by the running Vite dev server. | Check the Workspace Definition name and make sure `hubWorkspace()` is active. |

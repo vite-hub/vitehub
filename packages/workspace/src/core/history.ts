@@ -56,7 +56,7 @@ export function createWorkspaceHistoryReader(history: WorkspaceHistoryReader | u
   return {
     ...(history?.digest ? { digest: async bytes => await history.digest!(bytes) } : {}),
     ...(history?.forksFrom ? { forksFrom: async ref => await history.forksFrom!(ref) } : {}),
-    ...(history?.pullRequests ? { pullRequests: async options => await history.pullRequests!(options) } : {}),
+    ...(history?.pullRequests ? { pullRequests: async options => await requireHistory().pullRequests!(options) } : {}),
     head: async options => await requireHistory().head(options),
     list: async options => await requireHistory().list(options),
     refs: async () => await requireHistory().refs(),
@@ -226,7 +226,8 @@ export function createWorkspaceHistory(definition: WorkspaceDefinition, store: W
         throw error
       }
     }
-    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: options.startFrom, message: options.message, metadata }
+    // Keep grant validation and the Store commit on the revision reviewed before write hooks ran.
+    const base = { ref, ifHead: options.ifHead, ifHeads: options.ifHeads, startFrom: current ? options.startFrom : startId, message: options.message, metadata }
     const storeOptions: WorkspaceStoreHistoryCommitOptions = commit.mode === "files"
       ? { ...base, files: desired }
       : { ...base, changes: { put: Object.fromEntries([...changed].map(path => [path, desired[path]!])), delete: deleted } }

@@ -271,6 +271,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
     if (request.operation === "UpdateRefs") {
       const [update] = input.refUpdates as Array<{ afterOid: string, beforeOid: string, name: string }>
       const name = update!.name.replace(/^refs\/heads\//, "")
+      if (update!.beforeOid && (branches.get(name) ?? zeroOid) !== update!.beforeOid) return json({ errors: [{ message: "Reference did not match beforeOid" }] })
       if (update!.afterOid === zeroOid) branches.delete(name)
       else branches.set(name, update!.afterOid)
       return json({ data: { updateRefs: { clientMutationId: null } } })
@@ -411,7 +412,7 @@ export function createFakeGitHub(options: { owner?: string, repo?: string } = {}
       const commit = commits.get(sha)
       if (!commit) return failure(404, "Not Found")
       trees.set(`tree-of-${sha}`, commit.tree)
-      return json({ sha, tree: { sha: `tree-of-${sha}` } })
+      return json({ sha, message: commit.message, committer: commit.author, tree: { sha: `tree-of-${sha}` } })
     }
     if (rest === "/git/blobs" && method === "POST") {
       const blob = putBlob(new Uint8Array(Buffer.from(String(request.body?.content), "base64")))

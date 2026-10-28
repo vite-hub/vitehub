@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto"
+import { acquireGitHubPublishReservation } from "./publish-reservation.ts"
 import type { Commit, Page, TreeEntry } from "@vite-hub/forge"
 import { lookup } from "mrmime"
 
@@ -103,8 +104,8 @@ function isNoHistoryError(error: unknown): boolean {
   return status === 404 || status === 409
 }
 
-function cursorFor(ref: string, page: number): string {
-  return `${ref}:${page}`
+function cursorFor(ref: string, id: string): string {
+  return `${ref}:after:${id}`
 }
 
 function pageFromCursor(ref: string, cursor: string | undefined): number {
@@ -251,11 +252,8 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     get repository() { return settings().repository },
     get root() { return settings().root },
   }
-  const client: GitHubRepository = {
-    get name() { return settings().client.name },
-    provider: async () => await settings().client.provider(),
-    ref: provider => settings().client.ref(provider),
-  }
+  // Resolve the complete repository contract lazily, without maintaining a partial adapter.
+  const client = (): GitHubRepository => settings().client
   // The history ref `published` or `draft` is a branch with another name when `refs` says so.
   const toBranch = (ref: string): string => {
     const refs = options.refs
@@ -282,9 +280,8 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (refs?.draft === branch) return "draft"
     return branch
   }
-  // A branch that is named like an aliased ref would show as the same ref twice.
-  const hiddenBranch = (branch: string): boolean => (branch === "published" && Boolean(options.refs?.published) && options.refs?.published !== branch)
-    || (branch === "draft" && Boolean(options.refs?.draft) && options.refs?.draft !== branch)
+  // Hide a literal alias only when its reported ref resolves to another branch.
+  const hiddenBranch = (branch: string): boolean => toBranch(fromBranch(branch)) !== branch
   const heads = new Map<string, { expires: number, head: Promise<string | null> }>()
   const commitCache = new Map<string, GitHubCommit>()
   const treeCache = new Map<string, GitHubHistoryEntry[]>()
@@ -293,13 +290,13 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const readCommit = async (id: string): Promise<GitHubCommit> => {
     const cached = commitCache.get(id)
     if (cached) return cached
-    const commit = await githubRequest(client, async (provider, repo) => await provider.commits.get({ forge: provider.forge, instance: provider.instance, repo, sha: encodeURIComponent(id) }), "commit")
+    const commit = await githubRequest(client(), async (provider, repo) => await provider.commits.get({ forge: provider.forge, instance: provider.instance, repo, sha: encodeURIComponent(id) }), "commit")
     if (!nonEmptyString(commit.sha)) malformed("commit")
     commitCache.set(commit.sha, commit)
     return commit
   }
 
-  const readTreeItems = async (ref: string, recursive: boolean) => await githubRequest(client, async (provider, repo) => {
+  const readTreeItems = async (ref: string, recursive: boolean) => await githubRequest(client(), async (provider, repo) => {
     const tree = provider.contents.tree(repo, { recursive, ref })
     const items: GitHubTreeItem[] = []
     for await (const item of tree) items.push(item)
@@ -351,7 +348,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
 
   const readBranches = async (): Promise<GitHubBranch[]> => {
     try {
-      return await githubRequest(client, async (provider, repo) => {
+      return await githubRequest(client(), async (provider, repo) => {
         const branches: GitHubBranch[] = []
         for await (const branch of provider.contents.branches(repo, { perPage: 100 })) {
           if (!nonEmptyString(branch.name) || !nonEmptyString(branch.sha)) malformed("branch list")
@@ -371,7 +368,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (cached && cached.expires > Date.now()) return await cached.head
     const head = (async () => {
       try {
-        return await githubRequest(client, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit")
+        return await githubRequest(client(), async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit")
       }
       catch (error) {
         if (isNoHistoryError(error) || githubRequestStatus(error) === 422) return null
@@ -393,13 +390,18 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: "[vitehub] History list limit must be an integer from 1 to 100." })
     }
     // A revision id as the cursor lists the revisions after that one, as the Blob + Database Store does.
-    const afterId = listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined
+    const separator = listOptions.cursor?.lastIndexOf(":after:") ?? -1
+    const revisionCursor = separator < 0 ? undefined : listOptions.cursor!.slice(separator + 7)
+    if (revisionCursor !== undefined && (listOptions.cursor!.slice(0, separator) !== ref || !revisionCursor)) {
+      throw workspaceErrorDiagnostics.WORKSPACE_R0070({ message: `[vitehub] History cursor does not belong to ref "${ref}".` })
+    }
+    const afterId = revisionCursor ?? (listOptions.cursor && /^[0-9a-f]{40}$/i.test(listOptions.cursor) ? listOptions.cursor : undefined)
     const page = afterId ? 1 : pageFromCursor(ref, listOptions.cursor)
     // Only the commits that changed this file or folder.
     const gitPath = !listOptions.path ? "" : joinGitPath(options.root, normalizeHistoryPath(listOptions.path))
     let result: Page<Commit>
     try {
-      result = await githubRequest(client, async (provider, repo) => {
+      result = await githubRequest(client(), async (provider, repo) => {
         // A history cursor names a page number. Build the GitHub page URL that the Forge cursor needs for it.
         const cursor = page === 1
           ? undefined
@@ -421,12 +423,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     const followingPage = nextPage(result.cursor?.nextUrl)
     if (afterId) {
       const last = shown.at(-1)?.sha
-      return { revisions, ...(last && (items.length > limit || followingPage !== undefined) ? { cursor: last } : {}) }
+      return { revisions, ...(last && (items.length > limit || followingPage !== undefined) ? { cursor: cursorFor(ref, last) } : {}) }
     }
-    return {
-      revisions,
-      ...(followingPage === undefined ? {} : { cursor: cursorFor(ref, followingPage) }),
-    }
+    const last = shown.at(-1)?.sha
+    return { revisions, ...(last && followingPage !== undefined ? { cursor: cursorFor(ref, last) } : {}) }
   }
 
   const refs = async (): Promise<WorkspaceHistoryRef[]> => {
@@ -438,8 +438,26 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const refForCommit = async (id: string): Promise<string> => {
     const cached = commitRefs.get(id)
     if (cached) return cached
-    const branches = (await readBranches()).filter(branch => branch.commit === id)
-    const ref = fromBranch(branches.find(branch => branch.name === options.branch)?.name || branches[0]?.name || options.branch)
+    const branches = await readBranches()
+    const heads = branches.filter(branch => branch.commit === id)
+    let branch = heads.find(branch => branch.name === options.branch) ?? heads[0]
+    if (!branch) {
+      // Prefer the default branch for shared ancestry, then look through the other branches for older draft commits.
+      const ordered = [...branches].sort((left, right) => Number(right.name === options.branch) - Number(left.name === options.branch))
+      for (const candidate of ordered) {
+        const contains = await githubRequest(client(), async (provider, repo) => {
+          for await (const commit of provider.commits.list(repo, { ref: candidate.name, perPage: 100 })) {
+            if (commit.sha === id) return true
+          }
+          return false
+        }, "commit list")
+        if (contains) {
+          branch = candidate
+          break
+        }
+      }
+    }
+    const ref = fromBranch(branch?.name ?? options.branch)
     commitRefs.set(id, ref)
     return ref
   }
@@ -506,7 +524,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
         const normalized = normalizeHistoryPath(path)
         const entry = byPath.get(normalized)
         if (!entry) throw workspaceError(`[vitehub] Workspace file does not exist: ${path}.`)
-        const bytes = await readGitHubFile(client, { ...entry, path: joinGitPath(options.root, normalized) }, commit.sha)
+        const bytes = await readGitHubFile(client(), { ...entry, path: joinGitPath(options.root, normalized) }, commit.sha)
         return decodeFile(bytes, readOptions)
       },
     })
@@ -540,7 +558,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     if (commitOptions.ifHead !== null && !nonEmptyString(commitOptions.ifHead)) throw workspaceError("[vitehub] History commit requires ifHead to be a revision id or null.")
     // A branch that does not exist yet starts from the published branch when `refs` names one, else from the default branch.
     const publishedBranch = options.refs?.published
-    const state = await readGitHubBranchState({ branch, fork: publishedBranch && publishedBranch !== branch ? publishedBranch : undefined, from: commitOptions.startFrom, repository: client, root: options.root })
+    const state = await readGitHubBranchState({ branch, fork: publishedBranch && publishedBranch !== branch ? publishedBranch : undefined, from: commitOptions.startFrom, repository: client(), root: options.root })
     const actual = state.branchExists ? state.refSha : null
     // A conflict means the cached head was stale, so the next read asks GitHub.
     if (actual !== commitOptions.ifHead) {
@@ -553,7 +571,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     // the assertion (which would allow pinned publishes to use stale drafts).
     for (const [expectedRef, expectedHead] of Object.entries(commitOptions.ifHeads ?? {})) {
       const expected = resolveRef(expectedRef)
-      const currentHead = await readCurrentHead(client, expected.branch)
+      const currentHead = await readCurrentHead(client(), expected.branch)
       if (currentHead !== expectedHead) {
         heads.delete(expected.branch)
         throw historyConflict(expected.ref, expectedHead, currentHead)
@@ -598,7 +616,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       message: messageWithMetadata(commitOptions.message || "Update Workspace", commitOptions.metadata),
       parentSha: state.refSha,
       remoteModes: new Map([...state.files.values()].map(entry => [entry.path, entry.mode])),
-      repository: client,
+      repository: client(),
     })
     heads.set(branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(commitSha) })
     return await revision(ref, commitSha, commitOptions.metadata)
@@ -610,7 +628,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const refPath = (branch: string) => branch.split("/").map(encodeURIComponent).join("/")
 
   /** Matching refs are returned as one complete array; this endpoint does not support page parameters. */
-  const matchingBranches = async (prefix: string): Promise<string[]> => await githubRequest(client, async (provider, repo) => {
+  const matchingBranches = async (prefix: string): Promise<string[]> => await githubRequest(client(), async (provider, repo) => {
     const response = await provider.request<unknown>("GET", `${repoPath(repo)}/git/matching-refs/heads/${refPath(prefix)}`)
     const names = new Set<string>()
     for (const item of Array.isArray(response.data) ? response.data : []) {
@@ -621,7 +639,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   }, "branch list")
 
   /** The open pull request whose head is `branch`, found by the head filter of the pulls endpoint. */
-  const openPullRequestOf = async (branch: string): Promise<WorkspacePullRequest | undefined> => await githubRequest(client, async (provider, repo) => {
+  const openPullRequestOf = async (branch: string): Promise<WorkspacePullRequest | undefined> => await githubRequest(client(), async (provider, repo) => {
     const response = await provider.request<unknown>("GET", `${repoPath(repo)}/pulls`, { query: { state: "open", head: `${repo.owner}:${branch}`, per_page: 5 } })
     for (const item of Array.isArray(response.data) ? response.data : []) {
       if (item === null || typeof item !== "object") continue
@@ -632,6 +650,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
       const headRef: unknown = Reflect.get(Object(Reflect.get(item, "head")), "ref")
       // The head filter matches a branch of a fork with the same name too.
       if (!Number.isSafeInteger(number) || !nonEmptyString(url) || !nonEmptyString(base) || headRef !== branch) continue
+      if (hiddenBranch(base)) continue
       const baseSha: unknown = Reflect.get(Object(Reflect.get(item, "base")), "sha")
       const headSha: unknown = Reflect.get(Object(Reflect.get(item, "head")), "sha")
       if (!nonEmptyString(baseSha) || !nonEmptyString(headSha)) malformed("pull request")
@@ -664,45 +683,37 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
 
   const deleteBranch = async (branch: string) => {
     heads.delete(branch)
-    await githubRequest(client, async (provider, repo) => await provider.request("DELETE", `${repoPath(repo)}/git/refs/heads/${refPath(branch)}`))
+    await githubRequest(client(), async (provider, repo) => await provider.request("DELETE", `${repoPath(repo)}/git/refs/heads/${refPath(branch)}`))
   }
 
   const openPullRequest = async (pullRequest: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest> => {
     const head = resolveRef(pullRequest.head)
     const base = resolveRef(pullRequest.base)
-    const locks: string[] = []
+    const locks: Awaited<ReturnType<typeof acquireGitHubPublishReservation>>[] = []
     let created: Awaited<ReturnType<GitHubProvider["threads"]["create"]>>
+    let number: number
+    let dispatched = false
+    let uncertain = false
     try {
       if (pullRequest.reservation) {
         if (!pullRequest.reservation.headPrefix) throw workspaceError("[vitehub] A pull request reservation requires a headPrefix.")
         const paths = [...new Set(pullRequest.reservation.paths.map(normalizeHistoryPath))].sort()
-        const sha = await readCurrentHead(client, head.branch)
+        const sha = await readCurrentHead(client(), head.branch)
         if (!sha) throw workspaceError(`[vitehub] Pull request branch does not exist: ${head.ref}.`)
         // Ref creation is atomic on GitHub. Sorted per-document locks allow disjoint publishes to proceed.
         for (const path of paths) {
           const key = await gitBlobSha(new TextEncoder().encode(JSON.stringify([base.branch, joinGitPath(options.root, path)])))
           const lock = `vitehub/reservations/${key}`
-          try {
-            await githubRequest(client, async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
-              body: { ref: `refs/heads/${lock}`, sha },
-            }))
-          }
-          catch (error) {
-            if (githubRequestStatus(error) === 422 && await readCurrentHead(client, lock)) {
-              throw workspaceConflict(`[vitehub] A publish is already opening a pull request for ${path}. Retry after it finishes.`, { details: { ref: "pull-request", path } })
-            }
-            throw error
-          }
-          locks.push(lock)
+          locks.push(await acquireGitHubPublishReservation(client(), { branch: lock, head: sha, path }))
         }
         // Recheck without caches while holding the reservations; a different instance may have just opened a PR.
         pullRequestCache = undefined
         const requests = await findPullRequests(pullRequest.reservation.headPrefix)
-        const published = await readCurrentHead(client, base.branch)
+        const published = await readCurrentHead(client(), base.branch)
         const main = published ? await readFullTree(published) : new Map<string, { sha: string }>()
         for (const request of requests) {
           if (request.base !== base.ref || request.head === head.ref || !request.mergeBase) continue
-          const current = await readCurrentHead(client, resolveRef(request.head).branch)
+          const current = await readCurrentHead(client(), resolveRef(request.head).branch)
           if (!current) continue
           const [branch, parent] = await Promise.all([readFullTree(current), readFullTree(request.mergeBase)])
           for (const path of paths) {
@@ -713,25 +724,33 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
           }
         }
       }
-      created = await githubRequest(client, async (provider, repo) => await provider.threads.create(repo, {
+      await Promise.all(locks.map(lock => lock.assertOwned()))
+      // Expiry can recover preparation, but cannot fence a request that GitHub has already received.
+      // Persist the attempt before dispatch, and retain it on any ambiguous response.
+      for (const lock of locks) await lock.begin(head.branch)
+      const deadline = locks.length ? Math.min(...locks.map(lock => lock.expiresAt)) : undefined
+      dispatched = true
+      created = await githubRequest(client(), async (provider, repo) => await provider.threads.create(repo, {
         kind: "pull_request",
         title: pullRequest.title,
         body: pullRequest.body,
         head: head.branch,
         base: base.branch,
         draft: pullRequest.draft,
-      }), "pull request")
+      }, deadline ? { signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())) } : undefined), "pull request")
+      number = Number(created.ref.number)
+      if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
     }
     catch (error) {
-      // The branch only existed for this pull request.
-      if (pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
+      const status = githubRequestStatus(error)
+      uncertain = dispatched && !(status !== undefined && status >= 400 && status < 500 && status !== 408)
+      // A definitive rejection permits cleanup. An unknown outcome must preserve both the branch and the claim.
+      if (!uncertain && pullRequest.deleteHeadOnFailure) await deleteBranch(head.branch).catch(() => undefined)
       throw error
     }
     finally {
-      await Promise.all(locks.map(async lock => await deleteBranch(lock).catch(() => undefined)))
+      if (!uncertain) await Promise.all(locks.map(async lock => await lock.release().catch(() => undefined)))
     }
-    const number = Number(created.ref.number)
-    if (!Number.isSafeInteger(number) || !created.url) malformed("pull request")
     pullRequestCache = undefined
     return { number, url: created.url, title: created.title, head: head.ref, base: base.ref }
   }
@@ -750,7 +769,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   }
 
   /** The files of a commit by repository path, with their blob sha and mode. */
-  const readFullTree = async (sha: string): Promise<Map<string, { mode: GitFileMode, sha: string }>> => await githubRequest(client, async (provider, repo) => {
+  const readFullTree = async (sha: string): Promise<Map<string, { mode: GitFileMode, sha: string }>> => await githubRequest(client(), async (provider, repo) => {
     const tree = provider.contents.tree(repo, { recursive: true, ref: sha })
     const files = new Map<string, { mode: GitFileMode, sha: string }>()
     for await (const entry of tree) {
@@ -770,7 +789,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
    */
   const mergeKeepingOurs = async (from: { branch: string, ref: string }, into: { branch: string, ref: string }, mergeOptions: WorkspaceMergeOptions): Promise<WorkspaceRevision> => {
     let metadata = mergeOptions.metadata
-    const sha = await githubRequest(client, async (provider, repo) => {
+    const sha = await githubRequest(client(), async (provider, repo) => {
       const oursSha = await provider.contents.resolveRef(repo, `heads/${into.branch}`)
       const theirsSha = await provider.contents.resolveRef(repo, `heads/${from.branch}`)
       if (!oursSha || !theirsSha) malformed("commit")
@@ -822,7 +841,7 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
     let response: { data: unknown, status: number } | undefined
     for (let attempt = 1; !response; attempt++) {
       try {
-        response = await githubRequest(client, async (provider, repo) => await provider.request<unknown>("POST", `${repoPath(repo)}/merges`, {
+        response = await githubRequest(client(), async (provider, repo) => await provider.request<unknown>("POST", `${repoPath(repo)}/merges`, {
           body: { base: into.branch, head: from.branch, commit_message: message },
         }), "merge")
       }
@@ -854,10 +873,10 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
   const checkedMerge = async (mergeOptions: WorkspaceMergeOptions, check?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null> => {
     if (!check) return await merge(mergeOptions)
     const into = resolveRef(mergeOptions.into)
-    const expected = await readCurrentHead(client, into.branch)
+    const expected = await readCurrentHead(client(), into.branch)
     if (!expected) throw workspaceError(`[vitehub] Cannot merge into ${into.ref}: the branch does not exist.`)
     const temporary = `vitehub/merge/${randomUUID()}`
-    await githubRequest(client, async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
+    await githubRequest(client(), async (provider, repo) => await provider.request("POST", `${repoPath(repo)}/git/refs`, {
       body: { ref: `refs/heads/${temporary}`, sha: expected },
     }))
     try {
@@ -887,12 +906,12 @@ export function createGitHubWorkspaceHistory(input: GitHubHistoryOptions | (() =
               || gitFileMode(file.metadata?.gitMode ?? entry.metadata?.gitMode) !== gitFileMode(entry.metadata?.gitMode)
           }))).some(Boolean)
         const result = changed ? await commit({ ...checked, ref: temporary, ifHead: prepared.id }) : prepared
-        const actual = await readCurrentHead(client, into.branch)
+        const actual = await readCurrentHead(client(), into.branch)
         if (actual !== expected) {
           heads.delete(into.branch)
           throw historyConflict(into.ref, expected, actual)
         }
-        await githubRequest(client, async (provider, repo) => await provider.request("PATCH", `${repoPath(repo)}/git/refs/heads/${refPath(into.branch)}`, {
+        await githubRequest(client(), async (provider, repo) => await provider.request("PATCH", `${repoPath(repo)}/git/refs/heads/${refPath(into.branch)}`, {
           body: { sha: result.id, force: false },
         }))
         heads.set(into.branch, { expires: Date.now() + githubHeadCacheMs, head: Promise.resolve(result.id) })

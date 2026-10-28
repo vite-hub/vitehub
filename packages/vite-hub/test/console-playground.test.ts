@@ -7,7 +7,7 @@ import { requestConsole } from "../src/console/runtime/client/request.ts"
 
 // The playground is outside this package's TypeScript project, so load its real module at test time.
 const { callConsoleFixture } = await vi.importActual<{
-  callConsoleFixture: (origin: string, payload: unknown) => Promise<unknown>
+  callConsoleFixture: (origin: string, payload: unknown, cookie?: string) => Promise<unknown>
 }>("../../../playground/console/rpc.ts")
 
 afterEach(() => {
@@ -161,4 +161,21 @@ it("rejects empty and malformed image chats", async () => {
     .resolves.toMatchObject({ error: "A prompt or image is required." })
   await expect(playgroundRequest(endpoint, { files: [{ url: "not-an-image" }] }, 400))
     .resolves.toMatchObject({ error: expect.any(String) })
+})
+
+it("forwards failure cookies while translating write operations to fixture requests", async () => {
+  const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
+  vi.stubGlobal("fetch", fetch)
+
+  await expect(callConsoleFixture("http://localhost:5173", {
+    operation: "invocations.cancel",
+    input: { id: "run/1" },
+  }, "playground-fail=invocations:503")).resolves.toEqual({
+    code: "CONSOLE_REQUEST_FAILED", message: "Playground failure", ok: false, status: 503,
+  })
+  expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/invocations/run%2F1"), {
+    body: JSON.stringify({ action: "cancel" }),
+    headers: { "content-type": "application/json", cookie: "playground-fail=invocations:503" },
+    method: "POST",
+  })
 })

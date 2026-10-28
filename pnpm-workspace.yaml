@@ -16,6 +16,7 @@ catalog:
   remark-mdc: ^3.11.1
   remark-parse: ^11.0.0
   unified: ^11.0.5
+  comark-chat: 0.7.1
   vite-doctor: https://pkg.pr.new/vite-doctor@9f33eb1748fb93f7399579b60d3bff6af3895eb1
 
 catalogMode: prefer
@@ -108,7 +109,7 @@ catalogs:
     ocache: ^0.3.0
     standard-context: 0.0.4
     valibot: ^1.5.0
-    zod: ^4.6.5
+    zod: ^4.6.7
   sandbox:
     "@cloudflare/computer": ^0.2.1
     "@cloudflare/sandbox": ^0.12.10

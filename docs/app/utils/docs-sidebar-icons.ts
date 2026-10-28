@@ -48,6 +48,7 @@ const sidebarIconMap = {
   "i-lucide-map": "i-ph-map-trifold-light",
   "i-lucide-message-circle-code": "i-ph-chat-circle-text-light",
   "i-lucide-message-square": "i-ph-chat-text-light",
+  "i-lucide-message-square-text": "i-ph-chat-text-light",
   "i-lucide-messages-square": "i-ph-chats-circle-light",
   "i-lucide-monitor": "i-ph-browser-light",
   "i-lucide-network": "i-ph-tree-structure-light",
@@ -105,6 +106,8 @@ export const railSectionIconMap: Readonly<Record<string, PrimitiveIconName>> = {
   "blob": "blob",
   "browser": "browser",
   "channels": "channel",
+  // No comment icon exists in @vite-hub/ui/primitive-rail yet; the speech bubble of Channels is the closest.
+  "comments": "channel",
   "connections": "connection",
   "content": "content",
   "database": "database",

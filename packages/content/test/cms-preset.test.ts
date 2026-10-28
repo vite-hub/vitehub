@@ -17,7 +17,7 @@ import { readCmsPresetUsage, renderCmsWorkspaceModule, resolveCmsPresetPlan } fr
 import { documents } from "../src/collections.ts"
 import { defineContent } from "../src/index.ts"
 import cms from "../src/presets/cms.ts"
-import { hubContent, usesCmsPreset } from "../src/vite.ts"
+import { cmsPresetStore, hubContent, usesCmsPreset } from "../src/vite.ts"
 
 import type { ResolvedConfig } from "vite"
 
@@ -261,6 +261,9 @@ describe("hubContent()", () => {
     const custom = await temporaryRoot()
     await writeProjectFile(custom, "app/server/content.ts", presetContent)
     expect(usesCmsPreset({ projectRoot: custom, serverDirs: ["app/server"] })).toBe(true)
+    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("blob-database")
+    await writeProjectFile(custom, "app/server/content.ts", presetContent.replace("extends: cms", "extends: [cms, { store: 'github', repo: 'owner/repo' }]"))
+    expect(cmsPresetStore({ projectRoot: custom, serverDirs: ["app/server"] })).toBe("github")
   })
 
   it("contributes nothing and removes the generated module without the preset", async () => {

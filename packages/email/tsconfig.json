@@ -6,13 +6,12 @@
       "node",
       "vitest/globals"
     ],
-    "baseUrl": "../..",
     "paths": {
       "#vitehub/email/definition": [
-        "packages/email/src/runtime/empty-definition.ts"
+        "../../packages/email/src/runtime/empty-definition.ts"
       ],
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     }
   },

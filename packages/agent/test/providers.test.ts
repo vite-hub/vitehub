@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto"
 import { execFile } from "node:child_process"
 import { existsSync } from "node:fs"
-import { glob, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises"
+import { glob, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { runInNewContext } from "node:vm"
 import { dirname, join, relative, resolve } from "node:path"
@@ -14,7 +14,7 @@ import { transform } from "esbuild"
 import { removeProviderOutputArtifactDir } from "@vite-hub/internal/build/provider-output-sources"
 import { resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { collectViteHubProviderOutputEntries } from "@vite-hub/internal/inspect"
-import { mergeConfig, build as viteBuild } from "vite"
+import { mergeConfig, resolveConfig, build as viteBuild } from "vite"
 import type { ConfigEnv, UserConfig } from "vite"
 import { describe, expect, it, vi } from "vitest"
 
@@ -695,8 +695,8 @@ describe("agent Vite plugin", () => {
         },
         workflowImportBase: "vite-hub/_internal/workflow",
         workspaceDependencyRuntimeImports: {
-          sandboxTask: "@vite-hub/sandbox-task",
-          sandboxTaskRuntimeState: "vite-hub/_internal/sandbox-task/runtime/state",
+          sandboxTask: "@vite-hub/sandbox/task",
+          sandboxTaskRuntimeState: "vite-hub/_internal/sandbox/task/runtime/state",
           shellWorkspace: "vite-hub/shell/workspace",
         },
         workspaceImportBase: "vite-hub/_internal/workspace",
@@ -722,7 +722,7 @@ describe("agent Vite plugin", () => {
       expect(filteredRoute).toContain(
         'import { setWorkspaceDependencyRuntimeLoaders as vitehubSetWorkspaceDependencyRuntimeLoaders } from "vite-hub/_internal/workspace/runtime"',
       )
-      expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox-task")')
+      expect(filteredRoute).toContain('sandboxTask: () => import("@vite-hub/sandbox/task")')
 
       // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
       const composedBlobPlugin = hubAgent({
@@ -1299,13 +1299,14 @@ describe("agent Vite plugin", () => {
     }
   })
 
-  it("writes Netlify provider output during Netlify local dev", async () => {
+  it.each(["absent", "configured"] as const)("writes Netlify provider output during Netlify local dev with KV %s", async (kvMode) => {
     const { writeProviderDeploymentOutputs } = await import("@vite-hub/internal/build/deployment-output")
     const { hubAgent } = await import("../src/vite.ts")
     const root = await mkdtemp(join(tmpdir(), "vitehub-agent-netlify-dev-routes-"))
     const previousHosting = process.env.VITEHUB_HOSTING
     const previousNetlifyDev = process.env.NETLIFY_DEV
     try {
+      await symlink(resolve(import.meta.dirname, "../../../node_modules"), join(root, "node_modules"), "dir")
       delete process.env.VITEHUB_HOSTING
       process.env.NETLIFY_DEV = "true"
       await mkdir(join(root, "server", "agents"), { recursive: true })
@@ -1316,18 +1317,13 @@ describe("agent Vite plugin", () => {
           "@vite-hub/kv/runtime/upstash-driver": "vite-hub/_internal/kv/runtime/disabled-upstash",
         },
       } as never)
-      // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-      const configResolved = plugin.configResolved as (config: {
-        build?: { outDir?: string }
-        command: "serve"
-        resolve: { alias: Array<{ find: string; replacement: string }> }
-        root: string
-      }) => Promise<void>
       vi.mocked(writeProviderDeploymentOutputs).mockClear()
 
-      await configResolved({
+      await resolveConfig({
         build: { outDir: "dist/client" },
-        command: "serve",
+        configFile: false,
+        envDir: false,
+        plugins: [{ name: plugin.name, configResolved: plugin.configResolved }, ...(kvMode === "configured" ? [{ name: "@vite-hub/kv/vite" }] : [])],
         resolve: {
           alias: [
             { find: "@", replacement: join(root, "src") },
@@ -1336,13 +1332,16 @@ describe("agent Vite plugin", () => {
           ],
         },
         root,
-      })
+      }, "serve")
 
       const wrapper = await readFile(join(root, ".vitehub/agent/netlify-function.mjs"), "utf8")
+      const capabilityOption = kvMode === "configured" ? " capabilities: vitehubAgentRouteCapabilities," : ""
       expect(wrapper).toContain(
-        "handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite', state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })",
+        `handler(request, webhook, { agentIdentity: agentIdentities[agent], runtime: 'vite',${capabilityOption} state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver, waitUntil })`,
       )
-      expect(wrapper).toContain("handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite', waitUntil })")
+      expect(wrapper).toContain(
+        `handler(request, { agentIdentity: agentIdentities[agent], runtime: 'vite',${capabilityOption} waitUntil })`,
+      )
       expect(writeProviderDeploymentOutputs).toHaveBeenCalledWith(
         expect.objectContaining({
           netlify: expect.objectContaining({
@@ -1361,8 +1360,9 @@ describe("agent Vite plugin", () => {
                   external: [
                     "@ai-sdk/mcp",
                     "@modelcontextprotocol/sdk/*",
-                    "@vite-hub/sandbox-task",
-                    "@vite-hub/sandbox-task/*",
+                    ...kvMode === "absent" ? ["@vite-hub/kv"] : [],
+                    "@vite-hub/sandbox/task",
+                    "@vite-hub/sandbox/task/*",
                     "@vite-hub/shell",
                     "@vite-hub/shell/*",
                     "@vite-hub/workflow",

@@ -52,7 +52,7 @@
     {
       "artifact": "server-bundle",
       "framework": "vite",
-      "id": "sandbox-task",
+      "id": "sandbox",
       "mode": "build",
       "outputs": ["dist/server.js", ".vitehub/sandbox-task/runtime/sandbox-task-registry.mjs"]
     },

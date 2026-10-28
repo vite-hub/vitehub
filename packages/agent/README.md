@@ -1,9 +1,9 @@
 # @vite-hub/agent
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="AI SDK" src="https://img.shields.io/badge/AI%20SDK-v7-111827?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="AI SDK" src="https://comark-ui.onmax.me/badge.svg?label=AI+SDK&amp;value=v7">
 </p>
 
 `@vite-hub/agent` defines Agents from files such as `server/agents/support/agent.ts`. Each Agent selects one Driver: an AI SDK model, a built-in coding provider, typed TypeSafe Jev questions, or application-owned `driver.run` logic.
@@ -86,7 +86,8 @@ export default defineAgent({
 
 ```ts
 // server/agents/labeller.ts
-import { ask, defineAgent } from "@vite-hub/agent";
+import { defineAgent } from "@vite-hub/agent";
+import { ask } from "@vite-hub/gateways";
 
 export default defineAgent({
   driver: {
@@ -98,7 +99,7 @@ export default defineAgent({
 });
 ```
 
-Jev requests retry up to two times on 408, 429, 5xx provider answers and network failures. A rejected key (401 or 403) fails with `AGENT_R1009` and status 503, and its `fix` names `AI_GATEWAY_API_KEY` or `TYPESAFE_API_KEY`. A provider that still fails after three attempts fails with `AGENT_R1010` and status 502. Both keep `providerStatus`, `requestId`, and the provider error as `cause`. With `typesafeEnv({ provider: "vercel" })` and no key outside Vercel, the Invocation fails with `AGENT_R0936` before any request.
+Jev requests go through the AI gateway in `driver.gateway`, or through `typesafe()` from `@vite-hub/gateways`, which reads `TYPESAFE_API_KEY`. The gateway retries 408, 429, and 5xx provider answers and network failures. A rejected key fails with `GATEWAYS_R0008` and status 503, and a provider that still fails after three attempts with `GATEWAYS_R0009` and status 502. A `driver.gateway` without `ask()`, such as `cliproxy()`, fails at definition time with `AGENT_R1013`.
 
 Jev reads Invocation `data` when a caller sets it, else the prompt text, else the latest user message. `ask.choice()`, `ask.switch()`, `ask.score()`, `ask.chance()`, and `ask.if()` return plain question objects. `driver.ask` also accepts a function that returns the questions for each Invocation.
 
@@ -108,7 +109,7 @@ Each question is recorded in the Invocation trace as `agent.tool.start`, then `a
 
 Each Jev request is also one call (`model`, `provider`, `usage`) of the Invocation usage record. `event.invocation.usage` and `usage.record` on `agent.invocation.finish` sum the calls and name the model when every call used the same one, so the Console usage and cost table counts ask runs. Add `usage({ pricing })` to the Agent to price them.
 
-Credentials come from the Server Env group `typesafe`. Declare it with `typesafe: typesafeEnv()` from `@vite-hub/env`. `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option. Their decisions include `probabilities` and no `reason`.
+See [AI gateways](../../docs/content/docs/agents/ai-gateways.md). `llmGate()` and `llmRoute()` on an ask Driver Agent use one Jev `ask.choice()` question when they have no `model` option, through their `gateway` option or `typesafe()`. Their decisions include `probabilities` and no `reason`.
 
 ## Direct invocations
 
@@ -136,7 +137,7 @@ Tools can declare `title`, a short past-tense label such as `Searched meals`, an
 
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
-Set `driver.gateway` to route Codex or Claude Code model requests through an LLM proxy or gateway. Presets in `@vite-hub/agent/gateways` cover CLIProxyAPI, LiteLLM, Ollama, OpenRouter, Vercel AI Gateway, OpenAI, and Anthropic; `defineGateway()` covers other endpoints. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`, and `cloudflareAccess()` reads Cloudflare Access service-token headers. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
+Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
 
 ```ts
 // server/agents/codex/agent.ts
@@ -427,7 +428,7 @@ A Channel trigger result with `webhook.deliveryId` runs under that ID: an unset 
 `webhook.debounce: { key, delayMs }` delays a queued delivery by `delayMs`. A later delivery with the same key replaces a queued one that has not started, and its wait starts again. The replaced delivery records a `superseded` Channel delivery event. See [Debounce webhook deliveries](../../docs/content/docs/agents/triggers.md#debounce-webhook-deliveries).
 
 `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` locks one Channel State key while `run` decides, and commits its write with the queue admission of the returned invocation, in one transaction on SQLite and libSQL State. See [Decide and write Channel State in one step](../../docs/content/docs/agents/channels.md#decide-and-write-channel-state-in-one-step).
-A trigger can declare `prepare` and named `tasks`, and `invoke` selects a task with `task: name`. A task runs another Agent (`agent`) or a plain `run` function. The queue stores the task key, the task Agent's name and the accepted JSON input before `prepare`, then runs `prepare` and the task on every attempt. A restart resolves the stored task from the current definition without calling `invoke` again. A task's `prepare` replaces the trigger's. A handled `Response` from `prepare` or `run` settles the delivery (2xx and 4xx) or retries it (5xx). See [Prepare accepted work and run tasks](../../docs/content/docs/agents/triggers.md#prepare-accepted-work-and-run-tasks).
+A trigger can declare `prepare` and named `tasks`, and `invoke` selects a task with `task: name`. With `busy: "steer"`, queued Invocations run `prepare` on each attempt; input sent to an active Invocation skips it. Steering cannot select a named task. A task runs another Agent (`agent`) or a plain `run` function. The queue stores the task key, the task Agent's name and the accepted JSON input before `prepare`, then runs `prepare` and the task on every attempt. A restart resolves the stored task from the current definition without calling `invoke` again. A task's `prepare` replaces the trigger's. A handled `Response` from `prepare` or `run` settles the delivery (2xx and 4xx) or retries it (5xx). See [Prepare accepted work and run tasks](../../docs/content/docs/agents/triggers.md#prepare-accepted-work-and-run-tasks).
 `context.dispatch(items, { trigger, queue: true })` admits each item to the webhook queue like its own webhook delivery. An item with `order: { key, version }` is skipped as `stale` unless `version` is greater than the last version admitted for `key` through that trigger. `context.pull({ key, initialCursor, fetch, trigger, signal? })` drains a provider's change log through queued dispatch and saves the cursor only after every item of a page is admitted. `context.channelState.transaction(key, run, { ttlMs?, waitMs? })` locks one Channel State key while `run` decides, and commits its write with the queue admission of the returned invocation, in one transaction on SQLite and libSQL State. See [Pull a provider's change log](../../docs/content/docs/agents/channels.md#pull-a-providers-change-log) and [Decide and write Channel State in one step](../../docs/content/docs/agents/channels.md#decide-and-write-channel-state-in-one-step).
 
 A queued delivery gets three execution attempts. When the queue stops retrying it, after the last failed attempt or after the delivery used all its execution leases, ViteHub dispatches the Trigger's `failed` callback at most once with `{ attempts, deliveryId, error, publicError, input?, invocation?, run? }`. An error from `failed` is logged and does not change the delivery outcome. Pending notifications survive restart with built-in state providers; a process exit after the durable notification claim leaves an uncertain outcome that is not replayed automatically. See [Report a failed webhook delivery](../../docs/content/docs/agents/triggers.md#report-a-failed-webhook-delivery).
