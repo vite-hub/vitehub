@@ -501,7 +501,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
 
     async setup() {
       const setup: ViteHubConsoleDocumentSetup = {}
-      if (!await content.supportsScheduling()) {
+      if (content.collections().length > 0 && !await content.supportsScheduling()) {
         setup.schedule = { message: "The GitHub store does not support scheduled publishing. Publish documents with Publish instead." }
       }
       // Without a policy `content.can()` denies everything, so the editor names the fix instead of an empty section.

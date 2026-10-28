@@ -98,6 +98,17 @@ async function failure(promise: unknown) {
 }
 
 describe("Content Console actions", { timeout: 30_000 }, () => {
+  it("keeps setup available for a read-only runtime without collections", async () => {
+    const content = defineContent({ source: { items: async () => [] }, logger: false })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+
+    await expect(actions.collections(anonymous)).resolves.toEqual([])
+    const setup = await actions.setup!(anonymous)
+    expect(setup.schedule).toBeUndefined()
+    expect(setup.access).toMatchObject({ message: expect.stringContaining("authorize") })
+  })
+
   it("lists the collections a user may read, with what they may do", async () => {
     const { actions } = await setup()
     const collections = await actions.collections(writer)
