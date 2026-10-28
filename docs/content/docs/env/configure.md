@@ -145,6 +145,8 @@ The example produces `usePublicEnv().appName`, `useServerEnv().retries`, `useSer
 
 The importer uses the restricted `env-spec-v1` profile from the [Nuxt experiment](https://github.com/onmax/nuxt-safe-runtime-config/pull/32), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub owns its environment reader and serializable runtime parsers. The importer does not load developer `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
 
+Try the [runnable schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) for a browser bundle and Node production server built from one contract. It includes a production test for consumer types, startup failures, redaction, browser output, and server values that change across restarts of the same build. Public Env values are captured during the build.
+
 ### Review defaults before opting in
 
 A nonempty assignment supplies a real default. `KEY=` has no default, while `KEY=""` explicitly declares an empty string. Use `@example="sample"` for documentation without a runtime value. Unlike a conventional example file, placeholder assignments become defaults here.
