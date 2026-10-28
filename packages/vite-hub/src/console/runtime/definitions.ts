@@ -49,6 +49,8 @@ export interface ConsoleDocumentCollection {
   singularLabel?: string
   name: string
   path: string
+  /** Every glob of the collection, when it has several. The new-document form offers a folder for each. */
+  paths?: readonly string[]
   schema: Record<string, unknown>
   titleField?: string
   /** Comark components that bodies may use, for the body editor's insert menu. */
@@ -295,6 +297,7 @@ export function parseConsoleDocumentCollections(value: unknown): ConsoleDocument
       path: collection.path,
       schema,
     }
+    if (Array.isArray(collection.paths) && collection.paths.every(text)) parsed.paths = [...collection.paths]
     if (text(collection.titleField)) parsed.titleField = collection.titleField
     if (text(collection.singularLabel) && collection.singularLabel.trim()) parsed.singularLabel = collection.singularLabel
     const components = parseConsoleDocumentComponents(collection.components)

@@ -12,7 +12,7 @@ icon: i-lucide-circle-alert
 - Define either `source` or `sources`. Passing both throws.
 - `plugins` takes Comark Content plugins. A Comark parse plugin there throws `CONTENT_R0006`; pass it in `markdown.plugins`.
 - `collections` requires `workspace` or `extends: cms`, and `extends` cannot be combined with `workspace`. Every collection comes from `documents()`, and a collection name cannot match a Source name. Violations throw `CONTENT_R0006`.
-- `documents()` paths are relative globs that use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. Every field is a Standard Schema validator.
+- `documents()` paths are relative globs that use `*`, `**`, and `?`, and end with one extension, such as `posts/**/*.md`. `path` may be a list of globs that share that extension, with no repeated glob. A list that is empty, repeats a glob, mixes extensions, or has a glob without a wildcard throws `CONTENT_R0006`. `content.resolve()` throws `CONTENT_R0008` when its path is not a string. Every field is a Standard Schema validator.
 - `defineContent()` uses `AsyncLocalStorage` from `node:async_hooks`. The runtime must provide it.
 
 ## Sources

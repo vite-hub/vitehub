@@ -116,6 +116,25 @@ function cli(content: unknown, options: ContentCliOptions = {}) {
 const hello = { data: { title: "Hello", tags: ["vue"] }, body: "# Hello\n\nFirst post.\n" }
 
 describe("vitehub content", { timeout: 30_000 }, () => {
+  it.each([
+    { paths: ["content/posts/**/*.md", "content/news/*.md"], id: "news/fresh", path: "content/news/fresh.md" },
+    { paths: ["docs/pages/**/*.md", "packages/*/docs/**/*.md"], id: "packages/zoom/docs/fresh", path: "packages/zoom/docs/fresh.md" },
+  ])("creates a document at $path in a multi-folder collection", async ({ paths, id, path }) => {
+    const workspace = await historyWorkspace()
+    const content = defineContent({ workspace, collections: { pages: documents({ path: paths, fields: { title: z.string() } }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const editor = vi.fn(async (file: string) => {
+      expect(await readFile(file, "utf8")).toBe("---\ntitle: null\n---\n")
+      await writeFile(file, "---\ntitle: Fresh\n---\n")
+    })
+    const { run } = cli(content, { editor })
+    const template = await runOperation(createOperationRegistry([{ operations: contentOperations }]), "content.show", { collection: "pages", id, create: true }, { access: { mode: "local", sections: "all" }, development: true, surface: "cli", user: null })
+    expect(template).toMatchObject({ ok: true, value: { path, digest: null, ref: "draft" } })
+    expect((await run("edit", "pages", id)).code).toBe(0)
+    expect(editor).toHaveBeenCalledOnce()
+    expect(await content.collection("pages").raw(id, { ref: "draft" })).toMatchObject({ path, text: "---\ntitle: Fresh\n---\n" })
+  })
+
   it("prints the pull request that a publish opened", async () => {
     const { content, posts } = await setup()
     await posts.save("hello", hello)

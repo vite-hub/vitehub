@@ -22,6 +22,7 @@ import {
   consoleRevisionLabel,
   consoleSeoFallbacks,
   consoleSeoField,
+  consoleDocumentFolders,
   consoleSingularLabel,
   isConsoleConflict,
   isConsoleDocumentId,
@@ -332,7 +333,11 @@ const refusedEdits = ref(0);
 const editable = computed(() => canWrite.value && (creating.value || leaseMode.value === "free" || leaseMode.value === "editing"));
 const leaseCompareOpen = ref(false);
 const leaseCompare = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
-const id = computed(() => (creating.value ? newId.value.trim() : props.documentId!));
+// A collection with several globs offers a folder for each. The id starts with the folder below the one that all globs share.
+const folders = computed(() => consoleDocumentFolders(props.collection));
+const folderIndex = ref(0);
+const folderPrefix = computed(() => folders.value[folderIndex.value]?.prefix ?? "");
+const id = computed(() => (creating.value ? (newId.value.trim() ? `${folderPrefix.value}${newId.value.trim()}` : "") : props.documentId!));
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
   // The live room saves on its own; nothing waits on this tab.
@@ -1401,6 +1406,16 @@ const menuItems = computed(() => [[
             @focusin="onFieldFocus"
             @focusout="onFieldBlur"
           >
+            <ConsolePropertyRow v-if="creating && folders.length > 1" icon="i-lucide-folder" label="Folder" control="field-folder">
+              <USelect
+                id="field-folder"
+                v-model="folderIndex"
+                class="w-full"
+                variant="ghost"
+                :items="folders.map((entry, index) => ({ label: entry.folder || '/', value: index }))"
+                :ui="{ base: 'font-mono text-xs' }"
+              />
+            </ConsolePropertyRow>
             <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
               <UInput
                 id="field-id"
@@ -1414,7 +1429,7 @@ const menuItems = computed(() => [[
                 @update:model-value="idEdited = true"
               >
                 <template #trailing>
-                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${collection.path.split('*')[0]}${newId || '…'}${fileExtension}` : "From the title" }}</span>
+                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${folders[folderIndex]?.folder ?? ''}${newId || '…'}${fileExtension}` : "From the title" }}</span>
                 </template>
               </UInput>
             </ConsolePropertyRow>
