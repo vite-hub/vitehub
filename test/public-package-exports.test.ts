@@ -70,11 +70,15 @@ describe("public package export contracts", () => {
     }
   })
 
-  it("classifies Comments server peers without requiring them for client exports", () => {
+  it("keeps Comments dependencies installed and classifies its optional Vite peer", () => {
+    const manifest = readPackageManifest("comments")
+    expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
     for (const subpath of ["database", "database/postgres", "operations", "server"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
-      expect(contract?.optionalRuntimePeers).toEqual(["drizzle-orm"])
-      expect(contract?.optionalDeclarationPeers).toEqual(subpath === "operations" ? [] : ["drizzle-orm"])
+      expect(contract?.optionalRuntimePeers).toEqual([])
+      expect(contract?.optionalDeclarationPeers).toEqual([])
     }
     for (const subpath of ["", "/client", "/rpc", "/testing"]) {
       const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments${subpath}`)
@@ -82,8 +86,8 @@ describe("public package export contracts", () => {
       expect(contract?.optionalDeclarationPeers).toEqual([])
     }
     const plugin = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/comments/vite")
-    expect(plugin?.optionalRuntimePeers).toEqual([])
-    expect(plugin?.optionalDeclarationPeers).toEqual(["@vite-hub/database", "vite"])
+    expect(plugin?.optionalRuntimePeers).toEqual(["vite"])
+    expect(plugin?.optionalDeclarationPeers).toEqual(["vite"])
   })
 
   it("keeps Schedule KV adapter declarations independent from its runtime peer", () => {

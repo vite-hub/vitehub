@@ -319,6 +319,51 @@ describe("comment mode", () => {
 });
 
 describe("mentions", () => {
+  it("discards a lookup after the caret leaves the mention token without new input", async () => {
+    const { client, wrapper } = await layer();
+    await drop(wrapper);
+    let resolve!: (people: CommentUser[]) => void;
+    const search = vi.spyOn(client, "users").mockImplementation(() => new Promise((done) => { resolve = done; }));
+    const field = textarea(wrapper);
+    await field.setValue("Hi @be");
+    await vi.waitFor(() => expect(search).toHaveBeenCalled());
+    (field.element as HTMLTextAreaElement).setSelectionRange(0, 0);
+    resolve([ben]);
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect((field.element as HTMLTextAreaElement).value).toBe("Hi @be");
+  });
+
+  it.each([
+    ["Hi @Ben Sotomore.", []],
+    ["Hi @ben soto!", ["ben"]],
+    ["Hi x@Ben Soto.", []],
+  ])("sends only complete, case-insensitive mention tokens in %s", async (body, mentions) => {
+    const { client, wrapper } = await layer();
+    await drop(wrapper);
+    const field = textarea(wrapper);
+    await field.setValue("Hi @be");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    await field.setValue(body);
+    await field.trigger("keydown", { key: "Enter" });
+    await vi.waitFor(() => expect(client.threads).toHaveLength(1));
+    expect(client.threads[0]!.messages[0]!.mentions).toEqual(mentions);
+  });
+
+  it("does not replace text when the caret moves after the mention menu opens", async () => {
+    const { wrapper } = await layer();
+    await drop(wrapper);
+    const field = textarea(wrapper);
+    await field.setValue("Hi @be");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
+    (field.element as HTMLTextAreaElement).setSelectionRange(0, 0);
+    await wrapper.get("[data-slot=comment-composer-mention]").trigger("mousedown");
+    expect((field.element as HTMLTextAreaElement).value).toBe("Hi @be");
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+  });
+
   it("discards a lookup after the mention token is deleted", async () => {
     const { client, wrapper } = await layer();
     await drop(wrapper);

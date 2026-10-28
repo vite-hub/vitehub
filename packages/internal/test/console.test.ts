@@ -79,6 +79,15 @@ describe("Console section contributions", () => {
     expect(describeViteHubConsoleRuntimeReader(auth)).toBeUndefined()
   })
 
+  it("keeps the visit path of a section, which must be an app path", () => {
+    expect(describeViteHubConsoleSection({ ...table, visit: "/api/_vitehub/widgets/session" }).visit).toBe("/api/_vitehub/widgets/session")
+    expect(() => describeViteHubConsoleSection({ ...table, visit: "https://example.com/session" })).toThrow(TypeError)
+    expect(() => describeViteHubConsoleSection({ ...table, visit: "//example.com/session" })).toThrow(TypeError)
+    for (const visit of ["/\\evil.test/x", "/\n/evil.test/x", "/\r/evil.test/x", "/\t/evil.test/x"]) {
+      expect(() => describeViteHubConsoleSection({ ...table, visit })).toThrow(TypeError)
+    }
+  })
+
   it("rejects ids that are not route segments", () => {
     expect(() => describeViteHubConsoleSection({ ...table, id: "Widget Runs" })).toThrow(TypeError)
   })

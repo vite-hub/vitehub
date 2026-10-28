@@ -17,10 +17,11 @@ export type { CommentsOverlayAssets, CommentsOverlayOptions } from "./overlay.ts
 export { commentsOverlayMiddlewarePath } from "./operations-core/vite.ts"
 
 export { commentsConsoleSection } from "./console.ts"
+export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
 export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, commentsDatabaseModulePath, renderCommentsDatabaseModule, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
-export { readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
-export type { CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
+export { componentNames, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
+export type { CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
 
 export type HubCommentsOptions = Omit<OperationOptions, "imports"> & CommentsVitePluginOptions & {
   operationsImports?: OperationOptions["imports"]
@@ -38,12 +39,15 @@ export function commentsEntryMode(file: string): "operations" | "live" {
   const module = scanModule(readFileSync(file, "utf8"), file)
   let named = false
   for (const statement of module.program.body) {
-    if (statement.type === "ExportDefaultDeclaration") return "operations"
-    if (statement.type === "ExportNamedDeclaration" && statement.specifiers.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default")) return "operations"
-    if (statement.type === "ExportNamedDeclaration") {
-      if (statement.declaration?.type === "VariableDeclaration" && statement.declaration.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === "comments")) named = true
-      if (statement.specifiers.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "comments")) named = true
+    if (statement.type === "ExportDefaultDeclaration") {
+      if (statement.declaration.type !== "TSInterfaceDeclaration") return "operations"
+      continue
     }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
+    const exports = statement.specifiers.filter(specifier => specifier.exportKind !== "type")
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default")) return "operations"
+    if (statement.declaration?.type === "VariableDeclaration" && statement.declaration.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === "comments")) named = true
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "comments")) named = true
   }
   return named ? "live" : "operations"
 }
@@ -63,6 +67,7 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
     name: operations.name,
     enforce: "pre",
     api: {
+      setComponents: live.api.setComponents,
       async contributeRealtime(context: CommentsRealtimeContributionContext) {
         const entry = findCommentsEntry({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })
         if (entry && commentsEntryMode(entry) === "live") return live.api.contributeRealtime(context)

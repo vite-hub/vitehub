@@ -1,13 +1,18 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { hubComments, readCommentsDatabase } from "../src/vite.ts"
+import { componentNames, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
+import type { H3Event } from "h3"
+import type { RealtimeDefinition } from "@vite-hub/realtime"
+import type { createCommentsHandler } from "../src/runtime/handler.ts"
 
 const roots: string[] = []
 
@@ -26,6 +31,11 @@ async function configure(plugin: ReturnType<typeof hubComments>, root: string, e
   const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
   await hook.handler(config)
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
+}
+
+async function readComponentsModule(root: string): Promise<Record<string, string[]>> {
+  const source = await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")
+  return (await import(`data:text/javascript,${encodeURIComponent(source)}`)).default
 }
 
 afterEach(async () => {
@@ -50,6 +60,137 @@ describe("hubComments", () => {
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
+  })
+
+  it("names a Vue file the way production builds and Nuxt name its component", () => {
+    expect(componentNames("app/components/PricingCard.vue")).toEqual(["PricingCard"])
+    expect(componentNames("app/components/viewer/Thread.vue")).toEqual(["Thread"])
+    expect(componentNames("app/components/viewer/ViewerCommentThread.vue")).toEqual(["ViewerCommentThread"])
+    expect(componentNames("app/pages/drops/index.vue")).toEqual(["index", "drops"])
+    expect(componentNames("app/pages/blog/[id].vue")).toEqual(["[id]", "blog-id"])
+    expect(componentNames("app/pages/index.vue")).toEqual(["index"])
+  })
+
+  it("lists the Vue files by component name and reads the build from the host", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/PricingCard.vue": "<template />",
+      "app/pages/index.vue": "<template />",
+      "app/pages/blog/index.vue": "<template />",
+      "node_modules/lib/Hidden.vue": "<template />",
+      ".nuxt/Generated.vue": "<template />",
+    })
+    expect(await readCommentsComponents(root)).toEqual({
+      PricingCard: ["app/components/PricingCard.vue"],
+      index: expect.arrayContaining(["app/pages/index.vue"]),
+      blog: ["app/pages/blog/index.vue"],
+    })
+    expect(await readCommentsBuild(root, { WORKERS_CI_COMMIT_SHA: "abc", WORKERS_CI_BRANCH: "main" })).toEqual({ commit: "abc", branch: "main" })
+    expect(await readCommentsBuild(root, { GITHUB_SHA: "def", GITHUB_REF_NAME: "feat" })).toEqual({ commit: "def", branch: "feat" })
+    await configure(hubComments(), root)
+    expect((await readComponentsModule(root)).PricingCard).toEqual(["app/components/PricingCard.vue"])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
+  })
+
+  it("maps filenames that are inherited object keys through Comments configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/constructor.vue": "<template />",
+      "app/components/toString.vue": "<template />",
+      "app/components/__proto__.vue": "<template />",
+    })
+    const expected = {
+      constructor: ["app/components/constructor.vue"],
+      toString: ["app/components/toString.vue"],
+      ["__proto__"]: ["app/components/__proto__.vue"],
+    }
+    expect(await readCommentsComponents(root)).toEqual(expected)
+    await configure(hubComments(), root)
+    const components = await readComponentsModule(root)
+    expect(Object.hasOwn(components, "__proto__")).toBe(true)
+    expect(components).toEqual(expected)
+  })
+
+  it("maps resolved component names that are inherited object keys", async () => {
+    const root = await project({ "widgets/Card.vue": "<template />" })
+    const components = await readCommentsComponents(root, 5000, [{ pascalName: "constructor", filePath: join(root, "widgets/Card.vue") }])
+    expect(components.constructor).toEqual(["widgets/Card.vue"])
+  })
+
+  it("uses resolved Nuxt names, including configured directories and mode suffixes, before and after configuration", async () => {
+    const root = await project({
+      "server/comments.ts": "export const comments = defineComments()",
+      "app/components/cards/index.vue": "<template />",
+      "app/components/(group)/Buy.client.vue": "<template />",
+      "app/components/Account.server.vue": "<template />",
+      "widgets/Thing.vue": "<template />",
+    })
+    const plugin = hubComments()
+    const entries = [
+      { pascalName: "Cards", filePath: join(root, "app/components/cards/index.vue") },
+      { pascalName: "Buy", filePath: join(root, "app/components/(group)/Buy.client.vue") },
+      { pascalName: "Account", filePath: join(root, "app/components/Account.server.vue") },
+      { pascalName: "CustomThing", filePath: join(root, "widgets/Thing.vue") },
+      { pascalName: "Primitive", filePath: join(root, "node_modules/lib/Primitive.vue") },
+    ]
+    await plugin.api.setComponents(entries)
+    await configure(plugin, root)
+    const readMap = () => readComponentsModule(root)
+    expect(await readMap()).toMatchObject({
+      Cards: ["app/components/cards/index.vue"],
+      Buy: ["app/components/(group)/Buy.client.vue"],
+      Account: ["app/components/Account.server.vue"],
+      CustomThing: ["widgets/Thing.vue"],
+    })
+    expect(await readMap()).not.toHaveProperty("Primitive")
+    expect(await readMap()).not.toHaveProperty("CardsIndex")
+    await plugin.api.setComponents([{ pascalName: "Thing", filePath: join(root, "widgets/Thing.vue") }])
+    expect(await readMap()).toMatchObject({ Thing: ["widgets/Thing.vue"] })
+    expect(await readMap()).not.toHaveProperty("CustomThing")
+  })
+
+  it("reads the people from the Console access rules when the app has the Console", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = hubComments({ auth: true, console: { module: "vite-hub/console/sections" } })
+    await configure(plugin, root)
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
+    expect(handler).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
+    expect(handler).not.toContain("commentsAuthSession")
+    const directory = join(root, ".vitehub/nitro/realtime")
+    await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
+  })
+
+  it("uses custom identify without calling Auth in generated HTTP and Realtime handlers", async () => {
+    const root = await project({
+      "server/comments.ts": `import { defineComments } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)}
+export const comments = defineComments({ identify: () => ({ id: "custom", name: "Custom" }) })`,
+      "auth.mjs": `export const calls = []
+export async function commentsAuthSession() { calls.push(true); throw new Error("Auth unavailable") }`,
+    })
+    const auth = pathToFileURL(join(root, "auth.mjs")).href
+    const plugin = hubComments({ auth: true, imports: {
+      auth,
+      runtime: new URL("../dist/runtime/index.js", import.meta.url).href,
+      realtime: new URL("../dist/realtime.js", import.meta.url).href,
+    } })
+    const directory = join(root, ".vitehub/nitro/realtime")
+    await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
+    await configure(plugin, root)
+    const { default: handler } = await import(pathToFileURL(join(root, ".vitehub/nitro/comments/handler.mjs")).href) as { default: ReturnType<typeof createCommentsHandler> }
+    const app = new H3().all("/api/_vitehub/comments/**", handler)
+    const response = await app.fetch(new Request("http://site.test/api/_vitehub/comments/session"))
+    expect(await response.json()).toMatchObject({ data: { user: { id: "custom", name: "Custom" }, can: { read: true } } })
+
+    const { default: room } = await import(pathToFileURL(join(directory, "comments.mjs")).href) as { default: RealtimeDefinition }
+    // SAFETY: the room only keys access by this event; the Auth reader must never run.
+    const event = {} as H3Event
+    const context = { event, definition: "comments", request: new Request("http://site.test") }
+    const user = await room.identify!(context)
+    expect(user).toEqual({ id: "custom", name: "Custom" })
+    expect(await room.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+    expect((await import(auth) as { calls: boolean[] }).calls).toEqual([])
   })
 
   it("adds the tables to the Database that defineComments names", async () => {

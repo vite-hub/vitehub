@@ -355,8 +355,8 @@ export interface ConsoleRealtimeUser {
 export interface ConsoleRealtimeAccess {
   /** The signed-in Console user, a Cloudflare Access email, or a guest of an open Console. Null without Console access. */
   identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
-  /** Whether the request has Console access that includes the section. */
-  authorize(context: { event: unknown }): Promise<boolean>
+  /** Whether the request includes the section; writes require its full grant instead of a read-only grant. */
+  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
   /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
   user(context: { event: unknown }): Promise<ConsoleUser | null>
 }
@@ -403,8 +403,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
       // An open Console has no accounts: each connection is a guest.
       return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
     },
-    async authorize({ event }) {
-      return Boolean(await access(event))
+    async authorize({ event, kind }) {
+      const allowed = await access(event)
+      return Boolean(allowed && (kind !== "write" || consoleAccessWrites(allowed, section)))
     },
     async user({ event }) {
       const allowed = await access(event)

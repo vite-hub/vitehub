@@ -390,7 +390,7 @@ async function issuesOf(collection: AnyContentCollection, id: string, selectedRe
 function documentTemplate(collection: AnyContentCollection, id: string): { path: string, text: string } {
   const path = collection.kind === "singleton"
     ? collection.path
-    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.path))
+    : (({ base, extension }) => `${base}${id}${extension}`)(compileDocumentsPath(collection.paths))
   return { path, text: renderDocumentFile(Object.fromEntries(collection.fields.map(field => [field, null])), "", collection.format) }
 }
 
@@ -590,7 +590,7 @@ const publish = defineOperation({
     const options: ContentPublishOptions = { expect: input.expect, metadata: metadata(context) }
     if (input.message !== undefined) options.message = input.message
     const result = await content.publish(options)
-    return { documents: result.documents, dryRun: false, revision: result.revision }
+    return { documents: result.documents, dryRun: false, revision: result.revision, ...(result.pullRequest ? { pullRequest: result.pullRequest } : {}) }
   }),
   section: "content",
 })
