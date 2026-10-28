@@ -31,6 +31,7 @@ export interface ViteHubMcpTool {
   title?: string
   description: string
   inputSchema: ViteHubMcpInputSchema
+  /** Only `readOnlyHint: true` permits a read-only Console grant; other tools require full section access. */
   annotations?: { readOnlyHint?: boolean, destructiveHint?: boolean, idempotentHint?: boolean, openWorldHint?: boolean }
   /** The Console section whose access the tool needs, such as `comments`. */
   section: string
