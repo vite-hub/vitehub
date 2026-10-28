@@ -63,6 +63,7 @@ const evidenceSchema = v.looseObject({
   state: v.optional(v.string()), name: v.optional(v.string()), status: v.optional(v.string()), conclusion: v.nullish(v.string()),
   head_sha: v.optional(v.string()), sha: v.optional(v.string()), context: v.optional(v.string()),
   description: v.nullish(v.string()), details_url: v.nullish(v.string()), target_url: v.nullish(v.string()),
+  performed_via_github_app: v.nullish(v.looseObject({ id: v.number() })),
   // Required checks can bind a context to an app ID.
   app: v.nullish(v.looseObject({ slug: v.optional(v.string()), id: v.optional(v.number()) })),
   output: v.optional(v.object({ summary: v.nullish(v.string()), text: v.nullish(v.string()) })),
@@ -79,6 +80,7 @@ export interface GitHubEvidence extends GitHubTimestamps {
   body?: string | null; html_url?: string; url?: string; deleted?: boolean
   state?: string; name?: string; status?: string; conclusion?: string | null
   head_sha?: string; sha?: string; context?: string; description?: string | null; details_url?: string | null; target_url?: string | null
+  performed_via_github_app?: { id: number } | null
   app?: { [key: string]: unknown; slug?: string; id?: number } | null; output?: { summary?: string | null; text?: string | null }
   pull_requests?: { number: number }[]; commit_id?: string; original_commit_id?: string; commit?: { oid: string } | null
   pull_request_review_id?: number; in_reply_to_id?: number; path?: string; line?: number | null

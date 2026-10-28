@@ -670,9 +670,8 @@ test('lease replacement corrects a late GitHub write through the real activity c
     await next.flush()
   } finally { release(); await first }
   await next.flush()
-  const managed = comments.filter(comment => !comment.body.startsWith('This Agent activity was superseded'))
-  assert.equal(managed.length, 1)
-  assert.ok(managed[0]!.body.includes('New result'))
+  assert.ok(comments[0]!.body.includes('New result'), 'the original managed comment receives the correction')
+  assert.ok(comments[1]!.body.includes('Old result'), 'a late duplicate remains historical instead of causing another write')
   assert.deepEqual(await inbox.pendingStatusDeliveries(), [])
   const restarted = createBabysitterStatusRecovery({ inbox: other, revision: 'release-1', publish: await publisher('restarted-expiry-token') })
   await restarted.recover()
