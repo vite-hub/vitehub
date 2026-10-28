@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@libsql/client": "catalog:database",
-    "comark-content": "catalog:markdown",
+    "comark-content": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "h3": "catalog:unjs",
     "nitro": "catalog:unjs",

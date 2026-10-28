@@ -63,8 +63,12 @@ catalogs:
   h3-v1-compat:
     h3: ^1.15.11
   markdown:
-    "@comark/html": 0.8.1
+    "@comark/html": 0.7.0
     "@types/mdast": ^4.0.4
+    comark: 0.7.0
+  # Content/UI need the matching renderer stack; other consumers retain their parser behavior.
+  markdown-ui:
+    "@comark/html": 0.8.1
     comark: 0.8.1
     comark-content: 0.4.3
     # Includes the editor fix in onmax/comark-ui#258; replace with its release when available.
