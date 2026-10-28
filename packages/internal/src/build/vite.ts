@@ -86,6 +86,8 @@ interface NitroVercelConfig {
 export const VITEHUB_NITRO_CONFIG_CONTEXT = "__vitehubNitroConfigContext" as const
 export const VITEHUB_GENERATED_ROOT = "__vitehubGeneratedRoot" as const
 export const VITEHUB_PROJECT_ROOT = "__vitehubProjectRoot" as const
+/** The application's mount path, which can differ from Nuxt's Vite asset base. */
+export const VITEHUB_APP_BASE_URL = "__vitehubAppBaseURL" as const
 /**
  * Server directories that ViteHub scans for Definitions. The first entry is the application.
  * Later entries are Nuxt layers in Nuxt priority order.

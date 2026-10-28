@@ -13,6 +13,7 @@ import { hubAuth, resolveAuthViteConfig } from "@vite-hub/auth/vite"
 import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
+import { hubComments } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -107,6 +108,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/sandbox": true,
   "@vite-hub/channels": true,
   "@vite-hub/cli": false,
+  "@vite-hub/comments": true,
   "@vite-hub/connections": true,
   "@vite-hub/content": true,
   "@vite-hub/database": true,
@@ -1172,17 +1174,40 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
   }
+  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
+  // rooms where Realtime has an authority. Inert without the file.
+  const commentsPlugin = hubComments({
+    auth: Boolean(options.auth),
+    imports: {
+      auth: "vite-hub/comments/runtime/auth",
+      contentClient: "vite-hub/content/client",
+      database: "vite-hub/comments/database",
+      databases: "vite-hub/database/drizzle",
+      realtime: "vite-hub/comments/realtime",
+      runtime: "vite-hub/comments/runtime",
+    },
+  })
   if (options.realtime) {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
-      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
-      contribute: context => contributeContentRealtime({
-        ...context,
-        contentImport: "vite-hub/content/realtime",
-        realtimeImport: "vite-hub/realtime/server",
-        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
-      }),
+      // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
+      // Other hosts keep one Content editor at a time and show comments without presence.
+      contribute: async (context) => {
+        const [content, comments] = await Promise.all([
+          contributeContentRealtime({
+            ...context,
+            contentImport: "vite-hub/content/realtime",
+            realtimeImport: "vite-hub/realtime/server",
+            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+          }),
+          commentsPlugin.api.contributeRealtime(context),
+        ])
+        return {
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          plugins: content?.plugins ?? [],
+        }
+      },
     }))
   }
   if (options.schedule) {
@@ -1242,6 +1267,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
+  plugins.push(commentsPlugin)
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

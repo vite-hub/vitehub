@@ -94,6 +94,8 @@ export { file, image } from "@vite-hub/blob/reference"
 export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
+export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
+export type { ContentFieldAddress } from "./field.ts"
 export type {
   ContentHead,
   ContentHeadCollection,
