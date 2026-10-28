@@ -55,6 +55,19 @@ async function setup(mount = "", providers = true) {
   return { authForRequest, visit: (path: string, init: RequestInit = {}) => app.fetch(new Request(`${origin}${mount}${path}`, init)) }
 }
 
+function proxySignInEvent(host: "fetch" | "h3", browserOrigin = origin) {
+  const path = "/portal/_vitehub/sign-in?provider=github&redirect=%2Fportal%2F_vitehub%2Fcontent%3Ffile%3Dhome.md"
+  const headers = {
+    host: "internal:3000",
+    origin: browserOrigin,
+    "x-forwarded-host": "app.example.com, proxy.internal",
+    "x-forwarded-proto": "https, http",
+  }
+  return host === "fetch"
+    ? { req: new Request(`http://internal:3000${path}`, { method: "POST", headers }) }
+    : { node: { req: { method: "POST", headers, url: path.slice("/portal".length), originalUrl: path, async *[Symbol.asyncIterator]() {} } } }
+}
+
 describe("Console reuses app Auth sign-in", () => {
   it("opens static app Auth before its first HTTP request initializes a base URL", async () => {
     const pages = createConsoleAppAuthPages(getAuthForRequest)
@@ -66,6 +79,34 @@ describe("Console reuses app Auth sign-in", () => {
     const start = await pages.signIn({ req: new Request(`${origin}/portal/_vitehub/sign-in?provider=github`, { method: "POST", headers: { origin } }) })
     expect(start.status).toBe(303)
     expect(new URL(start.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+  })
+
+  it.each(["fetch", "h3"] as const)("uses the public proxy origin for static Auth with %s requests", async (host) => {
+    const pages = createConsoleAppAuthPages(getAuthForRequest)
+    const event = proxySignInEvent(host)
+    await expect(pages.authBasePath(event)).resolves.toBe("/portal/api/auth")
+    const response = await pages.signIn(event)
+    expect(response.status).toBe(303)
+    expect(new URL(response.headers.get("location")!).searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+    expect((await pages.signIn(proxySignInEvent(host, "https://evil.example"))).status).toBe(403)
+  })
+
+  it.each(["fetch", "h3"] as const)("keeps public return and retry URLs behind a proxy with %s requests", async (host) => {
+    const { authForRequest } = await setup("/portal")
+    const pages = createConsoleAppAuthPages(authForRequest)
+    const response = await pages.signIn(proxySignInEvent(host))
+    expect(response.status).toBe(303)
+    const authorize = new URL(response.headers.get("location")!)
+    expect(authorize.searchParams.get("redirect_uri")).toBe(`${origin}/portal/api/auth/callback/github`)
+    const context = await authForRequest(new Request(origin)).$context
+    const state = await context.internalAdapter.findVerificationValue(`auth-state:${authorize.searchParams.get("state")!}`)
+    const retry = new URL(`${origin}/portal/_vitehub/sign-in`)
+    retry.searchParams.set("redirect", "/portal/_vitehub/content?file=home.md")
+    retry.searchParams.set("auth_error", "signin")
+    expect(JSON.parse(state!.value)).toMatchObject({
+      callbackURL: `${origin}/portal/_vitehub/content?file=home.md`,
+      errorURL: retry.href,
+    })
   })
 
   it.each(["", "/portal"])("provides social sign-in before app Auth at %s", async (mount) => {

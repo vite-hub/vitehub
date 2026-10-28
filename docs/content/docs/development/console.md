@@ -559,7 +559,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
-| ViteHub rejects `console: true` (`VITE_HUB_B0003`) | Choose who can open the Console: `console: { auth: false }` for no sign-in, or `console: { auth: 'app' }` to use the app Auth. |
+| `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
