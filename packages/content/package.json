@@ -100,7 +100,7 @@
     "test": "vp run -t @vite-hub/content#build && vp test"
   },
   "dependencies": {
-    "@comark/html": "catalog:markdown",
+    "@comark/html": "catalog:markdown-ui",
     "@standard-schema/spec": "catalog:runtime",
     "@tiptap/core": "catalog:realtime",
     "@tiptap/extension-image": "catalog:realtime",
@@ -112,8 +112,8 @@
     "@vite-hub/blob": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "@vite-hub/source": "workspace:*",
-    "comark": "catalog:markdown",
-    "comark-content": "catalog:markdown",
+    "comark": "catalog:markdown-ui",
+    "comark-content": "catalog:markdown-ui",
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
@@ -128,7 +128,7 @@
     "@vite-hub/internal": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
-    "comark-ui": "catalog:markdown",
+    "comark-ui": "catalog:markdown-ui",
     "drizzle-orm": "catalog:database",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",

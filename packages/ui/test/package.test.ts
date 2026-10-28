@@ -90,7 +90,7 @@ describe("@vite-hub/ui package contract", () => {
     expect(packageJson.dependencies).toEqual({
       "@comark/vue": "0.8.1",
       "comark-chat": "catalog:",
-      comark: "catalog:markdown",
+      comark: "catalog:markdown-ui",
       "vega-canvas": "^2.0.0",
       "vega-loader": "^5.1.3",
       katex: "^0.18.7",

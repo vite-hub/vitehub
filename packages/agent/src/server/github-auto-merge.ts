@@ -1,6 +1,6 @@
 import { parseMarkdown } from "comark"
 import html from "comark/plugins/html"
-import type { ComarkPlugin, MarkdownExitPlugin, Node as MarkdownNode } from "comark"
+import type { ComarkPlugin, Node as MarkdownNode } from "comark"
 import * as v from "valibot"
 import { isRuntimeRecord as isRecord } from "../internal/runtime-type.ts"
 import { getReviewThread, githubBranchRuleDetails, repoRef, type CiRunRef, type GitHubProvider, type ThreadRef } from "@vite-hub/forge"
@@ -166,7 +166,7 @@ async function githubMentionTokens(body: string): Promise<string[]> {
     registerDefaultPlugins: false,
     plugins: [html(), {
       name: "github-mention-comments",
-      markdownItPlugins: [(md: Parameters<MarkdownExitPlugin>[0]) => {
+      markdownItPlugins: [md => {
         // Remove actual inline comments before Comark falls back to raw text.
         // Escaped or entity-encoded delimiters remain visible text tokens.
         md.core.ruler.after("linkify", "github-mention-comments", (state: GitHubMentionState) => {
