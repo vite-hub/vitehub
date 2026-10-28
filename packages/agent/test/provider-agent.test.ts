@@ -7,7 +7,7 @@ import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { delimiter, dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -75,6 +75,7 @@ import { appendLatestFinalText } from "../src/agent-output.ts"
 import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
 import { chatgpt, cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
 import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
+import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
 import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
@@ -259,8 +260,13 @@ describe("Provider Agent Driver", () => {
     const marker = join(root, "preload-ran")
     const executable = join(root, "codex.cjs")
     const output = join(root, "environment.json")
+    const gitMarker = join(root, "git-ran")
+    if (process.platform !== "win32") {
+      await writeFile(join(root, "git"), `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(gitMarker)}, process.env.VITEHUB_CHATGPT_ACCESS_TOKEN || "ran")`)
+      await chmod(join(root, "git"), 0o700)
+    }
     await writeFile(probe, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, process.env.VITEHUB_CHATGPT_ACCESS_TOKEN || "ran")`)
-    await writeFile(executable, `require("node:fs").writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.env))`)
+    await writeFile(executable, `require("node:fs").writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.env)); require("node:child_process").spawnSync("git", ["--version"])`)
     const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
       accessToken: "startup-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
       clientInfo: { name: "App", title: "App", version: "1" },
@@ -272,25 +278,63 @@ describe("Provider Agent Driver", () => {
         const options = createProviderRuntime.mock.lastCall?.[0]
         const launched = spawnSync(String(options?.settings?.binaryPath), [], { env: options?.environment, encoding: "utf8" })
         expect(launched.status, launched.stderr).toBe(0)
-        await expect(access(marker)).rejects.toThrow()
-        const environment = JSON.parse(await readFile(output, "utf8"))
-        expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "startup-test-token", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "capability-token" })
-        for (const key of ["NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "BASH_ENV"]) {
-          expect(options?.environment).not.toHaveProperty(key)
-          expect(environment).not.toHaveProperty(key)
-        }
       },
     })
     try {
       await createProviderAgentAdapter({
         provider: "codex", gateway: chatgpt(),
-        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, T3_MCP_BEARER_TOKEN: "capability-token" },
+        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", T3_MCP_BEARER_TOKEN: "capability-token" },
       }).generate(context(threadId) as never)
+      await expect(readFile(gitMarker, "utf8")).rejects.toThrow()
+      await expect(access(marker)).rejects.toThrow()
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      const environment = JSON.parse(await readFile(output, "utf8"))
+      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "startup-test-token", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "capability-token" })
+      expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(environment.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(options?.environment?.PATHEXT).toBe(process.env.PATHEXT)
+      expect(options?.settings?.launchArgs).toContain(codexConfigArg("shell_environment_policy.set.PATH", JSON.stringify(root)))
+      for (const key of ["NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "BASH_ENV"]) {
+        expect(options?.environment).not.toHaveProperty(key)
+        expect(environment).not.toHaveProperty(key)
+      }
     }
     finally {
       gateway.mockRestore()
       await rm(root, { force: true, recursive: true })
     }
+  })
+
+  it("passes managed Chromium settings to ChatGPT shell tools without exposing loaders to Codex", async () => {
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "browser-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    const threadId = "thread-chatgpt-browser"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, {
+      PATH: "/managed/bin", LD_LIBRARY_PATH: "/managed/lib", FONTCONFIG_PATH: "/managed/fonts",
+      AGENT_BROWSER_SESSION: "managed-session", VITEHUB_BROWSER_ACTIVE: "1",
+    })
+    try {
+      await createProviderAgentAdapter({
+        provider: "codex", gateway: chatgpt(),
+        env: { PATH: "/caller/bin", LD_LIBRARY_PATH: "/caller/lib", FONTCONFIG_PATH: "/caller/fonts" },
+      }).generate(runContext as never)
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      for (const [key, value] of Object.entries({
+        LD_LIBRARY_PATH: "/managed/lib", FONTCONFIG_PATH: "/managed/fonts",
+        PATH: `/managed/bin${process.platform === "win32" ? ";" : ":"}/caller/bin`,
+      })) {
+        expect(options?.settings?.launchArgs).toContain(codexConfigArg(`shell_environment_policy.set.${key}`, JSON.stringify(value)))
+      }
+      expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(options?.environment).not.toHaveProperty("LD_LIBRARY_PATH")
+      expect(options?.environment).not.toHaveProperty("FONTCONFIG_PATH")
+      expect(options?.settings?.launchArgs).toContain(codexConfigArg("shell_environment_policy.set.VITEHUB_CHATGPT_ACCESS_TOKEN", '""'))
+    }
+    finally { gateway.mockRestore() }
   })
 
   it("adds the Agent forge access environment to the Driver environment", async () => {
@@ -4802,7 +4846,7 @@ cli_auth_credentials_store = "keyring"
     expect(onExit).toHaveBeenCalledOnce()
   })
 
-  it("passes a managed browser PATH to provider Workspace commands", async () => {
+  it.each([false, true])("passes a managed browser PATH to provider Workspace commands with ChatGPT %s", async (useChatGPT) => {
     const threadId = "thread-provider-workspace-browser-path"
     const session = {
       close: vi.fn(async () => undefined),
@@ -4842,13 +4886,21 @@ cli_auth_credentials_store = "keyring"
       },
     })
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    const gateway = useChatGPT ? vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "workspace-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    })) : undefined
+    try {
+      await createProviderAgentAdapter({ provider: "codex", ...(useChatGPT ? { gateway: chatgpt() } : {}), env: { DRIVER_COMMAND_VALUE: "custom" } }).generate(runContext as never)
+    }
+    finally { gateway?.mockRestore() }
     expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({
       AGENT_BROWSER_SESSION: "managed",
       AGENT_BROWSER_SOCKET_DIR: "/managed/socket",
       VITEHUB_BROWSER_ACTIVE: "1",
       PATH: "/managed/bin:/caller/bin",
       LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
+      DRIVER_COMMAND_VALUE: "custom",
       TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
     }) }))
   })

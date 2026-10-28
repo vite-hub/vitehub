@@ -3010,10 +3010,14 @@ async function* runProvider<
   let providerLaunchSecretEnvironmentKeys: readonly string[] = []
   let providerLaunchDiagnosticSecrets: readonly string[] = []
   let providerRuntimeEnvironment: Record<string, string> | undefined
-  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => workspaceBrowserEnvironment(
-    browserRuntimeEnvironment(context.context),
-    providerRuntimeEnvironment ? { ...providerRuntimeEnvironment, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "" } : {}) } : environment,
-  )
+  let chatgptCommandEnvironment: Record<string, string> | undefined
+  const workspaceCommandEnvironment = (environment: Record<string, string> | undefined) => {
+    const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
+    return workspaceBrowserEnvironment(
+      browserRuntimeEnvironment(context.context),
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "" } : {}) } : environment,
+    )
+  }
   let developerInstructionsDigest: string | undefined
   let sessionStore: PartitionedProviderSessionStore | undefined
   let codexCredentialHome: CodexCredentialHome | undefined
@@ -3353,10 +3357,16 @@ async function* runProvider<
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
+      chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
       providerRuntimeEnvironment.CODEX_HOME = chatgptHome
       providerRuntimeEnvironment = Object.fromEntries(Object.entries(providerRuntimeEnvironment).filter(([key]) => chatgptLaunchEnvironmentKeys.has(key)))
+      // Codex also launches helpers such as git outside shell tools. Pin their
+      // search path to the host, resolving relative entries before changing cwd.
+      providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
+      delete providerRuntimeEnvironment.PATHEXT
+      if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
       providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment])
       const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
@@ -3610,6 +3620,13 @@ async function* runProvider<
       ...(gateway?.chatgpt ? [
         codexConfigArg("mcp_servers", "{}"),
         codexConfigArg("projects", `{${JSON.stringify(providerCwd)}={trust_level="untrusted"}}`),
+        // Command tools have no ChatGPT token. Keep their search path and managed
+        // Chromium loaders separate from the credential-bearing processes.
+        ...Object.entries({
+          PATH: chatgptCommandEnvironment?.PATH ?? "",
+          ...(capabilityEnvironment?.LD_LIBRARY_PATH ? { LD_LIBRARY_PATH: capabilityEnvironment.LD_LIBRARY_PATH } : {}),
+          ...(capabilityEnvironment?.FONTCONFIG_PATH ? { FONTCONFIG_PATH: capabilityEnvironment.FONTCONFIG_PATH } : {}),
+        }).map(([key, value]) => codexConfigArg(`shell_environment_policy.set.${key}`, JSON.stringify(value))),
       ] : []),
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot

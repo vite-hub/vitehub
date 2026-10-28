@@ -87,6 +87,8 @@ Use a local Codex Driver on a POSIX Node.js host. `driver.launch`, `providerSett
 
 ViteHub selects `openai_chatgpt_plan`, the public Responses endpoint, HTTP streaming and the token as the provider key. It sets Codex `clientInfo` from `appName` and `appVersion`. The token stays in the child environment; shell tools receive an empty token variable. The launcher redacts the token from protocol output and errors.
 
+Codex's internal helper commands use the host executable search path. `driver.env.PATH`, toolchains and managed browser settings apply to command tools separately. Managed Chromium's library and font settings reach those tools without entering the credential-bearing process.
+
 Each Invocation uses a fresh runtime-owned Codex Home, ignores inherited `CODEX_HOME`, and disables project configuration, inherited MCP servers and hooks. Only ViteHub supplies the Capability tool transport. The Home is removed after shutdown. Follow-up turns replay the supplied conversation history; native Codex session cursors and Home retention are not used for this gateway.
 
 The gateway disables apps, plugins, image generation, computer/browser use, tool search, code mode and child agents. ViteHub Capability tools still run through Codex's local tool transport. They do not use hosted Responses MCP. The verified Codex version, `0.164.0`, sends `store: false`, `stream: true`, array input and developer instructions without the rejected Responses parameters. A different Codex version should pass the local integration test before use.
