@@ -3,7 +3,7 @@ import { dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { transform } from "esbuild"
-import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
+import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
@@ -33,7 +33,7 @@ import { assertConsoleRetention, writeConsoleNitroPlugin, type ConsoleAccessBuil
 import { installConsoleProjectName, installConsoleSections } from "./console/runtime/server/sections.ts"
 import { resolveConsoleProjectNameFromRoot } from "./console/project.ts"
 import { isConsoleConnectionsEnabled, resolveConsoleSectionIds, type ConsoleSectionId } from "./console/runtime/sections.ts"
-import { consoleContributedSections, consoleDocumentEditorSectionIds, isConsoleContributedSectionId } from "./console/contributions.ts"
+import { consoleContributedSections, consoleDocumentEditorSectionIds, discoverConsoleEntrySections, isConsoleContributedSectionId } from "./console/contributions.ts"
 import { consoleNuxtDevToolsTab, type ConsoleNuxtDevToolsTab } from "./console/devtools.ts"
 import { addConsolePageHandlers, addConsoleRpcHandler, mountPath } from "./console/nitro.ts"
 import { consoleAuthMiddlewareFile, consoleConnectionsActorId, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, writeConsoleConnectionsActor } from "./console/auth-build.ts"
@@ -430,9 +430,11 @@ async function installConsole(
     const entry = await consoleContributedSections.get(section)?.documents?.entry({ discoveryRoot, projectRoot, serverDirs })
     return entry ? [section] : []
   }))).flat()
-  installConsoleSections(projectRoot, [...sections, ...documentEditorSections], independentAuth)
+  // Record table sections that an application module turns on, such as Comments with server/comments.ts.
+  const entrySections = (await discoverConsoleEntrySections({ discoveryRoot, projectRoot, serverDirs })).filter(section => !sections.includes(section))
+  installConsoleSections(projectRoot, [...sections, ...entrySections, ...documentEditorSections], independentAuth)
   const nitro = (nuxt.options.nitro ??= {}) as Parameters<typeof addConsolePageHandlers>[0] & { plugins?: string[] }
-  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, sections);
+  addConsoleRpcHandler(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, [...sections, ...entrySections]);
   // The Console renders in its own document, as in a Vite app, so the host's styles, Nuxt UI theme, and layouts do not
   // reach it.
   addConsolePageHandlers(nitro, consoleRuntimeRoot, nuxt.options.app?.baseURL, independentAuth ? undefined : access?.signInPage)
@@ -685,6 +687,7 @@ async function applyNitroConfig(
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
+    [VITEHUB_APP_BASE_URL]?: string
     nitro?: Record<string, unknown>
     blob?: Parameters<typeof vitehub>[0]["blob"]
     database?: Parameters<typeof vitehub>[0]["database"]
@@ -699,6 +702,7 @@ async function applyNitroConfig(
     config[VITEHUB_GENERATED_ROOT] = generatedRoot
     config[VITEHUB_NITRO_CONFIG_CONTEXT] = true
     config[VITEHUB_PROJECT_ROOT] = projectRoot
+    config[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
     if (serverDirs) config[VITEHUB_SERVER_DIRS] = serverDirs
   }
   restoreReplayOwnership()
@@ -973,6 +977,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     [VITEHUB_NITRO_CONFIG_CONTEXT]?: true
     [VITEHUB_PROJECT_ROOT]?: string
     [VITEHUB_SERVER_DIRS]?: string[]
+    [VITEHUB_APP_BASE_URL]?: string
     kv?: KVModuleOptions
     queue?: QueueModuleOptions
     database?: Record<string, unknown> | false
@@ -1182,6 +1187,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
   viteConfig[VITEHUB_GENERATED_ROOT] = join(nuxt.options.buildDir, "vitehub")
   viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] = true
   viteConfig[VITEHUB_PROJECT_ROOT] = projectRoot
+  viteConfig[VITEHUB_APP_BASE_URL] = nuxt.options.app?.baseURL || "/"
   const viteServerDirs = resolveNuxtServerDirs(nuxt.options)
   if (viteServerDirs) viteConfig[VITEHUB_SERVER_DIRS] = viteServerDirs
   const installedVitePlugins: unknown = [

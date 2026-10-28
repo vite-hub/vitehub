@@ -622,6 +622,32 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 })
 
 describe("Content operations", () => {
+  it("requires collection and document read access for every document in a schedule", async () => {
+    let collectionReadable = false
+    let documentReadable = true
+    const content = defineContent({
+      workspace: await historyWorkspace(),
+      authorize: ({ id }) => id === undefined ? collectionReadable : documentReadable,
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const saved = await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    const schedule = await content.schedule({ at: new Date(Date.now() + 3_600_000), expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open", sections: "all" as const }, surface: "console" as const, user: null }
+    const list = (input: unknown) => runOperation(registry, "content.schedules", input, context)
+    for (const input of [{}, { collection: "posts" }, { collection: "posts", id: "hello" }]) {
+      expect(await list(input)).toMatchObject({ ok: true, value: { schedules: [] } })
+    }
+    collectionReadable = true
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [{ id: schedule.id }] } })
+    documentReadable = false
+    expect(await list({})).toMatchObject({ ok: true, value: { schedules: [] } })
+  })
+
   it("filters document policy before pagination and sitemap output", async () => {
     const content = defineContent({
       workspace: await historyWorkspace(),

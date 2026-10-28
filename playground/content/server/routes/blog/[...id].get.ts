@@ -1,5 +1,6 @@
 import { defineHandler, getRouterParam } from "h3"
 import { contentHead } from "vite-hub/content"
+import { contentField } from "vite-hub/content/client"
 
 import { content } from "../../content"
 
@@ -19,7 +20,7 @@ export default defineHandler(async (event) => {
   })
   return new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">${renderHead(head)}</head>
 <body style="font: 15px/1.6 system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem">
-<p><a href="/">${escape(settings?.data.title ?? "Home")}</a></p><h1>${escape(post.data.title)}</h1><pre style="white-space: pre-wrap">${escape(post.body)}</pre></body></html>`, {
+<p><a href="/">${escape(settings?.data.title ?? "Home")}</a></p><h1 data-content-field="${escape(contentField("posts", post.id, "title")["data-content-field"])}">${escape(post.data.title)}</h1><pre style="white-space: pre-wrap">${escape(post.body)}</pre></body></html>`, {
     headers: { "content-type": "text/html; charset=utf-8" },
   })
 })
