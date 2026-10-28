@@ -71,6 +71,7 @@ describe("concurrent Comments mutations", () => {
     expect(updated).toMatchObject({ status: "resolved", resolvedBy: grace, resolvedAt: expect.any(String) })
     expect(updated?.comments).toHaveLength(2)
     expect(onComment).toHaveBeenCalledTimes(1)
+    expect(onComment).toHaveBeenCalledWith({ thread: updated, comment: reply, mentions: reply!.mentions })
   })
 
   it.each([[false, false], [false, true], [true, false], [true, true]])("rejects a reply when deletion wins, with foreign keys %s and allowResolved %s", async (foreignKeys, allowResolved) => {
@@ -81,6 +82,33 @@ describe("concurrent Comments mutations", () => {
     expect(reply).toBeUndefined()
     expect(await database.select().from(commentsSchema.vitehubComments)).toEqual([])
     expect(onComment).not.toHaveBeenCalled()
+  })
+
+  it("returns not found and leaves thread activity unchanged when deletion beats an edit", async () => {
+    const { comments, thread, beforeWrite } = await setup()
+    const [, reply] = await comments.reply(thread.id, { body: "Before", author: ada })
+    const [, before] = await comments.get(thread.id)
+    beforeWrite(() => comments.removeComment(reply!.id))
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 10_000)
+    try {
+      const [error, edited] = await comments.edit(reply!.id, { body: "After" })
+      expect(error?.code).toBe("COMMENTS_NOT_FOUND")
+      expect(edited).toBeUndefined()
+      const [, after] = await comments.get(thread.id)
+      expect(after?.updatedAt).toBe(before?.updatedAt)
+      expect(after?.comments.map(comment => comment.body)).toEqual(["Root"])
+    }
+    finally { clock.mockRestore() }
+  })
+
+  it.each([false, true])("counts all threads deleted from a scope when creation races, with foreign keys %s", async (foreignKeys) => {
+    const { comments, database, beforeWrite } = await setup(foreignKeys)
+    const [, other] = await comments.create({ scope: "private", page: "/", body: "Keep", author: ada })
+    beforeWrite(() => comments.create({ page: "/", anchor, body: "Concurrent", author: grace }))
+    expect(await comments.removeScope("pages")).toEqual([undefined, { removed: 2 }])
+    expect((await comments.list({ scope: "pages" }))[1]).toEqual([])
+    expect((await comments.get(other!.id))[1]?.comments[0]?.body).toBe("Keep")
+    expect(await database.select().from(commentsSchema.vitehubComments)).toHaveLength(1)
   })
 
   it.each(["resolve", "reopen"] as const)("returns COMMENTS_NOT_FOUND when deletion wins before %s", async (action) => {

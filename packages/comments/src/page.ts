@@ -10,6 +10,18 @@ export const commentsRealtimeDefinition = "comments"
 /** The route prefix of the Comments API. */
 export const commentsRoute = "/api/_vitehub/comments"
 
+/** Mount Comments under the application path, ignoring Vite asset URLs such as a CDN origin. */
+export function mountedCommentsRoute(base = "/"): string {
+  return base.startsWith("/") && !base.startsWith("//") ? `${base.replace(/\/+$/, "")}${commentsRoute}` : commentsRoute
+}
+
+/** The prebuilt overlay lives in the API's assets directory, including on applications mounted below a path. */
+export function commentsApiRoute(overlayURL: string): string {
+  const path = new URL(overlayURL).pathname
+  const index = path.lastIndexOf(`${commentsRoute}/assets/`)
+  return index === -1 ? commentsRoute : `${path.slice(0, index)}${commentsRoute}`
+}
+
 /** The cookie that asks the server to add the overlay to HTML pages. It is a hint, never a credential. */
 export const commentsHintCookie = "vitehub-comments"
 

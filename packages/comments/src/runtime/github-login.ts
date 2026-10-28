@@ -70,7 +70,7 @@ export function safeReturn(value: string | null): string {
  * GitHub token, in encrypted cookies. A person may comment when GitHub says they can push to the repository of the
  * build.
  */
-export function createCommentsGitHubLogin(options: { repository?: string, apiUrl?: string, fetch?: typeof fetch } = {}): CommentsGitHubLogin {
+export function createCommentsGitHubLogin(options: { repository?: string, apiUrl?: string, fetch?: typeof fetch, basePath?: string } = {}): CommentsGitHubLogin {
   const apiUrl = (options.apiUrl ?? "https://api.github.com").replace(/\/+$/, "")
   const fetcher = options.fetch ?? globalThis.fetch
   const instances = new Map<string, BetterAuth>()
@@ -86,7 +86,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
     if (!instance) {
       const definition = defineAuth(() => ({
         baseURL: origin,
-        basePath: githubLoginPath,
+        basePath: options.basePath ?? githubLoginPath,
         ...(secret ? { secret } : {}),
         preset: stateless({ maxAge: sessionLifetime }),
         socialProviders: {

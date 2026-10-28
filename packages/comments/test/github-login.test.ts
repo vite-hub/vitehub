@@ -28,13 +28,14 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
   }
 }
 
-async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"] } = {}) {
+async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"], base?: string } = {}) {
   const comments = defineComments({ identify: options.identify })
   const database = await createDatabase()
   defineCommentsPlugin({ comments, database: () => database, overlay: "/overlay.js", development })({})
-  const app = new H3().all("/api/_vitehub/comments/**", createCommentsHandler({ comments, realtime: false, githubLogin, session: options.session }))
+  const route = `${options.base ?? ""}/api/_vitehub/comments`
+  const app = new H3().all(`${route}/**`, createCommentsHandler({ comments, realtime: false, githubLogin, session: options.session }))
   const call = async (path: string, init: RequestInit = {}) => {
-    const response = await app.fetch(new Request(`${origin}/api/_vitehub/comments${path}`, init))
+    const response = await app.fetch(new Request(`${origin}${route}${path}`, init))
     return { response, body: response.status === 204 ? undefined : await response.json() as { data?: any } }
   }
   return call
@@ -97,6 +98,25 @@ describe("GitHub sign-in in the Comments API", () => {
     expect(body!.data.user.id).toBe(sessionUser?.id ?? "gh-ada")
   })
 
+  it("preserves Console denial without offering or consulting GitHub sign-in", async () => {
+    const login = fakeLogin(ada(true))
+    const user = vi.spyOn(login, "user")
+    const call = await setup(login, true, { session: async () => false })
+    const { response, body } = await call("/session")
+    expect(body!.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
+    expect(body!.data).not.toHaveProperty("signIn")
+    expect(body!.data).not.toHaveProperty("signOut")
+    expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(user).not.toHaveBeenCalled()
+  })
+
+  it("keeps sign-in and sign-out links under the app base", async () => {
+    const anonymous = await setup(fakeLogin(null), false, { base: "/portal" })
+    expect((await anonymous("/session")).body!.data.signIn.url).toBe("/portal/api/_vitehub/comments/auth/github")
+    const signedIn = await setup(fakeLogin(ada(true)), false, { base: "/portal" })
+    expect((await signedIn("/session")).body!.data.signOut).toBe("/portal/api/_vitehub/comments/auth/sign-out")
+  })
+
   it("offers the sign-in to people who are not signed in, and keeps comment mode on", async () => {
     const call = await setup(fakeLogin(null))
     const { response, body } = await call("/session")
@@ -144,17 +164,18 @@ describe("createCommentsGitHubLogin", () => {
     expect(JSON.stringify(await response.json())).toContain("VITEHUB_GITHUB_CLIENT_ID")
   })
 
-  it("sends people to GitHub and brings them back to the page, with no database", async () => {
+  it.each(["", "/portal"])("sends people to GitHub from app base %s with no database", async (base) => {
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_ID", "client-id")
     vi.stubEnv("VITEHUB_GITHUB_CLIENT_SECRET", "client-secret")
     vi.stubEnv("VITEHUB_SECRET", "a-test-secret-that-is-at-least-32-characters")
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
-    const response = await login.handle(event("/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fcomments"), "/auth/github")
+    const loginForBase = base ? createCommentsGitHubLogin({ repository: "acme/app", basePath: `${base}/api/_vitehub/comments/auth` }) : login
+    const response = await loginForBase.handle(event(`${base}/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fcomments`), "/auth/github")
     expect(response.status).toBe(302)
     const location = new URL(response.headers.get("location")!)
     expect(location.origin + location.pathname).toBe("https://github.com/login/oauth/authorize")
     expect(location.searchParams.get("client_id")).toBe("client-id")
-    expect(location.searchParams.get("redirect_uri")).toBe(`${origin}/api/_vitehub/comments/auth/callback/github`)
+    expect(location.searchParams.get("redirect_uri")).toBe(`${origin}${base}/api/_vitehub/comments/auth/callback/github`)
     // The OAuth state is in a cookie, because there is no database to keep it.
     expect(response.headers.getSetCookie().join("\n")).toContain("vitehub_comments")
   })
