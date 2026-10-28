@@ -353,7 +353,10 @@ export async function readGitHubFile(
     read = githubRequest(repository, async (provider, repo) => {
       // GitHub's Contents API truncates large files. Blob shas identify immutable bytes across repositories.
       return await forgeBlob(provider, repo, entry.sha);
-    }).then(bytes => {
+    }).then(async bytes => {
+      if (await gitBlobSha(bytes) !== entry.sha) {
+        throw workspaceError("[vitehub] GitHub workspace returned a malformed blob response.");
+      }
       // Different request scopes can finish the same blob; retain and count it only once.
       if (bytes.byteLength <= githubBlobFileLimit && !githubBlobs.has(entry.sha)) {
         for (const [sha, oldest] of githubBlobs) {
