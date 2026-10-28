@@ -1,3 +1,4 @@
+import { isEnvSchemaValue } from "./json-value.ts";
 import { hasRuntimeType } from "../internal/runtime-type.ts";
 
 import type { EnvValueSchema } from "../types.ts";
@@ -11,6 +12,20 @@ export const stringValueSchema: EnvValueSchema = Object.freeze({ kind: "string" 
 /** Parse one host, provider, or default value with a serializable Server Env value schema. */
 export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueParseResult {
   switch (schema.kind) {
+    case "array":
+    case "object": {
+      let value: unknown = input;
+      if (typeof value === "string") {
+        try {
+          value = JSON.parse(value);
+        } catch {
+          return { success: false, message: "Expected valid JSON." };
+        }
+      }
+      return isEnvSchemaValue(value) && matchesJsonType(schema, value)
+        ? { data: value, success: true }
+        : { success: false, message: "JSON value does not match the declared type." };
+    }
     case "string":
       return hasRuntimeType(input, "string") &&
         (schema.minLength === undefined || input.length >= schema.minLength) &&
@@ -41,11 +56,22 @@ export function parseEnvValue(schema: EnvValueSchema, input: unknown): EnvValueP
 
 /** Return the TypeScript type that a value schema produces. */
 export function envValueTypeName(schema: EnvValueSchema): string {
-  return schema.kind === "enum"
-    ? schema.values.map((value) => JSON.stringify(value)).join(" | ")
-    : schema.kind === "url"
-      ? "string"
-      : schema.kind;
+  switch (schema.kind) {
+    case "array":
+      return `Array<${schema.items ? envValueTypeName(schema.items) : "unknown"}>`;
+    case "object":
+      return schema.properties
+        ? `{ ${Object.entries(schema.properties)
+            .map(([key, property]) => `${JSON.stringify(key)}: ${envValueTypeName(property)}`)
+            .join("; ")} }`
+        : "Record<string, unknown>";
+    case "enum":
+      return schema.values.map((value) => JSON.stringify(value)).join(" | ");
+    case "url":
+      return "string";
+    default:
+      return schema.kind;
+  }
 }
 
 function parseBoolean(input: unknown): EnvValueParseResult {
@@ -87,4 +113,46 @@ function parseUrl(input: unknown): EnvValueParseResult {
     } catch {}
   }
   return { message: "Expected an absolute URL.", success: false };
+}
+
+function matchesJsonType(schema: EnvValueSchema, value: unknown): boolean {
+  switch (schema.kind) {
+    case "array":
+      return (
+        Array.isArray(value) &&
+        (!schema.items ||
+          value.every((item) => schema.items && matchesJsonType(schema.items, item)))
+      );
+    case "object":
+      return (
+        value !== null &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (!schema.properties ||
+          (Object.keys(value).length === Object.keys(schema.properties).length &&
+            Object.entries(schema.properties).every(
+              ([key, property]) =>
+                Object.hasOwn(value, key) && matchesJsonType(property, Reflect.get(value, key)),
+            )))
+      );
+    case "boolean":
+      return typeof value === "boolean";
+    case "number":
+      return typeof value === "number" && parseEnvValue(schema, value).success;
+    default:
+      return typeof value === "string" && parseEnvValue(schema, value).success;
+  }
+}
+
+export function schemaContainsEnum(schema: EnvValueSchema): boolean {
+  switch (schema.kind) {
+    case "enum":
+      return true;
+    case "array":
+      return !!schema.items && schemaContainsEnum(schema.items);
+    case "object":
+      return Object.values(schema.properties ?? {}).some(schemaContainsEnum);
+    default:
+      return false;
+  }
 }

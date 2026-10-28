@@ -113,7 +113,7 @@ The error details contain the declaration path and source kind. The rejected val
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
-## Import an experimental environment contract
+## Import an environment schema
 
 Use `envSchema()` to make a committed `.env.example` the contract for both typed accessors and runtime checks. This is an explicit opt-in. Existing declarations remain available when a code-first schema fits better.
 
@@ -143,7 +143,7 @@ VITEHUB_API_TOKEN=
 
 The example produces `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so a deployment-only secret is not required during prepare or build.
 
-The importer uses the restricted `env-spec-v1` profile from the [Nuxt experiment](https://github.com/onmax/nuxt-safe-runtime-config/pull/32), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub owns its environment reader and serializable runtime parsers. The importer does not load developer `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+The importer uses the restricted `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub owns its environment reader and serializable runtime parsers. The importer does not load developer `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
 
 Try the [runnable schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) for a browser bundle and Node production server built from one contract. It includes a production test for consumer types, startup failures, redaction, browser output, and server values that change across restarts of the same build. Public Env values are captured during the build.
 
@@ -159,6 +159,8 @@ All fields are required and sensitive unless a static annotation changes that. `
 | `@type=number(min=0, max=100, isInt=true)` | Finite decimal number with bounds and an optional safe-integer constraint. |
 | `@type=boolean` | Boolean parsed from `true`, `false`, `1`, or `0`. |
 | `@type=enum(draft, send)` | String union. Mark the field non-sensitive because choices appear in metadata. |
+| `@type=array(string)` | JSON array with typed items. |
+| `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
 | `@type=url` | Absolute URL validated with the platform `URL` constructor; output remains a string. |
 
 Required empty inputs fail even when a default exists. Optional empty strings remain strings and obey length constraints. Optional empty inputs for other types count as missing, so a default applies when present. Invalid present values fail instead of falling back to a default. Defaults receive the same type and constraint checks.
@@ -241,3 +243,5 @@ Add the generated type directory to `tsconfig.json` when the app wants field-lev
   ]
 }
 ```
+
+Array and object defaults are quoted JSON, such as `VITEHUB_TAGS='["one"]'`. Types can nest, for example `array(object(name=string))`. Bare `array` and `object` accept JSON without a fixed shape. JSON members are validated without coercion; exact object shapes reject unknown or missing properties. Sensitive declarations cannot contain nested enums because their choices appear in metadata. Dynamic expressions and transforms remain available through the existing code-first APIs where supported.

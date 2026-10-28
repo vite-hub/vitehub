@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { schemaContainsEnum } from "../core/values.ts";
 import { descriptorVariable, env } from "../core/declarations.ts";
 import { invalidEnvDeclaration } from "../core/errors.ts";
 import { parseEnvSchema } from "./profile.ts";
@@ -140,7 +141,7 @@ export function envSchema(
         field,
         "A Public Env declaration cannot be sensitive; mark it @public or @sensitive=false",
       );
-    if (field.type.kind === "enum" && field.sensitive)
+    if (schemaContainsEnum(field.type) && field.sensitive)
       fail(field, "A secret enum would expose its allowed values; use a string instead");
     const name = publicField
       ? field.key.slice(publicPrefix.length)

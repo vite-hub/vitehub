@@ -38,7 +38,7 @@ function capture(operation: () => unknown): Error {
   throw new Error("Expected an error");
 }
 
-describe("experimental envSchema()", () => {
+describe("envSchema()", () => {
   it.each([
     [
       "# @type=unsupported\nVITEHUB_TOKEN=private-schema-marker",
@@ -207,6 +207,76 @@ VITEHUB_MODE=draft`);
       const error = capture(() => contract(source));
       expect(error).toMatchObject({ code: "ENV_DECLARATION_INVALID" });
       expect(String(error.cause)).not.toContain("secret-choice-a");
+    }
+  });
+
+  it("resolves nested JSON types and preserves their serialized runtime descriptors", () => {
+    const config = contract(`# @type=array(enum(read, write)) @public
+VITEHUB_ROLES='["read"]'
+# @type=object(enabled=boolean, retries=number(min=0, isInt=true), tags=array(string)) @public
+VITEHUB_SETTINGS=
+# @type=array(string)
+VITEHUB_PRIVATE_TAGS=
+# @type=object @optional @public
+VITEHUB_METADATA=`);
+    const registry = createRuntimeRegistry(config.server);
+    const result = resolveServerEnv(registry, {
+      env: {
+        VITEHUB_SETTINGS: '{"enabled":true,"retries":3,"tags":["one"]}',
+        VITEHUB_PRIVATE_TAGS: '["private-marker"]',
+      },
+    });
+    expect(result).toMatchObject({
+      roles: ["read"],
+      settings: { enabled: true, retries: 3, tags: ["one"] },
+      metadata: undefined,
+    });
+    expect(result.privateTags).toBeInstanceOf(SecretEnv);
+    if (result.privateTags instanceof SecretEnv)
+      expect(result.privateTags.unseal()).toEqual(["private-marker"]);
+    expect(JSON.stringify(result)).not.toContain("private-marker");
+    expect(JSON.parse(JSON.stringify(registry))).toMatchObject({
+      roles: { schema: { kind: "array", items: { kind: "enum", values: ["read", "write"] } } },
+    });
+    const entries = describeServerEnv(registry).entries;
+    expect(entries).toContainEqual(
+      expect.objectContaining({ path: "env.server.roles", type: 'Array<"read" | "write">' }),
+    );
+    expect(entries).toContainEqual(
+      expect.objectContaining({
+        path: "env.server.settings",
+        type: '{ "enabled": boolean; "retries": number; "tags": Array<string> }',
+      }),
+    );
+  });
+
+  it.each([
+    ["array(number)", '["private-marker"]'],
+    ["object(enabled=boolean)", '{"enabled":"true"}'],
+    ["object(enabled=boolean)", "{}"],
+    ["object(enabled=boolean)", '{"enabled":true,"extra":1}'],
+    ["array(object(enabled=boolean))", '[{"enabled":"true"}]'],
+    ["object", '{"__proto__":{"private-marker":true}}'],
+    ["array", "[1e999]"],
+    ["array", "private-marker"],
+  ])("rejects invalid structured runtime values for %s", (type, value) => {
+    const registry = createRuntimeRegistry(
+      contract(`# @type=${type} @public\nVITEHUB_VALUE=`).server,
+    );
+    const error = capture(() => resolveServerEnv(registry, { env: { VITEHUB_VALUE: value } }));
+    expect(error).toMatchObject({ code: "ENV_RUNTIME_VALUE_INVALID" });
+    expect(JSON.stringify(error)).not.toContain("private-marker");
+    expect(String(error.cause)).not.toContain("private-marker");
+  });
+
+  it("rejects nested secret enum metadata", () => {
+    for (const type of [
+      "array(enum(private-marker, other))",
+      "object(mode=enum(private-marker, other))",
+    ]) {
+      const error = capture(() => contract(`# @type=${type}\nVITEHUB_VALUE=`));
+      expect(error).toMatchObject({ code: "ENV_DECLARATION_INVALID" });
+      expect(String(error.cause)).not.toContain("private-marker");
     }
   });
 
