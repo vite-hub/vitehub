@@ -36,6 +36,6 @@ The public page at `/` lists published posts. It has no edit button: editors go 
 and click the page to pin a comment; open the same page as a second user in another browser profile to see their
 pins, avatar, and cursor live. Press `E` and click the site title or a post title, which carry `contentField()`
 attributes, to edit the text in place: the edit saves a draft that `/_vitehub/content` shows and publishes. Writers
-edit but cannot publish. The Comments section of the Console lists every thread. Migration `0002_comments` adds the
-tables; it is written by hand for the same reason as the others.
+edit but cannot publish. The Comments section of the Console lists every thread. Migrations `0002_comments` and
+`0003_comments_context` add the tables; they are written by hand for the same reason as the others.
 Users and sessions live in memory, so a restart signs everyone out. Documents persist in `.data`.
