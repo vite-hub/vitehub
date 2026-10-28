@@ -124,6 +124,13 @@ export const closingHosts = [
 // Icons match the docs navigation, so a tile and its section look the same.
 export const landingPrimitives = [
   {
+    id: "logs",
+    name: "Logs",
+    description: "Structured logs with Evlog",
+    to: "/docs/logs",
+    icon: "i-lucide-logs",
+  },
+  {
     id: "kv",
     name: "KV",
     description: "State and cache",

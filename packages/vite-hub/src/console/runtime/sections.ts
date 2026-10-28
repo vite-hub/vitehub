@@ -146,7 +146,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
-  primitive("logs", "Logs", consoleSectionDetails.logs.icon, "development/console", "Read structured logs and diagnostic guidance from your existing pipeline."),
+  primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
   primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("comments", "Comments", "i-lucide-message-square-text", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
