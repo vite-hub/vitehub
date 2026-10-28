@@ -379,7 +379,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","usage","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","skills","usage","workflows"])`,
       )
     }
     finally {

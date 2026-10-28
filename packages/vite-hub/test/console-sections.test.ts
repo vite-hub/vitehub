@@ -48,6 +48,7 @@ describe("Console section preferences", () => {
     expect(resolveConsoleSectionIds({ agent: true, blob: true, connections: true, database: true, kv: true, queue: true, rateLimit: true, sandboxTask: true, schedule: true, workflow: true, workspace: true })).toEqual([
       "connections",
       "agents",
+      "skills",
       "usage",
       "blob",
       "databases",
@@ -60,15 +61,16 @@ describe("Console section preferences", () => {
       "schedules",
     ])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
-    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "usage", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage"])
     expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
+      "skills",
       "usage",
       "workflows",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "usage"])
-    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
@@ -182,6 +184,7 @@ describe("Console Go to shortcuts", () => {
       auth: "g h",
       agents: "g a",
       content: "g t",
+      skills: "g l",
       usage: "g u",
       databases: "g d",
       kv: "g k",

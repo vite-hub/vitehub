@@ -23,6 +23,7 @@ import { consoleRequestError, consoleRequestJSON } from "./request.ts"
 import { consoleSearchCollectionHandler } from "./search.get.ts"
 import { consoleScheduleRunHandler } from "./schedule-run.ts"
 import consoleSectionsHandler from "./sections.get.ts"
+import consoleSkillsHandler from "./skills.get.ts"
 import consoleStatusHandler from "./status.get.ts"
 import consoleUsageHandler from "./usage.get.ts"
 
@@ -210,6 +211,7 @@ const operations = new Map<string, ConsoleOperation>(Object.entries({
   },
   [consoleRpcMethods.scheduleRun]: { section: "schedules", run: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)) },
   [consoleRpcMethods.sections]: { section: false, run: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)) },
+  [consoleRpcMethods.skills]: { section: "skills", run: (input, context) => consoleSkillsHandler(requestEvent("skills", input, context)) },
   [consoleRpcMethods.status]: { section: "agents", run: (input, context) => consoleStatusHandler(requestEvent("status", input, context)) },
   [consoleRpcMethods.usage]: { section: "usage", run: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)) },
 } satisfies Record<ConsoleRpcMethod, ConsoleOperation>))

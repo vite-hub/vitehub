@@ -15,6 +15,7 @@ const ConsoleDefinitions = () => import("../components/console-definitions.vue")
 const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
+const ConsoleSkills = () => import("../components/console-skills.vue");
 import {
   consoleDatabasesSchemaPath,
   consoleDatabasesTablePath,
@@ -125,6 +126,20 @@ const router = createRouter({
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleSkills,
+      name: "vitehub-console-skills",
+      path: "/skills",
+      meta: { consoleSection: "skills", title: "Skills · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        skillsBase: consolePath("/api/_vitehub/console/skills"),
         sectionsBase,
       },
     },

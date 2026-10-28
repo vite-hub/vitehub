@@ -56,7 +56,7 @@ export { asMetadataTarget, copyDefinitionDecorations, getAgentLayerOptions, inhe
 export { resolveAgentCapabilityDefinitions } from "../capability-runtime.ts"
 export { activeProviderSandbox } from "../internal/provider-box.ts"
 export { forgeAccessKey } from "../internal/forge-access.ts"
-export { decodeColocatedAgentSkills, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
+export { decodeColocatedAgentSkills, inspectAgentSkillFiles, withColocatedAgentSkills } from "../internal/colocated-agent-skills.ts"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { runAgent } from "../index.ts"

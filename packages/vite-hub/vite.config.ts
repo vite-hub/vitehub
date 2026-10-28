@@ -247,6 +247,9 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-skills.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-skill-tree.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-skill-file.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
@@ -346,6 +349,7 @@ export default defineConfig({
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
+      "src/console/runtime/skills.ts",
       "src/console/runtime/server/agents.get.ts",
       "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/channel-replay.ts",
@@ -404,6 +408,7 @@ export default defineConfig({
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];
+        delete exports["./console/runtime/skills"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
         delete exports["./console/runtime/server/blob.get"];

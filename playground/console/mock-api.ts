@@ -21,6 +21,7 @@ import type { Plugin } from "vite"
 import databaseFixture from "./database.fixture.json" with { type: "json" }
 import fixtureDocument from "./console.fixture.json" with { type: "json" }
 import manifest from "./package.json" with { type: "json" }
+import { playgroundSkillFiles } from "./skills.ts"
 import { playgroundConsoleContributions } from "./sections.ts"
 
 const fixture = parseConsoleFixture(fixtureDocument)
@@ -38,6 +39,7 @@ const sections = [
   "env",
   "connections",
   "agents",
+  "skills",
   "usage",
   "blob",
   "databases",
@@ -556,6 +558,18 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   if (path === "/api/_vitehub/console/sections") {
     // A fixed build id, so the Console starts its update check. A test that answers another id shows "Update ready".
     json(response, { build: "playground", contributions: playgroundConsoleContributions, projectName: manifest.name, sections })
+    return true
+  }
+
+  if (path === "/api/_vitehub/console/skills") {
+    const agent = url.searchParams.get("agent") ?? "interface-engineer"
+    const files = agent === "interface-engineer" ? playgroundSkillFiles : {}
+    const filePath = url.searchParams.get("path")
+    if (filePath !== null) {
+      const content = files[filePath]
+      json(response, content === undefined ? { error: "This file is not bundled with this Agent." } : { path: filePath, content, size: new TextEncoder().encode(content).byteLength }, content === undefined ? 404 : 200)
+    }
+    else json(response, { agents, agent, files: Object.entries(files).map(([path, content]) => ({ path, size: new TextEncoder().encode(content).byteLength })) })
     return true
   }
 

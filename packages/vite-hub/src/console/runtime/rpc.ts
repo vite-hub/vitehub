@@ -26,6 +26,7 @@ export const consoleRpcMethods = {
   media: "vitehub:console:media",
   scheduleRun: "vitehub:console:schedule-run",
   search: "vitehub:console:search",
+  skills: "vitehub:console:skills",
   sections: "vitehub:console:sections",
   status: "vitehub:console:status",
   usage: "vitehub:console:usage",

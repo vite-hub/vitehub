@@ -1,7 +1,7 @@
 import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "connections", "agents", "skills", "usage", "blob", "databases", "kv"] as const
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -30,6 +30,7 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
+  skills: { description: "Inspect bundled Agent Skills and their files.", icon: "i-ph-books-light", label: "Skills", routeName: "vitehub-console-skills" },
   usage: {
     description: "Review token use and cost evidence over time.",
     icon: "i-lucide-chart-column",
@@ -63,6 +64,7 @@ export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
   agents: "agents",
+  skills: "agents",
   usage: "agents",
   databases: "data",
   kv: "data",
@@ -143,6 +145,7 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
+  primitive("skills", "Skills", consoleSectionDetails.skills.icon, "agents/capabilities/skills", "Inspect the bundled Skill files that each Agent receives.", "agents/capabilities/skills"),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
   primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
@@ -204,6 +207,7 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   auth: "h",
   agents: "a",
   content: "t",
+  skills: "l",
   usage: "u",
   databases: "d",
   kv: "k",
@@ -325,7 +329,7 @@ export function resolveConsoleSectionIds(options: {
     ...(options.auth ? ["auth"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
-    ...(options.agent ? ["agents", "usage"] : []),
+    ...(options.agent ? ["agents", "skills", "usage"] : []),
     ...(options.blob ? ["blob"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),
