@@ -679,9 +679,10 @@ function normalizeRoute(path: string): string {
   return `/${decoded.replace(/^\/+|\/+$/g, "")}`
 }
 
-/** The default app path of a document: its id after a slash, without a trailing `/index`. */
+/** The default app path of a document: its encoded id segments after a slash, without a trailing `/index`. */
 function defaultRoute(id: string): string {
-  return `/${id === "index" ? "" : id.replace(/\/index$/, "")}`
+  const path = id === "index" ? "" : id.replace(/\/index$/, "")
+  return `/${path.split("/").map(segment => encodeURIComponent(segment)).join("/")}`
 }
 
 /** Set while Content's own `publish()` commits, the one writer that may delete documents from `published`. */

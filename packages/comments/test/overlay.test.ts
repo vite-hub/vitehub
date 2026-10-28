@@ -204,10 +204,11 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
-  it.each([true, false])("shows deletion only to authenticated resolve-only users: %s", async (authenticated) => {
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+    const authenticated = Boolean(user && !user.guest)
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
-      user: authenticated ? { id: "moderator", name: "Moderator" } : null,
+      user,
       can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
     }])
     vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])

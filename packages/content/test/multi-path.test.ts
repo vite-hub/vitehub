@@ -173,6 +173,27 @@ describe("content.resolve()", () => {
     await expect(content.resolve("/hello")).resolves.toBeNull()
   })
 
+  it("encodes reserved characters in default routes without merging distinct ids", async () => {
+    const workspace = await historyWorkspace(cleanup)
+    const content = defineContent({ workspace, collections: { pages: documents({ path: "pages/**/*.md", fields }) }, logger: false })
+    cleanup.push(() => content.dispose())
+    const routes = [
+      ["what", "/what"],
+      ["what?now", "/what%3Fnow"],
+      ["what#now", "/what%23now"],
+      ["foo/bar", "/foo/bar"],
+      ["foo%2Fbar", "/foo%252Fbar"],
+      ["section?now/index", "/section%3Fnow"],
+      ["section#now/index", "/section%23now"],
+      ["café/100%", "/caf%C3%A9/100%25"],
+    ] as const
+    for (const [id] of routes) await content.collection("pages").save(id, { data: { title: id }, body: "" })
+    await content.publish()
+    for (const [id, path] of routes) {
+      await expect(content.resolve(`${path}/?page=2#top`)).resolves.toEqual({ collection: "pages", id })
+    }
+  })
+
   it("looks in the published ref unless the draft is asked for", async () => {
     const { content, pages } = await setup()
     await pages.save("soon", { data: { title: "Soon" }, body: "" })
