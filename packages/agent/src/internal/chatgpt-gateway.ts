@@ -22,7 +22,7 @@ function primitive(context: AgentProviderCredentialContext, connection: string):
 export function chatgptCodexLaunchArgs(api: string): string {
   const provider = {
     name: "ChatGPT plan", base_url: api, wire_api: "responses",
-    env_key: chatgptTokenEnvironment, requires_openai_auth: false, supports_websockets: false,
+    requires_openai_auth: false, supports_websockets: false,
     request_max_retries: 2, stream_max_retries: 0,
   }
   const args = [
@@ -35,8 +35,8 @@ export function chatgptCodexLaunchArgs(api: string): string {
 }
 
 export function chatgptCodexGateway(credential: ChatGPTCredential): ResolvedAgentDriverGateway {
-  // Reserve the variable against driver.env overrides. The invocation replaces
-  // it with a relay key; the grant itself never enters a child environment.
+  // Reserve the variable against driver.env overrides. Both the grant and the
+  // relay key stay out of child environments.
   return { environment: { [chatgptTokenEnvironment]: "" }, chatgpt: credential }
 }
 

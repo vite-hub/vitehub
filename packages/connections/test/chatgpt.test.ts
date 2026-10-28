@@ -281,6 +281,21 @@ describe("ChatGPT plan Connections", () => {
     expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_FORBIDDEN" } })
   })
 
+  it.each(["chatgpt-export", "chatgpt-import"])("rejects %s when public HTTP is served through internal loopback", async (action) => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { url: "http://agent.example.com" })
+    const test = await setup()
+    await test.connect()
+    const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
+    const response = await handler(new Request("http://127.0.0.1:5173/_vitehub/connections", {
+      method: "POST",
+      headers: { "content-type": "application/json", origin: "http://agent.example.com" },
+      body: JSON.stringify({ action, name: "chatgpt", credential: {} }),
+    }))
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({ error: { code: "CONNECTIONS_FORBIDDEN" } })
+    await expect(test.use()).resolves.toBeDefined()
+  })
+
   it("verifies expired transfer identity before rotating and rejects a forged subject", async () => {
     const test = await setup()
     await test.connect()

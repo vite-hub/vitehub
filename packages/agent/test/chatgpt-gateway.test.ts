@@ -26,7 +26,7 @@ it("sets the exact Codex plan profile and keeps the token out of arguments", () 
   const args: unknown = JSON.parse(execFileSync("sh", ["-c", `exec "$1" -e 'process.stdout.write(JSON.stringify(process.argv.slice(1)))' -- ${launchArgs}`, "sh", process.execPath], { encoding: "utf8" }))
   expect(args).toEqual([
     "-c", 'model_provider="openai_chatgpt_plan"',
-    "-c", 'model_providers.openai_chatgpt_plan={name="ChatGPT plan",base_url="http://127.0.0.1:1234",wire_api="responses",env_key="VITEHUB_CHATGPT_ACCESS_TOKEN",requires_openai_auth=false,supports_websockets=false,request_max_retries=2,stream_max_retries=0}',
+    "-c", 'model_providers.openai_chatgpt_plan={name="ChatGPT plan",base_url="http://127.0.0.1:1234",wire_api="responses",requires_openai_auth=false,supports_websockets=false,request_max_retries=2,stream_max_retries=0}',
     ...["apps", "plugins", "image_generation", "computer_use", "browser_use", "code_mode_tool_search", "code_mode", "multi_agent", "hooks", "codex_hooks"].flatMap(feature => ["-c", `features.${feature}=false`]),
     "-c", 'shell_environment_policy.set.VITEHUB_CHATGPT_ACCESS_TOKEN=""',
   ])

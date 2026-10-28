@@ -72,7 +72,7 @@ vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
 }))
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
-import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
+import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
 import { chatgpt, cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
 import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
 import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
@@ -107,7 +107,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
-  onStartSession?: () => Promise<void>
+  onStartSession?: (input: { mcp?: { authorizationHeader: string, endpoint: string } }) => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: unknown
   turnResumeCursor?: unknown
@@ -133,8 +133,13 @@ function runtime(threadId: string, events: unknown[], options: {
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
-      await options.onStartSession?.()
       mcp = input.mcp
+      await options.onStartSession?.(input)
+      // Model the launcher's consumption of the private thread configuration.
+      if (mcp?.endpoint === "http://127.0.0.1/vitehub-chatgpt-configuration") {
+        const configuration = JSON.parse(mcp.authorizationHeader).mcp
+        mcp = configuration ? { endpoint: configuration.url, authorizationHeader: configuration.http_headers.Authorization } : undefined
+      }
       return { resumeCursor: options.resumeCursor, threadId }
     }),
     stopSession: vi.fn(async () => undefined),
@@ -273,6 +278,19 @@ describe("Provider Agent Driver", () => {
     }
   })
 
+  it("reports ChatGPT as unavailable when installed Codex cannot be resolved", async () => {
+    const inspection = vi.spyOn(chatgptGateway, "inspectChatGPTGateway").mockResolvedValue({
+      agent: "assistant", provider: "codex", checkedAt: new Date().toISOString(), stale: false, authenticated: true, readiness: "ready",
+    })
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
+    try {
+      await expect(inspectAgentProvider({ provider: "codex", gateway: chatgpt() }, context("thread-chatgpt-status") as never)).resolves.toMatchObject({
+        authenticated: true, readiness: "unavailable", reason: expect.stringContaining("@openai/codex"),
+      })
+    }
+    finally { inspection.mockRestore() }
+  })
+
   it("excludes startup injection from both credential-bearing ChatGPT processes", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-startup-"))
     const probe = join(root, "preload.cjs")
@@ -308,7 +326,7 @@ describe("Provider Agent Driver", () => {
       await expect(access(marker)).rejects.toThrow()
       const options = createProviderRuntime.mock.lastCall?.[0]
       const environment = JSON.parse(await readFile(output, "utf8"))
-      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: expect.any(String), VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "capability-token" })
+      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "" })
       expect(environment.VITEHUB_CHATGPT_ACCESS_TOKEN).not.toBe("startup-test-token")
       expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
       expect(environment.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
@@ -363,6 +381,7 @@ describe("Provider Agent Driver", () => {
       await createProviderAgentAdapter({ provider: "codex", gateway: chatgpt() }).generate(context(threadId) as never)
       expect(inspectedEnvironment).toContain("VITEHUB_CHATGPT_ACCESS_TOKEN=")
       expect(inspectedEnvironment).not.toContain(token)
+      expect(createProviderRuntime.mock.lastCall?.[0].environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
       expect(JSON.stringify(createProviderRuntime.mock.lastCall?.[0])).not.toContain(token)
     }
     finally {
@@ -390,10 +409,10 @@ describe("Provider Agent Driver", () => {
     let key = ""
     const threadId = `thread-chatgpt-transport-${fail}`
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
-      async onStartSession() {
+      async onStartSession(input) {
         const options = createProviderRuntime.mock.lastCall?.[0]
         url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1] ?? ""
-        key = options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN ?? ""
+        key = JSON.parse(input.mcp!.authorizationHeader).key
         expect(key).not.toBe(token)
         const response = await fetch(`${url}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}` }, body: "{}" })
         expect(await response.text()).toBe("data: completed\n\n")
@@ -413,6 +432,81 @@ describe("Provider Agent Driver", () => {
       server.close()
       server.closeAllConnections()
       await closed
+    }
+  })
+
+  it.each([false, true])("passes ChatGPT and Capability authentication only through the private protocol pipe (tools: %s)", async (tools) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-pipe-"))
+    const executable = join(root, "codex.cjs")
+    const token = "pipe-test-durable-grant"
+    const received: string[] = []
+    const server = new HttpServer((request, response) => {
+      received.push(request.headers.authorization ?? "")
+      response.end("authorized")
+    })
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Expected a test port")
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: token, api: `http://127.0.0.1:${address.port}/v1`, expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    resolveInstalledProviderExecutable.mockReturnValueOnce(executable)
+    const threadId = `thread-chatgpt-pipe-${tools}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession(input) {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1]
+        const configuration = JSON.parse(input.mcp!.authorizationHeader)
+        expect(options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
+        expect(options?.environment?.T3_MCP_BEARER_TOKEN).toBe("")
+        expect(JSON.stringify(options)).not.toContain(configuration.key)
+        await writeFile(executable, `
+          const { createInterface } = require("node:readline")
+          ;(async () => {
+            for await (const line of createInterface({ input: process.stdin })) {
+              const message = JSON.parse(line)
+              if (message.method === "initialize") continue
+              const config = message.params.config
+              const authorization = config["model_providers.openai_chatgpt_plan.http_headers"].Authorization
+              const response = await fetch(${JSON.stringify(url)} + "/responses", { method: "POST", headers: { authorization } })
+              const mcp = config.mcp_servers["t3-code"]
+              process.stderr.write(authorization.slice(7) + "\\n" + (mcp?.http_headers.Authorization.slice(7) || "") + "\\n")
+              console.log(JSON.stringify({ id: message.id, result: { status: response.status, authorization, mcp, environment: process.env } }))
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1 })
+        `)
+        const launched = spawn(String(options?.settings?.binaryPath), [], { env: options?.environment, stdio: ["pipe", "pipe", "pipe"] })
+        let stdout = ""
+        let stderr = ""
+        launched.stdout.on("data", chunk => { stdout += chunk })
+        launched.stderr.on("data", chunk => { stderr += chunk })
+        launched.stdin.end([
+          { id: 1, method: "initialize", params: { clientInfo: {} } },
+          { id: 2, method: "thread/start", params: { config: { mcp_servers: { "t3-code": { url: input.mcp!.endpoint, http_headers: { Authorization: input.mcp!.authorizationHeader } } } } } },
+        ].map(message => JSON.stringify(message)).join("\n") + "\n")
+        expect(await once(launched, "close")).toEqual([0, null])
+        const result = JSON.parse(stdout).result
+        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } })
+        expect(result.mcp).toEqual(tools ? { url: configuration.mcp.url, http_headers: { Authorization: "[REDACTED]" }, tools: { "release:check": { approval_mode: "approve" } } } : undefined)
+        expect(stderr.trim().split("\n")).toEqual(tools ? ["[REDACTED]", "[REDACTED]"] : ["[REDACTED]"])
+        expect(stdout + stderr).not.toContain(configuration.key)
+        expect(stdout + stderr).not.toContain(token)
+        expect((await fetch(`${url}/responses`, { method: "POST", headers: { authorization: `Bearer ${options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN}` } })).status).toBe(401)
+      },
+    })
+    try {
+      await createProviderAgentAdapter({ provider: "codex", gateway: chatgpt(), permissions: "allow-edits-unattended" }).generate(context(threadId, tools ? {
+        tools: { "release:check": { execute: async () => "ok", inputSchema: z.object({}) } },
+      } : {}) as never)
+      expect(provider.startSession).toHaveBeenCalledOnce()
+      expect(received).toEqual([`Bearer ${token}`])
+    }
+    finally {
+      gateway.mockRestore()
+      await rm(root, { force: true, recursive: true })
+      await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections() })
     }
   })
 
@@ -5002,7 +5096,7 @@ cli_auth_credentials_store = "keyring"
       clientInfo: { name: "App", title: "App", version: "1" },
     })) : undefined
     try {
-      await createProviderAgentAdapter({ provider: "codex", ...(useChatGPT ? { gateway: chatgpt() } : {}), env: { DRIVER_COMMAND_VALUE: "custom" } }).generate(runContext as never)
+      await createProviderAgentAdapter({ provider: "codex", ...(useChatGPT ? { gateway: chatgpt(), permissions: "allow-edits-unattended" as const } : {}), env: { DRIVER_COMMAND_VALUE: "custom" } }).generate(runContext as never)
     }
     finally { gateway?.mockRestore() }
     expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({
@@ -5012,6 +5106,7 @@ cli_auth_credentials_store = "keyring"
       PATH: "/managed/bin:/caller/bin",
       LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
       DRIVER_COMMAND_VALUE: "custom",
+      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } : {}),
       TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
     }) }))
   })

@@ -285,7 +285,7 @@ const action: ConnectionsRoute = {
       case "chatgpt-export":
       case "chatgpt-import": {
         const url = new URL(resolvePublicUrl({ agentName: access.agentName, request }));
-        const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(new URL(request.url).hostname);
+        const loopback = ["127.0.0.1", "localhost", "[::1]"].includes(url.hostname);
         if (url.protocol !== "https:" && !loopback) {
           return json({ error: managementErrorBody("CONNECTIONS_FORBIDDEN", "Credential transfer requires HTTPS or a loopback host.") }, 403);
         }

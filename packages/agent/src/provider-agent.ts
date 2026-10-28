@@ -1,7 +1,7 @@
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { chatgptCodexLaunchArgs, chatgptProviderError, chatgptTokenEnvironment, inspectChatGPTGateway } from "./internal/chatgpt-gateway.ts"
 import { startChatGPTTransport } from "./internal/chatgpt-transport.ts"
-import { chatgptProtocolSource } from "./internal/chatgpt-protocol.ts"
+import { chatgptProtocolSource, chatgptSessionConfiguration } from "./internal/chatgpt-protocol.ts"
 import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { copyProviderCallbackMetadata, providerCallbackMetadata, withProviderCallbackMetadata } from "./internal/provider-callback-metadata.ts"
 import { protectGeneratedProviderGitFiles, unmergedProviderGitFiles } from "./internal/generated-provider-git-files.ts"
@@ -678,7 +678,7 @@ const diagnosticSecrets = [...new Set([...secretEnvironmentKeys
   .concat(${JSON.stringify([...launchSecrets])})
   .sort((left, right) => right.length - left.length)
 const diagnosticSecretBuffers = diagnosticSecrets.map(secret => Buffer.from(secret))
-const stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
+let stderrRetentionBytes = ${providerLaunchStderrMaxBytes} + Math.max(0, ...diagnosticSecrets.map(secret => Buffer.byteLength(secret)))
 
 function redactDiagnostic(value) {
   let redacted = String(value)
@@ -729,7 +729,7 @@ function forwardStderr(chunk) {
   }
 }
 
-${clientInfo ? chatgptProtocolSource(clientInfo) : ""}
+${clientInfo ? chatgptProtocolSource(clientInfo, providerLaunchStderrMaxBytes) : ""}
 child.stderr.on("data", (chunk) => {
   if (${Boolean(clientInfo)}) return
   if (!requirementCapture) return forwardStderr(chunk)
@@ -1493,7 +1493,11 @@ export async function inspectAgentProvider<TRuntimeConfig extends AgentRuntimeCo
 ): Promise<AgentProviderStatus> {
   const options = withoutReplacedCredentials(configuredOptions)
   const signal = context.abortSignal
-  if (isChatGPTGateway(options.gateway)) return await inspectChatGPTGateway(options.gateway, context)
+  if (isChatGPTGateway(options.gateway)) {
+    const status = await inspectChatGPTGateway(options.gateway, context)
+    return resolveInstalledProviderExecutable("codex") ? status
+      : { ...status, readiness: "unavailable", reason: "Install @openai/codex in this app so the ChatGPT gateway can launch Codex." }
+  }
   const checkRequirements = inspectionOptions.checkRequirements !== false
   // The toolchain exists only after an invocation prepares its checkout.
   const providedToolchainCommands = providerToolchainCommandsFor(options)
@@ -3016,7 +3020,7 @@ async function* runProvider<
     const base = chatgptCommandEnvironment ?? providerRuntimeEnvironment
     return workspaceBrowserEnvironment(
       browserRuntimeEnvironment(context.context),
-      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "" } : {}) } : environment,
+      base ? { ...base, ...environment, ...(chatgptExpiry ? { [chatgptTokenEnvironment]: "", T3_MCP_BEARER_TOKEN: "" } : {}) } : environment,
     )
   }
   let developerInstructionsDigest: string | undefined
@@ -3269,7 +3273,7 @@ async function* runProvider<
       )
       gateway = {
         ...gateway,
-        environment: { [chatgptTokenEnvironment]: chatgptTransport.key },
+        environment: { [chatgptTokenEnvironment]: "" },
         launchArgs: chatgptCodexLaunchArgs(chatgptTransport.url),
       }
     }
@@ -3366,12 +3370,13 @@ async function* runProvider<
         lateToolServer => lateToolServer.close(),
         observeLateCleanup,
       )
-      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
+      if (!gateway?.chatgpt) providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = toolServer.mcp.authorizationHeader.slice("Bearer ".length)
     }
     let providerLauncher: string | undefined
     let chatgptHome: string | undefined
     if (gateway?.chatgpt) {
       if (!launchRoot || typeof providerCommand !== "string") throw agentDiagnostics.AGENT_R1015()
+      providerRuntimeEnvironment.T3_MCP_BEARER_TOKEN = ""
       chatgptCommandEnvironment = { ...providerRuntimeEnvironment, [chatgptTokenEnvironment]: "" }
       chatgptHome = join(launchRoot, "codex-home")
       await mkdir(chatgptHome, { mode: 0o700 })
@@ -3382,7 +3387,7 @@ async function* runProvider<
       providerRuntimeEnvironment.PATH = (process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter)
       delete providerRuntimeEnvironment.PATHEXT
       if (process.env.PATHEXT !== undefined) providerRuntimeEnvironment.PATHEXT = process.env.PATHEXT
-      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment])
+      providerLaunchSecretEnvironmentKeys = providerSecretEnvironmentKeys(providerEnvironmentOverrides, [chatgptTokenEnvironment, "T3_MCP_BEARER_TOKEN"])
       const launcher = await materializeProviderLauncher(launchRoot, { command: process.execPath, args: [providerCommand] }, providerLaunchSecretEnvironmentKeys, [], providerCwd, undefined, gateway.chatgpt.clientInfo, [...Object.keys(providerRuntimeEnvironment), "T3_MCP_BEARER_TOKEN"])
       providerLauncher = launcher.path
       providerLaunchDiagnosticPath = launcher.diagnosticPath
@@ -3646,7 +3651,7 @@ async function* runProvider<
       // The assigned host tools enforce Capability authorization themselves.
       // Preauthorize their exact names so unattended native approval cannot
       // reject them before the host receives the request. Shell policy stays intact.
-      ...(nativeUnattendedTools
+      ...(nativeUnattendedTools && !gateway?.chatgpt
         ? [
           ...(toolServer ? [`-c 'mcp_servers.t3-code.url=${JSON.stringify(toolServer.mcp.endpoint)}'`] : []),
           '-c \'mcp_servers.t3-code.bearer_token_env_var="T3_MCP_BEARER_TOKEN"\'',
@@ -3719,10 +3724,14 @@ async function* runProvider<
     effectiveSignal?.throwIfAborted()
     const session = await waitForProviderOperation(runtime.startSession({
       cwd: providerCwd,
-      // The runtime's thread-scoped MCP map replaces server configuration,
-      // including per-tool approval modes. Use the complete launch configuration
-      // for these host-authorized unattended tools instead.
-      mcp: nativeUnattendedTools ? undefined : toolServer?.mcp,
+      // ChatGPT's launcher consumes the private thread configuration and restores
+      // the complete MCP map, including unattended approval modes. Other Drivers
+      // use their launch configuration for unattended tools.
+      mcp: chatgptTransport ? chatgptSessionConfiguration(chatgptTransport.key, toolServer ? {
+        url: toolServer.mcp.endpoint,
+        http_headers: { Authorization: toolServer.mcp.authorizationHeader },
+        ...(nativeUnattendedTools ? { tools: Object.fromEntries(Object.keys(context.tools ?? {}).map(name => [name, { approval_mode: "approve" as const }])) } : {}),
+      } : undefined) : nativeUnattendedTools ? undefined : toolServer?.mcp,
       model: options.model,
       resumeCursor,
       runtimeMode: providerRuntimeMode[options.permissions ?? defaultAgentProviderPermissions],
