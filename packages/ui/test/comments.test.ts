@@ -509,6 +509,26 @@ describe("deep link", () => {
 });
 
 describe("list and filters", () => {
+  it.each(["draft", "reply", "edit"])("protects an unsent %s when keyboard activation changes scope", async (kind) => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    if (kind === "draft") await drop(wrapper);
+    else {
+      await wrapper.get("[data-slot=comment-pin]").trigger("click");
+      if (kind === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    }
+    const selector = kind === "edit" ? "[data-variant=edit] textarea" : "textarea";
+    await wrapper.get(selector).setValue("Keep this text");
+    const scopes = wrapper.findAll("[data-slot=comment-list-scope]");
+    (scopes[1]!.element as HTMLElement).focus();
+    // Keyboard activation emits click without the pointerdown handled by the outside guard.
+    await scopes[1]!.trigger("click", { detail: 0 });
+    await flushPromises();
+    expect(wrapper.get(selector).element).toHaveProperty("value", "Keep this text");
+    expect(scopes[0]!.attributes("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(wrapper.get(selector).element);
+  });
+
   const threads = [
     thread(1),
     thread(2, { author: ben, messages: [{ ...thread(2).messages[0]!, author: ben }] }),

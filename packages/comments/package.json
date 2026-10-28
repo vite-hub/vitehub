@@ -1,14 +1,15 @@
 {
   "name": "@vite-hub/comments",
   "version": "0.0.4",
-  "description": "Figma-style comments for your own running app: anchors, a client, and the types that the server and the UI share.",
+  "description": "Comments and in-place edits on live ViteHub sites, with presence and Content drafts.",
   "keywords": [
-    "anchors",
     "comments",
-    "review",
+    "collaboration",
+    "h3",
+    "vite",
     "vitehub"
   ],
-  "homepage": "https://vitehub.dev/docs/ui/comments",
+  "homepage": "https://github.com/vite-hub/vitehub#readme",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -31,17 +32,59 @@
       "require": "./dist/index.js",
       "default": "./dist/index.js"
     },
+    "./anchor": {
+      "types": "./dist/anchor.d.ts",
+      "import": "./dist/anchor.js",
+      "require": "./dist/anchor.js",
+      "default": "./dist/anchor.js"
+    },
     "./client": {
       "types": "./dist/client.d.ts",
       "import": "./dist/client.js",
       "require": "./dist/client.js",
       "default": "./dist/client.js"
     },
+    "./database": {
+      "types": "./dist/database.d.ts",
+      "import": "./dist/database.js",
+      "require": "./dist/database.js",
+      "default": "./dist/database.js"
+    },
+    "./realtime": {
+      "types": "./dist/realtime.d.ts",
+      "import": "./dist/realtime.js",
+      "require": "./dist/realtime.js",
+      "default": "./dist/realtime.js"
+    },
+    "./runtime": {
+      "types": "./dist/runtime/index.d.ts",
+      "import": "./dist/runtime/index.js",
+      "require": "./dist/runtime/index.js",
+      "default": "./dist/runtime/index.js"
+    },
+    "./runtime/auth": {
+      "types": "./dist/runtime/auth.d.ts",
+      "import": "./dist/runtime/auth.js",
+      "require": "./dist/runtime/auth.js",
+      "default": "./dist/runtime/auth.js"
+    },
+    "./runtime/console": {
+      "types": "./dist/runtime/console.d.ts",
+      "import": "./dist/runtime/console.js",
+      "require": "./dist/runtime/console.js",
+      "default": "./dist/runtime/console.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
       "require": "./dist/testing.js",
       "default": "./dist/testing.js"
+    },
+    "./vite": {
+      "types": "./dist/vite.d.ts",
+      "import": "./dist/vite.js",
+      "require": "./dist/vite.js",
+      "default": "./dist/vite.js"
     },
     "./package.json": "./package.json"
   },
@@ -52,7 +95,13 @@
     "test": "vp run -t @vite-hub/comments#build && vp test"
   },
   "dependencies": {
-    "nostics": "catalog:runtime"
+    "nostics": "catalog:runtime",
+    "@vite-hub/auth": "workspace:*",
+    "@vite-hub/realtime": "workspace:*",
+    "@vite-hub/runtime": "workspace:*",
+    "drizzle-orm": "catalog:database",
+    "h3": "catalog:unjs",
+    "valibot": "catalog:runtime"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
@@ -61,9 +110,21 @@
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "@libsql/client": "catalog:database",
+    "@vite-hub/database": "workspace:*",
+    "vite": "catalog:vite"
+  },
+  "peerDependencies": {
+    "@vite-hub/database": "workspace:*",
+    "vite": "catalog:vite-compat"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    }
   },
   "engines": {
-    "node": ">=24.0.0"
+    "node": ">=24.15.0"
   }
 }

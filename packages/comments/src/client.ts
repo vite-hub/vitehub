@@ -11,9 +11,9 @@ import type {
   CommentThread,
   CommentUser,
   CommentUsersInput,
-} from "./types.ts"
+} from "./client-types.ts"
 
-export { createAnchor, resolveAnchor, selectorFor } from "./anchor.ts"
+export { createAnchor, resolveAnchor, selectorFor } from "./client-anchor.ts"
 export type {
   AnchorPoint,
   AnchorPosition,
@@ -22,9 +22,9 @@ export type {
   CreateAnchorOptions,
   DetachedAnchor,
   ResolvedAnchor,
-} from "./anchor.ts"
-export { commentsErrorDiagnostics } from "./errors.ts"
-export type * from "./types.ts"
+} from "./client-anchor.ts"
+export { commentsErrorDiagnostics } from "./client-errors.ts"
+export type * from "./client-types.ts"
 
 export type CommentsClientStatus = "idle" | "loading" | "ready" | "error"
 

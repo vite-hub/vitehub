@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"

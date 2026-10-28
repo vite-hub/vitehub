@@ -1,4 +1,4 @@
-import { commentsErrorDiagnostics } from "./errors.ts"
+import { commentsErrorDiagnostics } from "./client-errors.ts"
 import type {
   CommentEvent,
   CommentListQuery,
@@ -7,7 +7,7 @@ import type {
   CommentsTransport,
   CommentThread,
   CommentUser,
-} from "./types.ts"
+} from "./client-types.ts"
 
 export interface MemoryTransportOptions {
   /** The signed-in user. Every call acts as this user. */

@@ -174,7 +174,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const subject = computed(() => toValue(options.subject));
   const user = computed(() => toValue(options.user) ?? client.user);
   const active = ref(false);
-  const scope = ref<CommentScope>("page");
+  const scopeValue = ref<CommentScope>("page");
+  const scope = computed({
+    get: () => scopeValue.value,
+    set: (value: CommentScope) => {
+      if (value === scopeValue.value) return;
+      if (hasText()) return block();
+      scopeValue.value = value;
+    },
+  });
   const filters = reactive<CommentFilterState>({ open: true, resolved: false, mine: false });
   const status = ref<CommentsClientStatus>(client.status);
   const threads = shallowRef<readonly CommentThread[]>(client.threads);
