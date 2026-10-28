@@ -150,11 +150,15 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
   let order = 0
   for (const raw of input.provider) {
     const id = text(raw.id)
-    if (!id || ids.has(id) || deleted.has(id)) continue
+    if (!id || deleted.has(id)) continue
     if (providerDeleted(raw)) {
       deleted.add(id)
+      ids.delete(id)
+      const previous = list.findIndex(entry => entry.message.id === id)
+      if (previous !== -1) list.splice(previous, 1)
       continue
     }
+    if (ids.has(id)) continue
     ids.add(id)
     list.push({
       message: {
@@ -248,24 +252,26 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     ...item, body: normalized(reply), position, reply, triggerPosition: item.triggerEntry ? list.indexOf(item.triggerEntry) : -1,
   }))).filter(item => item.body)
   const matchedReplies = new Set<(typeof replies)[number]>()
+  const ambiguousReplies = new Set<(typeof replies)[number]>()
   const matchedEntries = new Set<Entry>()
   const ambiguousEntries = new Set<Entry>()
-  // Reserve exact deliveries across all Invocations before considering truncated text. Identical replies can be
-  // deduplicated by count, but their delivery order does not establish which overlapping Invocation sent them.
+  // Reserve exact deliveries across all Invocations before considering truncated text. An ambiguous exact delivery
+  // prevents synthesis for every possible owner: counts alone do not establish which reply is missing.
   for (const exact of [true, false]) {
     for (const [position, entry] of list.entries()) {
-      if (entry.message.role !== "assistant" || entry.message.invocationId || matchedEntries.has(entry)) continue
+      if (entry.message.role !== "assistant" || entry.message.invocationId || matchedEntries.has(entry) || ambiguousEntries.has(entry)) continue
       const body = normalized(entry.message.text)
       const candidates = replies.filter(item => position > item.triggerPosition
         && (entry.time === undefined || (entry.time >= item.created - replyWindowBeforeMs && entry.time <= item.updated + replyWindowAfterMs))
         && (exact ? body === item.body : similar(body, item.body)))
-      const available = candidates.find(item => !matchedReplies.has(item))
-      if (!available) continue
       const owners = new Set(candidates.map(item => item.invocation.id))
-      if (!exact && owners.size > 1) {
+      if (owners.size > 1) {
         ambiguousEntries.add(entry)
+        if (exact) for (const item of candidates) ambiguousReplies.add(item)
         continue
       }
+      const available = candidates.find(item => !matchedReplies.has(item))
+      if (!available) continue
       matchedReplies.add(available)
       matchedEntries.add(entry)
       if (owners.size === 1) mark(entry, available.invocation.id)
@@ -288,7 +294,7 @@ export function stitchChannelConversation(input: ChannelConversationInput): Chan
     for (const entry of window) mark(entry, invocation.id)
     const held = list.filter(entry => entry.message.role === "assistant" && entry.message.invocationId === invocation.id && !matchedEntries.has(entry)).map(entry => normalized(entry.message.text))
     for (const item of replies.filter(item => item.invocation === invocation)) {
-      if (matchedReplies.has(item)) continue
+      if (matchedReplies.has(item) || ambiguousReplies.has(item)) continue
       // Each reply is checked on its own, so one message in the window does not hide the other replies.
       const index = held.findIndex(candidate => similar(candidate, item.body))
       if (index !== -1) {

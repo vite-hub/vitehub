@@ -75,6 +75,20 @@ describe("stitchChannelConversation", () => {
     expect(show(messages)).toEqual(["provider:1:kept"])
   })
 
+  it.each([false, true])("honors deletion markers before duplicate IDs (reversed: %s)", (reversed) => {
+    const history = [
+      provider("2", "secret", 2),
+      provider("3", "gone", 3),
+      provider("2", "", 4, false, { deleted: true }),
+      provider("3", "", 4, false, { metadata: { deleted: true } }),
+    ]
+    const messages = stitch({
+      provider: [provider("1", "kept", 1), ...(reversed ? history.reverse() : history)],
+      transcripts: [transcript("a", "user", "secret", at(2), "2"), transcript("b", "user", "gone", at(3), "3")],
+    })
+    expect(show(messages)).toEqual(["provider:1:kept"])
+  })
+
   it("never sorts a reply before the message that it answers, whatever the source", () => {
     // One time for all of them, and the journal and the provider disagree about the order of their inputs.
     const invocation = { createdAt: new Date(at(1)).toISOString(), id: "run", prompt: "question", replies: ["answer"], status: "completed", updatedAt: new Date(at(1)).toISOString() }
@@ -162,20 +176,34 @@ describe("stitchChannelConversation", () => {
       .toEqual([[replies[1], "run-2"], [replies[0], "run-1"]])
   })
 
-  it.each(["provider", "transcript"] as const)("does not infer provenance for identical overlapping %s replies", (source) => {
+  it.each((["provider", "transcript"] as const).flatMap(source => [1, 2, 3].map(count => ({ count, source }))))("does not infer provenance for $count identical overlapping $source replies", ({ count, source }) => {
     const invocations = [1, 2].map(index => ({
       createdAt: new Date(at(index)).toISOString(), id: `run-${index}`, replies: ["same answer"],
       sourceMessageId: String(index), status: "completed", updatedAt: new Date(at(3)).toISOString(),
     }))
+    const ids = Array.from({ length: count }, (_, index) => `reply-${count - index}`)
     const messages = stitch({
       invocations,
       provider: [provider("1", "first question", 1), provider("2", "second question", 2),
-        ...(source === "provider" ? [provider("reply-2", "same answer", 3, true), provider("reply-1", "same answer", 3, true)] : [])],
-      transcripts: source === "transcript" ? ["reply-2", "reply-1"].map(id => transcript(id, "assistant", "same answer", at(3), id)) : [],
+        ...(source === "provider" ? ids.map(id => provider(id, "same answer", 3, true)) : [])],
+      transcripts: source === "transcript" ? ids.map(id => transcript(id, "assistant", "same answer", at(3), id)) : [],
     })
-    expect(messages).toHaveLength(4)
-    expect(messages.filter(message => message.role === "assistant").map(message => [message.text, message.invocationId, message.source]))
-      .toEqual([["same answer", undefined, source], ["same answer", undefined, source]])
+    expect(messages).toHaveLength(2 + count)
+    expect(messages.filter(message => message.role === "assistant").map(message => [message.id, message.text, message.invocationId, message.source]))
+      .toEqual([...ids].sort().map(id => [id, "same answer", undefined, source]))
+  })
+
+  it("links identical replies when their delivery times distinguish the Invocations", () => {
+    const messages = stitch({
+      invocations: [1, 5].map(minute => ({
+        createdAt: new Date(at(minute)).toISOString(), id: `run-${minute}`, replies: ["same answer"],
+        sourceMessageId: String(minute), status: "completed", updatedAt: new Date(at(minute)).toISOString(),
+      })),
+      provider: [provider("1", "first question", 1), provider("reply-1", "same answer", 2, true),
+        provider("5", "second question", 5), provider("reply-5", "same answer", 6, true)],
+    })
+    expect(messages.filter(message => message.role === "assistant").map(message => [message.id, message.invocationId]))
+      .toEqual([["reply-1", "run-1"], ["reply-5", "run-5"]])
   })
 
   it("summarizes the people and the last message", () => {
