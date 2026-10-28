@@ -20,6 +20,8 @@ ViteHub then adds the `vitehub_comment_threads` and `vitehub_comments` tables to
 
 Open any page with `?comments`. The server adds the overlay script to that page, and the session route sets the `vitehub-comments` cookie so later pages open in comment mode too. The cookie is a hint, never a credential: every route checks `authorize` again. A request without the hint gets the page unchanged.
 
+When the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Custom `identify` runs after that access check. Without the Console, custom `identify` takes precedence over ViteHub Auth, and Comments reads the Auth session only when `identify` is absent.
+
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
 
 ```vue
