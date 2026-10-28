@@ -1,3 +1,5 @@
+import { Window } from "happy-dom"
+import { marked } from "marked"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { commentsSchema } from "../src/database.ts"
@@ -703,7 +705,7 @@ describe("forge render", () => {
 
   it.each(["app", "author"] as const)("keeps Markdown and HTML literal when posted as %s", (postedAs) => {
     const body = "[review](https://example.com) ![image](https://example.com/x.png)\n<b>bold</b> &lt;i&gt;\n**bold** _emphasis_ ~~strike~~ `code`\\\n# Heading\n- item\n1. ordered\n2) ordered"
-    const literal = "\\[review\\](https://example.com) \\!\\[image\\](https://example.com/x.png)\n\\<b\\>bold\\</b\\> &amp;lt;i&amp;gt;\n\\*\\*bold\\*\\* \\_emphasis\\_ \\~\\~strike\\~\\~ \\`code\\`\\\\\n\\# Heading\n\\- item\n1\\. ordered\n2\\) ordered"
+    const literal = "\\[review\\](https\\://example.com) \\!\\[image\\](https\\://example.com/x.png)\n\\<b\\>bold\\</b\\> &amp;lt;i&amp;gt;\n\\*\\*bold\\*\\* \\_emphasis\\_ \\~\\~strike\\~\\~ \\`code\\`\\\\\n\\# Heading\n\\- item\n1\\. ordered\n2\\) ordered"
     const first = { ...thread.comments[0], body }
     const reply = { ...first, id: "c2" }
     const withReply = { ...thread, comments: [first, reply] }
@@ -712,7 +714,21 @@ describe("forge render", () => {
       expect(rendered).toContain(postedAs === "app" ? literal.split("\n").map(line => `> ${line}`).join("\n") : literal)
     }
     const summary = renderSummary({ title: "Preview comments", threads: [{ thread: withReply, failed: false }] })
-    expect(summary).toContain("\\[review\\](https://example.com) \\!\\[image\\](https://example.com/x.png)")
+    expect(summary).toContain("\\[review\\](https\\://example.com) \\!\\[image\\](https\\://example.com/x.png)")
+  })
+
+  it.each(["app", "author"] as const)("renders URLs and indentation as plain text when posted as %s", (postedAs) => {
+    const lines = ["[review](https://example.com)", "https://example.com", "http://example.com", "www.example.com", "    four leading spaces", "\tleading tab"]
+    const first = { ...thread.comments[0], body: lines.join("\n\n") }
+    const reply = { ...first, id: "c2" }
+    const withReply = { ...thread, comments: [first, reply] }
+    for (const comment of [first, reply]) {
+      const document = new Window().document
+      document.body.innerHTML = marked.parse(renderComment(withReply, comment, postedAs), { async: false, gfm: true })
+      expect(document.querySelectorAll('a[href*="example.com"]')).toHaveLength(0)
+      expect(document.querySelectorAll("pre")).toHaveLength(0)
+      for (const line of lines) expect(document.body.textContent).toContain(line)
+    }
   })
 
   it("keeps author display names from linking in threads, replies, and summaries", () => {

@@ -30,8 +30,12 @@ function quote(text: string): string {
 
 /** Comment text is plain text in the preview; keep it literal in GitHub Markdown too. */
 function plainText(text: string): string {
-  return unlinked(text).replace(/&/g, "&amp;").replace(/[\\`*_{}[\]<>#+=!|~-]/g, "\\$&")
+  // Escaping colons and www dots also disables GFM's bare URL links. An entity at the start of an indented
+  // line keeps its whitespace as text instead of opening a code block, including inside an app quote.
+  return unlinked(text).replace(/&/g, "&amp;").replace(/[\\`*_{}[\]<>#+=!:|~-]/g, "\\$&")
+    .replace(/\b(www)\./gi, "$1\\.")
     .replace(/^(\s*\d+)([.)])(?=\s)/gm, "$1\\$2")
+    .replace(/^[ \t]/gm, char => char === "\t" ? "&#9;" : "&#32;")
 }
 
 /** One line for a Markdown table cell. */

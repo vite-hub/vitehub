@@ -1363,6 +1363,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      marked:
+        specifier: catalog:realtime
+        version: 17.0.6
       publint:
         specifier: catalog:tooling
         version: 0.3.25

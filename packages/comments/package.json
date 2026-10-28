@@ -97,6 +97,7 @@
     "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
+    "marked": "catalog:realtime",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",
