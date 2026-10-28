@@ -67,7 +67,8 @@ catalogs:
     "@types/mdast": ^4.0.4
     comark: 0.8.1
     comark-content: 0.4.3
-    comark-ui: 0.7.2
+    # Includes the editor fix in onmax/comark-ui#258; replace with its release when available.
+    comark-ui: https://pkg.pr.new/comark-ui@ef627712bbba068654ba083807807ea0bedce7e5
   nuxt:
     "@nuxt/content": ^3.16.1
     "@nuxt/ui": ^4.11.3
@@ -223,8 +224,6 @@ packageExtensions:
     dependencies:
       h3: ^1.15.11
 patchedDependencies:
-  # Preserve code marks until https://github.com/onmax/comark-ui/pull/258 is released.
-  comark-ui@0.7.2: patches/comark-ui@0.7.2.patch
   "@netlify/blobs@11.1.4": patches/@netlify__blobs@11.1.4.patch
   "@vercel/blob@2.8.0": patches/@vercel__blob@2.8.0.patch
   docus@5.13.0: patches/docus@5.13.0.patch
