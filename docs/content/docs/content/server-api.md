@@ -23,6 +23,7 @@ icon: i-lucide-code-2
 | `defineContentHandler` from `vite-hub/content` | Adapt a Content runtime to an H3 or Nitro route in another server. |
 | `createContentClient`, `defineContentClientPlugin` from `vite-hub/content/client` | Use or extend the typed Comark Content client. |
 | `createContentEditorCodec`, `contentRealtimeEditor`, `ContentImage` from `vite-hub/content/editor` | Content's configured editor codec, Realtime adapter, and image extension. See [Live editing](/docs/content/editing-together#build-your-own-live-editor). |
+| `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Mark the element that renders a field, and read the [field address](#field-addresses) back. |
 | `comark-content/database/*`, `comark-content/plugins/*`, `comark-content/sources/*` | Optional Comark databases, plugins, and native Sources. Install `comark-content` when importing these directly. |
 
 Libraries can install `@vite-hub/content` and use the matching `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/presets/cms` imports. `documents` and `optional` come from `@vite-hub/content/collections`, which needs `@vite-hub/workspace`. A read-only Content runtime does not install Workspace or Database. Without `vitehub()`, add `hubContent()` from `@vite-hub/content/vite` next to the Workspace, Database, and Blob plugins so the `cms` preset gets its Workspace, tables, and, when the app has none, its Database. Only `vitehub()` turns those plugins on for you.
@@ -287,3 +288,14 @@ content.preview.active()                             // true inside a preview re
 ```
 
 A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
+
+## Field addresses
+
+`contentField()` returns the `data-content-field` attribute for the element that renders one field. Tools on the page read it to find the document and field behind the text. [Comments](/docs/comments/configure#mark-content-fields) uses it to edit the text in place and save a draft.
+
+```vue
+<h1 v-bind="contentField('about', 'hero.title')">{{ about.hero.title }}</h1>
+<span v-bind="contentField('customers', customer.id, 'name')">{{ customer.data.name }}</span>
+```
+
+The address is `<collection>[:<id>]#<field.path>`, such as `about#hero.title` for a singleton or `customers:acme#name` for a document. `formatContentField()` throws a `TypeError` for a name or path that the format cannot hold. `parseContentField()` returns `{ collection, id?, field }`, or `undefined`.

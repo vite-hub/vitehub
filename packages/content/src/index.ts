@@ -94,6 +94,8 @@ export { file, image } from "@vite-hub/blob/reference"
 export type { BlobReference, BlobReferenceOptions } from "@vite-hub/blob/reference"
 export type { ContentSeo, ContentSeoField, ContentSeoHint, ContentSeoOptions } from "./seo.ts"
 export { contentHead, defaultContentImageUrl } from "./head.ts"
+export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
+export type { ContentFieldAddress } from "./field.ts"
 export type {
   ContentHead,
   ContentHeadCollection,
@@ -368,7 +370,8 @@ export function defineContent<
   const replaced = new Set(customPlugins.filter(Boolean).map(plugin => plugin.name))
   sharedOptions.markdown = {
     ...sharedOptions.markdown,
-    plugins: [...comarkUi({ chips: { download: false }, badge: { download: false } }).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
+    // The Vue renderer omits these HTML-only plugins.
+    plugins: [...comarkUi({ annotate: false, diff: false, quiz: false, chips: { download: false }, badge: { download: false } }).plugins.filter(plugin => !replaced.has(plugin.name)), ...customPlugins],
   }
   const seo = normalizeSeoOptions(seoOptions)
   const presetDefaults = options.extends === undefined ? {} : resolveContentPreset(options.extends)

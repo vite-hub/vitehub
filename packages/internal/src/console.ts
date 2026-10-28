@@ -171,6 +171,12 @@ export interface ViteHubConsoleRuntimeRecordTableSection<TOptions = void> extend
   /** Reads build-time records on the server. When omitted, the section has only runtime records. */
   read?: (options: TOptions) => MaybePromise<readonly ViteHubConsoleRecord[]>
   runtime: ViteHubConsoleRuntimeReader
+  /**
+   * Returns the absolute path of the application module that turns the section on, such as `server/comments.ts`, or
+   * `undefined` when the project has none. With it, the host shows the section only when the module exists; without
+   * it, a Vite option enables the section.
+   */
+  entry?: (options: TOptions) => MaybePromise<string | undefined>
 }
 
 /**

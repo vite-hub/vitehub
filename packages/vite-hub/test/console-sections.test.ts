@@ -185,6 +185,7 @@ describe("Console Go to shortcuts", () => {
       agents: "g a",
       content: "g t",
       skills: "g l",
+      comments: "g n",
       usage: "g u",
       databases: "g d",
       kv: "g k",

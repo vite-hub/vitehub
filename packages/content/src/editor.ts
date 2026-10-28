@@ -8,7 +8,7 @@ export type { EditorCodecOptions as ContentEditorOptions } from "comark-ui/edito
 
 /** Content's codec and schema, ready for a browser editor or a collaborative room. */
 export function createContentEditorCodec(options: EditorCodecOptions = {}): EditorCodec {
-  return createEditorCodec({ plugins: comarkUi({ chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } }).plugins, ...options })
+  return createEditorCodec({ plugins: comarkUi({ annotate: false, diff: false, quiz: false, chips: { download: false }, badge: { download: false }, icon: { fetch: false }, diagrams: { draw: false } }).plugins, ...options })
 }
 
 /** The same Content schema and loss check serve the Console and a collaborative room. */
