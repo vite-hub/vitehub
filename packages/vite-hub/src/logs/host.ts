@@ -1,9 +1,8 @@
 import { createConsoleProjectRegistry } from "../console/project-registry.ts";
-import { consoleProjectRootKey } from "../console/internal.ts";
 import type { LogSource } from "./source.ts";
 
 const registry = createConsoleProjectRegistry<LogSource>({
-  root: consoleProjectRootKey,
+  root: Symbol.for("vitehub.logs.root"),
   value: Symbol.for("vitehub.logs.source"),
   registry: Symbol.for("vitehub.logs.sources"),
 });
