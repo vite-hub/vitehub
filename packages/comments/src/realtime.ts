@@ -28,7 +28,7 @@ export function commentsRealtime(comments: Comments, options: { session?: (event
   const readers = new WeakMap<H3Event, boolean>()
   return {
     async identify({ event }) {
-      const session = await options.session?.(event).catch(() => null)
+      const session = await options.session?.(event).catch(() => false as const)
       if (session === false) {
         readers.set(event, false)
         return null

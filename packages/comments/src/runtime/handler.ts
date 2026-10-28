@@ -154,7 +154,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
-    const user = await options.session?.(event).catch(() => null)
+    const user = await options.session?.(event).catch(() => false as const)
     if (user === false) return false
     return comments.options.identify ? await comments.options.identify({ event }) ?? null : user ?? null
   }

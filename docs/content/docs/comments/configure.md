@@ -59,7 +59,7 @@ When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. 
 | --- | --- |
 | `auth: 'app'` or a Console Auth config | The signed-in Console user |
 | `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest. The overlay asks for a display name. |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guest access is allowed. |
 
 ### Use your own login
 

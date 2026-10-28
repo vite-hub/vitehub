@@ -1,6 +1,6 @@
 import { ViteHubError } from "@vite-hub/runtime"
 import { H3 } from "h3"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 import { createCommentsHandler } from "../src/runtime/handler.ts"
 import { commentsConsoleSession } from "../src/runtime/console-session.ts"
@@ -66,6 +66,57 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each(["authorize", "user", "identify"] as const)("denies Console session failures in %s before Comments identity or policy", async (source) => {
+    for (const customIdentity of [false, true]) {
+      const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+      const authorize = vi.fn(() => true)
+      const fail = async () => { throw new Error("Console session unavailable") }
+      const session = commentsConsoleSession({
+        authorize: source === "authorize" ? fail : async () => true,
+        user: source === "user" ? fail : async () => null,
+        identify: source === "identify" ? fail : async () => null,
+      })
+      const { call } = await setup({ session, options: { identify: customIdentity ? identify : undefined, authorize } })
+      const current = await call("/session")
+      expect(current.body.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
+      expect(current.response.headers.get("set-cookie")).toContain("Max-Age=0")
+      expect((await call("/threads?page=/")).response.status).toBe(403)
+      expect((await call("/threads", {
+        method: "POST",
+        json: { page: "/", anchor, body: "Denied" },
+        headers: { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" },
+      })).response.status).toBe(403)
+      expect(identify).not.toHaveBeenCalled()
+      expect(authorize).not.toHaveBeenCalled()
+    }
+  })
+
+  it("keeps Console guest authors anonymous to Comments policies", async () => {
+    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
+    const { call } = await setup({ session, options: { identify: undefined, authorize: ({ user }) => user === null } })
+    const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
+    const current = await call("/session", { headers })
+    expect(current.body.data).toMatchObject({ user: null, can: { read: true, comment: true, resolve: true } })
+    const created = await call("/threads", { headers, method: "POST", json: { page: "/", anchor, body: "Hi" } })
+    expect(created.response.status).toBe(200)
+    expect(created.body.data.createdBy).toEqual({ id: "guest:visitor", name: "Visitor", guest: true })
+    expect(created.body.data.can).toEqual({ comment: true, resolve: true })
+  })
+
+  it.each([false, true])("requires Content to allow anonymous writes for Console guests: %s", async (allowAnonymous) => {
+    const session = commentsConsoleSession({ authorize: async () => true, user: async () => null, identify: async () => null })
+    const content = fakeContent()
+    const canWrite = vi.fn(async ({ user }: Parameters<CommentsContent["can"]>[0]) => user != null || allowAnonymous)
+    content.runtime.can = canWrite
+    const { call } = await setup({ session, content, options: { identify: undefined, authorize: () => true } })
+    const headers = { "x-vitehub-comments-guest-id": "visitor", "x-vitehub-comments-guest-name": "Visitor" }
+    const saved = await call("/fields", { headers, method: "POST", json: { field: "about#hero.title", value: "Guest edit", ifDigest: "d1" } })
+    expect(saved.response.status).toBe(allowAnonymous ? 200 : 403)
+    if (!allowAnonymous) expect(saved.body.error?.code).toBe("COMMENTS_FIELD_FORBIDDEN")
+    expect(canWrite).toHaveBeenCalledWith(expect.objectContaining({ user: undefined }))
+    expect(content.saves).toHaveLength(allowAnonymous ? 1 : 0)
+  })
+
   it.each([undefined, () => ({ id: "custom", name: "Custom" })])("preserves Console denial before guest policies or custom identity: %s", async (identify) => {
     const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
     const { comments, call } = await setup({ session, options: { identify, authorize: () => true } })
