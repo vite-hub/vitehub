@@ -416,7 +416,7 @@ describe("Console requests", () => {
   })
 
   it.each(["", "/admin"])("visits allowed sections under the app mount %s", async (mount) => {
-    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" }, visit: "/api/_vitehub/comments/session" }
+    const comments = { id: "comments", label: "Comments", description: "Page comments", icon: "i-lucide-message-circle", view: { kind: "definition-catalog", notice: "Page comments" }, visit: `${mount}/api/_vitehub/comments/session` }
     const hidden = { ...comments, id: "hidden", visit: "/api/hidden/session" }
     const navigation = { ok: true, value: { contributions: [comments, hidden], sections: ["comments"] } }
     // Navigation uses RPC; the contributed visit is an ordinary GET that sets the app cookie.

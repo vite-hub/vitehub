@@ -12,12 +12,12 @@ export interface CommentsConsoleAccess {
 
 /**
  * The user of a request from the Console access rules: the person must be allowed to use the Console `comments`
- * section. People that the Console does not allow get `null`, so they never see the overlay. A Console without
- * accounts, such as `console: { auth: false }` or the dev server, gives a guest, which names itself in the overlay.
+ * section. People that the Console does not allow get `false`, which denies access before Comments guest policies.
+ * A Console without accounts, such as `console: { auth: false }` or the dev server, gives a guest, which names itself in the overlay.
  */
-export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H3Event) => Promise<CommentsUser | null> {
+export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H3Event) => Promise<CommentsUser | false> {
   return async (event) => {
-    if (!await access.authorize({ event })) return null
+    if (!await access.authorize({ event })) return false
     const user = await access.user({ event })
     const id = text(user?.id) ?? text(user?.email)
     if (user && id) return { ...user, id }

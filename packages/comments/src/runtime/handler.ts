@@ -46,9 +46,9 @@ export interface CommentsHandlerOptions {
   comments: Comments
   /**
    * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
-   * Omitted when the app has neither.
+   * Omitted when the app has neither. `false` denies access regardless of Comments guest policies.
    */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
+  session?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -153,20 +153,15 @@ function leaseHolder(error: unknown): string {
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
   const { comments } = options
 
-  async function resolveUser(event: H3Event): Promise<CommentsUser | null> {
-    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
-    if (!options.session) return null
-    try {
-      return await options.session(event) ?? null
-    }
-    catch {
-      return null
-    }
+  async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
+    const user = await options.session?.(event).catch(() => null)
+    if (user === false) return false
+    return comments.options.identify ? await comments.options.identify({ event }) ?? null : user ?? null
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
     const user = await resolveUser(event)
-    if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    if (user === false || !await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
     const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
     return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
@@ -216,7 +211,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => comments.can({ user, action })))
+    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => user === false ? false : comments.can({ user, action })))
     const headers = new Headers()
     headers.append("set-cookie", read
       ? `${commentsHintCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
@@ -370,16 +365,17 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const comment = current.comments.find(candidate => candidate.id === commentId)
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
-        if (denied) return failure(denied)
-        if (comment.author.id === allowed.author?.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
-        // Someone else's comment: only people who may resolve delete it.
+        if (!denied && allowed.user && !allowed.user.guest && !comment.author.guest && comment.author.id === allowed.user.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Resolve-only moderators may delete too. Guest IDs never prove ownership.
         const [cannot, resolver] = await access(event, "resolve", current)
         if (cannot) return failure(cannot)
+        if (!resolver.user || resolver.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.removeComment(resolver.grant, id, commentId))
       }
       if (method === "DELETE" && !action) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
+        if (!allowed.user || allowed.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.remove(allowed.grant, id))
       }
     }

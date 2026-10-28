@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
+import * as page from "../src/page.ts"
 import { api } from "../src/overlay/api.ts"
 
 import type { CommentThread } from "../src/types.ts"
@@ -203,20 +204,41 @@ describe("Comments overlay", () => {
     expect(shadow.querySelector(".pin-button")).toBeNull()
   })
 
-  it("lets a server-identified guest delete their own comment", async () => {
-    vi.mocked(api.session).mockResolvedValue([undefined, {
-      user: { id: "ada", name: "Ada", guest: true }, can: { read: true, comment: true, resolve: false }, realtime: true, content: false,
-    }])
+  it.each([null, { id: "moderator", name: "Moderator" }, { id: "guest:console", name: "Guest", guest: true }])("shows deletion only to authenticated resolve-only users: %j", async (user) => {
+    const authenticated = Boolean(user && !user.guest)
     overlay.remove()
+    vi.mocked(api.session).mockResolvedValue([undefined, {
+      user,
+      can: { read: true, comment: !authenticated, resolve: true }, realtime: false, content: false,
+    }])
+    vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...thread(), can: { comment: !authenticated, resolve: true } }]])
     overlay = document.createElement("vitehub-comments")
     document.body.append(overlay)
     shadow = overlay.shadowRoot!
     await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
     openThread()
-    const remove = shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
-    expect(remove).not.toBeNull()
-    remove!.click()
-    await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
+    const button = shadow.querySelector<HTMLButtonElement>('[aria-label="Delete comment"]')
+    expect(Boolean(button)).toBe(authenticated)
+    if (authenticated) {
+      button!.click()
+      await vi.waitFor(() => expect(api.removeComment).toHaveBeenCalledWith("thread", "root"))
+    }
+  })
+
+  it("links a saved draft to Content below the app base", async () => {
+    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+    const title = await startEdit()
+    title.textContent = "Updated"
+    title.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Review and publish"))
+  })
+
+  it("links non-editable fields to Content below the app base", async () => {
+    vi.spyOn(page, "commentsApiRoute").mockReturnValue("/portal/api/_vitehub/comments")
+    vi.mocked(api.field).mockResolvedValue([undefined, { field: "settings#title", value: null, editable: false, digest: "draft", collection: "settings", id: "settings" }])
+    shadow.querySelector<HTMLButtonElement>('[title="Edit text (E)"]')!.click()
+    document.querySelector("h1")!.dispatchEvent(new MouseEvent("click", { bubbles: true }))
+    await vi.waitFor(() => expect(shadow.querySelector('a[href="/portal/_vitehub/content"]')?.textContent).toBe("Open Content"))
   })
 
   it("saves a draft edit back to the published text", async () => {

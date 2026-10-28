@@ -13,6 +13,15 @@ function event(): H3Event {
 }
 
 describe("commentsRealtime", () => {
+  it("preserves Console denial even when the Comments guest policy allows reading", async () => {
+    const session = commentsConsoleSession({ authorize: async () => false, user: async () => null, identify: async () => null })
+    const definition = commentsRealtime(defineComments({ authorize: () => true }), { session })
+    const request = event()
+    const context = { definition: "comments", event: request, request: new Request("http://site.test") }
+    const user = await definition.identify!(context)
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(false)
+  })
+
   it("binds presence to a server-identified guest", async () => {
     const definition = commentsRealtime(defineComments({
       identify: () => ({ id: "external-guest", name: "Invited reviewer", guest: true }),

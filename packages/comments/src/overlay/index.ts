@@ -11,6 +11,10 @@ import type { CommentsApiError, CommentsSession, CommentsThread as CommentThread
 
 type Mode = "view" | "comment" | "edit"
 
+function contentConsolePath(): string {
+  return `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`
+}
+
 interface Cursor {
   selector: string
   x: number
@@ -442,7 +446,7 @@ class CommentsOverlay extends HTMLElement {
     const [error, value] = await api.field(field)
     if (error) return this.failed(error)
     if (!value.editable || value.value === null) {
-      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", "/_vitehub/content"] })
+      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", contentConsolePath()] })
       return
     }
     this.editing = { element, field, digest: value.digest, original: element.textContent ?? "", initial: value.value }
@@ -495,7 +499,7 @@ class CommentsOverlay extends HTMLElement {
       return this.failed(error)
     }
     this.drafted.add(field)
-    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", "/_vitehub/content"] })
+    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", contentConsolePath()] })
     this.schedule()
   }
 
@@ -698,7 +702,6 @@ class CommentsOverlay extends HTMLElement {
   private renderThread(thread: CommentThread): HTMLElement {
     const session = this.session!
     const can = thread.can ?? session.can
-    const me = this.account()?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
     const resolved = thread.status === "resolved"
     const card = h("div", { className: "card", role: "dialog", "aria-label": "Comment thread", "data-card": `thread-${thread.id}` },
       h("div", { className: "card-head" },
@@ -713,7 +716,7 @@ class CommentsOverlay extends HTMLElement {
           h("span", { className: "avatar", style: `background:${colorOf(comment.author.id)}` }, comment.author.image ? h("img", { src: comment.author.image, alt: "" }) : initials(comment.author.name)),
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("span", { className: "time" }, ago(comment.createdAt)),
-          can.comment && (comment.author.id === me || can.resolve) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
       !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )
