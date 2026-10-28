@@ -44,11 +44,13 @@ export interface CommentsContent {
 
 export interface CommentsHandlerOptions {
   comments: Comments
+  /** Reads the ViteHub Auth user only when no custom `identify` is configured. */
+  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
   /**
-   * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
-   * Omitted when the app has neither. `false` denies access regardless of Comments guest policies.
+   * Checks Console section access before custom `identify` or Comments policies. `false` or a failed read denies
+   * access; otherwise this is the user when no custom `identify` is configured.
    */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
+  consoleSession?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -154,9 +156,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
-    const user = await options.session?.(event).catch(() => false as const)
-    if (user === false) return false
-    return comments.options.identify ? await comments.options.identify({ event }) ?? null : user ?? null
+    const consoleUser = await options.consoleSession?.(event).catch(() => false as const)
+    if (consoleUser === false) return false
+    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
+    if (options.consoleSession) return consoleUser ?? null
+    return await options.session?.(event).catch(() => null) ?? null
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
