@@ -510,18 +510,36 @@ describe("generated Console access", () => {
     expect(config.nitro.handlers[2]).toEqual(appHandler)
   })
 
-  it("accepts exact GET rules for the registered Console API endpoints", async () => {
+  it.each([undefined, "/portal/"])("accepts exact GET rules for the registered Console API endpoints with base %s", async (base) => {
+    const prefix = base?.replace(/\/$/, "") ?? ""
     const plugin = await generatedPlugin({
       console: { auth: "app" },
-      sections: ["agents", "usage"],
+      sections: ["agents", "usage", "logs"],
       resolveAuthConfig: () => appAuth([
-        { authorize: true, route: "/_vitehub/**" },
-        { authorize: true, method: "GET", route: "/api/_vitehub/console/status" },
-        { authorize: true, method: "GET", route: "/api/_vitehub/console/usage" },
+        { authorize: true, route: `${prefix}/_vitehub/**` },
+        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
+        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/usage` },
+        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/logs` },
       ]),
-    }, "build")
-    expect(plugin).toContain('"authorize":true,"index":1,"method":"GET","route":"/api/_vitehub/console/status"')
-    expect(plugin).toContain('"authorize":true,"index":2,"method":"GET","route":"/api/_vitehub/console/usage"')
+    }, "build", { base })
+    expect(plugin).toContain(`"authorize":true,"index":1,"method":"GET","route":"${prefix}/api/_vitehub/console/status"`)
+    expect(plugin).toContain(`"authorize":true,"index":2,"method":"GET","route":"${prefix}/api/_vitehub/console/usage"`)
+    expect(plugin).toContain(`"authorize":true,"index":3,"method":"GET","route":"${prefix}/api/_vitehub/console/logs"`)
+  })
+
+  it.each([undefined, "/portal/"])("requires Logs authorization only when Logs is registered with base %s", (base) => {
+    const prefix = base?.replace(/\/$/, "") ?? ""
+    const options = {
+      auth: appAuth([
+        { authorize: true, route: `${prefix}/_vitehub/**` },
+        { authorize: true, method: "GET", route: `${prefix}/api/_vitehub/console/status` },
+      ]),
+      base,
+      development: false,
+    }
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, { ...options, sections: [] })).not.toThrow()
+    expect(() => assertConsoleProductionAccess({ auth: "app" }, { ...options, sections: ["logs"] }))
+      .toThrow(`${prefix}/api/_vitehub/console/logs`)
   })
 
   it.each([undefined, "/portal/"])("accepts exact status access with base %s when Usage is not registered", (base) => {

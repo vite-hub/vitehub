@@ -21,6 +21,7 @@ const fixtureRoutes: Record<string, string> = {
   "invocations.capabilities": "invocation-capabilities",
   "invocations.list": "invocations",
   "kv.list": "kv",
+  "logs.list": "logs",
   "search.query": "search",
   "sections.list": "sections",
   "status.get": "status",
