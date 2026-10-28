@@ -230,19 +230,20 @@ export async function readCommentsComponents(root: string, limit = 5000, resolve
 const version = "1"
 
 /** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
-function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], value: string } {
+function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], option: "session" | "consoleSession", value: string } {
   if (options.console) {
     return {
       imports: [
         `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
         `import { commentsConsoleSession } from ${JSON.stringify(imports.runtime)}`,
       ],
+      option: "consoleSession",
       value: `commentsConsoleSession(consoleRealtimeAccess(${JSON.stringify(commentsConsoleSection.id)}))`,
     }
   }
   return options.auth
-    ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], value: "commentsAuthSession" }
-    : { imports: [], value: "undefined" }
+    ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], option: "session", value: "commentsAuthSession" }
+    : { imports: [], option: "session", value: "undefined" }
 }
 
 export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: { commit?: string, branch?: string } }): string {
@@ -261,7 +262,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     "",
     "export default createCommentsHandler({",
     "  comments,",
-    `  session: ${session.value},`,
+    `  ${session.option}: ${session.value},`,
     ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
     `  build: ${JSON.stringify(input.build ?? {})},`,
@@ -312,7 +313,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   async function writeComponents(): Promise<void> {
     if (!projectRoot || !componentsFile) return
     const components = await readCommentsComponents(projectRoot, 5000, resolvedComponents)
-    await writeFile(componentsFile, `export default ${JSON.stringify(components)}\n`)
+    await writeFile(componentsFile, `export default JSON.parse(${JSON.stringify(JSON.stringify(components))})\n`)
   }
 
   return {
@@ -334,7 +335,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           `import { comments } from ${JSON.stringify(pathToFileURL(definition).href)}`,
           ...session.imports,
           "",
-          `export default commentsRealtime(comments, { session: ${session.value} })`,
+          `export default commentsRealtime(comments, { ${session.option}: ${session.value} })`,
           "",
         ].join("\n"))
         return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }

@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
 import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import envManage from "../src/console/runtime/server/env-manage.ts"
@@ -114,7 +113,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     it("serves the Console RPC", async () => {
       installConsoleAccess({ mode: "open" })
       installConsoleSections("/nuxt4-rpc", ["kv"])
-      const response = await (consoleRpcHandler as unknown as (event: object) => Promise<Response>)(call({ input: {}, method: consoleRpcMethods.sections }))
+      const response = await (consoleRpcHandler as unknown as (event: object) => Promise<Response>)(call({ input: {}, operation: "sections.list" }))
       expect(response).toBeInstanceOf(Response)
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true, value: { sections: ["kv"] } })

@@ -41,9 +41,9 @@ describe("commentsConsoleSession", () => {
     await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben" }))).resolves.toEqual(person)
   })
 
-  it("gives a guest for a Console without accounts, and the name the guest chose", async () => {
+  it("keeps a Console without accounts anonymous, even with browser guest headers", async () => {
     const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-12345678-1234-4123-8123-123456789abc", name: "Guest" } }))
-    await expect(session(event())).resolves.toEqual({ id: "guest:console", name: "Guest", guest: true })
-    await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toEqual({ id: "guest:g1", name: "Ben K", guest: true })
+    await expect(session(event())).resolves.toBeNull()
+    await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toBeNull()
   })
 })

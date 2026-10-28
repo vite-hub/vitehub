@@ -59,11 +59,11 @@ When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. 
 | --- | --- |
 | `auth: 'app'` or a Console Auth config | The signed-in Console user |
 | `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest. The overlay asks for a display name. |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guest access is allowed. |
 
 ### Use your own login
 
-When the app does not use ViteHub Auth, return the user from `identify`. Return `null` for an anonymous request.
+Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, Comments does not read the ViteHub Auth session. Apps with the Console still check Console section access first.
 
 ```ts [server/comments.ts]
 import { getCookie } from 'h3'
@@ -177,7 +177,7 @@ Without the hint, the server returns each page unchanged: no script, no request,
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
 - A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
 
-The overlay is a custom element with its own shadow root. Your CSS does not change it, and its CSS does not change your page.
+The overlay is a custom element with a closed shadow root. Your CSS does not change it, and its CSS does not change your page.
 
 ## Mark Content fields
 
