@@ -1,11 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { baseSha, createFakeGitHub, fakeSha, textBytes, textSha } from "./fake-github.ts"
-import { createWorkspace } from "../src/core/workspace.ts"
+import { createWorkspace, file as sourceFile, useWorkspace } from "../src/index.ts"
 import { normalizeWorkspaceStoreOptions } from "../src/config.ts"
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
 
-import type { GitHubWorkspaceStoreOptions } from "../src/core/types.ts"
+import { createWorkspaceSourceResolutionFacade } from "../src/sources/resolution.ts"
+import type { WritableWorkspaceFacade } from "../src/core/use.ts"
+
+import type { GitHubWorkspaceStoreOptions, WorkspaceWriteInput } from "../src/core/types.ts"
 import type { FakeGitHub } from "./fake-github.ts"
 
 let fake: FakeGitHub
@@ -358,5 +361,218 @@ describe("GitHub history commit", () => {
     expect(revision.parentId).toBe(first)
     expect(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]).sort()).toEqual([["posts/a.md", textSha("a")], ["posts/b.md", textSha("b")]])
     expect(fake.head("main")).toBe(second)
+  })
+
+  it.each(["rules", "source", "validation", "scope"])("checks %s before moving a merged destination", async (kind) => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("incoming", main, fake.tree("main"))
+    fake.commit("incoming", kind === "scope" ? { "README.md": "outside" } : { "posts/a.md": "changed" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: kind === "scope" ? "posts" : "" }, "content")
+    const workspace = createWorkspace({ name: "content", store,
+      ...(kind === "rules" ? { rules: { "posts/**": { write: false } } } : {}),
+      ...(kind === "source" ? { sources: { locked: sourceFile({ workspacePath: "posts/a.md", content: "a", materialize: "lazy" }) } } : {}),
+      ...(kind === "validation" ? { hooks: { "write:validate": () => { throw new Error("Invalid merge") } } } : {}),
+    })
+    await expect(workspace.history!.merge!({ from: "incoming", into: "main" })).rejects.toThrow()
+    expect(fake.head("main")).toBe(main)
+    expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it("denies repository pull-request listings to a resolved partial Workspace scope", async () => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("private/change", main, fake.tree("main"))
+    fake.commit("private/change", { "private/secret.md": "secret" })
+    const number = fake.openPull("private/change", "main", "Private change")
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const definition = { name: "content", store }
+    const base = useWorkspace("content", { mode: "write", definition })
+    const invocation = { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false } }
+    const complete = await createWorkspaceSourceResolutionFacade(base, definition, { invocation })
+    await expect(complete.workspace.history.pullRequests!({ headPrefix: "private/" })).resolves.toMatchObject([{ number, title: "Private change" }])
+
+    const scoped = await createWorkspaceSourceResolutionFacade(base, definition, { invocation, selectedWorkspaceScope: { all: false, name: "posts", paths: ["posts/a.md"] } })
+    const requestCount = fake.requests.length
+    await expect(scoped.workspace.history.pullRequests!({ headPrefix: "private/" })).rejects.toMatchObject({ code: "WORKSPACE_R0069" })
+    expect(fake.requests).toHaveLength(requestCount)
+  })
+
+  it("runs resolved merge validators once and applies their normalized bytes", async () => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("incoming", main, fake.tree("main"))
+    fake.commit("incoming", { "posts/a.md": "changed" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const validate = vi.fn((input: WorkspaceWriteInput) => ({ ...input, content: "normalized" }))
+    const after = vi.fn(() => { expect(fake.tree("main")[0]?.sha).toBe(textSha("normalized")) })
+    const definition = { name: "content", store, rules: { "**": { validate } }, hooks: { "write:after": after } }
+    const base = useWorkspace("content", { mode: "write", definition })
+    const invocation = { context: { entries: () => new Map<string, unknown>().entries(), get: () => undefined, has: () => false } }
+    const resolved = await createWorkspaceSourceResolutionFacade(base, definition, { invocation, overlay: true })
+    // SAFETY: Source resolution preserves the writable input facade.
+    const workspace = resolved.workspace as WritableWorkspaceFacade
+    const result = await workspace.history.merge!({ from: "incoming", into: "main" })
+    expect(result?.ref).toBe("main")
+    expect(fake.head("main")).toBe(result?.id)
+    expect(validate).toHaveBeenCalledTimes(1)
+    expect(after).toHaveBeenCalledTimes(1)
+    expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it.each(["100755", "120000"])("applies same-byte merge normalization from Git mode %s", async (mode) => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("incoming", main, fake.tree("main"))
+    fake.commit("incoming", { "posts/a.md": { content: "changed", mode } })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    const workspace = createWorkspace({ name: "content", store, rules: {
+      "**": { validate: input => ({ ...input, metadata: { ...input.metadata, gitMode: "100644" } }) },
+    } })
+    await workspace.history!.merge!({ from: "incoming", into: "main" })
+    expect(fake.tree("main").find(entry => entry.path === "posts/a.md")).toMatchObject({ mode: "100644", sha: textSha("changed") })
+    expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it("rejects a destination race after merge validation without overwriting it", async () => {
+    const main = fake.commit("main", { "posts/a.md": "a" })
+    fake.setBranch("incoming", main, fake.tree("main"))
+    fake.commit("incoming", { "posts/a.md": "changed" })
+    const store = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "token", root: "" }, "content")
+    let raced: string | undefined
+    const after = vi.fn()
+    const workspace = createWorkspace({ name: "content", store, hooks: {
+      "write:validate": () => { raced = fake.commit("main", { "posts/raced.md": "raced" }) },
+      "write:after": after,
+    } })
+    await expect(workspace.history!.merge!({ from: "incoming", into: "main" })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    expect(fake.head("main")).toBe(raced)
+    expect(after).not.toHaveBeenCalled()
+    expect(fake.branchNames().filter(name => name.startsWith("vitehub/merge/"))).toEqual([])
+  })
+
+  it("merges one ref into another and keeps the merge metadata", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    const added = fake.commit("main", { "posts/c.md": "c" })
+    const metadata = { content: { action: "sync", from: added } }
+    const merged = await target.merge!({ from: "published", into: "draft", message: "Sync", metadata })
+    expect(merged).toMatchObject({ ref: "draft", message: "Sync", metadata })
+    expect(fake.commits.get(merged!.id)!.parents).toEqual([draft.id, added])
+    expect(fake.tree("vitehub/content").map(entry => entry.path).sort()).toEqual(["posts/a.md", "posts/b.md", "posts/c.md"])
+    await expect(target.head({ ref: "draft" })).resolves.toMatchObject({ id: merged!.id })
+    // Nothing is left to merge.
+    await expect(target.merge!({ from: "published", into: "draft" })).resolves.toBeNull()
+    expect(fake.head("main")).toBe(added)
+    expect(published).not.toBe(added)
+  })
+
+  it("maps a merge conflict to WORKSPACE_CONFLICT", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "draft") } } })
+    fake.commit("main", { "posts/a.md": "main" })
+    const head = fake.head("vitehub/content")
+    await expect(target.merge!({ from: "published", into: "draft" })).rejects.toMatchObject({
+      code: "WORKSPACE_CONFLICT",
+      message: expect.stringContaining("conflicts"),
+      details: { from: "published", into: "draft" },
+    })
+    expect(fake.head("vitehub/content")).toBe(head)
+  })
+
+  it("opens a pull request and lists the open ones by head prefix", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "vitehub/publish/abc1234-1", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    await target.commit({ ref: "other/branch", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    const opened = await target.openPullRequest!({ head: "vitehub/publish/abc1234-1", base: "published", title: "Publish 1 document", body: "Body" })
+    expect(opened).toEqual({ number: 1, url: "https://github.com/onmax/repo/pull/1", title: "Publish 1 document", head: "vitehub/publish/abc1234-1", base: "published" })
+    expect(fake.pulls[0]).toMatchObject({ base: "main", head: "vitehub/publish/abc1234-1", body: "Body" })
+    await target.openPullRequest!({ head: "other/branch", base: "published", title: "Other" })
+    vi.useFakeTimers({ toFake: ["Date"] })
+    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([{ ...opened, mergeBase: published }])
+    fake.mergePullRequest(1)
+    vi.advanceTimersByTime(6_000)
+    await expect(target.pullRequests!({ headPrefix: "vitehub/publish/" })).resolves.toEqual([])
+    await expect(target.pullRequests!({ headPrefix: "other/" })).resolves.toMatchObject([{ head: "other/branch" }])
+  })
+
+  it("merges what it can and keeps the receiving ref's version of a file that both sides changed", async () => {
+    fake.commit("main", { "posts/a.md": "a", "posts/b.md": "b", "README.md": "r" })
+    const target = history({ refs: aliases })
+    const draft = await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/a.md": file("posts/a.md", "a draft"), "posts/b.md": file("posts/b.md", "b draft") } } })
+    const main = fake.commit("main", { "posts/a.md": "a main", "posts/c.md": "c main", "README.md": "r main" })
+    await expect(target.merge!({ from: "published", into: "draft" })).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+    const onConflict = vi.fn(() => ({ content: { conflicts: ["posts/a.md"] } }))
+    const merged = await target.merge!({ from: "published", into: "draft", metadata: { content: { action: "sync" } }, onConflict })
+    expect(onConflict).toHaveBeenCalledWith([{ path: "posts/a.md", ours: textSha("a draft"), theirs: textSha("a main") }])
+    expect(fake.commits.get(merged!.id)!.parents).toEqual([draft.id, main])
+    const tree = new Map(fake.tree("vitehub/content").map(entry => [entry.path, entry.sha]))
+    // The draft keeps its own file, takes what only main changed, and keeps what only it changed.
+    expect(Object.fromEntries(tree)).toEqual({
+      "README.md": textSha("r main"),
+      "posts/a.md": textSha("a draft"),
+      "posts/b.md": textSha("b draft"),
+      "posts/c.md": textSha("c main"),
+    })
+    expect(merged).toMatchObject({ ref: "draft", metadata: { content: { conflicts: ["posts/a.md"] } } })
+    await expect(target.head({ ref: "draft" })).resolves.toMatchObject({ id: merged!.id })
+    // Main is now part of the draft's history.
+    await expect(target.merge!({ from: "published", into: "draft" })).resolves.toBeNull()
+  })
+
+  it("tries a merge once more when another update of the branch won, and does not call that a conflict", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "draft", ifHead: null, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    fake.commit("main", { "posts/c.md": "c" })
+    let raced = 0
+    fake.respond(request => request.method === "POST" && request.path.endsWith("/merges") && raced++ < 1
+      ? Response.json({ message: "Head branch was modified. Review and try the merge again." }, { status: 409 })
+      : undefined)
+    await expect(target.merge!({ from: "published", into: "draft", onConflict: () => ({}) })).resolves.toMatchObject({ ref: "draft" })
+    expect(raced).toBe(2)
+    // A second lost race is an error, and not a conflict.
+    fake.commit("main", { "posts/d.md": "d" })
+    fake.respond(request => request.method === "POST" && request.path.endsWith("/merges")
+      ? Response.json({ message: "Head branch was modified. Review and try the merge again." }, { status: 409 })
+      : undefined)
+    const failed = await target.merge!({ from: "published", into: "draft", onConflict: () => ({}) }).catch((error: unknown) => error)
+    expect(failed).toBeInstanceOf(Error)
+    expect(failed).not.toMatchObject({ code: "WORKSPACE_CONFLICT" })
+  })
+
+  it("deletes the head branch when the pull request cannot be opened", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    await target.commit({ ref: "vitehub/publish/abc1234-1", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    fake.respond(request => request.method === "POST" && request.path.endsWith("/pulls") ? Response.json({ message: "Validation Failed: no commits between" }, { status: 422 }) : undefined)
+    await expect(target.openPullRequest!({ head: "vitehub/publish/abc1234-1", base: "published", title: "T", deleteHeadOnFailure: true })).rejects.toThrow("422")
+    expect(fake.head("vitehub/publish/abc1234-1")).toBeUndefined()
+    // Without the option the branch stays.
+    await target.commit({ ref: "vitehub/publish/abc1234-2", ifHead: null, startFrom: published, changes: { put: { "posts/b.md": file("posts/b.md", "b") } } })
+    await expect(target.openPullRequest!({ head: "vitehub/publish/abc1234-2", base: "published", title: "T" })).rejects.toThrow()
+    expect(fake.head("vitehub/publish/abc1234-2")).toBeDefined()
+  })
+
+  it("reads a matching-ref array of more than 100 branches only once", async () => {
+    fake.commit("main", { "posts/a.md": "a" })
+    for (let i = 0; i < 101; i++) fake.setBranch(`vitehub/publish/${i}`, fake.head("main")!, fake.tree("main"))
+    const refs = fake.branchNames().filter(name => name.startsWith("vitehub/publish/"))
+    fake.respond(request => request.path.includes("/git/matching-refs/")
+      ? Response.json(refs.map(name => ({ ref: `refs/heads/${name}` }))) : undefined)
+    await history().pullRequests!({ headPrefix: "vitehub/publish/" })
+    expect(fake.requests.filter(request => request.path.includes("/git/matching-refs/"))).toHaveLength(1)
+    expect(fake.requests.filter(request => request.path.endsWith("/pulls"))).toHaveLength(101)
+  })
+
+  it("finds the open pull requests of publish branches without reading commit messages", async () => {
+    const published = fake.commit("main", { "posts/a.md": "a" })
+    const target = history({ refs: aliases })
+    for (const name of ["one", "two", "three"]) await target.commit({ ref: `vitehub/publish/${name}`, ifHead: null, startFrom: published, message: "No trailer", changes: { put: { [`posts/${name}.md`]: file(`posts/${name}.md`, name) } } })
+    await target.openPullRequest!({ head: "vitehub/publish/one", base: "published", title: "One" })
+    await target.openPullRequest!({ head: "vitehub/publish/three", base: "published", title: "Three" })
+    const found = await target.pullRequests!({ headPrefix: "vitehub/publish/" })
+    expect(found.map(entry => [entry.number, entry.head])).toEqual([[2, "vitehub/publish/three"], [1, "vitehub/publish/one"]])
+    expect(fake.requests.some(request => request.path.endsWith("/git/matching-refs/heads/vitehub/publish/"))).toBe(true)
+    await expect(target.pullRequests!()).rejects.toThrow("headPrefix")
   })
 })
