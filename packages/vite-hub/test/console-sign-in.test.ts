@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite"
 import { defineAuth } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes } from "@vite-hub/auth/server"
 import { H3 } from "h3"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleSignInURL } from "../src/console/runtime/client/sign-in.ts"
 import { consoleRequest, installConsoleAccess, isConsoleSignInPage } from "../src/console/runtime/server/access.ts"
@@ -49,6 +49,23 @@ describe("Console sign-in URL normalization", () => {
 })
 
 describe("Console sign-in before app Auth", () => {
+  it.each(["", "/portal"])("checks signed-in page access once per request below %s", async (mount) => {
+    const check = vi.fn(async () => undefined)
+    const authorize = vi.fn(() => true)
+    installConsoleAccess({ mode: "auth", check, authorize, signInPage: "/sign-in" })
+    const app = new H3()
+      .use(`${mount}/_vitehub/**`, consoleSignInMiddleware)
+      .get(`${mount}/_vitehub/**`, consolePageHandler)
+
+    for (let visits = 1; visits <= 2; visits++) {
+      const response = await app.fetch(visit(`${mount}/_vitehub/auth`).req)
+      expect(response.status).toBe(200)
+      expect(await response.text()).toContain('id="app"')
+      expect(check).toHaveBeenCalledTimes(visits)
+      expect(authorize).toHaveBeenCalledTimes(visits)
+    }
+  })
+
   it.each(["", "/portal"])("redirects a signed-out page below %s while Auth still protects data", async (mount) => {
     const database = new DatabaseSync(":memory:")
     try {

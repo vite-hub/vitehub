@@ -52,6 +52,7 @@ const openWarningKey: unique symbol = Symbol.for("vitehub.console.access.open-wa
 const scope = globalThis as typeof globalThis & { [policyKey]?: ConsoleAccessPolicy, [openWarningKey]?: true }
 const consoleAccessGrant = defineGrant("vitehub.console.access", (mode: ConsoleAccessMode) => mode)
 const checkedEvents = new WeakMap<object, ConsoleAccess>()
+const signInChecks = new WeakMap<object, Promise<ConsoleAccess | Response>>()
 const routeScopes = new WeakMap<object, ConsoleRouteScope>()
 const deferredUsers = new WeakMap<ConsoleAccess, () => Promise<ConsoleUser | undefined>>()
 const modes = new Set<ConsoleAccessMode>(["auth", "cloudflare-access", "local", "open"])
@@ -118,7 +119,12 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   const page = consoleSignInPage(url.pathname)
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
   if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = await checkConsoleAccess(event)
+  let checked = signInChecks.get(event)
+  if (!checked) {
+    checked = checkConsoleAccess(event)
+    signInChecks.set(event, checked)
+  }
+  const access = await checked
   if (!isRuntimeResponse(access) || access.status !== 401) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
