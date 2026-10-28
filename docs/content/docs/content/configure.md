@@ -287,6 +287,28 @@ The runtime methods, such as `save()` and `publish()`, are trusted server API. T
 
 Content has no hosted provider. Comark Content stores its query and search index in the database that you pass to a plugin. Collections list, filter, sort, and search in memory, so they need no index plugin.
 
+To add full-text search to read-only Sources, install `comark-content` for the plugin imports. Content already owns the runtime needed to read and render Markdown.
+
+```bash
+pnpm add comark-content
+```
+
+```ts [server/content.ts]
+import sqlite from 'comark-content/database/sqlite-node'
+import sqliteFullTextSearch from 'comark-content/plugins/sqlite-full-text-search'
+import { defineContent } from 'vite-hub/content'
+import { glob } from 'vite-hub/source/glob'
+
+export const content = defineContent({
+	plugins: [sqliteFullTextSearch({ database: sqlite() })],
+	sources: {
+		docs: glob({ cwd: 'docs', include: '**/*.md' }),
+	},
+})
+```
+
+For client search, pass `searchClient()` from `comark-content/plugins/sqlite-full-text-search/client` to `createContentClient({ plugins: [searchClient()] })`. The Node SQLite adapter uses local state. Review [Limits and errors](/docs/content/limits-and-errors) before running multiple server instances.
+
 | Database | Import | Use |
 | --- | --- | --- |
 | Node SQLite | `comark-content/database/sqlite-node` | Node runtimes with built-in SQLite. |
@@ -317,3 +339,11 @@ Use `@vite-hub/ui/markdown` with the owner packages. The Nuxt UI module auto-imp
 `markdown.plugins` extends that preset. A plugin with the same name replaces a preset plugin, so an app can configure file readers, icon collections, or a private diagram service. The include plugin stays off; badges and chips load their images by URL.
 
 Content's collaborative editor and the Console use `createContentEditorCodec()` from `vite-hub/content/editor` for their schema, Markdown conversion, and loss check. Content installs its Comark and Tiptap runtimes; apps do not configure them. Components do not need a separate editor node definition. A document that cannot round-trip opens read-only and remains editable in Source.
+
+### Migrate an existing Comark setup
+
+Replace the app's Comark renderer, component map, and document stylesheet imports with `Markdown` from `vite-hub/ui/markdown`. Pass the parsed page as `value`. Keep only app-specific renderer overrides in `components`.
+
+Remove app dependencies on Comark UI and Tiptap packages that were installed only for Content. Keep packages that the app imports directly, such as optional search plugins or extensions for a custom editor.
+
+For a custom editor, use `createContentEditorCodec()` or `contentRealtimeEditor()` from `vite-hub/content/editor`. The collection-specific `contentEditorComponents` and `contentEditorKitOptions` helpers are removed. The separate `contentMarkdownLossOf` and `describeContentMarkdownLoss` helpers are also removed; use the codec's `verify()` method. There are no compatibility aliases.

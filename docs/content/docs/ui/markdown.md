@@ -6,7 +6,7 @@ navigation.group: Chat
 icon: i-ph-markdown-logo-light
 ---
 
-`Markdown` renders Markdown strings and parsed Content pages with Comark UI components and document styles already configured. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes. Use it for assistant text, or anywhere you show Markdown from a model.
+`Markdown` renders Markdown strings and parsed Content pages with Comark UI components and document styles already configured. Use it for authored pages and assistant text. Streaming strings also use the `vh-typeset vh-typeset-chat` styles. Spacing comes from the start of each block, so the layout stays stable while streamed text appends new nodes.
 
 ::component-preview{name="MarkdownExample"}
 ::
@@ -51,17 +51,12 @@ There is no separate Comark install, preset, component map, or stylesheet. `comp
 
 `Markdown` chooses the string parser or document renderer from the value. Comark UI supplies the block components. Images use ViteHub previews; string formulas use lazy KaTeX. Replace individual renderers with the `components` prop.
 
-```text
-Markdown (Comark root, vh-typeset vh-typeset-chat)
-├── img: image preview, or components.img
-└── math: KaTeX, or components.math
-```
-
 ## Features
 
+- Renders parsed Content pages with the bundled Comark UI components.
 - Parses partial Markdown while text streams.
 - Keeps the layout stable while streamed text appends new nodes.
-- Renders math with KaTeX.
+- Renders string formulas with lazy KaTeX and preserves pre-rendered math in Content pages.
 - Shows images as thumbnails that open a full preview.
 - Accepts Comark components, parser options, and plugins.
 - Raw HTML in string values stays disabled. Parsed Content pages render their existing nodes.
@@ -75,7 +70,7 @@ Set `streaming` while text arrives. A formula without its closing delimiter stay
 
 ## Math
 
-KaTeX renders math by default. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
+For string values, `Markdown` loads KaTeX with the first formula. Use `$...$` or `\(...\)` for inline formulas and `$$...$$` or `\[...\]` for display formulas.
 
 ::component-preview{name="MarkdownMathExample"}
 ::
@@ -85,6 +80,8 @@ KaTeX renders math by default. Use `$...$` or `\(...\)` for inline formulas and 
 - Math inside code spans and fenced code blocks stays literal.
 - If KaTeX rejects a formula, its source renders as code.
 
+Parsed Content pages keep the math nodes produced by their parser, including pre-rendered MathML. They do not load the string parser's KaTeX renderer.
+
 ## Images
 
 Images render as compact thumbnails. Select one to open it at its full aspect ratio. Press Escape or select the close button to return. The dialog also links to the original image.
@@ -92,9 +89,9 @@ Images render as compact thumbnails. Select one to open it at its full aspect ra
 ::component-preview{name="MarkdownImageExample"}
 ::
 
-## Custom Components
+## Custom components
 
-Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview, or `components.math` to replace KaTeX. A math component receives the formula as `content` and a `class` that contains `block` for display math.
+Pass Comark components to replace an element or add a custom one. Set `components.img` to replace the image preview. For string values, `components.math` replaces KaTeX and receives the formula as `content` and a `class` that contains `block` for display math.
 
 ```vue
 <Markdown
@@ -121,25 +118,26 @@ Change the default class for every instance with the `markdown.class` [default](
 
 ## Accessibility
 
-- Raw HTML in the source does not render. KaTeX runs with trusted commands disabled.
+- Raw HTML in string values does not render. Parsed pages use their existing nodes and parser settings.
+- KaTeX runs with trusted commands disabled for string formulas.
 - Image thumbnails are buttons. The expanded view closes with Escape and returns focus.
 - Write meaningful image alt text in the Markdown source. It becomes the button and dialog label.
 
-## API Reference
+## API reference
 
 ### Markdown
 
-Renders the Markdown source as styled prose.
+Renders a Markdown string or a parsed Content page as styled prose. The focused `vite-hub/ui/markdown` and `@vite-hub/ui/markdown` entries also export the `MarkdownValue` type.
 
 #### Props
 
-| Prop         | Type                          | Default | Description                                                         |
-| ------------ | ----------------------------- | ------- | ------------------------------------------------------------------- |
-| `value`      | `string \| { nodes: Node[] }` | `""` | Markdown source or a parsed Content page.                                                |
-| `streaming`  | `boolean`                     | `false` | Parses the value as partial, streamed Markdown.                     |
-| `components` | `MarkdownProps['components']` |         | Comark components. Optional overrides for the bundled components. |
-| `options`    | `MarkdownProps['options']`    |         | Comark parser options. `html` is always `false`.                    |
-| `plugins`    | `MarkdownProps['plugins']`    |         | Comark parser plugins. Extend or replace the string parser defaults by name.        |
+| Prop         | Type                          | Default | Description |
+| ------------ | ----------------------------- | ------- | ----------- |
+| `value`      | `MarkdownValue`               | `""`    | Markdown string or a parsed Content page with `nodes`. |
+| `streaming`  | `boolean`                     | `false` | Treats string values as partial, streamed Markdown. |
+| `components` | `MarkdownProps['components']` |         | Optional overrides for the bundled Comark UI components. |
+| `options`    | `MarkdownProps['options']`    |         | Parser options for string values. Raw HTML stays disabled. |
+| `plugins`    | `MarkdownProps['plugins']`    |         | Parser plugins for string values. Extend or replace defaults by name. |
 
 Other attributes, for example `class`, go to the Comark root.
 
