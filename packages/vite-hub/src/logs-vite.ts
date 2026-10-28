@@ -73,7 +73,13 @@ export function logsVitePlugin(input: true | LogsOptions): Plugin {
       await mkdir(dirname(file), { recursive: true });
       await writeFile(
         file,
-        renderLogsPlugin(root, source, "source" in options ? {} : { maxEntries: options.maxEntries, maxEntryBytes: options.maxEntryBytes }),
+        renderLogsPlugin(
+          root,
+          source,
+          "source" in options
+            ? {}
+            : { maxEntries: options.maxEntries, maxEntryBytes: options.maxEntryBytes },
+        ),
         "utf8",
       );
       kit.addPlugin(file);

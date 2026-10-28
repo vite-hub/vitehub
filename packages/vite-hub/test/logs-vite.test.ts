@@ -22,11 +22,14 @@ async function configure(
 
 describe("Logs host integration", () => {
   it("has one owner for request error logging", () => {
-    const names = (logs: NonNullable<Parameters<typeof vitehub>[0]>["logs"]) => vitehub({ preset: "node", logs }).flatMap(plugin => plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [])
-    expect(names(true)).not.toContain("vite-hub/error-log")
-    expect(names({ source: "./server/logs.ts" })).toContain("vite-hub/error-log")
-    expect(names({ evlog: { enabled: false } })).toContain("vite-hub/error-log")
-  })
+    const names = (logs: NonNullable<Parameters<typeof vitehub>[0]>["logs"]) =>
+      vitehub({ preset: "node", logs }).flatMap((plugin) =>
+        plugin && typeof plugin === "object" && "name" in plugin ? [plugin.name] : [],
+      );
+    expect(names(true)).not.toContain("vite-hub/error-log");
+    expect(names({ source: "./server/logs.ts" })).toContain("vite-hub/error-log");
+    expect(names({ evlog: { enabled: false } })).toContain("vite-hub/error-log");
+  });
   it("attaches a local drain and reuses the installed Evlog module", async () => {
     const root = await mkdtemp(resolve(".logs-vite-test-"));
     try {
