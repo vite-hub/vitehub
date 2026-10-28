@@ -235,6 +235,9 @@ run outside queue reconciliation and remain tracked during process drain.
 Deferred repair heads yield the bounded batch to other PRs. Saved results use
 separate activity run IDs so completed invocations can publish their wait reason.
 Older acknowledgements are backfilled with the corrected activity identity.
+The inbox identifies its own activity by the host's immutable GitHub App ID.
+An App rename cannot turn status updates into new repair feedback. Stored and
+hydrated snapshots exclude those activity comments while retaining ordinary feedback.
 New same-head feedback discards obsolete saved results. Confirmed repair-head and
 closure transitions retain their result. If a writer settles after another host
 replaces its expired lease, the latest settled result is requeued with a fresh
