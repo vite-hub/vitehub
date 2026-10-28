@@ -56,6 +56,9 @@ describe("env-spec-v1 profile", () => {
       "first\nsecond",
       "00123",
       "true",
+      "$OTHER",
+      "\\$OTHER",
+      "$OTHER",
     ]);
     expect(fields.every((field) => field.type.kind === "string")).toBe(true);
     expect(fields[0]?.description).toBe(

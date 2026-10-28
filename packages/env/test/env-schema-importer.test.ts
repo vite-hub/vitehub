@@ -39,6 +39,26 @@ function capture(operation: () => unknown): Error {
 }
 
 describe("experimental envSchema()", () => {
+  it.each([
+    [
+      "# @type=unsupported\nVITEHUB_TOKEN=private-schema-marker",
+      /contract\.env:2 \(VITEHUB_TOKEN\): Unsupported type/,
+    ],
+    ['VITEHUB_TOKEN="private-schema-marker', /contract\.env:\d+: Invalid env-spec syntax/],
+    [
+      "# @type=number\nVITEHUB_TOKEN=private-schema-marker",
+      /contract\.env:2 \(VITEHUB_TOKEN\): Default/,
+    ],
+  ])("classifies invalid contracts without exposing source values", (source, diagnostic) => {
+    const error = capture(() => contract(source));
+    expect(error).toMatchObject({
+      code: "ENV_DECLARATION_INVALID",
+      cause: { message: expect.stringMatching(diagnostic) },
+    });
+    expect(String(error.cause)).not.toContain("private-schema-marker");
+    expect(JSON.stringify(error)).not.toContain("private-schema-marker");
+  });
+
   it("imports the actual shared profile fixtures without reading runtime secrets", () => {
     const config = envSchema(
       new URL("./fixtures/env-schema-profile/contract.env", import.meta.url),

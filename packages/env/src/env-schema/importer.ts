@@ -116,7 +116,15 @@ export function envSchema(
   } catch {
     throw invalidEnvDeclaration(filename, `${filename}: Cannot read environment schema file`);
   }
-  const fields = parseEnvSchema(source, filename);
+  let fields: EnvSchemaField[];
+  try {
+    fields = parseEnvSchema(source, filename);
+  } catch (error: unknown) {
+    throw invalidEnvDeclaration(
+      filename,
+      error instanceof Error ? error.message : `${filename}: Invalid environment schema file`,
+    );
+  }
   const knownKeys = new Set(fields.map((field) => field.key));
   for (const key of Object.keys(options.paths ?? {})) {
     if (!knownKeys.has(key)) fail(undefined, "Path mapping refers to an undeclared schema key");
