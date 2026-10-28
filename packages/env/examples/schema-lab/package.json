@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "prepare": "node prepare.mjs",
+    "prepare:types": "node prepare.mjs",
     "build": "vp build --mode client && vp build",
     "start": "node dist/server/server.js",
     "typecheck": "node prepare.mjs && tsc --noEmit -p tsconfig.json"
