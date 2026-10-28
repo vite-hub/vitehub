@@ -1,200 +1,118 @@
-// @vitest-environment node
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { pathToFileURL } from "node:url"
 
-import { getTableColumns, getTableName } from "drizzle-orm"
+import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { afterEach, describe, expect, it } from "vitest"
 
-import { commentsSchema } from "../src/database.ts"
-import { commentsPostgresSchema } from "../src/database/postgres.ts"
-import { builtinCommentSubjects, defineCommentSubject, defineComments } from "../src/index.ts"
-import { commentsOperations } from "../src/operations.ts"
-import { findCommentsEntry, hubComments, renderCommentsNitroPlugin, usesComments } from "../src/vite.ts"
+import { hubComments, readCommentsDatabase } from "../src/vite.ts"
 
-import type { ResolvedConfig } from "vite"
+import type { UserConfig } from "vite"
 
 const roots: string[] = []
+
+async function project(files: Record<string, string>): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-"))
+  roots.push(root)
+  for (const [file, source] of Object.entries(files)) {
+    await mkdir(join(root, file, ".."), { recursive: true })
+    await writeFile(join(root, file), source)
+  }
+  return root
+}
+
+async function configure(plugin: ReturnType<typeof hubComments>, root: string, extra: UserConfig & Record<string, unknown> = {}) {
+  const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
+  const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
+  await hook.handler(config)
+  return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
+}
 
 afterEach(async () => {
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
-async function project(withComments: boolean): Promise<string> {
-  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-vite-"))
-  roots.push(root)
-  await writeFile(join(root, "package.json"), "{}")
-  await mkdir(join(root, "server"))
-  if (withComments) await writeFile(join(root, "server", "comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\nexport default defineComments()\n`)
-  return root
-}
-
-type ConfigHook = (config: Record<string, unknown>) => Promise<void>
-
-function configHook(plugin: ReturnType<typeof hubComments>): ConfigHook {
-  const hook = plugin.config
-  // SAFETY: The test calls the concrete hook with the Vite config fields that it reads.
-  return (hook && "handler" in hook ? hook.handler : hook) as unknown as ConfigHook
-}
-
-describe("comment tables", () => {
-  it("name the tables and keep the same columns for SQLite and Postgres", () => {
-    expect(Object.keys(commentsSchema)).toEqual(["commentThreads", "commentMessages", "commentCounters"])
-    expect(Object.keys(commentsPostgresSchema)).toEqual(["commentThreads", "commentMessages", "commentCounters"])
-    for (const schema of [commentsSchema, commentsPostgresSchema]) {
-      expect(getTableName(schema.commentThreads)).toBe("vitehub_comment_threads")
-      expect(getTableName(schema.commentMessages)).toBe("vitehub_comment_messages")
-    }
-    expect(Object.keys(getTableColumns(commentsSchema.commentThreads)).sort()).toEqual(Object.keys(getTableColumns(commentsPostgresSchema.commentThreads)).sort())
-    expect(Object.keys(getTableColumns(commentsSchema.commentMessages)).sort()).toEqual(Object.keys(getTableColumns(commentsPostgresSchema.commentMessages)).sort())
-    expect(getTableName(commentsSchema.commentCounters)).toBe("vitehub_comment_counters")
-    expect(getTableName(commentsPostgresSchema.commentCounters)).toBe("vitehub_comment_counters")
-    expect(Object.keys(getTableColumns(commentsSchema.commentCounters))).toEqual(["scope", "next"])
-  })
-})
-
-describe("defineComments", () => {
-  it("keeps the policy and knows the built-in subjects", () => {
-    const authorize = () => true
-    const definition = defineComments({ authorize, subjects: [defineCommentSubject({ kind: "drop", scope: id => id })] })
-    expect(definition.authorize).toBe(authorize)
-    expect(builtinCommentSubjects.map(subject => [subject.kind, subject.scope("x")])).toEqual([["page", "site"], ["content", "site"]])
-    expect(commentsOperations.map(operation => operation.name)).toEqual([
-      "comments.list", "comments.get", "comments.create", "comments.reply", "comments.edit", "comments.delete", "comments.resolve", "comments.reopen", "comments.users",
-    ])
-    expect(commentsOperations.map(operation => operation.kind)).toEqual(["read", "read", "write", "write", "write", "destructive", "write", "write", "read"])
-    expect(commentsOperations.every(operation => operation.section === "comments")).toBe(true)
-  })
-})
-
-const unused = { plugins: [], projectRoot: "/unused", root: "/unused", rootDir: "/unused" }
-
 describe("hubComments", () => {
-  it.each(["comments.ts", "comments.mts", "comments.js", "comments.mjs"])("finds server/%s", async (name) => {
-    const root = await project(false)
-    await writeFile(join(root, "server", name), "export default {}")
-    expect(findCommentsEntry({ projectRoot: root })).toBe(join(root, "server", name))
-    expect(usesComments({ projectRoot: root })).toBe(true)
-    expect(usesComments({ projectRoot: await project(false) })).toBe(false)
-  })
-
-  it("contributes the tables and the operations only when the app has the file", async () => {
-    const without = hubComments()
-    await configHook(without)({ root: await project(false) })
-    expect(await without.vitehub.databases(unused)).toEqual([])
-    const noOperations = without.vitehub.operations
-    expect(noOperations instanceof Function ? await noOperations() : noOperations).toEqual([])
-
-    const plugin = hubComments({ database: "main" })
-    await configHook(plugin)({ root: await project(true) })
-    expect(await plugin.vitehub.databases(unused)).toEqual([{ database: "main", definition: { export: "commentsSchema", module: "@vite-hub/comments/database" }, name: "comments", reason: expect.stringContaining("comment threads") }])
-    const operations = plugin.vitehub.operations
-    const entries = operations instanceof Function ? await operations() : operations
-    expect(entries).toEqual([expect.objectContaining({ export: "commentsOperations", module: "@vite-hub/comments/operations" })])
-    expect(await entries[0]!.load!()).toBe(commentsOperations)
-  })
-
-  it("adds the default Database when the app has no Database Definition, and not when it has one", async () => {
-    const root = await project(true)
+  it("does nothing without server/comments.ts", async () => {
+    const root = await project({ "server/content.ts": "export const content = {}" })
     const plugin = hubComments()
-    await configHook(plugin)({ root })
-    const context = { plugins: [], projectRoot: root, root, rootDir: root }
-    const [definition, tables] = await plugin.vitehub.databases(context)
-    const file = join(root, ".vitehub/comments/database.ts")
-    expect(definition).toMatchObject({ definition: file, name: "default", reason: expect.stringContaining("server/comments.ts uses comments") })
-    expect(tables).toMatchObject({ database: "default", name: "comments" })
-    expect(await readFile(file, "utf8")).toContain("export default defineDatabase({ schema: {} })")
-
-    // The app now defines its own Database: the tables go to it, and the generated module goes away.
-    await mkdir(join(root, "server/databases"), { recursive: true })
-    await writeFile(join(root, "server/databases/config.ts"), "export default {}\n")
-    const contributed = await plugin.vitehub.databases(context)
-    expect(contributed).toEqual([expect.objectContaining({ name: "comments" })])
-    expect(contributed[0]).not.toHaveProperty("database")
-    await expect(readFile(file, "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await configure(plugin, root)).toBeUndefined()
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
-  it("leaves the choice to the app when it names the Database", async () => {
-    const root = await project(true)
-    const plugin = hubComments({ database: "main" })
-    await configHook(plugin)({ root })
-    expect(await plugin.vitehub.databases({ plugins: [], projectRoot: root, root, rootDir: root })).toEqual([expect.objectContaining({ database: "main", name: "comments" })])
-    await expect(readFile(join(root, ".vitehub/comments/database.ts"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+  it("serves the API, installs the runtime, and serves the overlay", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
+    const nitro = await configure(hubComments({ auth: true }), root)
+    expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
+    expect(nitro?.plugins).toEqual([join(root, ".vitehub/nitro/comments/plugin.mjs")])
+    expect(nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/api/_vitehub/comments/assets" })])
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
+    expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
+    expect(handler).toContain("realtime: false")
   })
 
-  it("uses the Postgres tables for a Postgres Database", async () => {
-    const plugin = hubComments({ dialect: "postgresql" })
-    const root = await project(true)
-    await configHook(plugin)({ root })
-    const entries = await plugin.vitehub.databases({ plugins: [], projectRoot: root, root, rootDir: root })
-    expect(entries.at(-1)).toEqual(expect.objectContaining({ definition: { export: "commentsPostgresSchema", module: "@vite-hub/comments/database/postgres" }, dialect: "postgresql" }))
-  })
-
-  it("writes the Nitro plugin that installs the runtime", async () => {
-    const root = await project(true)
-    const plugin = hubComments({ auth: true, imports: { auth: "vite-hub/auth/server", database: "vite-hub/database/drizzle", runtime: "vite-hub/comments/server" } })
-    const config: Record<string, unknown> = { nitro: { plugins: [] }, root }
-    await configHook(plugin)(config)
-    const file = join(root, ".vitehub/nitro/comments/plugin.mjs")
-    expect(config.nitro).toMatchObject({ plugins: [file] })
-    const source = await readFile(file, "utf8")
-    expect(source).toContain('import { databases } from "vite-hub/database/drizzle"')
-    expect(source).toContain('import { createAuthUsers, createCommentsStore, installComments, validateCommentsDefinition } from "vite-hub/comments/server"')
-    expect(source).toContain('import { getAuth } from "vite-hub/auth/server"')
-    expect(source).toContain("users: createAuthUsers(() => getAuth())")
-    expect(renderCommentsNitroPlugin({ auth: false, entry: join(root, "server/comments.ts"), imports: { auth: "a", database: "d", databaseDefinition: "x", databaseSchema: "s", operations: "o", runtime: "r" } })).not.toContain("getAuth")
-  })
-
-  it("fails the build when the app has no Database", async () => {
-    const root = await project(true)
+  it("adds the tables to the Database that defineComments names", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ database: \"content\" })" })
     const plugin = hubComments()
-    await configHook(plugin)({ root })
-    const resolve = (plugins: Array<{ name: string }>) => (plugin.configResolved as unknown as (config: ResolvedConfig) => Promise<void>)({ plugins } as unknown as ResolvedConfig)
-    await expect(resolve([])).rejects.toThrowError(/server\/comments.ts needs a Database/)
-    try {
-      await resolve([])
-    }
-    catch (error) {
-      expect(error).toMatchObject({ code: "COMMENTS_B0001", fix: expect.stringContaining("database: false") })
-    }
-    await expect(resolve([{ name: "@vite-hub/database/vite" }])).resolves.toBeUndefined()
-    // An app without the file needs nothing.
-    const plain = hubComments()
-    await configHook(plain)({ root: await project(false) })
-    expect(() => (plain.configResolved as unknown as (config: ResolvedConfig) => void)({ plugins: [] } as unknown as ResolvedConfig)).not.toThrow()
+    await configure(plugin, root)
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([expect.objectContaining({
+      database: "content",
+      definition: { export: "commentsSchema", module: "@vite-hub/comments/database" },
+      name: "comments",
+    })])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("const name = \"content\"")
   })
 
-  const invalidModules = [
-    "export const other = {}",
-    "export default {}",
-    "export default null",
-    "export default () => ({})",
-    "export const comments = defineComments()",
-    "export default null; export const comments = defineComments()",
-    "export default undefined; export const comments = defineComments()",
-  ]
-
-  it.each(invalidModules)("rejects an invalid comments module during configuration: %s", async (source) => {
-    const root = await project(true)
-    await writeFile(join(root, "server/comments.ts"), `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\n${source}`)
+  it.each([
+    { base: "/portal/" },
+    { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/" },
+  ])("mounts Comments below the application base: %j", async (config) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
     const plugin = hubComments()
-    await configHook(plugin)({ root })
-    // SAFETY: The hook only reads the Database plugin from this partial resolved config.
-    const resolve = plugin.configResolved as unknown as (config: Pick<ResolvedConfig, "plugins">) => Promise<void>
-    await expect(resolve({ plugins: [{ name: "@vite-hub/database/vite" }] })).rejects.toMatchObject({ code: "COMMENTS_B0002" })
+    const nitro = await configure(plugin, root, config)
+    expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
+    const transform = plugin.transformIndexHtml
+    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
+    expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
   })
 
-  it.each(invalidModules)("validates the generated module before installing the lazy runtime: %s", async (source) => {
-    const root = await project(true)
-    const entry = join(root, "server/comments.mjs")
-    await writeFile(entry, `import { defineComments } from ${JSON.stringify(new URL("../src/define.ts", import.meta.url).href)}\n${source}`)
-    const file = join(root, "plugin.mjs")
-    await writeFile(file, renderCommentsNitroPlugin({
-      auth: false,
-      entry,
-      imports: { auth: "unused", database: "data:text/javascript,export const databases = {}", databaseDefinition: "unused", databaseSchema: "unused", operations: "unused", runtime: new URL("../src/server.ts", import.meta.url).href },
-    }))
-    await expect(import(/* @vite-ignore */ pathToFileURL(file).href)).rejects.toMatchObject({ code: "COMMENTS_B0002" })
+  it.each([
+    ['import { defineComments as defineSiteComments } from "vite-hub/comments"; export const comments = defineSiteComments({ database: "content" })', "content"],
+    ['import { defineComments as defineSiteComments } from "@vite-hub/comments"; const site = defineSiteComments({ database: "content" }); export { site as comments }', "content"],
+    ['// database: "wrong"\nexport const comments = defineComments({ database: "content" })', "content"],
+    ['const text = \'database: "wrong"\'; export const comments = defineComments({ database: "content" })', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments({ database: "content" })', "content"],
+    ['const other = defineComments({ database: "wrong" }); export const comments = defineComments({ database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: "content" })', "content"],
+    ['export const comments = defineComments({ database: "wrong", database: chooseDatabase() })', undefined],
+    ['export const comments = defineComments({ database: "wrong", ...options })', undefined],
+    ['export const comments = defineComments({ ...options, ["database"]: `content` } as const)', "content"],
+    ['const definition = defineComments({ database: "content" }); export { definition as comments }', "content"],
+    ['const helper = { database: "wrong" }; export const comments = defineComments()', undefined],
+  ])("reads only the effective exported Database option: %s", async (source, database) => {
+    const root = await project({ "server/comments.ts": source })
+    expect(await readCommentsDatabase(join(root, "server/comments.ts"))).toBe(database)
+    const plugin = hubComments()
+    await configure(plugin, root)
+    const contributions = await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })
+    expect(contributions).toHaveLength(1)
+    if (database === undefined) expect(contributions[0]).not.toHaveProperty("database")
+    else expect(contributions[0]).toHaveProperty("database", database)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`const name = ${JSON.stringify(database ?? null)}`)
+  })
+
+  it("contributes the presence rooms when Realtime has an authority, and says so in the API", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = hubComments()
+    const directory = join(root, ".vitehub/nitro/realtime")
+    const contribution = await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
+    expect(contribution).toEqual({ definitions: [{ handler: join(directory, "comments.mjs"), name: "comments" }] })
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined })")
+    await configure(plugin, root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
   })
 })

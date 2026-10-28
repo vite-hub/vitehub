@@ -1,32 +1,105 @@
 ---
 title: Comments
 navigation.title: Overview
-description: Store the comment threads of your running app, check who may read and write them, and read them from the Console, the CLI, and agents.
+description: Let your team pin comments on the pages of your live site, reply, resolve, and edit Content text in place.
 navigation.order: 1
-icon: i-lucide-message-square
+icon: i-lucide-message-square-text
 ---
 
-Comments let a signed-in team member leave a numbered note on any spot of your own running app, and let the team reply. This package is the server half: tables, access rules, and the `comments.*` [operations](/docs/development/operations). The browser half is in [UI comments](/docs/ui/comments).
+::product-hero{tagline="Pin comments on any page of your site, see who else is there, and fix Content text where you read it." hosts="Node, Docker, Cloudflare, Vercel, Netlify"}
+  :::product-files
+  ```ts [server/comments.ts]
+  import { defineComments } from 'vite-hub/comments'
 
-```ts [server/comments.ts]
-import { defineComments } from 'vite-hub/comments'
+  // One file turns Comments on.
+  export const comments = defineComments({
+    // Only editors may comment. Default: any signed-in user.
+    authorize: ({ user }) => user?.role === 'editor',
+  })
+  ```
 
-export default defineComments({
-  authorize: ({ user }) => Boolean(user),
-})
-```
+  ```ts [vite.config.ts]
+  import vue from '@vitejs/plugin-vue'
+  import { vitehub } from 'vite-hub'
+  import { defineConfig } from 'vite'
 
-Add the file and ViteHub does the rest:
+  export default defineConfig({
+    plugins: [
+      vue(),
+      vitehub({
+        preset: 'node',
+        // Threads go to this Database
+        database: true,
+        // Presence and cursors on each page
+        realtime: { authority: 'memory' },
+      }),
+    ],
+  })
+  ```
 
-- It adds the `vitehub_comment_threads`, `vitehub_comment_messages`, and `vitehub_comment_counters` tables to your Database.
-- It adds the operations `comments.list`, `get`, `create`, `reply`, `edit`, `delete`, `resolve`, `reopen`, and `users`. The Console, `vitehub comments list`, the [MCP endpoint](/docs/development/mcp), and the browser client call the same code.
-- It adds a **Comments** section to the [Console](/docs/development/console) that lists the threads the signed-in user may read, with filter chips and a link to the page.
+  ```vue [src/pages/About.vue]
+  <script setup lang="ts">
+  import { contentField } from 'vite-hub/content/client'
 
-Comments are private. Without an `authorize` policy nobody can read or write them, and the Console says so.
+  defineProps<{ about: { hero: { title: string } } }>()
+  </script>
 
-## Next steps
+  <template>
+    <!-- Editors can change this text on the page -->
+    <h1 v-bind="contentField('about', 'hero.title')">
+      {{ about.hero.title }}
+    </h1>
+  </template>
+  ```
 
-- [Get started](/docs/comments/get-started) adds comments to an app.
-- [Configure](/docs/comments/configure) covers `authorize`, subjects, mentions, and the Database.
-- [Server API](/docs/comments/server-api) lists the operations and the browser transport.
-- [Limits and errors](/docs/comments/limits-and-errors) lists the limits and the error codes.
+  ```ts [server/api/open-threads.get.ts]
+  import { defineEventHandler } from 'h3'
+  import { comments } from '../comments'
+
+  // The same threads, from server code
+  export default defineEventHandler(async () => {
+    const [error, threads] = await comments.list({ status: 'open' })
+    if (error) throw error
+    return threads.map(thread => thread.page)
+  })
+  ```
+  :::
+::
+
+::product-features
+  :::product-feature-item{title="One file turns it on" icon="i-lucide-file-code-2" to="/docs/comments/get-started#turn-on-comments"}
+  Export `comments` from `server/comments.ts`. ViteHub adds the API, the tables, and the overlay.
+  :::
+
+  :::product-feature-item{title="Public visitors get nothing extra" icon="i-lucide-eye-off" to="/docs/comments/configure#turn-comment-mode-on-and-off"}
+  The overlay loads only for a request with `?comments` or the comment mode cookie.
+  :::
+
+  :::product-feature-item{title="Pins follow the text" icon="i-lucide-map-pin" to="/docs/comments/server-api#anchors"}
+  A pin finds its element again after a resize or a layout change. A pin on a Content field keeps its place through a redesign.
+  :::
+
+  :::product-feature-item{title="See who is on the page" icon="i-lucide-users" to="/docs/comments/get-started#see-who-else-is-on-the-page"}
+  With Realtime, everyone on a page sees the others' avatars and cursors, and new comments show at once.
+  :::
+
+  :::product-feature-item{title="Edit Content text in place" icon="i-lucide-pencil-line" to="/docs/comments/configure#mark-content-fields"}
+  Mark an element with `contentField()`. An edit saves a Content draft, and you publish it in the Console.
+  :::
+
+  :::product-feature-item{title="Decide who can comment" icon="i-lucide-lock" to="/docs/comments/configure#decide-who-can-comment"}
+  `authorize()` allows or denies `read`, `comment`, and `resolve` for each user, and can let guests comment.
+  :::
+
+  :::product-feature-item{title="Notify the people you mention" icon="i-lucide-at-sign" to="/docs/comments/configure#notify-mentioned-people"}
+  `people` fills the `@` list. `onComment` runs after each comment, so you can send an Email.
+  :::
+
+  :::product-feature-item{title="Triage in the Console" icon="i-lucide-list-checks" to="/docs/comments/configure#triage-in-the-console"}
+  The Comments section lists every thread with its page and status, and links back to the pin.
+  :::
+::
+
+## Comments through Operations
+
+To store numbered threads on custom subjects and authorize each CLI, MCP, Console, or browser operation, use a [default-export Comments Definition](/docs/comments/operations/get-started). The named `comments` export described above keeps the live-site overlay API. Use one entry form per application; they install different Database schemas.

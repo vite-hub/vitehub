@@ -147,6 +147,12 @@
       "require": "./dist/_internal/content/operations.js",
       "default": "./dist/_internal/content/operations.js"
     },
+    "./_internal/comments/runtime/console": {
+      "types": "./dist/_internal/comments/runtime/console.d.ts",
+      "import": "./dist/_internal/comments/runtime/console.js",
+      "require": "./dist/_internal/comments/runtime/console.js",
+      "default": "./dist/_internal/comments/runtime/console.js"
+    },
     "./_internal/content/runtime/console": {
       "types": "./dist/_internal/content/runtime/console.d.ts",
       "import": "./dist/_internal/content/runtime/console.js",
@@ -614,6 +620,30 @@
       "import": "./dist/console/server.js",
       "require": "./dist/console/server.js",
       "default": "./dist/console/server.js"
+    },
+    "./comments/anchor": {
+      "types": "./dist/comments/anchor.d.ts",
+      "import": "./dist/comments/anchor.js",
+      "require": "./dist/comments/anchor.js",
+      "default": "./dist/comments/anchor.js"
+    },
+    "./comments/realtime": {
+      "types": "./dist/comments/realtime.d.ts",
+      "import": "./dist/comments/realtime.js",
+      "require": "./dist/comments/realtime.js",
+      "default": "./dist/comments/realtime.js"
+    },
+    "./comments/runtime": {
+      "types": "./dist/comments/runtime.d.ts",
+      "import": "./dist/comments/runtime.js",
+      "require": "./dist/comments/runtime.js",
+      "default": "./dist/comments/runtime.js"
+    },
+    "./comments/runtime/auth": {
+      "types": "./dist/comments/runtime/auth.d.ts",
+      "import": "./dist/comments/runtime/auth.js",
+      "require": "./dist/comments/runtime/auth.js",
+      "default": "./dist/comments/runtime/auth.js"
     },
     "./content": {
       "types": "./dist/content.d.ts",

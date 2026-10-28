@@ -1,76 +1,176 @@
 ---
-title: Add comments to an app
-description: Define who may comment, create the tables, and read the first thread from the CLI.
+title: Comment on your first page
+description: Turn on Comments, pin a comment on a page, see a second browser on the same page, and edit a Content field in place.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-## Add vitehub()
+Turn on Comments in a Vite app, pin a comment on a page, and reply to it. Then open the page in a second browser and see each other's cursors. At the end, you change a Content heading on the page and publish the draft from the Console.
 
-Comments live in your Database. `vitehub()` turns the Database on when `server/comments.ts` exists and you left `database` unset, and it adds the default Database Definition when the app has none. Add the Console so you can see the threads:
+You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
+
+::tutorial-step{title="Turn on Comments"}
+## Turn on Comments
+
+```bash [commands/install]
+pnpm add vite-hub h3 zod
+pnpm add -D nitro
+```
+
+Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.
 
 ```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { nitro } from 'nitro/vite'
+import vue from '@vitejs/plugin-vue'
 import { vitehub } from 'vite-hub'
+import { defineConfig } from 'vite'
 
 export default defineConfig({
   plugins: [
-    vitehub({ console: { auth: 'app' } }),
-    nitro(),
+    vue(),
+    vitehub({
+      preset: 'node',
+      database: true,
+      realtime: { authority: 'memory' },
+    }),
   ],
 })
 ```
 
-If you set `database: false`, the build fails with `COMMENTS_B0001` and names that setting.
-
-## Define the policy
+Add `server/comments.ts`. The file must export `comments`. Without `authorize`, only signed-in ViteHub Auth users may comment. This app has no Auth, so the policy allows everyone. People without an account comment as guests under a name they type.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
 
-export default defineComments({
-  authorize: ({ user, action }) => {
-    if (!user) return false
-    // Everyone signed in reads and writes. Only admins delete the comments of others.
-    return action !== 'delete' || user.role === 'admin'
-  },
+export const comments = defineComments({
+  // Local only: anyone may read, comment, and resolve.
+  authorize: () => true,
 })
 ```
 
-## Create the tables
+Comments adds the tables `vitehub_comment_threads` and `vitehub_comments` to the `default` Database. Generate the migration and apply it:
 
-```bash [Terminal]
+```bash [commands/migrate]
 pnpm vitehub db generate
 pnpm vitehub db migrate
 ```
 
-## Read a thread
+::
 
-Create a thread from code or from the [UI parts](/docs/ui/comments), then list it:
+::tutorial-step{title="Pin a comment"}
+## Pin a comment
 
-```bash [Terminal]
-pnpm vitehub comments list --json
-pnpm vitehub comments get --id thread_123
+```bash [commands/start]
+pnpm vite dev
 ```
 
-Open the Console at `/_vitehub` and choose **Comments**. The list comes from `comments.list` with your sign-in, so it shows only the threads that `authorize` lets you read. Use the chips to filter by open, resolved, mine, or mentions. A page thread links to `<page>?comment=<n>`.
+Open `http://localhost:5173/?comments`. The `?comments` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-comments` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
-### In `vite dev`
+1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
+2. Click a heading on the page. A comment box opens at that point.
+3. Type your name, then a comment, and press <kbd>⌘</kbd> <kbd>Enter</kbd>. A numbered pin shows where you clicked.
+4. Select the pin, write a reply, and send it.
+5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
 
-With `console: { auth: false }`, or with no `console` option, and nobody signed in, `vite dev` runs every operation as the user `{ id: 'local', name: 'You' }`. `authorize` sees that user, and the comments you create have it as author, so you can try comments without Auth. A production build never does this: there, an unsigned call has no user, and writing fails with `COMMENTS_R0012`.
+Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window.
 
-## Use it in the browser
+Open `http://localhost:5173/` without the query in a private window. That browser has no cookie, so the server returns the page without the overlay script.
 
-```ts [app/comments.ts]
-import { createCommentsClient } from 'vite-hub/comments/client'
-import { createRpcTransport } from 'vite-hub/comments/rpc'
+::
 
-export const comments = createCommentsClient({
-  transport: createRpcTransport(),
-  user: { id: 'ana', name: 'Ana Ruiz' },
-  query: { page: location.pathname },
+::tutorial-step{title="See who else is on the page"}
+## See who else is on the page
+
+Open `http://localhost:5173/?comments` in a second browser, or in a private window. Type another name when you write a comment there.
+
+- The toolbar of each browser shows both people as avatars.
+- Move the pointer in one browser. Its cursor moves in the other browser, on the same element.
+- Pin a comment in one browser. The pin shows in the other browser at once.
+
+The two browsers share a Realtime room for the page. The room holds only presence. Comments stay in the Database, and the other browser reads them again after each change.
+
+::
+
+::tutorial-step{title="Edit Content text in place"}
+## Edit Content text in place
+
+Add a Content singleton with one text field. The `cms` preset stores it in a Workspace on the same Database and adds Blob.
+
+```ts [server/content.ts]
+import { defineContent, singleton } from 'vite-hub/content'
+import cms from 'vite-hub/content/presets/cms'
+import { z } from 'zod'
+
+export const content = defineContent({
+  extends: cms,
+  collections: {
+    about: singleton({ path: 'about.json', fields: { title: z.string().min(1) } }),
+  },
+  // Local only: anyone may read, write, and publish.
+  authorize: () => true,
 })
 ```
+
+Return the published title from a route:
+
+```ts [server/api/about.get.ts]
+import { defineEventHandler } from 'h3'
+import { content } from '../content'
+
+export default defineEventHandler(async () => {
+  const about = await content.collection('about').get()
+  return { title: about?.data.title ?? null }
+})
+```
+
+Show it on the page. `contentField('about', 'title')` adds `data-content-field="about#title"` to the heading. This attribute tells Comments which field the text comes from.
+
+```vue [src/App.vue]
+<script setup lang="ts">
+import { ref } from 'vue'
+import { contentField } from 'vite-hub/content/client'
+
+const title = ref<string | null>(null)
+fetch('/api/about')
+  .then(response => response.json())
+  .then((about: { title: string | null }) => {
+    title.value = about.title
+  })
+</script>
+
+<template>
+  <main>
+    <h1 v-if="title" v-bind="contentField('about', 'title')">{{ title }}</h1>
+    <p v-else>Publish the About title in the Console.</p>
+    <p>Pin comments anywhere on this page.</p>
+  </main>
+</template>
+```
+
+Restart the dev server, then run the migrations again for the Content tables:
+
+```bash [commands/migrate-content]
+pnpm vitehub db generate
+pnpm vitehub db migrate
+```
+
+The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, open **Settings**, then **About**. Type a title and select **Publish**.
+
+Open `http://localhost:5173/?comments` again. The heading shows the title.
+
+1. Press <kbd>E</kbd>, or select **Edit** in the toolbar. Move the pointer over the heading. It gets an outline with its field address, `about#title`.
+2. Click the heading. It becomes editable and shows the current draft.
+3. Change the text and press <kbd>Enter</kbd>. Comments saves a Content draft. The heading gets a **Draft** mark.
+4. Reload the page. The heading shows the published title again, because pages read `published`.
+5. Select **Review and publish** in the message, or open `/_vitehub/content`. The dashboard lists the About change under **Needs publishing**. Publish it, then reload the page.
+
+Pins that you drop on the heading now store the field `about#title`. They stay on the heading when you move it to another place in the layout.
+
+::
+
+## Next steps
+
+- [Configure](/docs/comments/configure): access, guests, mentions, and notifications.
+- [Hosts](/docs/comments/hosts): what Node, Cloudflare, Vercel, and Netlify support.
+- [Server API](/docs/comments/server-api): read and change threads from server code.

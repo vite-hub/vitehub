@@ -4,13 +4,13 @@ import { createOperationRegistry, runOperation } from "@vite-hub/internal/operat
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-import { defineComments } from "../src/define.ts"
-import { commentsOperations } from "../src/operations.ts"
-import { createAuthUsers, createCommentsStore, installComments } from "../src/server.ts"
+import { defineComments } from "../src/operations-core/define.ts"
+import { commentsOperations } from "../src/operations-core/operations.ts"
+import { createAuthUsers, createCommentsStore, installComments } from "../src/operations-core/server.ts"
 
 import type { OperationContext } from "@vite-hub/internal/operations"
-import type { CommentsDefinition } from "../src/define.ts"
-import type { CommentCreateInput, CommentThread } from "../src/types.ts"
+import type { CommentsDefinition } from "../src/operations-core/define.ts"
+import type { CommentCreateInput, CommentThread } from "../src/operations-core/types.ts"
 
 const registry = createOperationRegistry([{ operations: commentsOperations }])
 const page = { id: "/pricing", kind: "page" }

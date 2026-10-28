@@ -1,59 +1,95 @@
-import { index, integer, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 
-/**
- * Threads of comments. `n` is unique inside `scope`, which is what `?comment=<n>` names. `anchor`, `actor`, and
- * `resolvedBy` hold JSON. Times are milliseconds since the epoch.
- */
-export const commentThreads = sqliteTable("vitehub_comment_threads", {
+import type { AnySQLiteColumn, SQLiteTableWithColumns } from "drizzle-orm/sqlite-core"
+
+type Column<Table extends string, Data, NotNull extends boolean, PrimaryKey extends boolean = false> = AnySQLiteColumn<{
+  data: Data
+  hasDefault: false
+  isPrimaryKey: PrimaryKey
+  notNull: NotNull
+  tableName: Table
+}> & { _: { generated: undefined } }
+
+type ThreadColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false> = Column<"vitehub_comment_threads", Data, NotNull, PrimaryKey>
+type CommentColumn<Data, NotNull extends boolean, PrimaryKey extends boolean = false> = Column<"vitehub_comments", Data, NotNull, PrimaryKey>
+
+/** The `vitehub_comment_threads` table, typed explicitly so its declaration can be emitted. */
+export type CommentThreadsTable = SQLiteTableWithColumns<{
+  columns: {
+    id: ThreadColumn<string, true, true>
+    page: ThreadColumn<string, true>
+    anchor: ThreadColumn<string, true>
+    status: ThreadColumn<"open" | "resolved", true>
+    createdBy: ThreadColumn<string, true>
+    resolvedBy: ThreadColumn<string, false>
+    resolvedAt: ThreadColumn<number, false>
+    createdAt: ThreadColumn<number, true>
+    updatedAt: ThreadColumn<number, true>
+  }
+  dialect: "sqlite"
+  name: "vitehub_comment_threads"
+  schema: undefined
+}>
+
+/** The `vitehub_comments` table, typed explicitly so its declaration can be emitted. */
+export type CommentsTable = SQLiteTableWithColumns<{
+  columns: {
+    id: CommentColumn<string, true, true>
+    threadId: CommentColumn<string, true>
+    body: CommentColumn<string, true>
+    mentions: CommentColumn<string, true>
+    author: CommentColumn<string, true>
+    createdAt: CommentColumn<number, true>
+    editedAt: CommentColumn<number, false>
+  }
+  dialect: "sqlite"
+  name: "vitehub_comments"
+  schema: undefined
+}>
+
+// SAFETY: CommentThreadsTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
+const commentThreads = sqliteTable("vitehub_comment_threads", {
   id: text("id").primaryKey(),
-  scope: text("scope").notNull(),
-  n: integer("n").notNull(),
-  subjectKind: text("subject_kind").notNull(),
-  subjectId: text("subject_id").notNull(),
+  /** Normalized pathname, such as `/pricing`. */
+  page: text("page").notNull(),
+  /** JSON of the anchor. */
   anchor: text("anchor").notNull(),
   status: text("status", { enum: ["open", "resolved"] }).notNull(),
+  /** JSON of the author who opened the thread. */
+  createdBy: text("created_by").notNull(),
   resolvedBy: text("resolved_by"),
   resolvedAt: integer("resolved_at"),
-  authorId: text("author_id").notNull(),
-  authorName: text("author_name"),
-  authorImage: text("author_image"),
-  actor: text("actor"),
+  /** Milliseconds since the epoch. */
   createdAt: integer("created_at").notNull(),
+  /** The last comment, resolve, or reopen. */
   updatedAt: integer("updated_at").notNull(),
 }, table => [
-  uniqueIndex("vitehub_comment_threads_scope_n").on(table.scope, table.n),
-  index("vitehub_comment_threads_subject").on(table.subjectKind, table.subjectId),
-  index("vitehub_comment_threads_status").on(table.status, table.updatedAt),
-])
+  index("vitehub_comment_threads_page").on(table.page, table.status),
+  index("vitehub_comment_threads_updated").on(table.updatedAt),
+]) as unknown as CommentThreadsTable
 
-/** One Markdown message. The first message of a thread is the comment. `mentions` and `attachments` hold JSON lists. */
-export const commentMessages = sqliteTable("vitehub_comment_messages", {
+// SAFETY: CommentsTable mirrors the columns constructed here.
+// doctor-disable-next-line typescript/evidence/no-chained-type-assertions -- Drizzle's inferred table type cannot be emitted under isolatedDeclarations, so keep the public schema explicit here.
+const comments = sqliteTable("vitehub_comments", {
   id: text("id").primaryKey(),
-  threadId: text("thread_id").notNull(),
+  threadId: text("thread_id").notNull().references(() => commentThreads.id, { onDelete: "cascade" }),
   body: text("body").notNull(),
-  authorId: text("author_id").notNull(),
-  authorName: text("author_name"),
-  authorImage: text("author_image"),
-  actor: text("actor"),
+  /** JSON array of `{ id, name }`. */
   mentions: text("mentions").notNull(),
-  attachments: text("attachments").notNull(),
+  /** JSON of the author. */
+  author: text("author").notNull(),
   createdAt: integer("created_at").notNull(),
   editedAt: integer("edited_at"),
 }, table => [
-  index("vitehub_comment_messages_thread").on(table.threadId, table.createdAt),
-])
+  index("vitehub_comments_thread").on(table.threadId, table.createdAt),
+]) as unknown as CommentsTable
 
 /**
- * The next thread number of each scope. A number is handed out once, so a deleted thread never gives its number to a
- * new one, and a link such as `?comment=3` keeps naming the same thread.
+ * The tables behind Comments. ViteHub adds them to the Database of `defineComments({ database })` for you; add them
+ * yourself only to a Database that you configure without ViteHub. Apply the migration that `vitehub db generate` writes.
  */
-export const commentCounters = sqliteTable("vitehub_comment_counters", {
-  scope: text("scope").primaryKey(),
-  next: integer("next").notNull(),
-})
+// The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
+export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments }
 
-/**
- * The tables behind the comment operations, for SQLite, libSQL, and D1. Add them to a Database Definition yourself
- * and apply their migration, or let `hubComments()` contribute them. For Postgres use `@vite-hub/comments/database/postgres`.
- */
-export const commentsSchema = { commentThreads, commentMessages, commentCounters }
+export { commentThreads, commentMessages, commentCounters, commentsSchema as commentsOperationsSchema } from "./operations-core/database.ts"

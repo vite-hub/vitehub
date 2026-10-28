@@ -14,9 +14,8 @@ import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubComments } from "@vite-hub/comments/vite"
-import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
-
 import type { HubCommentsOptions } from "@vite-hub/comments/vite"
+import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -366,10 +365,7 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
-  /**
-   * Comments tables and operations. They turn on when `server/comments.ts` exists. Set `database` to choose the
-   * Database Definition, and `dialect: "postgresql"` for a Postgres Database.
-   */
+  /** Database and SQL dialect for the default-export Comments operations. */
   comments?: Pick<HubCommentsOptions, "database" | "dialect">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
@@ -1189,17 +1185,48 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       importBase: `${generatedImportBase}/rate-limit`,
     } as RateLimitModuleOptions))
   }
+  // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
+  // rooms where Realtime has an authority. Inert without the file.
+  const commentsPlugin = hubComments({
+    ...options.comments,
+    operationsImports: {
+      auth: "vite-hub/auth/server",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      databaseSchema: "vite-hub/comments/database",
+      runtime: "vite-hub/comments/server",
+    },
+    auth: Boolean(options.auth),
+    imports: {
+      auth: "vite-hub/comments/runtime/auth",
+      contentClient: "vite-hub/content/client",
+      database: "vite-hub/comments/database",
+      databases: "vite-hub/database/drizzle",
+      realtime: "vite-hub/comments/realtime",
+      runtime: "vite-hub/comments/runtime",
+    },
+  })
   if (options.realtime) {
     plugins.push(hubRealtime({
       ...(options.realtime === true ? {} : options.realtime),
       importBase: "vite-hub/realtime",
-      // Content edits Markdown documents live where Realtime has a room authority. Other hosts keep one editor at a time.
-      contribute: context => contributeContentRealtime({
-        ...context,
-        contentImport: "vite-hub/content/realtime",
-        realtimeImport: "vite-hub/realtime/server",
-        ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
-      }),
+      // Content edits Markdown documents live, and Comments shows who is on a page, where Realtime has a room authority.
+      // Other hosts keep one Content editor at a time and show comments without presence.
+      contribute: async (context) => {
+        const [content, comments] = await Promise.all([
+          contributeContentRealtime({
+            ...context,
+            contentImport: "vite-hub/content/realtime",
+            realtimeImport: "vite-hub/realtime/server",
+            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+          }),
+          commentsPlugin.api.contributeRealtime(context),
+        ])
+        return {
+          definitions: [...content?.definitions ?? [], ...comments?.definitions ?? []],
+          plugins: content?.plugins ?? [],
+        }
+      },
     }))
   }
   if (options.schedule) {
@@ -1258,18 +1285,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       workspace: "vite-hub/workspace",
     },
   }))
-  // Comment tables, operations, and the runtime plugin, when the app has `server/comments.ts`. Inert without it.
-  plugins.push(hubComments({
-    ...options.comments,
-    auth: Boolean(options.auth),
-    imports: {
-      auth: "vite-hub/auth/server",
-      database: "vite-hub/database/drizzle",
-      databaseDefinition: "vite-hub/database",
-      databaseSchema: "vite-hub/comments/database",
-      runtime: "vite-hub/comments/server",
-    },
-  }))
+  plugins.push(commentsPlugin)
   // Nitro tasks in `server/tasks/`, listed and run with `vitehub task`.
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.

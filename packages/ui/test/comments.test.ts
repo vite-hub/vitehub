@@ -1023,6 +1023,43 @@ describe("links and layout", () => {
     rect.left = 100;
   });
 
+  it("follows layout changes from attributes such as details.open", async () => {
+    const details = document.createElement("details");
+    document.querySelector("main")!.prepend(details);
+    const { wrapper } = await layer([thread(1)]);
+    rect.left = 300;
+    try {
+      details.setAttribute("open", "");
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 400px"));
+    } finally {
+      rect.left = 100;
+    }
+  });
+
+  it("follows mutations inside the configured shadow root", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = host.attachShadow({ mode: "open" });
+    root.innerHTML = '<button id="cta">Buy</button>';
+    target = root.querySelector("button")!;
+    const { client } = setup([thread(1)]);
+    const wrapper = mount(defineComponent({ setup() {
+      const comments = useComments({ client, subject: pricing, root });
+      return () => h(CommentLayer, { comments });
+    } }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+    expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 200px");
+    rect.left = 300;
+    try {
+      target.before(document.createElement("p"));
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 400px"));
+    } finally {
+      rect.left = 100;
+    }
+  });
+
   it("hides the pin of an element that a scroll container clips", async () => {
     document.body.innerHTML = `<main><div id="list" style="overflow: auto"><button id="cta">Buy</button></div></main>`;
     target = document.getElementById("cta")!;

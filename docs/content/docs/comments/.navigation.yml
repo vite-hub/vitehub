@@ -1,5 +1,5 @@
 title: Comments
-icon: i-lucide-message-square
-order: 14
-category: Collaboration
-related: [content, database, ui]
+icon: i-lucide-message-square-text
+order: 43
+category: Delivery
+related: [content, realtime]
