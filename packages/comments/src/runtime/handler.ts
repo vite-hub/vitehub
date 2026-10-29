@@ -7,11 +7,13 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { resolveCommentsUser } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -42,15 +44,8 @@ export interface CommentsContent {
   collections(): readonly ContentCollectionLike[]
 }
 
-export interface CommentsHandlerOptions {
+export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
-  /** Reads the ViteHub Auth user only when no custom `identify` is configured. */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
-  /**
-   * Checks Console section access for the action before custom `identify` or Comments policies. `false` or a failed
-   * check denies access; otherwise this is the user when no custom `identify` is configured.
-   */
-  consoleSession?: (event: H3Event, action?: CommentsAction) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -163,11 +158,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
-    const consoleUser = await options.consoleSession?.(event, action).catch(() => false as const)
-    if (consoleUser === false) return false
-    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
-    if (options.consoleSession) return consoleUser ?? null
-    return await options.session?.(event).catch(() => null) ?? null
+    return resolveCommentsUser(comments, event, options, action)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {

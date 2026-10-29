@@ -2672,6 +2672,9 @@ importers:
 
   packages/vite-hub:
     dependencies:
+      '@cfworker/json-schema':
+        specifier: 4.1.1
+        version: 4.1.1
       '@cloudflare/sandbox':
         specifier: catalog:sandbox
         version: 0.12.10

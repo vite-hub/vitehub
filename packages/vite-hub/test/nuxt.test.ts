@@ -703,7 +703,7 @@ describe("ViteHub Nuxt integration", () => {
       maxAge: 31536000,
     }])
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub/mcp" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(development.nuxt.options.routeRules).toMatchObject({
@@ -742,7 +742,7 @@ describe("ViteHub Nuxt integration", () => {
       production.nuxt,
     )
     expect(production.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub/mcp" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       plugins: ["/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs"],
     })
     expect(production.nuxt.options.routeRules).toMatchObject({
@@ -1010,7 +1010,7 @@ describe("ViteHub Nuxt integration", () => {
       preset: "node",
     }, development.nuxt)
     expect(development.nuxt.options.nitro).toMatchObject({
-      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
+      handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub/mcp" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
     })
     expect(development.nuxt.options.vite.plugins).not.toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1734,7 +1734,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await viteHubNuxtModule({ console: { auth: false }, database: true, preset: "node" }, development.nuxt)
       expect(development.nuxt.options.nitro).toMatchObject({
-        handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
+        handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub/mcp" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],
       })
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
       const generated = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
@@ -1813,6 +1813,7 @@ describe("ViteHub Nuxt integration", () => {
           { method: "post", route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { method: "post", route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub/mcp" },
           { route: "/_vitehub" },
           { route: "/_vitehub/**" },
         ],
@@ -1880,6 +1881,7 @@ describe("ViteHub Nuxt integration", () => {
           { route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub/mcp" },
           { route: "/_vitehub" },
           { route: "/_vitehub/**" },
         ],
@@ -1918,6 +1920,7 @@ describe("ViteHub Nuxt integration", () => {
           { route: "/_vitehub/env/manage" },
           { method: "post", route: "/_vitehub/channels/replay" },
           { route: "/_vitehub/schedules/run" },
+          { route: "/_vitehub/mcp" },
           { route: "/_vitehub" },
           { route: "/_vitehub/**" },
         ],
