@@ -465,7 +465,7 @@ The security model:
 | Not in the Console | With app Auth, an impersonation session never opens the Console. Each Console page shows **Viewing the app as …** with **Stop impersonating**, and Console data routes return `403` with `CONSOLE_IMPERSONATING`. With Console Auth or Cloudflare Access, the Console keeps its own session and the Auth section shows a banner with **Stop impersonating**. |
 | Same origin | Start and stop use the Auth route, which requires the same origin and `x-vitehub-console: 1`. The **Viewing the app as …** page calls Better Auth's `stop-impersonating` endpoint, which checks the origin. |
 
-When the session ends before you stop it, your own session is not restored. Sign in again.
+When the session ends before you stop it, Better Auth cannot restore your own session. Sign in again.
 
 App code can detect an impersonation session. On the server, `session.impersonatedBy` is the id of the administrator:
 
