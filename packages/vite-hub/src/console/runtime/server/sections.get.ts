@@ -26,7 +26,7 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   const contributions = getConsoleContributedSections().filter(section => sections.includes(section.id))
   const build = getConsoleBuild()
   const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], operations?: readonly string[], projectName?: string, scoped?: true, sections: readonly string[] } = { sections }
-  if (getConsoleAuth()) result.auth = true
+  if (getConsoleAuth() || access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   const operations = consoleOperationRegistry().list()

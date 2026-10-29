@@ -89,6 +89,20 @@ describe("operations that run app code", () => {
     expect(await advertised()).toBeUndefined()
   })
 
+  it.each([
+    { grant: "fixture", operations: ["fixture.start"] },
+    { grant: "fixture:read", operations: undefined },
+  ])("advertises app Auth and permitted actions for $grant access", async ({ grant, operations }) => {
+    installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
+    installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => ({ sections: [grant] }) })
+
+    const response = await call("sections.list")
+    expect(response.status).toBe(200)
+    const { value } = await response.json() as { value: { auth?: true, operations?: string[] } }
+    expect(value.auth).toBe(true)
+    expect(value.operations).toEqual(operations)
+  })
+
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {
     const { workflowOperations } = await import("@vite-hub/workflow/operations")
     const { queueOperations } = await import("@vite-hub/queue/operations")
