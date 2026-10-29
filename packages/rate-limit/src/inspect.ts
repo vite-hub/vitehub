@@ -42,6 +42,6 @@ export const rateLimitConsoleSection: ViteHubConsoleSectionContribution<RateLimi
   read: inspectRateLimitDefinitions,
   view: {
     kind: "definition-catalog",
-    notice: "Live counters and remaining quota are not included because their accuracy, scope, and availability depend on the provider.",
+    notice: "The page lists the policies. Enter a key to read its live counter or to reset it. Counters depend on the provider: a Cloudflare binding cannot be read or reset, and a memory counter exists only in this server process.",
   },
 }

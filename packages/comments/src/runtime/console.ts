@@ -1,4 +1,5 @@
 import { describeCommentContext } from "../context.ts"
+import { commentsPageScope } from "../page.ts"
 import { installedComments } from "./plugin.ts"
 
 import type { ViteHubConsoleRecord } from "@vite-hub/internal/console"
@@ -12,7 +13,7 @@ function excerpt(text: string): string {
 export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord[]> {
   const comments = installedComments()
   if (!comments) return []
-  const [error, threads] = await comments.list({ limit: 500 })
+  const [error, threads] = await comments.list({ scope: commentsPageScope, limit: 500 })
   if (error) return []
   return threads.map((thread) => {
     const first = thread.comments[0]
@@ -29,7 +30,7 @@ export async function readCommentsConsoleRecords(): Promise<ViteHubConsoleRecord
       },
       fields: [
         { label: "Open on page", value: link },
-        { label: "Anchor", value: thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label },
+        ...(thread.anchor ? [{ label: "Anchor", value: thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label }] : []),
         ...describeCommentContext(thread.context),
         ...thread.comments.map(comment => ({ label: comment.author.name, value: comment.body })),
         ...(thread.resolvedBy ? [{ label: "Resolved by", value: thread.resolvedBy.name }] : []),

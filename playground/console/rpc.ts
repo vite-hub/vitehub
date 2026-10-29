@@ -53,6 +53,13 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     method = "POST"
     body = input
   }
+  // Writes and counters share one fixture route per section, told apart by `action`.
+  const writes: Record<string, string> = { "blob.del": "blob", "blob.put": "blob", "kv.del": "kv", "kv.set": "kv", "rate-limit.peek": "rate-limit", "rate-limit.reset": "rate-limit" }
+  if (writes[payload.operation]) {
+    route = writes[payload.operation]
+    method = "POST"
+    body = { ...input, action: payload.operation.split(".")[1] }
+  }
   if (!route) return { code: "CONSOLE_REQUEST_INVALID", message: `The playground has no fixture for ${payload.operation}.`, ok: false, status: 404 }
   const url = new URL(`/api/_vitehub/console/${route}`, origin)
   if (method === "GET") {

@@ -16,7 +16,9 @@ export const comments = defineComments({
 })
 ```
 
-ViteHub then adds the `vitehub_comment_threads` and `vitehub_comments` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+
+Existing databases must follow [Upgrade existing Comments](https://vitehub.dev/docs/comments/configure#upgrade-existing-comments) before applying the scoped schema. Backfill thread numbers before creating the unique index, then initialize the durable scope counters.
 
 Open any page with `?comments`. The server adds the overlay script to that page, and the session route sets the `vitehub-comments` cookie so later pages open in comment mode too. The cookie is a hint, never a credential: every route checks `authorize` again. A request without the hint gets the page unchanged.
 

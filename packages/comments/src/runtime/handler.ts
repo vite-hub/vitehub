@@ -5,7 +5,7 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
 import { resolveCommentsUser } from "./session.ts"
 
@@ -262,8 +262,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return error ? failure(error) : json({ data: await permissions(event, user, thread) })
   }
 
+  /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
   async function thread(id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND" | "COMMENTS_NOT_INSTALLED">> {
-    return await comments.get(id)
+    const [error, found] = await comments.get(id)
+    if (error) return [error, undefined]
+    return found.scope === commentsPageScope ? [undefined, found] : [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
   }
 
   async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentAuthor, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN">> {
@@ -353,6 +356,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const page = url.searchParams.get("page")
         const state = url.searchParams.get("status")
         const [error, threads] = await comments.list({
+          scope: commentsPageScope,
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
         })

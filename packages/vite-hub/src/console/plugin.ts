@@ -170,7 +170,6 @@ function renderConsoleNitroPlugin(
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
   blobStores: readonly string[],
-  kvStores: readonly string[],
   fixture?: string,
   fixtureSnapshot = fixture ? readConsoleFixture(fixture) : undefined,
   runtimeBinding?: string,
@@ -201,7 +200,6 @@ function renderConsoleNitroPlugin(
   const agentsEnabled = sections.includes("agents")
   const blobEnabled = sections.includes("blob")
   const databaseEnabled = sections.includes("databases")
-  const kvEnabled = sections.includes("kv")
   const schedulesEnabled = sections.includes("schedules")
   const runnableSchedules = (invoke ? catalog.manualSchedules ?? [] : [])
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
@@ -236,12 +234,6 @@ function renderConsoleNitroPlugin(
           `import { databases as vitehubConsoleDatabases } from "vite-hub/database/drizzle"`,
         ]
       : []),
-    ...(kvEnabled
-      ? [
-          `import { installConsoleKV } from "vite-hub/console/kv"`,
-          `import { kv as vitehubConsoleKV } from "vite-hub/kv"`,
-        ]
-      : []),
     ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
     ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
@@ -273,9 +265,6 @@ function renderConsoleNitroPlugin(
           ]
         : [`installConsoleAgentDefinitions([${definitions}], { projectRoot: ${JSON.stringify(projectRoot)}${invoke ? ", invoke: true" : ""}${observations !== undefined ? `, observations: ${JSON.stringify(observations)}` : ""}${journal && "databaseUrl" in journal ? `, databaseUrl: ${JSON.stringify(journal.databaseUrl)}` : ""}${journal && "d1Binding" in journal ? `, d1: { binding: ${JSON.stringify(journal.d1Binding)}, env: async () => (await import("cloudflare:workers")).env }` : ""}${retention !== undefined ? `, retention: { maxAge: ${renderRetentionLimit(retention.maxAge)}, maxRecords: ${renderRetentionLimit(retention.maxRecords)}, maxSize: ${renderRetentionLimit(retention.maxSize)} }` : ""}${runtimeCapabilities.install ? `, ${runtimeCapabilities.install}` : ""} })`]
       : []),
-    ...(kvEnabled
-      ? [`installConsoleKV(${JSON.stringify(projectRoot)}, vitehubConsoleKV, ${JSON.stringify(kvStores)})`]
-      : []),
     "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")
@@ -288,7 +277,6 @@ export async function writeConsoleNitroPlugin(
   agents: readonly ConsoleAgentEntry[],
   catalog: ConsoleBuildCatalog,
   blobStores: readonly string[],
-  kvStores: readonly string[],
   fixture?: string,
   runtimeBinding?: string,
   invoke = false,
@@ -310,7 +298,7 @@ export async function writeConsoleNitroPlugin(
     runtimeBinding,
   )
   if (!active()) return identity
-  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, kvStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase)
+  const rendered = renderConsoleNitroPlugin(projectRoot, sections, agents, catalog, blobStores, fixture, snapshot, runtimeBinding, invoke, observations, journal, independentAuth, retention, access, runtimeCapabilityImports, development, applicationBase)
   // The build id is a hash of the rest of the output, so it changes only when an open Console would be outdated.
   const contents = `${rendered}installConsoleBuild(${JSON.stringify(projectRoot)}, ${JSON.stringify(consoleBuildId(rendered))})\n`
   if (await readFile(file, "utf8").catch(() => undefined) !== contents) {

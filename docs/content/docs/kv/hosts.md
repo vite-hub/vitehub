@@ -23,9 +23,9 @@ pnpm vitehub kv set settings '{"theme":"dark"}' --json-value
 pnpm vitehub kv del settings
 ```
 
-The commands call the same KV storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. There is no `clear` command. The commands call a guarded endpoint that exists only on the Vite Development Server. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
+The commands call the same KV storage as the running app. Pass `--store <name>` for a named store. Each write command prints what it changed. There is no `clear` command. The commands run the `kv.*` [operations](/docs/development/operations) of the app, on the dev server of this project or, with `--url`, on a deployed app that enables the [Console](/docs/development/console). The operations run in the Nitro runtime, which owns the stores. `kv set` and `kv del` refuse keys that start with `vitehub:` (`KV_RESERVED_KEY`), because ViteHub keeps its own state there; reads stay open. Read [CLI](/docs/development/cli#read-and-write-kv-keys) for every command and option.
 
-KV inspection represents `bigint` values, including nested values, as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`. Cloudflare write results report the effective TTL after rounding.
+KV inspection represents `bigint` values, including nested values, as decimal strings. Values that cannot be serialized return `KV_VALUE_UNSUPPORTED`. Cloudflare write results report the effective TTL after rounding. The drivers cannot report how long a key has left, so `kv get` reports `expiry: "unknown"` (or `"none"` for `fs-lite`, which never expires keys). A write without `--ttl` removes an existing expiry, and the Console editor warns about it and has an **Expires in seconds** field.
 
 ## Production checks
 
