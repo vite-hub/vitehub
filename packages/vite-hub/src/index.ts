@@ -50,6 +50,7 @@ import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, reso
 import { includedNitro } from "./nitro-plugin.ts"
 import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
@@ -80,6 +81,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
+export type { LogsOptions, LogsEvlogOptions } from "./logs-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
@@ -361,6 +363,8 @@ export interface ViteHubOptions {
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
+  /** Read an existing log source, or inspect a bounded Evlog buffer during development. */
+  logs?: boolean | LogsOptions
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
@@ -679,6 +683,7 @@ function deploymentPlugins(
           const cloudflare = cloneRecord(nitro.cloudflare)
           const wrangler = cloneRecord(cloudflare.wrangler)
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+          if (options.logs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
           if (options.realtime) {
             const durableObjects = cloneRecord(wrangler.durable_objects)
             const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
@@ -1016,6 +1021,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
+  const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
   if (options.observability) {
     if (options.observability.posthog && !envPlugin) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: "[vitehub] observability.posthog reads its API key from Server Env. Remove env: false." })
@@ -1024,11 +1030,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
     }
     // Before Env, so Env reads the PostHog key declaration.
-    plugins.push(observabilityVitePlugin(options.observability, { agent: options.agent, hosting: plan.nitroPreset }))
+    const observability = logsOwnsEvlog && options.observability.evlog?.enabled === false
+      ? { ...options.observability, evlog: { ...options.observability.evlog, enabled: true } }
+      : options.observability
+    plugins.push(observabilityVitePlugin(observability, { agent: options.agent, hosting: plan.nitroPreset }))
   }
-  // evlog records request errors only when it is enabled. Keep the fallback logger
-  // when observability is configured with evlog explicitly disabled.
-  if (!options.observability || options.observability.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.logs) plugins.push(logsVitePlugin(options.logs))
+  const evlogRecordsErrors = logsOwnsEvlog || (options.observability && options.observability.evlog?.enabled !== false)
+  if (!evlogRecordsErrors) plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {

@@ -144,6 +144,7 @@ export function createBabysitterRuntime(options: BabysitterRuntimeOptions): Baby
     repositories: options.repositories,
     filter,
     activityAuthors,
+    activityAppId: verifiedHostIdentity ? github.appId?.() : undefined,
     budgets: { ...noProgressBudget === false ? {} : { noProgress: noProgressBudget }, ...reviewPushBudget === false ? {} : { reviewPushes: reviewPushBudget },
       ...dailyPassBudget === false ? {} : { dailyPasses: dailyPassBudget } },
     // One invalid row must not stop the claim loop or the health endpoint.

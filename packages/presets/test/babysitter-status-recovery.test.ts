@@ -626,9 +626,12 @@ test('lease replacement repeats a newer write whose response is still in flight'
 test('lease replacement corrects a late GitHub write through the real activity channel', async t => {
   const { inbox, claim, open, setClock } = await fixture(t)
   await inbox.finish(claim, blocked('Old result'))
+  const [oldDelivery] = await inbox.pendingStatusDeliveries()
+  assert.ok(oldDelivery)
   const other = open()
   t.onTestFinished(() => other.close())
-  const comments: Array<{ id: number; body: string; user: { login: string } }> = []
+  const comments: Array<{ id: number; body: string; user: { login: string }; updated_at: string }> = []
+  let writeTime = Date.now()
   let release!: () => void
   let started!: () => void
   const barrier = new Promise<void>(resolve => { release = resolve })
@@ -645,13 +648,14 @@ test('lease replacement corrects a late GitHub write through the real activity c
       const body = JSON.parse(String(init?.body)).body as string
       if (method === 'POST') {
         if (token === 'old-expiry-token' && delayOldWrite) { delayOldWrite = false; started(); await barrier }
-        const comment = { id: comments.length + 1, body, user: { login: 'expiry-worker[bot]' } }
+        const comment = { id: comments.length + 1, body, user: { login: 'expiry-worker[bot]' }, updated_at: new Date(++writeTime).toISOString() }
         comments.push(comment)
         return Response.json(comment)
       }
       const id = Number(String(_input).split('/').at(-1))
       const comment = comments.find(value => value.id === id)!
       comment.body = body
+      comment.updated_at = new Date(++writeTime).toISOString()
       return Response.json(comment)
     } } })
     return (pending: StatusDelivery, abortSignal: AbortSignal) =>
@@ -659,20 +663,23 @@ test('lease replacement corrects a late GitHub write through the real activity c
         channelId: 'github', target: { repository, issue: 239 }, activity: pending.activity, abortSignal,
       })
   }
-  const first = createBabysitterStatusRecovery({ inbox, revision: 'release-1', publish: await publisher('old-expiry-token') }).flush()
+  const oldPublish = await publisher('old-expiry-token')
+  const first = createBabysitterStatusRecovery({ inbox, revision: 'release-1', publish: oldPublish }).flush()
   const next = createBabysitterStatusRecovery({ inbox: other, revision: 'release-1', publish: await publisher('new-expiry-token') })
   try {
     await began
     const entry = (await inbox.metaEntries('status-outbox:v1:'))[0]![1] as { leaseUntil: number }
+    setClock(entry.leaseUntil + 1)
     await inbox.wake((await inbox.get(repository, 239))!, 'new-feedback')
     await inbox.finish((await inbox.claim(1))[0]!, blocked('New result'))
-    setClock(entry.leaseUntil + 1)
     await next.flush()
   } finally { release(); await first }
+  const stalePublish = await publisher('restarted-old-expiry-token')
+  await stalePublish(oldDelivery, new AbortController().signal)
+  assert.ok(comments[0]!.body.includes('New result'), 'a second stale publication cannot promote its late duplicate')
   await next.flush()
-  const managed = comments.filter(comment => !comment.body.startsWith('This Agent activity was superseded'))
-  assert.equal(managed.length, 1)
-  assert.ok(managed[0]!.body.includes('New result'))
+  assert.ok(comments[0]!.body.includes('New result'), 'the original managed comment receives the correction')
+  assert.ok(comments[1]!.body.includes('Old result'), 'a late duplicate remains historical instead of causing another write')
   assert.deepEqual(await inbox.pendingStatusDeliveries(), [])
   const restarted = createBabysitterStatusRecovery({ inbox: other, revision: 'release-1', publish: await publisher('restarted-expiry-token') })
   await restarted.recover()

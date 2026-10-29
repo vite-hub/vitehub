@@ -38,6 +38,12 @@
       "require": "./dist/anchor.js",
       "default": "./dist/anchor.js"
     },
+    "./client": {
+      "types": "./dist/client.d.ts",
+      "import": "./dist/client.js",
+      "require": "./dist/client.js",
+      "default": "./dist/client.js"
+    },
     "./database": {
       "types": "./dist/database.d.ts",
       "import": "./dist/database.js",
@@ -68,6 +74,12 @@
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "require": "./dist/testing.js",
+      "default": "./dist/testing.js"
+    },
     "./vite": {
       "types": "./dist/vite.d.ts",
       "import": "./dist/vite.js",
@@ -83,6 +95,7 @@
     "test": "vp run -t @vite-hub/comments#build && vp test"
   },
   "dependencies": {
+    "nostics": "catalog:runtime",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
@@ -91,16 +104,16 @@
     "valibot": "catalog:runtime"
   },
   "devDependencies": {
-    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "@libsql/client": "catalog:database",
+    "@vite-hub/database": "workspace:*",
+    "vite": "catalog:vite"
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",
