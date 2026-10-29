@@ -28,13 +28,18 @@ describe("viteHubPageToolsBase", () => {
     expect(viteHubPageToolsBase({}, {})).toEqual({ base: "", mount: "" })
     expect(viteHubPageToolsBase({ base: "./" }, {})).toEqual({ base: "", mount: "" })
     expect(viteHubPageToolsBase({ base: "/portal/" }, {})).toEqual({ base: "/portal", mount: "/portal" })
-    expect(viteHubPageToolsBase({ base: "https://cdn.test/portal/" }, {})).toEqual({ base: "/portal", mount: "/portal" })
     expect(viteHubPageToolsBase({ base: "/portal/", nitro: { baseURL: "/portal/" } }, {})).toEqual({ base: "/portal", mount: "" })
     expect(viteHubPageToolsBase({ base: "/portal/" }, { NITRO_APP_BASE_URL: "/portal/" })).toEqual({ base: "/portal", mount: "" })
     expect(viteHubPageToolsBase({ base: "/a/b/", nitro: { baseURL: "/a/" } }, {})).toEqual({ base: "/a/b", mount: "/b" })
     // Nuxt: the module sets ViteHub's app base constant, and Nitro serves below `app.baseURL`.
     expect(viteHubPageToolsBase({ define: { __VITEHUB_APP_BASE_URL__: "\"/docs/\"" }, nitro: { baseURL: "/docs/" } }, {})).toEqual({ base: "/docs", mount: "" })
     expect(viteHubPageToolsBase({ base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/docs/", nitro: { baseURL: "/docs/" } }, {})).toEqual({ base: "/docs", mount: "" })
+  })
+
+  it.each(["https://cdn.test/assets/", "http://cdn.test/assets/", "//cdn.test/assets/"])("keeps the Vite asset base %s separate from the application base", (base) => {
+    expect(viteHubPageToolsBase({ base }, {})).toEqual({ base: "", mount: "" })
+    expect(viteHubPageToolsBase({ base, define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/docs/") } }, {})).toEqual({ base: "/docs", mount: "/docs" })
+    expect(viteHubPageToolsBase({ base, [VITEHUB_APP_BASE_URL]: "/portal/", define: { __VITEHUB_APP_BASE_URL__: JSON.stringify("/assets/") }, nitro: { baseURL: "/portal/" } }, {})).toEqual({ base: "/portal", mount: "" })
   })
 
   it("adds the routes below the mount", () => {
@@ -72,12 +77,12 @@ describe("viteHubPageToolsIndexHtml", () => {
     const page = viteHubPageToolsIndexHtml(html, "/")!
     expect(run(page, "/")).toEqual([])
     expect(run(page, "/", "theme=dark")).toEqual([])
-    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=4"])
-    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=4"])
+    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
+    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
   })
 
   it("imports the loader below the Vite base", () => {
-    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=4"])
-    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=4"])
+    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=6"])
+    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
   })
 })

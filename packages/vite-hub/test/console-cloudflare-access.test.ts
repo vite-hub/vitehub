@@ -333,7 +333,7 @@ describe("Cloudflare Access Console Auth", () => {
     ["/", ""],
     ["/portal/", "/portal"],
     ["https://assets.example.com/", ""],
-    ["https://assets.example.com/portal/", "/portal"],
+    ["https://assets.example.com/portal/", ""],
   ])("guards mounted Console routes with Vite base %j", async (base, mount) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-cf-access-vite-base-"))
     try {

@@ -171,6 +171,18 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     let activate: ((path?: string) => void) | undefined
     let starting: Promise<boolean> | undefined
     let mounted = false
+    const replaceBar = () => {
+      const replacement = document.createElement("vitehub-tool")
+      replacement.slot = tool.id
+      bar.replaceWith(replacement)
+      bar = replacement
+    }
+    const mountLaunch = () => {
+      const shadow = bar.attachShadow({ mode: "open" })
+      const style = document.createElement("style")
+      style.textContent = "button{all:unset;display:block;box-sizing:border-box;font:inherit;color:inherit;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer}button:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}"
+      shadow.append(style, launch)
+    }
     const run = (path?: string, show = true): Promise<boolean> => {
       if (signal.aborted) return Promise.resolve(false)
       if (mounted) { activate?.(path); return Promise.resolve(true) }
@@ -184,14 +196,17 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
           const start = startOf(await load(tool.script))
           if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
           if (signal.aborted) return false
-          bar.replaceChildren()
+          // Tools own their segment's shadow root; discard the loader's launch control before startup.
+          launch.remove()
+          if (bar.shadowRoot) replaceBar()
+          else bar.replaceChildren()
           const cleanup = start({
             beforeExit: check => {
               const guard = () => check()
               exitChecks.add(guard)
               attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
             }, tool, bar, signal: attempt.signal,
-            open: show && (tool.lazy === true || tool.id === open), exit,
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
               const retained = { ...window, show() {
@@ -222,14 +237,11 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
           console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
           if (tool.lazy) {
             // A failed tool may have attached a shadow root; retries need a fresh segment.
-            const replacement = document.createElement("vitehub-tool")
-            replacement.slot = tool.id
-            bar.replaceWith(replacement)
-            bar = replacement
+            replaceBar()
             launch.textContent = `Retry ${tool.label}`
             launch.title = "The tool could not load. Try again."
             bar.hidden = false
-            bar.append(launch)
+            mountLaunch()
           }
           else { activators.delete(tool.id); bar.remove() }
           return false
@@ -241,10 +253,9 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     const launch = document.createElement("button")
     launch.type = "button"
     launch.textContent = tool.label
-    launch.style.cssText = "font:inherit;color:inherit;background:transparent;border:0;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer"
     launch.addEventListener("click", () => void run())
     activators.set(tool.id, run)
-    if (tool.lazy && tool.id !== open && !restored(tool.id)) { bar.append(launch); return tool }
+    if (tool.lazy && tool.id !== open && !restored(tool.id)) { mountLaunch(); return tool }
     // Restored tools may mount, but an explicit query selection owns the visible window.
     const ok = await run(undefined, !querySelected || tool.id === open)
     return !signal.aborted && (ok || tool.lazy) ? tool : undefined

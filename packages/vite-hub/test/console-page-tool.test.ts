@@ -142,7 +142,7 @@ describe("the Console Nitro configuration", () => {
 
   it.each([
     ["/portal/", "/portal"],
-    ["https://site.test/portal/", "/portal"],
+    ["https://site.test/portal/", ""],
     ["./", ""],
   ])("serves the page tools and Console below Vite base %s", async (base, path) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
@@ -161,7 +161,7 @@ describe("the Console Nitro configuration", () => {
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=4")`)
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=6")`)
       expect(transform(page!)).toBeUndefined()
     }
     finally {

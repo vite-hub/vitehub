@@ -15,7 +15,7 @@ export const overlayStyles = `
   font: 13px/1.5 var(--font, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif); color: var(--text);
   -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
 }
-.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147483000; }
+.root { position: fixed; inset: 0; pointer-events: none; z-index: 2147482999; }
 .root[data-theme="dark"], .bar[data-theme="dark"] {
   --surface: #1c1c1f; --surface-inset: #121214; --hover: rgb(255 255 255 / .06); --text: #fafafa; --body: #e4e4e7; --muted: #a1a1aa;
   --ring: rgb(255 255 255 / .1); --divider: rgb(255 255 255 / .07); --accent-soft: rgb(96 165 250 / .14); --accent-text: #93c5fd; --danger: #f87171;
