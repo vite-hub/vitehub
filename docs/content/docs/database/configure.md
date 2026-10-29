@@ -247,6 +247,34 @@ The factory context also has `rootDir`, the root that Database Definitions are d
 
 `collectDatabaseContributions(plugins, context)` from `@vite-hub/database/vite` returns the validated `{ definitions, tables }`, and `resolveDatabaseContributionTargets(names, tables)` returns the target of each table contribution, for other build steps.
 
+## Connect without a Definition
+
+A package that keeps its own tables, such as [Comments](/docs/comments/configure#choose-the-database), can connect to the app's database without a Database Definition and without migrations. `connectDatabase()` takes a string that says where the database is, and returns a Drizzle SQLite database:
+
+```ts [server/utils/notes.ts]
+import { connectDatabase } from '@vite-hub/database/connect'
+import { notes } from './schema'
+
+export const db = connectDatabase('env:NOTES_DATABASE_URL', {
+  schema: { notes },
+  setup: ['CREATE TABLE IF NOT EXISTS notes (id integer PRIMARY KEY, body text NOT NULL)'],
+})
+```
+
+| Location | Connects to |
+| --- | --- |
+| Not set (`undefined`) | `DATABASE_URL`, else `TURSO_DATABASE_URL`, else the Cloudflare D1 binding `DB`. A Postgres URL is skipped. |
+| `'d1:NAME'` | The Cloudflare D1 binding `NAME`. |
+| `'env:NAME'` | The libSQL URL in the variable `NAME`. Its token is the URL's `authToken` parameter, or the variable next to it: `TURSO_DATABASE_URL` reads `TURSO_AUTH_TOKEN`, and `NOTES_DATABASE_URL` reads `NOTES_AUTH_TOKEN`. |
+| `'libsql://…'`, `'https://…'` | That libSQL URL. A token in it ends up in the build. |
+| `'file:./data/app.sqlite'` | A SQLite file, opened with Node's built-in `node:sqlite`. Import `connectDatabase()` from `@vite-hub/database/connect/node` for it. Workers have no files. |
+
+Remote connections use libSQL over HTTP; `ws://` and `wss://` locations are unsupported.
+
+The variables and bindings are read on each query, so a Worker gets the bindings of its request. `setup` runs once for each database before its first query, and again on the next query when it fails, so write statements that are safe to repeat, such as `CREATE TABLE IF NOT EXISTS`. `fallback` is a second location to use when the first finds nothing, such as a SQLite file on the development server.
+
+Errors: [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) when a query finds no database, and [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url) for a location it cannot use. Drizzle wraps them in its query error, as `error.cause`. Postgres is not supported yet.
+
 ## Database Definition options
 
 `defineDatabase()` accepts one object.
