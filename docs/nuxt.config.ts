@@ -54,7 +54,7 @@ export default defineNuxtConfig({
           {
             title: "Compare ViteHub",
             description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
-            href: "https://vitehub.dev/raw/docs/getting-started/compare.md",
+            href: "https://vitehub.dev/raw/docs/compare.md",
           },
           {
             title: "Agent harness",

@@ -2,9 +2,9 @@
 title: Vercel vs Netlify vs Cloudflare
 description: Compare Vercel, Netlify, and Cloudflare for Vite apps and Agents by queues, cron, storage, sandboxes, run time, and pricing, with what ViteHub uses on each.
 seo.title: Vercel vs Netlify vs Cloudflare for Vite apps and Agents
-navigation.title: Compare hosts
-navigation.order: 41.2
-navigation.group: Choose a target
+navigation.title: Vercel, Netlify, Cloudflare
+navigation.order: 9
+navigation.group: Hosts
 icon: i-lucide-columns-3
 ---
 
@@ -37,8 +37,8 @@ provider that ViteHub selects on that preset. The ViteHub column comes from the
 | Cloudflare | [Cloudflare Queues](https://developers.cloudflare.com/queues/platform/pricing/) | On the Workers Free and Paid plans. Cloudflare bills each 64 KB that a queue writes, reads, or deletes. | Cloudflare Queues is the default Queue provider. |
 
 Read [Queue hosts](/docs/queue/hosts) for the generated consumer output. The
-[Vercel Queues](/docs/queue/vercel-queues) and
-[Cloudflare Queues](/docs/queue/cloudflare-queues) guides show the setup on
+[Vercel Queues](/docs/guides/vercel-queues) and
+[Cloudflare Queues](/docs/guides/cloudflare-queues) guides show the setup on
 each host.
 
 ## Cron
@@ -51,7 +51,7 @@ each host.
 
 ViteHub Schedule output needs a five-field UTC cron string. ViteHub does not
 retry a failed run. Read [Schedule hosts](/docs/schedule/hosts) and the
-[Vercel Cron Jobs](/docs/schedule/vercel-cron-jobs) guide.
+[Vercel Cron Jobs](/docs/guides/vercel-cron-jobs) guide.
 
 ## Blob storage
 
@@ -61,7 +61,7 @@ retry a failed run. Read [Schedule hosts](/docs/schedule/hosts) and the
 | Netlify | [Netlify Blobs](https://docs.netlify.com/build/data-and-storage/netlify-blobs/) | Eventually consistent by default. Changes reach all edge locations within 60 seconds. Strong consistency is opt-in. 5 GB per object. | `netlify-blobs`. No provisioning step. |
 | Cloudflare | [R2](https://developers.cloudflare.com/r2/pricing/) | Cloudflare bills storage and operations. Egress is free. | An R2 bucket named after the app, with the `BLOB` binding. ViteHub can provision it. |
 
-Read [Blob hosts](/docs/blob/hosts) and the [Vercel Blob](/docs/blob/vercel-blob)
+Read [Blob hosts](/docs/blob/hosts) and the [Vercel Blob](/docs/guides/vercel-blob)
 guide.
 
 ## KV
@@ -93,7 +93,7 @@ Read [Database hosts](/docs/database/hosts).
 | Cloudflare | [Sandbox SDK](https://developers.cloudflare.com/sandbox/) | Runs on Containers or Dynamic Workers. Needs the Workers Paid plan. Containers use a Durable Object scheduling policy that is in public beta. | Cloudflare Sandbox, with a generated Container and Durable Object binding. Local runs need `wrangler dev` and Docker. |
 
 Read [Sandbox hosts](/docs/sandbox/hosts) and
-[AI sandbox providers compared](/docs/sandbox/providers).
+[AI sandbox providers compared](/docs/guides/sandbox-providers).
 
 ## Long-running work and Agents
 

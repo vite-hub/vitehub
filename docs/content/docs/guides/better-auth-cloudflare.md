@@ -1,10 +1,9 @@
 ---
-title: Better Auth on Cloudflare
+title: Better Auth on Cloudflare Workers and D1 with ViteHub
 description: Run Better Auth on Cloudflare Workers from a Vite app with ViteHub. Keep users and sessions in Cloudflare D1, or use cookie sessions with no database.
-seo.title: Better Auth on Cloudflare Workers and D1 with ViteHub
 navigation.title: Better Auth on Cloudflare
-navigation.order: 10
-navigation.group: Host guides
+navigation.order: 30
+navigation.group: Auth
 icon: i-simple-icons-betterauth
 ---
 

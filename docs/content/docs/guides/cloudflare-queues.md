@@ -1,10 +1,9 @@
 ---
-title: Cloudflare Queues
+title: Use Cloudflare Queues in a Vite app with ViteHub
 description: Use Cloudflare Queues from a Vite app with ViteHub. Define a queue in one file, and the build writes the Worker producer and consumer config for you.
-seo.title: Use Cloudflare Queues in a Vite app with ViteHub
 navigation.title: Cloudflare Queues
-navigation.order: 10
-navigation.group: Host guides
+navigation.order: 25
+navigation.group: Server work
 icon: i-simple-icons-cloudflare
 ---
 
@@ -14,7 +13,7 @@ To use Cloudflare Queues from a Vite app, set `preset: 'cloudflare'` and `queue:
 
 [Cloudflare Queues](https://developers.cloudflare.com/queues/) is the message queue of Cloudflare Workers. A Worker sends messages through a producer binding. A consumer Worker receives them in batches, and Cloudflare retries the messages that fail. Cloudflare Queues is available on the Workers Free and Workers Paid plans.
 
-ViteHub generates the binding names, the queue names, and the consumer entry from your queue files. You write the handler and the call that sends the job. The same files run on [Vercel Queues](/docs/queue/vercel-queues) when you change the preset.
+ViteHub generates the binding names, the queue names, and the consumer entry from your queue files. You write the handler and the call that sends the job. The same files run on [Vercel Queues](/docs/guides/vercel-queues) when you change the preset.
 
 ## Set up Cloudflare Queues
 
@@ -184,4 +183,4 @@ The queue file and the route stay the same. To move to Vercel Queues:
 3. Remove `contentType` from `runQueue()` calls. Vercel returns `QUEUE_UNSUPPORTED_OPTION` for it.
 4. Replace `onError` with `callbackOptions.retry`, which returns `{ acknowledge: true }`, `{ afterSeconds }`, or `undefined`. `concurrency` applies only to Cloudflare.
 
-Read [Vercel Queues](/docs/queue/vercel-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).
+Read [Vercel Queues](/docs/guides/vercel-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. See [Queue hosts](/docs/queue/hosts) and the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix).

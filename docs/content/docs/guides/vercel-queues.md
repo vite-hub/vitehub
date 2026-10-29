@@ -1,10 +1,9 @@
 ---
-title: Vercel Queues
+title: Use Vercel Queues in a Vite app with ViteHub
 description: Use Vercel Queues from a Vite app with ViteHub. Define a queue in one file, send jobs with runQueue(), and let a private Vercel Function run each job.
-seo.title: Use Vercel Queues in a Vite app with ViteHub
 navigation.title: Vercel Queues
-navigation.order: 9
-navigation.group: Host guides
+navigation.order: 24
+navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
@@ -14,7 +13,7 @@ To use Vercel Queues from a Vite app, install `@vercel/queue`, set `preset: 'ver
 
 [Vercel Queues](https://vercel.com/docs/queues) is the message queue of the Vercel platform. A producer sends a message to a topic. A consumer function receives the message, and Vercel retries it until the consumer acknowledges it or the message expires. Delivery is at least once. Vercel Queues is in beta on all plans.
 
-ViteHub writes the topic name, the consumer function, and its trigger for you. You write the handler and the call that sends the job. The same files run on [Cloudflare Queues](/docs/queue/cloudflare-queues) when you change the preset.
+ViteHub writes the topic name, the consumer function, and its trigger for you. You write the handler and the call that sends the job. The same files run on [Cloudflare Queues](/docs/guides/cloudflare-queues) when you change the preset.
 
 ## Set up Vercel Queues
 
@@ -189,4 +188,4 @@ The queue file and the route stay the same. To move to Cloudflare Queues:
 3. Replace `callbackOptions` with `onError`, which returns `'ack'`, `'retry'`, or `{ retry: { delaySeconds } }`.
 4. Create the queues with `vitehub provision run --provider cloudflare`.
 
-Read [Cloudflare Queues](/docs/queue/cloudflare-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.
+Read [Cloudflare Queues](/docs/guides/cloudflare-queues) for the full steps. ViteHub has no Queue Provider for self-hosted Node or Deno. Check the [runtime and host support matrix](/docs/frameworks-hosts/support-matrix) before you choose a host.

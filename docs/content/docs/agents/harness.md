@@ -127,7 +127,7 @@ A provider Driver runs in a temporary directory with the Workspace files. In wri
 
 By default, a provider Driver runs on the ViteHub host. Set `sandbox` on the Agent to start Codex or Claude Code in a [Sandbox](/docs/agents/sandboxes) instead. The Sandbox gives each Invocation a private Home, declared credentials, boot checks, and optionally a Git checkout at an exact commit.
 
-The `trusted-host` runtime runs the Sandbox on the same machine. The `crabbox` runtime runs it on a Linux host over SSH. Neither one isolates the filesystem or the network. Read [AI sandbox providers compared](/docs/sandbox/providers) before you run code that you do not trust.
+The `trusted-host` runtime runs the Sandbox on the same machine. The `crabbox` runtime runs it on a Linux host over SSH. Neither one isolates the filesystem or the network. Read [AI sandbox providers compared](/docs/guides/sandbox-providers) before you run code that you do not trust.
 
 To run allowlisted commands in an isolated Sandbox from any Driver, attach the [`sandbox()` Capability](/docs/sandbox/agent-capability).
 

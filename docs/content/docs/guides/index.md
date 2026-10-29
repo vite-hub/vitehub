@@ -26,14 +26,21 @@ in ViteHub and call the server API from application code.
 
 - [Use Upstash Redis for ViteHub KV](/docs/guides/upstash-redis).
 - [Store files in Cloudflare R2](/docs/guides/cloudflare-r2).
-- [Store private files in Vercel Blob](/docs/guides/vercel-blob).
+- [Use Vercel Blob](/docs/guides/vercel-blob).
 
 ## Run server work
 
 - [Send email with Resend](/docs/guides/resend).
 - [Run browser operations on Cloudflare](/docs/guides/cloudflare-browser).
-- [Choose Cloudflare Sandbox or Vercel Sandbox](/docs/guides/sandbox-providers).
+- [Compare AI sandbox providers](/docs/guides/sandbox-providers).
 - [Choose Queue, Workflow, or Schedule](/docs/guides/background-jobs).
+- [Use Vercel Queues](/docs/guides/vercel-queues).
+- [Use Cloudflare Queues](/docs/guides/cloudflare-queues).
+- [Use Vercel Cron Jobs](/docs/guides/vercel-cron-jobs).
+
+## Add sign-in
+
+- [Run Better Auth on Cloudflare Workers and D1](/docs/guides/better-auth-cloudflare).
 
 Provider access, prices, quotas, and deployment limits belong to each service.
 Check the [support matrix](/docs/frameworks-hosts/support-matrix) for the proof

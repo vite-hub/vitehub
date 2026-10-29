@@ -1,10 +1,9 @@
 ---
-title: Vercel Cron Jobs
+title: Use Vercel Cron Jobs in a Vite app with ViteHub
 description: Run Vercel Cron Jobs from a Vite app with ViteHub. Write the cron and handler in one file, and the build adds the Vercel cron entry and its function.
-seo.title: Use Vercel Cron Jobs in a Vite app with ViteHub
 navigation.title: Vercel Cron Jobs
-navigation.order: 7
-navigation.group: Host guides
+navigation.order: 26
+navigation.group: Server work
 icon: i-simple-icons-vercel
 ---
 
