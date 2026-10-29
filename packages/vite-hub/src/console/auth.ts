@@ -3,11 +3,15 @@ import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthReso
 import { createAuthForRequest, type getAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
+import { consoleOAuthPlugins } from "./auth-oauth.ts"
+import { consoleAuthOAuthPage } from "./auth-oauth-page.ts"
 import { consoleMountBase } from "./runtime/console-route.ts"
 import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
 import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
+
+export { consoleMcpNativeClients } from "./auth-oauth.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -16,6 +20,9 @@ function escapeHTML(value: string): string {
 }
 
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
+  // Better Auth's OAuth provider sends an MCP client's login and consent steps here, with a signed query.
+  const query = new URL(request.url).searchParams
+  if (query.has("sig") && query.has("client_id")) return consoleAuthOAuthPage(provider, consoleAuthPath(mountBaseURL, consoleAuthBasePath), consoleAuthPath(mountBaseURL, "/_vitehub"))
   const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
   const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
@@ -403,7 +410,7 @@ export function defineConsoleAuth(definition: ConsoleAuthDefinition): ConsoleAut
   return definition
 }
 
-export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountBaseURL = "/"): AuthDefinition {
+export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountBaseURL = "/", mcpResource?: string): AuthDefinition {
   const definition = defineConsoleAuth(input)
   // SAFETY: The resolver returns Better Auth options plus ViteHub Auth access metadata; AuthDefinition accepts this runtime option shape.
   return {
@@ -414,6 +421,9 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       const runtime = options.runtime
       const resolvedRuntime = isConsoleAuthResolver(runtime) ? runtime(context) : runtime
       const resolved = { ...options, ...resolvedRuntime }
+      // A managed schema supplies its own OAuth plugins; the schema-free registration hook is still needed.
+      const oauth = consoleOAuthPlugins({ defaults: definition.migrate !== false, mountBaseURL, origin: context.requestOrigin, plugins: resolved.plugins, resource: mcpResource })
+      const pluginsInRuntime = Boolean(resolvedRuntime && "plugins" in resolvedRuntime)
       const database = resolved.database
       const databaseMetadata = database === true
         || (database !== null && typeof database === "object" && "name" in database && Object.keys(database).every(key => key === "name" || key === "dedicated"))
@@ -425,7 +435,8 @@ export function createConsoleAuthDefinition(input: ConsoleAuthDefinition, mountB
       }
       return {
         ...options,
-        ...(runtime ? { runtime } : {}),
+        ...(runtime ? { runtime: pluginsInRuntime && oauth.length ? { ...resolvedRuntime, plugins: [...resolved.plugins ?? [], ...oauth] } : runtime } : {}),
+        ...(oauth.length && !pluginsInRuntime ? { plugins: [...options.plugins ?? [], ...oauth] } : {}),
         access: {
           routes: [
             { route: consoleAuthPath(mountBaseURL, "/_vitehub/**"), authorize: definition.authorize },

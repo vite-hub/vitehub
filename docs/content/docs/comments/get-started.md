@@ -1,60 +1,40 @@
 ---
 title: Comment on your first page
-description: Turn on Comments, pin a comment on a page, see a second browser on the same page, and edit a Content field in place.
+description: Add Comments to a Vite app with one plugin, pin a comment, let your team sign in with GitHub, and deploy it on Node.
 layout: tutorial
 navigation.title: Get started
 navigation.order: 2
 icon: i-lucide-rocket
 ---
 
-Turn on Comments in a Vite app, pin a comment on a page, and reply to it. Then open the page in a second browser and see each other's cursors. At the end, you change a Content heading on the page and publish the draft from the Console.
+Add Comments to a Vite app with one plugin, and pin a comment on a page. Then let your team sign in with GitHub, and deploy the app on Node. You need no ViteHub app, no Database, and no login of your own.
 
-You need Node.js 24.15 or newer, pnpm, and a Vite application that uses Vue and TypeScript. Run the commands from its root. This example uses a local SQLite Database and a memory room authority, and needs no provider account. It lets anyone comment and edit, so keep it on your computer. [Decide who can comment](/docs/comments/configure#decide-who-can-comment) before you deploy.
+You need Node.js 24.15 or newer, pnpm, and a Vite application. Run the commands from its root. The last two steps also need a GitHub repository for the app, and a GitHub account that can create a GitHub App.
 
 ::tutorial-step{title="Turn on Comments"}
 ## Turn on Comments
 
 ```bash [commands/install]
-pnpm add vite-hub h3 zod
-pnpm add -D nitro
+pnpm add @vite-hub/comments
 ```
 
-Comments stores threads in a Database. Realtime shows who is on each page. The memory authority keeps the presence rooms in this server process.
+Add the `comments()` plugin:
 
 ```ts [vite.config.ts]
 import vue from '@vitejs/plugin-vue'
-import { vitehub } from 'vite-hub'
+import comments from '@vite-hub/comments/vite'
 import { defineConfig } from 'vite'
 
 export default defineConfig({
-  plugins: [
-    vue(),
-    vitehub({
-      preset: 'node',
-      database: true,
-      realtime: { authority: 'memory' },
-    }),
-  ],
+  plugins: [vue(), comments()],
 })
 ```
 
-Add `server/comments.ts`. The file must export `comments`. Without `authorize`, only signed-in ViteHub Auth users may comment. This app has no Auth, so the policy allows everyone. People without an account comment as guests under a name they type.
+There is nothing else to set up. `comments()` adds [Nitro](https://nitro.build) as the app's server, unless the app has it already, and adds these parts to it:
 
-```ts [server/comments.ts]
-import { defineComments } from 'vite-hub/comments'
-
-export const comments = defineComments({
-  // Local only: anyone may read, comment, and resolve.
-  authorize: () => true,
-})
-```
-
-Comments adds the tables `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` to the `default` Database. Generate the migration and apply it:
-
-```bash [commands/migrate]
-pnpm vitehub db generate
-pnpm vitehub db migrate
-```
+- The Comments API at `/api/_vitehub/comments/`.
+- The overlay script, which pages load in comment mode.
+- A SQLite file for the threads, `.vitehub/data/comments.sqlite`. Comments opens it with Node's built-in `node:sqlite` and creates its tables, so there is no driver to install and no migration to run. The plugin adds a `.gitignore` next to it, so the threads you write on your computer stay out of Git.
 
 ::
 
@@ -65,7 +45,7 @@ pnpm vitehub db migrate
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?comments`. The `?comments` query turns on comment mode. A toolbar shows at the bottom of the page. The server also sets the `vitehub-comments` cookie, so other pages of the site keep comment mode until you close the toolbar.
+Open `http://localhost:5173/?comments`. The `?comments` query turns on comment mode, and a toolbar shows at the bottom of the page. The server also sets the `vitehub-comments` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
 1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
 2. Click a heading on the page. A comment box opens at that point.
@@ -73,104 +53,68 @@ Open `http://localhost:5173/?comments`. The `?comments` query turns on comment m
 4. Select the pin, write a reply, and send it.
 5. Select **Resolve**, the check mark on the thread. The pin goes away. Open the thread list from the toolbar and select **Show resolved** to see it again.
 
-Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window.
+On the dev server, anyone may comment as a guest under a name they type. A production build lets nobody in until you choose who may comment. That is the next step.
 
-Open `http://localhost:5173/` without the query in a private window. That browser has no cookie, so the server returns the page without the overlay script.
-
-::
-
-::tutorial-step{title="See who else is on the page"}
-## See who else is on the page
-
-Open `http://localhost:5173/?comments` in a second browser, or in a private window. Type another name when you write a comment there.
-
-- The toolbar of each browser shows both people as avatars.
-- Move the pointer in one browser. Its cursor moves in the other browser, on the same element.
-- Pin a comment in one browser. The pin shows in the other browser at once.
-
-The two browsers share a Realtime room for the page. The room holds only presence. Comments stay in the Database, and the other browser reads them again after each change.
+Resize the window. The pin stays on the heading, because it is stored relative to the element, not to the window. Stop the dev server and start it again: the thread is still there, in the SQLite file.
 
 ::
 
-::tutorial-step{title="Edit Content text in place"}
-## Edit Content text in place
+::tutorial-step{title="Let your team sign in with GitHub"}
+## Let your team sign in with GitHub
 
-Add a Content singleton with one text field. The `cms` preset stores it in a Workspace on the same Database and adds Blob.
+Comments signs people in with a GitHub App. Anyone who can push to the app's repository may then comment. Other people see why they cannot.
 
-```ts [server/content.ts]
-import { defineContent, singleton } from 'vite-hub/content'
-import cms from 'vite-hub/content/presets/cms'
-import { z } from 'zod'
+1. On GitHub, open **Settings**, **Developer settings**, **GitHub Apps**, then **New GitHub App**.
+2. Set **Callback URL** to `http://localhost:5173/api/_vitehub/comments/auth/callback/github`. Also add `http://localhost:3000/api/_vitehub/comments/auth/callback/github` for the production server below, and the URL of each deployed site, such as `https://staging.example.com/api/_vitehub/comments/auth/callback/github`. A GitHub App takes up to 10.
+3. Under **Identifying and authorizing users**, turn off **Expire user authorization tokens**. Under **Webhook**, turn off **Active**. Leave the permissions as they are, then create the App.
+4. Copy the **Client ID**, and select **Generate a new client secret**.
+5. Select **Install App**, and install it on the app's repository.
 
-export const content = defineContent({
-  extends: cms,
-  collections: {
-    about: singleton({ path: 'about.json', fields: { title: z.string().min(1) } }),
-  },
-  // Local only: anyone may read, write, and publish.
-  authorize: () => true,
+Comments reads three server variables. `VITEHUB_SECRET` encrypts the session cookies. It must be at least 32 characters, and the same on every server.
+
+```bash [.env]
+VITEHUB_GITHUB_CLIENT_ID=Iv23li...
+VITEHUB_GITHUB_CLIENT_SECRET=...
+VITEHUB_SECRET=   # openssl rand -base64 32
+```
+
+Comments also needs to know the repository. It reads it from the `origin` remote of the Git checkout when you build, or from your CI or host. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) for the variables it reads.
+
+::
+
+::tutorial-step{title="Deploy on Node"}
+## Deploy on Node
+
+A production build keeps threads in a database that you point it to. With a Turso database or Cloudflare D1, set its variable or binding and you are done: see [Choose the Database](/docs/comments/configure#choose-the-database). On Node, the simplest is a SQLite file:
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [vue(), comments({ database: 'file:./data/comments.sqlite' })],
 })
 ```
 
-Return the published title from a route:
+The path is relative to the directory that the server starts in. Build the app and start the server:
 
-```ts [server/api/about.get.ts]
-import { defineEventHandler } from 'h3'
-import { content } from '../content'
-
-export default defineEventHandler(async () => {
-  const about = await content.collection('about').get()
-  return { title: about?.data.title ?? null }
-})
+```bash [commands/deploy]
+pnpm vite build
+node --env-file=.env .output/server/index.mjs
 ```
 
-Show it on the page. `contentField('about', 'title')` adds `data-content-field="about#title"` to the heading. This attribute tells Comments which field the text comes from.
+Open `http://localhost:3000/?comments`.
 
-```vue [src/App.vue]
-<script setup lang="ts">
-import { ref } from 'vue'
-import { contentField } from 'vite-hub/content/client'
+1. A message at the bottom of the page asks you to sign in. Select **Sign in with GitHub**.
+2. Allow the App on GitHub. GitHub sends you back to the page in comment mode.
+3. Pin a comment. It shows your GitHub name and picture.
+4. Select your picture in the toolbar to sign out.
 
-const title = ref<string | null>(null)
-fetch('/api/about')
-  .then(response => response.json())
-  .then((about: { title: string | null }) => {
-    title.value = about.title
-  })
-</script>
+The session is an encrypted cookie that lasts 7 days, so the server stores no users and no sessions. Comments asks GitHub again every 5 minutes whether each person can still push.
 
-<template>
-  <main>
-    <h1 v-if="title" v-bind="contentField('about', 'title')">{{ title }}</h1>
-    <p v-else>Publish the About title in the Console.</p>
-    <p>Pin comments anywhere on this page.</p>
-  </main>
-</template>
-```
-
-Restart the dev server, then run the migrations again for the Content tables:
-
-```bash [commands/migrate-content]
-pnpm vitehub db generate
-pnpm vitehub db migrate
-```
-
-The singleton has no document yet. Open `http://localhost:5173/_vitehub/content`, open **Settings**, then **About**. Type a title and select **Publish**.
-
-Open `http://localhost:5173/?comments` again. The heading shows the title.
-
-1. Press <kbd>E</kbd>, or select **Edit** in the toolbar. Move the pointer over the heading. It gets an outline with its field address, `about#title`.
-2. Click the heading. It becomes editable and shows the current draft.
-3. Change the text and press <kbd>Enter</kbd>. Comments saves a Content draft. The heading gets a **Draft** mark.
-4. Reload the page. The heading shows the published title again, because pages read `published`.
-5. Select **Review and publish** in the message, or open `/_vitehub/content`. The dashboard lists the About change under **Needs publishing**. Publish it, then reload the page.
-
-Pins that you drop on the heading now store the field `about#title`. They stay on the heading when you move it to another place in the layout.
+On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. Hosts without such a disk, such as Cloudflare Workers, Vercel, and Netlify, keep threads in [D1 or a Turso database](/docs/comments/configure#choose-the-database) instead. See [Hosts](/docs/comments/hosts).
 
 ::
 
 ## Next steps
 
-- [Configure](/docs/comments/configure): access, guests, mentions, and notifications.
-- [Hosts](/docs/comments/hosts): what Node, Cloudflare, Vercel, and Netlify support.
-- [Server API](/docs/comments/server-api): read and change threads from server code.
+- [Add presence and edits with ViteHub](/docs/comments/with-vite-hub): see each other's cursors, and edit Content text in place.
+- [Configure](/docs/comments/configure): who may comment, mentions, notifications, and posting threads to the pull request of a preview.
+- [Hosts](/docs/comments/hosts): what each host supports.

@@ -18,6 +18,7 @@ import {
   consoleHintText,
   consoleLeaseHolder,
   consoleListQueryFor,
+  consolePublishedConflicts,
   consolePublishMismatches,
   consoleRevisionLabel,
   consoleSeoFallbacks,
@@ -139,6 +140,12 @@ const revisionsLoadedAt = ref(Date.now());
 const preview = ref<{ current: ConsoleRawDocument | null, document: ConsoleRawDocument | null, revision: ConsoleDocumentRevision }>();
 const previewLoading = ref(false);
 const restoring = ref(false);
+/** The version on the site, when it changed after this draft started from it. `published` is its digest, or null when the site deleted it. */
+const siteConflict = ref<{ site: ConsoleDocument | null, published: string | null }>();
+const siteConflictOpen = ref(false);
+const siteConflictLoading = ref(false);
+const siteConflictError = ref<string>();
+const resolvingSite = ref(false);
 const bodyEditor = ref<InstanceType<typeof ConsoleMarkdownEditor>>();
 const titleInput = ref<HTMLTextAreaElement>();
 /** Rich edits the page; Source shows the stored file, with the body editable as Markdown. */
@@ -389,7 +396,7 @@ watch(saving, (value) => {
   if (savingVisible.value) savingHideTimer = setTimeout(() => (savingVisible.value = false), Math.max(0, 400 - (Date.now() - savingShownAt)));
 });
 
-type HeaderAction = "conflict" | "fields" | "retry";
+type HeaderAction = "conflict" | "fields" | "retry" | "site";
 /**
  * One status for the header. Problems come first and each one is a button that leads to the fix. Pending edits keep
  * the last save time: they save within a second, so the header does not flicker while someone types.
@@ -400,12 +407,14 @@ const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: 
   if (liveActive.value && live) {
     if (live.saveStatus.value?.error) return { action: "retry", label: "Not saved · retry", tone: "error" };
     if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
+    if (base.value?.conflict) return { action: "site", label: "Changed on the site too", tone: "warning" };
     if (!state.value) return undefined;
     return { label: consoleDocumentStateLabel(state.value), savedAt: live.saveStatus.value?.savedAt ?? savedAt.value ?? base.value?.updatedAt ?? undefined, tone: consoleDocumentStateColor(state.value) };
   }
   if (conflict.value) return { action: "conflict", label: "Not saved · newer version", tone: "error" };
   if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
   if (saveError.value && dirty.value) return { action: "retry", label: "Not saved · retry", tone: "error" };
+  if (base.value?.conflict) return { action: "site", label: "Changed on the site too", tone: "warning" };
   if (creating.value) return dirty.value ? { label: "Not created yet", tone: "neutral" } : undefined;
   if (!state.value) return single.value && !base.value && !loading.value ? { label: "Not saved yet", tone: "neutral" } : undefined;
   const label = dirty.value && !autosaves.value ? "Unsaved" : consoleDocumentStateLabel(state.value);
@@ -797,6 +806,11 @@ function useTheirs(): void {
  */
 async function publish(): Promise<void> {
   if (!canPublish.value || publishing.value || errorCount.value) return;
+  // The site changed after this draft started from it. Publishing would erase that change, so compare first.
+  if (base.value?.conflict) {
+    await openSiteConflict();
+    return;
+  }
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
   await settled();
@@ -825,7 +839,12 @@ async function publish(): Promise<void> {
   catch (error) {
     state.value = before;
     const issues = consoleFieldIssues(error);
-    if (consolePublishMismatches(error)) {
+    if (consolePublishedConflicts(error)) {
+      // The site changed after the draft started from it, for example in Git. Nothing was published.
+      await load();
+      await openSiteConflict();
+    }
+    else if (consolePublishMismatches(error)) {
       // Someone saved after this editor loaded. Show their draft so it is reviewed before it is published.
       await load();
       toast.error("Someone saved a newer draft. Review it, then publish again.");
@@ -837,7 +856,7 @@ async function publish(): Promise<void> {
       toast.error("This draft no longer validates. Fix it, then publish.");
       await focusFirstInvalid();
     }
-    else toast.error("Couldn't publish. Try again.", { label: "Retry", onClick: publish });
+    else toast.error(`Couldn't publish. ${consoleErrorMessage(error, "Try again.")}`, { label: "Retry", onClick: publish });
   }
   finally {
     publishing.value = false;
@@ -1129,6 +1148,75 @@ function onHeaderAction(action: HeaderAction | undefined): void {
   if (action === "conflict") conflictOpen.value = true;
   if (action === "fields") void focusFirstInvalid();
   if (action === "retry") void save();
+  if (action === "site") void openSiteConflict();
+}
+
+/** Shows the version on the site next to the draft, so the person chooses before a publish erases either. */
+async function openSiteConflict(): Promise<void> {
+  if (siteConflictLoading.value) return;
+  siteConflictOpen.value = true;
+  siteConflict.value = undefined;
+  siteConflictError.value = undefined;
+  siteConflictLoading.value = true;
+  try {
+    const site = await props.client.get(props.collection.name, id.value, "published");
+    // Only a successful read confirms the version (or its absence) that the person can acknowledge.
+    siteConflict.value = { site, published: site?.digest ?? null };
+  }
+  catch (error) {
+    siteConflictError.value = `Couldn't load the site version. ${consoleErrorMessage(error, "Try again.")}`;
+  }
+  finally {
+    siteConflictLoading.value = false;
+  }
+}
+
+/**
+ * Saves the draft over the site version that the person compared: theirs with "Use the site version", or the draft on
+ * screen with "Keep my draft". The next publish then replaces the site version with it. A newer save from someone
+ * else, or another change on the site, fails the save and opens the comparison again.
+ */
+async function resolveSiteConflict(choice: "site" | "draft"): Promise<void> {
+  const compared = siteConflict.value;
+  if (!compared || !base.value || resolvingSite.value) return;
+  if (!(await session.claim())) return;
+  clearTimeout(autosaveTimer);
+  await bodyEditor.value?.commit();
+  await settled();
+  const inRoom = liveActive.value;
+  if (inRoom && !(await saveLive())) return;
+  const version: Version = choice === "site" && compared.site
+    ? { body: compared.site.body, data: compact(compared.site.data) }
+    : { body: draft.value.body, data: compact(draft.value.data) };
+  resolvingSite.value = true;
+  try {
+    if (inRoom) ownResetUntil = Date.now() + 10_000;
+    const saved = await props.client.save(props.collection.name, id.value, {
+      ...version,
+      ifDigest: base.value.digest,
+      ifPublishedDigest: compared.published,
+      session: consoleTabSession,
+      ...(inRoom ? { live: true } : {}),
+    });
+    if (inRoom) takeState(saved);
+    else accept(saved);
+    siteConflictOpen.value = false;
+    siteConflict.value = undefined;
+    savedAt.value = new Date().toISOString();
+    notifyChanged();
+    toast.show({ title: choice === "site" ? "Draft matches the site again." : "Draft kept. Publishing it replaces the site version." });
+  }
+  catch (error) {
+    if (isConsoleConflict(error)) {
+      await load();
+      toast.error("It changed again while you compared. Compare the latest versions.");
+      if (base.value?.conflict) await openSiteConflict();
+    }
+    else toast.error(`Couldn't save. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  finally {
+    resolvingSite.value = false;
+  }
 }
 
 // Title: a large borderless field. Enter moves to the body, as in Notion.
@@ -1605,6 +1693,37 @@ const menuItems = computed(() => [[
         <UButton variant="ghost" label="Keep editing" @click="conflictOpen = false" />
         <UButton variant="outline" label="Load theirs" @click="useTheirs" />
         <UButton color="error" label="Overwrite with mine" :loading="saving" @click="keepMine" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="siteConflictOpen"
+    title="This page also changed on the site"
+    description="It changed on the site after your draft started from it, for example with a Git commit. Publishing your draft would erase that change, so nothing was published. Compare them and choose what to keep."
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) siteConflictOpen = false }"
+  >
+    <template #body>
+      <ConsoleLoading v-if="siteConflictLoading" label="Loading the site version…" />
+      <div v-else-if="siteConflictError" class="grid justify-items-start gap-3">
+        <p role="alert" class="text-sm text-muted">{{ siteConflictError }}</p>
+        <UButton variant="outline" label="Retry" @click="openSiteConflict" />
+      </div>
+      <div v-else-if="siteConflict" class="grid gap-3">
+        <p class="text-xs text-muted">
+          <span class="font-medium text-highlighted">Removed lines</span> are on the site,
+          <span class="font-medium text-highlighted">added lines</span> are your draft.
+          <template v-if="!siteConflict.site"> The site no longer has this {{ noun.toLowerCase() }}. Keep your draft to publish it again.</template>
+        </p>
+        <ConsoleDocumentDiff :before="siteConflict.site ? { body: siteConflict.site.body, data: siteConflict.site.data } : null" :after="{ body: draft.body, data: compact(draft.data) }" :format="collection.format" :name="fileName" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full flex-wrap justify-end gap-2">
+        <UButton variant="ghost" label="Keep editing" @click="siteConflictOpen = false" />
+        <UButton v-if="siteConflict?.site" variant="outline" label="Use the site version" :loading="resolvingSite" @click="resolveSiteConflict('site')" />
+        <UButton label="Keep my draft" :disabled="!siteConflict" :loading="resolvingSite" @click="resolveSiteConflict('draft')" />
       </div>
     </template>
   </UModal>

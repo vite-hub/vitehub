@@ -2,16 +2,38 @@
 
 `@vite-hub/comments` lets a team comment on a live ViteHub site, Figma style. People pin comments to any element of any page, reply, mention each other, and resolve threads. Everyone on the same page sees the pins, the people, and their cursors live. Where an element renders a Content field, the same person can edit its text in place, and the edit saves a Content draft.
 
-Use [`vite-hub`](https://www.npmjs.com/package/vite-hub), which wires the package for you. It needs a Database. Presence needs Realtime with a room authority.
-
 ## Turn it on
+
+```bash
+pnpm add @vite-hub/comments
+```
+
+```ts
+// vite.config.ts
+import comments from "@vite-hub/comments/vite"
+
+export default defineConfig({ plugins: [comments()] })
+```
+
+There is nothing else to set up. `comments()` adds Nitro as the server unless the app has it, serves the Comments API, and keeps threads in `.vitehub/data/comments.sqlite`, a file that it opens with Node's built-in `node:sqlite` and creates the tables in. On the dev server, anyone may comment as a guest. Open any page with `?comments`.
+
+A production build connects to `DATABASE_URL`, `TURSO_DATABASE_URL`, or a Cloudflare D1 binding `DB`, whichever the server has. Or point it somewhere: `comments({ database: "d1:COMMENTS" })`, `"env:COMMENTS_DATABASE_URL"`, or `"file:./data/comments.sqlite"` on Node. Comments creates its tables there on first use, so there is no migration.
+
+### Sign in with GitHub
+
+Create a GitHub App, install it on the repository, and list `https://<site>/api/_vitehub/comments/auth/callback/github` as its callback URL. Then set `VITEHUB_GITHUB_CLIENT_ID`, `VITEHUB_GITHUB_CLIENT_SECRET`, and `VITEHUB_SECRET` on the server. People who can push to the repository may comment. The session is an encrypted cookie, so the server stores no users.
+
+### In a ViteHub app
+
+[`vite-hub`](https://www.npmjs.com/package/vite-hub) wires the package for you, with any ViteHub Database, presence over Realtime, Content edits in place, the Console, and MCP tools.
 
 ```ts
 // server/comments.ts
 import { defineComments } from "vite-hub/comments"
 
 export const comments = defineComments({
-  // Who may read, comment, and resolve. Without it, any signed-in ViteHub Auth user may do everything.
+  // Who may read, comment, and resolve. Without it, people signed in with GitHub who can push to the repository, and
+  // users of any other sign-in, may do everything; guests may on the dev server only.
   authorize: ({ user }) => user?.role === "editor",
 })
 ```
@@ -53,6 +75,10 @@ await comments.reply(threadId, { body: "Fixed in the draft", author: { id: "agen
 await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 ```
 
+## Post to the pull request
+
+On a preview, `forge: { provider: "github" }` posts each thread to the pull request that the build previews: one summary comment that lists every thread, then one comment per comment, with the page, the element, the components, and the browser. Resolving a thread hides its comment. It posts with the GitHub App of `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY`, or as each person: people who signed in with GitHub post as themselves, and `token(author)` returns the token for any other sign-in. Each thread's `forge` field says whether it posted.
+
 ## Deployment and security boundaries
 
 - Threads live only in the Database. Presence rooms hold no document, and connections are read-only. The server binds each person's presence to the user that `identify` or the Auth session resolves.
@@ -72,10 +98,11 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 | `@vite-hub/comments/client` | Framework-free client, transport types, `createAnchor()`, and `resolveAnchor()`. |
 | `@vite-hub/comments/testing` | In-memory client transport for tests and examples. |
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
-| `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables. |
+| `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables, and `commentsTables`, the statements that create them. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
 | `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
-| `@vite-hub/comments/vite` | `hubComments()` discovery and generated server wiring. |
+| `@vite-hub/comments/vite` | `comments()`, the plugin for apps without `vite-hub`, and `hubComments()`, the integration that `vitehub()` adds. |
+| `@vite-hub/comments/runtime/connect` | `connectDatabase()` of `@vite-hub/database/connect`, for the files that `comments()` generates. `/node` also opens SQLite files. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
 

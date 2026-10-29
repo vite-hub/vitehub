@@ -70,6 +70,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: "src/error-diagnostics.ts", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      { from: ".vitehub/skills", to: "dist/console/runtime/public" },
       { from: ".vitehub/comments-overlay", to: "dist" },
       {
         from: "src/console/runtime/components/console-wrap.ts",
@@ -113,6 +114,10 @@ export default defineConfig({
       },
       {
         from: "src/console/runtime/components/console-definitions.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-connect-agent.vue",
         to: "dist/console/runtime/components",
       },
       {
@@ -348,6 +353,7 @@ export default defineConfig({
       "src/console/runtime/client/media-uploads.ts",
       "src/console/runtime/client/presence.ts",
       "src/console/runtime/client/publish.ts",
+      "src/console/runtime/client/mcp.ts",
       "src/console/runtime/client/operation-view.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/rate-limit.ts",
@@ -377,6 +383,9 @@ export default defineConfig({
       "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/logs.get.ts",
       "src/console/runtime/server/mcp.ts",
+      "src/console/runtime/server/mcp-discovery.ts",
+      "src/console/runtime/server/mcp-authorization-server.ts",
+      "src/console/runtime/server/mcp-metadata.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/schedule-run.ts",
       "src/console/runtime/server/search.get.ts",
@@ -405,6 +414,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/format"];
         delete exports["./console/runtime/client/live"];
+        delete exports["./console/runtime/client/mcp"];
         delete exports["./console/runtime/client/operation-view"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/media-library"];
@@ -443,6 +453,9 @@ export default defineConfig({
         delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/logs.get"];
         delete exports["./console/runtime/server/mcp"];
+        delete exports["./console/runtime/server/mcp-discovery"];
+        delete exports["./console/runtime/server/mcp-authorization-server"];
+        delete exports["./console/runtime/server/mcp-metadata"];
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];

@@ -89,6 +89,18 @@
       "require": "./dist/runtime/auth.js",
       "default": "./dist/runtime/auth.js"
     },
+    "./runtime/connect": {
+      "types": "./dist/runtime/connect.d.ts",
+      "import": "./dist/runtime/connect.js",
+      "require": "./dist/runtime/connect.js",
+      "default": "./dist/runtime/connect.js"
+    },
+    "./runtime/connect/node": {
+      "types": "./dist/runtime/connect/node.d.ts",
+      "import": "./dist/runtime/connect/node.js",
+      "require": "./dist/runtime/connect/node.js",
+      "default": "./dist/runtime/connect/node.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",
@@ -127,15 +139,19 @@
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime",
     "@vite-hub/auth": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "confbox": "^0.3.1",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs"
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
+    "marked": "catalog:realtime",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

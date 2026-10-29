@@ -14,8 +14,8 @@ import { isProviderSessionCursorRecord, providerNativeThreadId, providerSessionC
 import type { ProviderSessionCursorRecord } from "./internal/provider-session-cursor.ts"
 export { providerNativeThreadId } from "./internal/provider-session-cursor.ts"
 import { browserRuntimeEnvironment } from "./internal/browser-runtime.ts"
-import { forgeGitEnvironment, readForgeAccess } from "./internal/forge-access.ts"
-import { preparePullRequestCheckout, pullRequestCheckoutPlan, pullRequestRepositories, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
+import { forgeGitEnvironment, forgeGitScope, readForgeAccess } from "./internal/forge-access.ts"
+import { preparePullRequestCheckout, pullRequestCheckoutPlan, type PullRequestCheckoutPlan } from "./internal/pull-request-checkout.ts"
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { once } from "node:events"
@@ -3240,8 +3240,9 @@ async function* runProvider<
       purpose: "invocation",
     }
     // A run that opts out of the managed checkout still acts on its pull
-    // request's repositories, so keep credentials scoped to them.
-    const githubScope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
+    // request's repositories, so keep credentials scoped to them. Other runs
+    // reach the Agent's GitHub Sources.
+    const githubScope = forgeGitScope(context.context, context.workspaceDefinition)
     const githubEnvironment = auxiliary || !readForgeAccess(context.runtime)
       ? undefined
       : await waitForProviderOperation(

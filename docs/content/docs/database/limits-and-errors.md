@@ -70,6 +70,14 @@ The database has no connection at runtime. `error.why` lists what it needs: a Cl
 
 The database uses D1 HTTP, and a value is missing at runtime: `cloudflare.databaseId`, `cloudflare.http.url` and `cloudflare.http.authToken`, or the `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` environment variables when `cloudflare.http` is `true`.
 
+### DATABASE_NOT_CONNECTED
+
+`connectDatabase()` found no database for a query. `error.why` says what it looked for: the environment variable of an `env:` location, the D1 binding of a `d1:` location, or, with no location, `DATABASE_URL`, `TURSO_DATABASE_URL`, and the D1 binding `DB`. Set the variable or add the binding to the Worker, then retry. See [Connect without a Definition](/docs/database/configure#connect-without-a-definition).
+
+### DATABASE_UNSUPPORTED_URL
+
+`connectDatabase()` cannot use the location. It reads `d1:BINDING`, `env:VARIABLE`, `libsql://` and `https://` URLs, and `file:` paths. Postgres URLs are not supported yet, and a `file:` path needs Node: import `connectDatabase()` from `@vite-hub/database/connect/node`.
+
 ### DATABASE_NOT_FOUND
 
 `useDatabase(name)` or `agentDb.database(name)` received a name that has no Database Definition. Run `vitehub inspect definitions --kind database` to see the discovered databases.
