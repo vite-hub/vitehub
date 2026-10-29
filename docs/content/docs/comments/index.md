@@ -70,7 +70,7 @@ Start with one plugin. Add more when you need it, without changing what you have
   :::
 
   :::product-feature-item{title="Public visitors get nothing extra" icon="i-lucide-eye-off" to="/docs/comments/configure#turn-comment-mode-on-and-off"}
-  The overlay loads only for a request with `?comments` or the comment mode cookie.
+  The overlay loads only for people that `authorize` lets read, on a request with `?vitehub` or the `vitehub-tools` cookie.
   :::
 
   :::product-feature-item{title="Pins follow the text" icon="i-lucide-map-pin" to="/docs/comments/server-api#anchors"}

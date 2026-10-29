@@ -4,17 +4,19 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
+import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 import { parseDatabaseLocation } from "@vite-hub/database/config"
 import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
-import { commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
+import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from "./page.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
@@ -27,7 +29,7 @@ export { findCommentsEntry } from "./entry.ts"
 
 /** Module paths that generated files import. The `vite-hub` distribution passes its own subpaths. */
 export interface CommentsImports {
-  /** Exports `defineCommentsPlugin` and `createCommentsHandler`. */
+  /** Exports `defineCommentsPlugin`, `createCommentsHandler`, and `viteHubPageSessionHandler`. */
   runtime: string
   /** Exports `commentsRealtime`. */
   realtime: string
@@ -70,7 +72,7 @@ export interface CommentsVitePluginOptions {
   auth?: boolean
   /**
    * The Console of the app: a module and its `consoleRealtimeAccess` export. With it, the people that the Console lets
-   * use its `comments` section are the people of Comments, and the Console turns comment mode on for them.
+   * use its `comments` section are the people of Comments, and opening the Console turns the page tools on for them.
    */
   console?: { module: string }
   imports?: Partial<CommentsImports>
@@ -167,11 +169,16 @@ export async function readCommentsDatabase(file: string): Promise<string | undef
   }
 }
 
+/** A directory of prebuilt browser scripts in this package. */
+function builtDirectory(name: "overlay" | "page"): string {
+  const here = dirname(fileURLToPath(import.meta.url))
+  // Built: dist/vite.js next to dist/<name>. From source in tests, use the built copy.
+  return here.endsWith("src") ? resolve(here, `../dist/${name}`) : resolve(here, name)
+}
+
 /** The directory of the prebuilt overlay script in this package. */
 export function commentsOverlayDirectory(): string {
-  const here = dirname(fileURLToPath(import.meta.url))
-  // Built: dist/vite.js next to dist/overlay. From source in tests: src/vite.ts, so use the built copy.
-  return here.endsWith("src") ? resolve(here, "../dist/overlay") : resolve(here, "overlay")
+  return builtDirectory("overlay")
 }
 
 /** CI and host variables that name the commit and branch of a build, in the order they are read. */
@@ -304,13 +311,17 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
 }
 
 /** The session reader of presence and MCP: the Console or Auth user, else the person signed in with GitHub. */
-function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], option: "session" | "consoleSession", value: string } {
+function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], option: "session" | "consoleSession", value: string, githubLogin?: true } {
   if (options.auth || options.console) return sessionLines(options, imports)
   const route = mountedCommentsRoute(base)
   return {
-    imports: [`import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`],
+    imports: [
+      `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
+      `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
+    ],
     option: "session",
-    value: `createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}).user`,
+    value: "githubLogin.user",
+    githubLogin: true,
   }
 }
 
@@ -360,7 +371,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
       "",
       `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
       "",
-      `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, development: ${input.development === true}, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
+      `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
       "",
     ].join("\n")
   }
@@ -384,7 +395,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, development: ${input.development === true}, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -454,7 +465,7 @@ function hasViteHubComments(config: UserConfig): boolean {
 }
 
 /**
- * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?comments`, threads in a
+ * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?vitehub`, threads in a
  * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. With `vite-hub`, it does
  * nothing, because `vitehub()` runs Comments.
  */
@@ -479,6 +490,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let resolvedComponents: readonly CommentsComponent[] = []
   let componentsFile: string | undefined
   let route = commentsRoute
+  let loader = viteHubPageToolsLoader
   let base: string | undefined
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
   // Without `vite-hub`, Comments is on without `server/comments.ts`.
@@ -527,7 +539,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
               fields: [
                 { label: "Route", value: `${route}/**` },
                 { label: "Presence", value: realtime ? `Realtime Definition "${commentsRealtimeDefinition}"` : "off: the host has no Realtime authority" },
-                { label: "Comment mode", value: `?${commentsHintQuery} or the ${commentsHintCookie} cookie` },
+                { label: "Page tool", value: `?${viteHubPageToolsQuery} or the ${viteHubPageToolsCookie} cookie, for people that authorize allows to read` },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),
               name: "comments",
@@ -559,6 +571,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], [VITEHUB_APP_BASE_URL]?: string }
         base = viteConfig[VITEHUB_APP_BASE_URL] ?? config.base
         route = mountedCommentsRoute(base)
+        loader = viteHubPageToolsPath(viteHubPageToolsLoader, base)
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
@@ -572,6 +585,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
+        const pageSession = join(directory, "page-session.mjs")
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
         const pluginInput = { definition, database: await readCommentsDatabase(definition), session: options, imports, build, base, development: env.command === "serve" && !env.isPreview, ...(standalone === undefined ? {} : { standalone }) }
@@ -579,6 +593,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build, base })),
           writeComponents(),
           writeFile(plugin, renderCommentsPlugin(pluginInput)),
+          writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         if (standalone) await addD1Binding(projectRoot, kit.config, standalone.where)
@@ -593,6 +608,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }
         kit.addHandler({ handler, route: `${route}/**` })
         kit.addPlugin(plugin)
+        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), base })
         const nitro = kit.config
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
         const overlay = commentsOverlayDirectory()
@@ -603,14 +619,13 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         Reflect.set(config, "nitro", nitro)
       },
     },
-    // A single page app whose `index.html` Vite serves: load the overlay in the browser when the hint is present.
+    // A single page app whose `index.html` Vite serves: load the page tools in the browser when the hint is present.
     transformIndexHtml() {
       if (!enabled()) return
-      const src = `${route}/assets/overlay.js?v=${version}`
       return [{
         tag: "script",
         attrs: { type: "module" },
-        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(commentsHintQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${commentsHintCookie}=1`)}))import(${JSON.stringify(src)})`,
+        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(loader)})`,
         injectTo: "body",
       }]
     },

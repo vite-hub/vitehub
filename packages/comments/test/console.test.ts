@@ -24,7 +24,7 @@ describe("readCommentsConsoleRecords", () => {
     expect(records.map(record => record.cells.status)).toEqual(["Open", "Resolved"])
     expect(records[0]).toMatchObject({
       cells: { comment: "Typo here", page: "`/pricing`", author: "Ada", replies: "1" },
-      link: { href: `/pricing?comments#comment-${open!.id}`, label: "Open on page" },
+      link: { href: `/pricing?vitehub=comments#comment-${open!.id}`, label: "Open on page" },
       activity: [{ author: "Ada", text: "Typo here" }, { author: "Grace", text: "Fixed" }],
     })
     expect(Date.parse(records[0]!.cells.updated!)).not.toBeNaN()

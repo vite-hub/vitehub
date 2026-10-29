@@ -108,7 +108,7 @@ describe("GitHub sign-in in the Comments API", () => {
     expect(body!.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
     expect(body!.data).not.toHaveProperty("signIn")
     expect(body!.data).not.toHaveProperty("signOut")
-    expect(response.headers.get("set-cookie")).toContain("Max-Age=0")
+    expect(response.headers.get("set-cookie")).toBeNull()
     expect(user).not.toHaveBeenCalled()
   })
 
@@ -119,11 +119,11 @@ describe("GitHub sign-in in the Comments API", () => {
     expect((await signedIn("/session")).body!.data.signOut).toBe("/portal/api/_vitehub/comments/auth/sign-out")
   })
 
-  it("offers the sign-in to people who are not signed in, and keeps comment mode on", async () => {
+  it("offers sign-in without setting a Comments hint cookie", async () => {
     const call = await setup(fakeLogin(null))
     const { response, body } = await call("/session")
     expect(body!.data).toMatchObject({ user: null, can: { read: false }, signIn: { provider: "github", url: "/api/_vitehub/comments/auth/github" } })
-    expect(response.headers.get("set-cookie")).toContain("vitehub-comments=1;")
+    expect(response.headers.get("set-cookie")).toBeNull()
   })
 
   it("says who is signed in when they cannot push, so they can switch accounts", async () => {
@@ -177,7 +177,7 @@ describe("createCommentsGitHubLogin", () => {
     vi.stubEnv("VITEHUB_SECRET", "a-test-secret-that-is-at-least-32-characters")
     const login = createCommentsGitHubLogin({ repository: "acme/app" })
     const loginForBase = base ? createCommentsGitHubLogin({ repository: "acme/app", basePath: `${base}/api/_vitehub/comments/auth` }) : login
-    const response = await loginForBase.handle(event(`${base}/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fcomments`, runtime), "/auth/github")
+    const response = await loginForBase.handle(event(`${base}/api/_vitehub/comments/auth/github?return=%2Fpricing%3Fvitehub`, runtime), "/auth/github")
     expect(response.status).toBe(302)
     const location = new URL(response.headers.get("location")!)
     expect(location.origin + location.pathname).toBe("https://github.com/login/oauth/authorize")
@@ -199,7 +199,7 @@ describe("createCommentsGitHubLogin", () => {
   })
 
   it("never sends people back to another site", () => {
-    expect(safeReturn("/pricing?comments#comment-1")).toBe("/pricing?comments#comment-1")
-    for (const value of ["//evil.test", "/\\evil.test", "https://evil.test", null]) expect(safeReturn(value)).toBe("/?comments")
+    expect(safeReturn("/pricing?vitehub#comment-1")).toBe("/pricing?vitehub#comment-1")
+    for (const value of ["//evil.test", "/\\evil.test", "https://evil.test", null]) expect(safeReturn(value)).toBe("/?vitehub")
   })
 })

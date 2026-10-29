@@ -155,8 +155,6 @@ export interface ConsoleContributedSection {
   label: string
   /** Pages next to the main view, in sidebar order. */
   pages?: readonly ConsoleSectionPage[]
-  /** An app path that the Console requests once when it loads, so the owner package can set its state for the person. */
-  visit?: string
   view: ConsoleSectionView
 }
 
@@ -293,7 +291,6 @@ export function parseConsoleContributedSection(value: unknown): ConsoleContribut
   const parsed: ConsoleContributedSection = { description: section.description, icon: section.icon, id: section.id, label: section.label, view }
   const pages = parseConsoleSectionPages(section.pages)
   if (pages.length) parsed.pages = pages
-  if (text(section.visit) && /^\/(?!\/)[^\\\r\n\t]*$/.test(section.visit)) parsed.visit = section.visit
   return parsed
 }
 
