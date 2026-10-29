@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http"
 import type { Plugin } from "vite"
 
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
@@ -67,7 +68,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     method,
   })
-  if (!response.ok) return { code: "CONSOLE_REQUEST_FAILED", message: await response.text(), ok: false, status: response.status }
+  // Answer as the server RPC does for a failure without its own code, so 401 asks to sign in and 403 shows a lock.
+  if (!response.ok) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(response.status), await response.text()), ok: false, status: response.status }
   return { ok: true, value: await response.json() }
 }
 
