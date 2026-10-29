@@ -104,7 +104,7 @@ export interface OperationDefinition<Input, Output> {
     command?: string
     /** Input keys read from positional arguments, in order. */
     positional?: string[]
-    /** Human output. Without it the CLI prints JSON. `--json` always prints JSON. */
+    /** Human output, written verbatim. Without it the CLI prints JSON. `--json` always prints JSON. */
     format?: (output: Output) => string
     /** `vitehub <namespace>` runs this command when no command is named, such as `vitehub usage`. */
     default?: boolean

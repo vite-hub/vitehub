@@ -161,7 +161,7 @@ async function attempt<T>(work: () => Promise<T>): Promise<T> {
     const code: unknown = Reflect.get(Object(error), "code")
     const status = String(code) === code ? errorStatus[code] : undefined
     if (status && error instanceof Error) throw new ScheduleOperationError(status, String(code), redactInspectionText(error.message))
-    throw error
+    throw new ScheduleOperationError(500, "OPERATION_FAILED", "Schedule operation failed.")
   }
 }
 

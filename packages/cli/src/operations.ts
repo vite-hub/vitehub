@@ -458,7 +458,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       if (!result.ok) return writeFailure(result, parsed, context)
       const format = operation.cli?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
-      context.stdout.write(output.endsWith("\n") ? output : `${output}\n`)
+      context.stdout.write(output)
       return 0
     },
     usage: usageOf(operation, flags),

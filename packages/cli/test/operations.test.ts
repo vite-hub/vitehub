@@ -120,6 +120,29 @@ async function project() {
 }
 
 describe("generated operation commands", () => {
+  it.each(["", "hello", "hello\n", "héllo 🌍\r\nworld"])("writes formatted file content verbatim: %j", async (content) => {
+    const show = defineOperation({
+      cli: { format: (output: { content: string }) => output.content, namespace: "workspace" },
+      description: "Read a file for redirection.",
+      input: v.strictObject({}),
+      kind: "read",
+      name: "workspace.show",
+      run: () => ({ content }),
+      section: "workspaces",
+    })
+    const options = { fetch: server("http://localhost:5173", {}, [show]), operations: [show] }
+
+    const result = await run(["workspace", "show"], options)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toBe(content)
+    expect(result.stderr).toBe("")
+
+    const json = await run(["workspace", "show", "--json"], options)
+    expect(json.code).toBe(0)
+    expect(JSON.parse(json.stdout)).toEqual({ content })
+    expect(json.stdout.endsWith("\n")).toBe(true)
+  })
+
   it("turns a contributed operation into a command with a positional and typed flags", async () => {
     const result = await run(["reports", "list", "acme", "--limit", "5", "--tags", "a,b", "--tags", "c"])
     expect(result.code).toBe(0)

@@ -124,6 +124,21 @@ describe("schedule operations", () => {
     expect(listRuns).toHaveBeenCalledWith({ scheduleId: "digest", limit: 100 })
   })
 
+  it.each(["listRuns", "getRun", "listAttempts"] as const)("hides unknown store failures from %s", async (method) => {
+    const store = createMemoryScheduleRunStore()
+    setScheduleRunStore(store)
+    await runDigest(now)
+    const [run] = await store.listRuns({ scheduleId: "digest" })
+    const read = vi.spyOn(store, method).mockImplementation(() => {
+      throw new Error("Driver failed for postgres://user:private-password@db.internal/history")
+    })
+
+    const result = await call(method === "listRuns" ? "runs" : "attempts", { id: method === "listRuns" ? "digest" : run!.id })
+    expect(result).toEqual({ code: "OPERATION_FAILED", message: "Schedule operation failed.", ok: false, status: 500 })
+    expect(read).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(result)).not.toContain("private-password")
+  })
+
   it("run a manual Static Schedule Definition from the installed registry and record the run", async () => {
     const effect = vi.fn()
     installRegistry({
