@@ -17,6 +17,15 @@ const tokenVersion = "v1"
 const tokenPurpose = "vitehub.content.preview"
 const tokenPattern = /^v1\.(\d{1,12})\.([\w-]{43})$/
 
+/**
+ * Marks a preview frame request: the search parameter of the page URL and the form field that carries
+ * `{ token, documents }` as JSON. The parameter alone grants nothing.
+ */
+export const contentPreviewFrameParameter = "vitehub-content-preview"
+/** The largest preview frame form, in bytes. It carries whole Markdown documents. */
+const maximumFrameBytes = 1024 * 1024
+const maximumFrameDocuments = 20
+
 type HmacKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>
 
 /**
@@ -34,6 +43,21 @@ export type ContentPreviewEvent = Request | {
 export interface ContentPreviewOptions {
   /** Seconds the token and cookie stay valid. Default 3600 (one hour), from 60 to 86400. */
   maxAge?: number
+}
+
+/** A document that a preview frame shows in place of its stored draft, such as edits that were not saved yet. */
+export interface ContentPreviewDocument {
+  collection: string
+  id: string
+  data: Record<string, unknown>
+  /** The Markdown body. JSON and YAML documents have none. */
+  body?: string
+}
+
+export interface ContentPreviewToken {
+  /** The signed token. A preview frame form sends it; keep it out of URLs. */
+  token: string
+  expiresAt: Date
 }
 
 export interface ContentPreviewCookie {
@@ -62,8 +86,20 @@ export interface ContentPreview {
    * Nitro plugin and `/api/content/**` call it for you; call it yourself for requests that do not go through Nitro.
    */
   run<TResult>(event: ContentPreviewEvent, callback: () => TResult | Promise<TResult>): Promise<TResult>
+  /**
+   * Sign a token for a preview frame, without a cookie. This is trusted server API: check
+   * `content.can({ user, collection, action: "read" })` before calling it. See {@link defineContentPreviewPlugin}.
+   */
+  sign(options?: ContentPreviewOptions): Promise<ContentPreviewToken>
   /** Whether Content reads in the current request use the `draft` ref. */
   active(): boolean
+  /**
+   * The document that the current preview frame request shows in place of the stored draft, if any. Collection
+   * `get()` and `list()` read it; nothing stores it.
+   */
+  document(collection: string, id: string): ContentPreviewDocument | undefined
+  /** Every document of one collection that the current preview frame request shows in place of its stored draft. */
+  documents(collection: string): ContentPreviewDocument[]
 }
 
 type HeaderBag = { get?: unknown, append?: unknown, set?: unknown, [name: string]: unknown }
@@ -294,8 +330,43 @@ function createScope<T>(enabled: boolean): Scope<T> {
 export function createContentPreview(options: { enabled: boolean }): ContentPreview {
   // Proof that one request carried a valid token. Only this runtime issues and checks it.
   const previewGrant = defineGrant("vitehub.content.preview", (expires: number) => expires)
-  const scope = createScope<ReturnType<typeof previewGrant.issue>>(options.enabled)
-  const resolved = new WeakMap<object, Promise<ReturnType<typeof previewGrant.issue> | undefined>>()
+  type Grant = ReturnType<typeof previewGrant.issue>
+  interface State { grant: Grant, documents: ReadonlyMap<string, ContentPreviewDocument> }
+  const scope = createScope<State>(options.enabled)
+  const resolved = new WeakMap<object, Promise<Grant | undefined>>()
+  const noDocuments: ReadonlyMap<string, ContentPreviewDocument> = new Map()
+  const documentKey = (collection: string, id: string) => `${collection}\u0000${id}`
+
+  function current(): State | undefined {
+    const state = scope.getStore()
+    return state && previewGrant.check(state.grant) !== undefined ? state : undefined
+  }
+
+  async function sign(signOptions: ContentPreviewOptions, method: string): Promise<{ maxAge: number, expires: number, token: string }> {
+    requireEnabled(method)
+    const maxAge = signOptions.maxAge ?? defaultMaxAge
+    if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
+      throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.${method}({ maxAge }) must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
+    }
+    const key = await signingKey()
+    if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
+    const expires = Math.floor(Date.now() / 1000) + maxAge
+    const signature = await globalThis.crypto.subtle.sign("HMAC", key, tokenMessage(expires))
+    return { maxAge, expires, token: `${tokenVersion}.${expires}.${base64url(signature)}` }
+  }
+
+  async function grantForToken(token: string): Promise<Grant | undefined> {
+    let key: HmacKey | undefined
+    try {
+      key = await signingKey()
+    }
+    catch {
+      return
+    }
+    if (!key) return
+    const expires = await verifyToken(key, token)
+    return expires === undefined ? undefined : previewGrant.issue(expires)
+  }
 
   function requireEnabled(method: string): void {
     if (!options.enabled) {
@@ -324,22 +395,19 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     }
   }
 
-  return {
+  const preview: ContentPreview = {
     async enable(event, enableOptions = {}) {
       requireEnabled("enable")
       assertEvent(event, "enable")
-      const maxAge = enableOptions.maxAge ?? defaultMaxAge
-      if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
-        throw contentErrorDiagnostics.CONTENT_R0008({ message: `[vitehub] content.preview.enable({ maxAge }) must be whole seconds from ${minimumMaxAge} to ${maximumMaxAge}.` })
-      }
-      const key = await signingKey()
-      if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
-      const expires = Math.floor(Date.now() / 1000) + maxAge
-      const signature = await globalThis.crypto.subtle.sign("HMAC", key, tokenMessage(expires))
-      const setCookie = cookie(`${tokenVersion}.${expires}.${base64url(signature)}`, maxAge, secureRequest(event))
+      const { maxAge, expires, token } = await sign(enableOptions, "enable")
+      const setCookie = cookie(token, maxAge, secureRequest(event))
       appendResponseHeader(event, "set-cookie", setCookie, "append")
       appendResponseHeader(event, "cache-control", "private, no-store", "set")
       return { setCookie, expiresAt: new Date(expires * 1000) }
+    },
+    async sign(signOptions = {}) {
+      const { expires, token } = await sign(signOptions, "sign")
+      return { token, expiresAt: new Date(expires * 1000) }
     },
     disable(event) {
       assertEvent(event, "disable")
@@ -350,28 +418,142 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     },
     async run(event, callback) {
       if (!options.enabled || !isObject(event)) return await callback()
-      // A nested run in the same request, such as /api/content inside the generated plugin's scope, keeps its grant.
-      const current = scope.getStore()
-      let grant = previewGrant.check(current) === undefined ? undefined : current
-      if (!grant) {
+      // A nested run in the same request, such as /api/content inside the generated plugin's scope, keeps its grant
+      // and the documents of a preview frame.
+      let state = current()
+      if (!state) {
         let pending = resolved.get(event)
         if (!pending) {
           pending = grantFor(event)
           resolved.set(event, pending)
         }
-        grant = await pending
+        const grant = await pending
+        if (grant) state = { grant, documents: noDocuments }
       }
-      if (!grant) return await callback()
+      if (!state) return await callback()
       markPrivate(event)
-      const result = await scope.run(grant, callback)
+      const result = await scope.run(state, callback)
       // Set again after the handler so route headers cannot make a draft response public.
       markPrivate(event)
       return privateResponse(result)
     },
     active() {
-      return previewGrant.check(scope.getStore()) !== undefined
+      return current() !== undefined
+    },
+    document(collection, id) {
+      return current()?.documents.get(documentKey(collection, id))
+    },
+    documents(collection) {
+      return [...current()?.documents.values() ?? []].filter(document => document.collection === collection)
     },
   }
+  frames.set(preview, {
+    async run(form, callback) {
+      if (!options.enabled) return
+      const grant = await grantForToken(form.token)
+      if (!grant) return
+      const documents = new Map(form.documents.map(document => [documentKey(document.collection, document.id), document]))
+      return { result: await scope.run({ grant, documents }, callback) }
+    },
+  })
+  return preview
+}
+
+interface ContentPreviewFrameForm {
+  token: string
+  documents: ContentPreviewDocument[]
+}
+
+/** Runs a preview frame request with the grant of its token. Undefined when the token is not valid. */
+interface ContentPreviewFrames {
+  run<TResult>(form: ContentPreviewFrameForm, callback: () => TResult | Promise<TResult>): Promise<{ result: Awaited<TResult> } | undefined>
+}
+
+const frames = new WeakMap<ContentPreview, ContentPreviewFrames>()
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!isObject(value) || Array.isArray(value)) return false
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+/** Reads the form a preview frame posts. Undefined for anything else. */
+export function parseContentPreviewFrameForm(text: string): ContentPreviewFrameForm | undefined {
+  const value = new URLSearchParams(text).get(contentPreviewFrameParameter)
+  if (value === null) return
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  }
+  catch {
+    return
+  }
+  if (!isPlainRecord(parsed) || String(parsed.token) !== parsed.token) return
+  const documents = parsed.documents ?? []
+  if (!Array.isArray(documents) || documents.length > maximumFrameDocuments) return
+  const result: ContentPreviewDocument[] = []
+  for (const document of documents) {
+    if (!isPlainRecord(document) || !isPlainRecord(document.data)) return
+    const { collection, id, body } = document
+    if (String(collection) !== collection || !collection || String(id) !== id || !id) return
+    if (body !== undefined && String(body) !== body) return
+    result.push(body === undefined ? { collection, id, data: document.data } : { collection, id, data: document.data, body })
+  }
+  return { token: parsed.token, documents: result }
+}
+
+function forbidden(message: string): Response {
+  return new Response(message, { status: 403, headers: { "cache-control": "private, no-store", "content-type": "text/plain; charset=utf-8" } })
+}
+
+/**
+ * A request that may come from another site cannot use a preview frame. Browsers send `Sec-Fetch-Site` and `Origin`
+ * with a form POST; a request without them, such as from a server, still needs a valid token.
+ */
+function crossSite(headers: unknown, url: URL): boolean {
+  const site = readHeader(headers, "sec-fetch-site")
+  if (site !== undefined && site !== "same-origin") return true
+  const origin = readHeader(headers, "origin")
+  return origin !== undefined && origin !== "null" && origin !== url.origin
+}
+
+function frameUrl(value: unknown, headers: unknown): URL | undefined {
+  if (String(value) !== value) return
+  try {
+    return new URL(value, `http://${readHeader(headers, "host") ?? "localhost"}`)
+  }
+  catch {
+    return undefined
+  }
+}
+
+function isFrameRequest(method: unknown, url: URL | undefined): url is URL {
+  return String(method).toUpperCase() === "POST" && url !== undefined && url.searchParams.has(contentPreviewFrameParameter)
+}
+
+async function readNodeBody(request: AsyncIterable<unknown>): Promise<string | undefined> {
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for await (const chunk of request) {
+    const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
+    size += bytes.byteLength
+    if (size > maximumFrameBytes) return
+    chunks.push(bytes)
+  }
+  const joined = new Uint8Array(size)
+  let offset = 0
+  for (const chunk of chunks) {
+    joined.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return new TextDecoder().decode(joined)
+}
+
+async function readRequestBody(request: Request): Promise<string | undefined> {
+  const length = Number(request.headers.get("content-length") ?? 0)
+  if (length > maximumFrameBytes) return
+  const text = await request.text()
+  return new TextEncoder().encode(text).byteLength > maximumFrameBytes ? undefined : text
 }
 
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
@@ -388,6 +570,12 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * (Nuxt 4). It wraps Nitro's request entry, so the scope covers route rules, middleware, cached routes, and every
  * handler. During a preview request Nitro's cache is bypassed: cached handlers, `cache`/`swr` route rules, and
  * cached functions neither read nor write an entry. Requests without the cookie pass straight through.
+ *
+ * It also serves preview frames, such as the side browser of the Console. A frame posts a form to the page URL with
+ * `?vitehub-content-preview`, and the form field of the same name holds `{ token, documents }` as JSON: a token from
+ * `content.preview.sign()` and documents to show in place of their stored drafts. The page runs as a GET request
+ * without the parameter, with the draft ref, and with those documents in collection `get()` and `list()`. Nothing is
+ * stored, and the response is `private, no-store`. A form from another site, or without a valid token, gets 403.
  * ViteHub generates this plugin for `server/content.ts`.
  */
 export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
@@ -405,17 +593,69 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     }
     const scoped = (event: unknown, next: () => unknown): unknown =>
       isObject(event) && hasPreviewCookie(event) ? preview.run(event, next) : next()
+    const frame = frames.get(preview)
+    /** Checks a preview frame form and runs the page with its grant, or returns the 403 response. */
+    async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
+      if (blocked) return forbidden("A preview frame must come from this site.")
+      const form = body === undefined ? undefined : parseContentPreviewFrameForm(body)
+      const ran = form && frame ? await frame.run(form, next) : undefined
+      return ran ? privateResponse(ran.result) : forbidden("The preview expired. Open the preview again.")
+    }
     // Nitro 3: the Web fetch entry every preset and internal fetch calls.
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
-      nitroApp.fetch = (request: unknown, ...rest: unknown[]) => scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
+      nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
+        const url = request instanceof Request ? frameUrl(request.url, request.headers) : undefined
+        if (!(request instanceof Request) || !isFrameRequest(request.method, url)) {
+          return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
+        }
+        return (async () => {
+          const blocked = crossSite(request.headers, url)
+          const body = await readRequestBody(request)
+          url.searchParams.delete(contentPreviewFrameParameter)
+          const headers = new Headers(request.headers)
+          headers.delete("content-type")
+          headers.delete("content-length")
+          const page = new Request(url, { method: "GET", headers, signal: request.signal })
+          return await runFrame(blocked, body, () => scoped(page, () => Reflect.apply(fetch, nitroApp, [page, ...rest])))
+        })()
+      }
       return
     }
     // Nitro 2: the h3 v1 app handler. h3 v1 middleware cannot wrap the rest of a request, and the app handler can.
     const h3App = nitroApp.h3App
     if (isObject(h3App) && h3App.handler instanceof Function) {
       const handler = h3App.handler
-      h3App.handler = (event: unknown) => scoped(event, () => Reflect.apply(handler, h3App, [event]))
+      h3App.handler = (event: unknown) => {
+        const node = isObject(event) && isObject(event.node) ? event.node : undefined
+        const request = isObject(node?.req) ? node.req : undefined
+        const url = frameUrl(request?.url, request?.headers)
+        if (!event || !request || !isFrameRequest(request.method, url) || !(Symbol.asyncIterator in request)) {
+          return scoped(event, () => Reflect.apply(handler, h3App, [event]))
+        }
+        return (async () => {
+          // SAFETY: A Node IncomingMessage is an async iterable of its body chunks, checked above.
+          const body = await readNodeBody(request as unknown as AsyncIterable<unknown>)
+          const headers = isObject(request.headers) ? request.headers : {}
+          const blocked = crossSite(headers, url)
+          // The page sees a GET request for its own URL. h3 v1 caches the method, path, and headers on the event.
+          url.searchParams.delete(contentPreviewFrameParameter)
+          request.method = "GET"
+          request.url = `${url.pathname}${url.search}`
+          delete headers["content-type"]
+          delete headers["content-length"]
+          for (const cached of ["_method", "_path", "_headers"]) {
+            if (Reflect.has(Object(event), cached)) Reflect.set(Object(event), cached, undefined)
+          }
+          const result = await runFrame(blocked, body, () => scoped(event, () => Reflect.apply(handler, h3App, [event])))
+          if (!(result instanceof Response) || result.status !== 403 || !isObject(node?.res)) return result
+          const response = node.res
+          if (response.headersSent === true || !(response.end instanceof Function) || !(response.setHeader instanceof Function)) return result
+          response.statusCode = 403
+          for (const [name, value] of result.headers) Reflect.apply(response.setHeader, response, [name, value])
+          Reflect.apply(response.end, response, [await result.text()])
+        })()
+      }
       // Route rule headers run inside the request, so mark the response private again just before it is sent.
       const hooks = nitroApp.hooks
       if (isObject(hooks) && hooks.hook instanceof Function) {

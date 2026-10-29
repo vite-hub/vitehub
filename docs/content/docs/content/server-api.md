@@ -286,6 +286,7 @@ await content.preview.enable(event, { maxAge: 900 }) // sets the cookie: { setCo
 content.preview.disable(event)                       // clears it
 await content.preview.run(event, () => posts.get('hello')) // draft when the event has a valid cookie
 content.preview.active()                             // true inside a preview request
+await content.preview.sign({ maxAge: 900 })          // a token for a preview frame: { token, expiresAt }
 ```
 
 A request with a valid preview cookie reads `draft` through every Content read above. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.

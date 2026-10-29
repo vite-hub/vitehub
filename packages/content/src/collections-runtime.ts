@@ -547,6 +547,11 @@ export interface ContentCollectionsOptions {
   collections: Record<string, ContentCollectionDefinition>
   /** The ref that `get()` and `list()` read without `ref`: `draft` inside a preview request, otherwise `published`. */
   defaultRef?: () => ContentRef
+  /**
+   * Documents that the current preview frame request shows in place of their stored drafts. Reads of the `draft` ref
+   * without `ref` or `revision` return them.
+   */
+  previewDocuments?: (collection: string) => ReadonlyArray<{ id: string, data: Record<string, unknown>, body?: string }>
   /** `false` keeps one editor at a time even where live editing is installed. */
   live?: "auto" | false
   /** `pr` publishes through a pull request on a Store that has them. Defaults to `commit`. */
@@ -708,6 +713,7 @@ const contentPublishes = new AsyncLocalStorage<true>()
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
   const workspaceName = options.workspace
   const defaultRef = options.defaultRef ?? (() => "published" as const)
+  const previewDocuments = options.previewDocuments ?? (() => [])
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
@@ -1317,10 +1323,37 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return query
     }
 
+    /**
+     * The documents a preview frame shows in place of their stored drafts, read like stored files. Only reads of the
+     * draft without `ref` or `revision` use them. A document that cannot be read as a file is left out.
+     */
+    async function previewed(options: ContentReadOptions, opened: OpenedRevision | undefined): Promise<Map<string, IndexedDocument>> {
+      const result = new Map<string, IndexedDocument>()
+      if (options.ref !== undefined || options.revision !== undefined || !opened || opened.revision.ref !== "draft") return result
+      for (const document of previewDocuments(name)) {
+        try {
+          const path = pathFor(document.id)
+          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(document.data)), format === "markdown" ? document.body ?? "" : "", format)
+          const parsed = await parseText(text)
+          if (parsed.malformed) continue
+          const entry = { path, digest: await sha256(text) }
+          result.set(document.id, documentOf(document.id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null))
+        }
+        catch {
+          // An id outside the collection or fields that are not data stay out of the page.
+        }
+      }
+      return result
+    }
+
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
       const state = await refState(assertRef(options.ref, defaultRef()))
-      const items = state.opened ? await index(state.opened) : []
-      const digest = `${name}:${state.revision?.id ?? "empty"}`
+      const stored = state.opened ? await index(state.opened) : []
+      const overrides = await previewed(options, state.opened)
+      const items = overrides.size
+        ? [...stored.filter(item => !overrides.has(item.id)), ...overrides.values()].sort((left, right) => left.id.localeCompare(right.id))
+        : stored
+      const digest = `${name}:${state.revision?.id ?? "empty"}${[...overrides.values()].map(item => `:${item.id}@${item.digest}`).join("")}`
       const listed = defineCollection({
         source: array(() => ({ digest, items }), {
           defaultLimit: listDefaultLimit,
@@ -1350,6 +1383,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
       const path = pathFor(id)
       const opened = await openFor("get", options)
+      const override = (await previewed(options, opened)).get(id)
+      if (override) return override
       const digest = opened?.files.get(path)
       if (!opened || digest === undefined) return null
       const entry = { path, digest }

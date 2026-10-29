@@ -40,9 +40,11 @@ import {
 import { splitConsoleFrontmatter } from "../client/editor";
 import { useConsoleLiveDocument } from "../client/live";
 import { consoleClockTime, consoleLiveDefinition, consoleLiveLabel, consoleLiveUnavailable, consoleTabSession, useConsoleDocumentPresence } from "../client/presence";
+import { clearConsoleLocalDraft, consolePreviewUrl, consolePreviewWidth, readConsoleLocalDraft, writeConsoleLocalDraft } from "../client/preview";
 import { useConsoleToast } from "../client/toast";
 import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
+import ConsoleDocumentPreview from "./console-document-preview.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
 import ConsoleLoading from "./console-loading.vue";
@@ -60,6 +62,7 @@ import type { RouteLocationRaw } from "vue-router";
 import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentRevision, ConsoleDocumentSchedule, ConsoleDocumentsClient, ConsoleDocumentState, ConsoleRawDocument } from "../client/documents";
 import type { ConsoleDocumentSetup } from "../definitions";
 import type { ConsoleLivePerson, ConsoleLiveReset } from "../client/live";
+import type { ConsoleLocalVersion, ConsolePreviewView, ConsolePreviewViewport } from "../client/preview";
 
 /**
  * Edits one document as a page: a large title, the fields as property rows, then the body. Drafts save on their own
@@ -163,6 +166,34 @@ const canWrite = computed(() => props.collection.access.write);
 const canPublish = computed(() => props.collection.access.publish);
 
 /**
+ * Collaborative or Local only. Collaborative edits save to the shared draft, in the live room where Content installs
+ * it. Local-only edits stay in this tab: they never save, never reach the room, and survive a reload. Apply saves
+ * them over the shared draft they started from, and Discard drops them. Publish always publishes the shared draft.
+ */
+const editing = ref<"shared" | "local">("shared");
+const local = computed(() => editing.value === "local");
+/** The shared draft digest that the local edits started from, and the version they started as. */
+const localBase = ref<string | null>(null);
+const localStart = ref<ConsoleLocalVersion>();
+const localStorageFailed = ref(false);
+const localExitOpen = ref(false);
+const applyingLocal = ref(false);
+/** A shared draft newer than the one the local edits started from, met while applying them. */
+const localConflict = ref<{ theirs: ConsoleDocument | null }>();
+const sharedPublishOpen = ref(false);
+const sharedPublish = ref<{ draft: ConsoleDocument | null, site: ConsoleDocument | null }>();
+const sharedPublishLoading = ref(false);
+if (!creating.value && props.documentId !== undefined && canWrite.value) {
+  const stored = readConsoleLocalDraft(window.sessionStorage, props.collection.name, props.documentId);
+  if (stored) {
+    editing.value = "local";
+    localBase.value = stored.base;
+    localStart.value = stored.start;
+    draft.value = clone(stored.version);
+  }
+}
+
+/**
  * Presence and the edit lease. The first edit claims the lease while keystrokes stay on screen; saving waits for the
  * answer. Another tab that holds it makes this one read-only until the user takes over.
  */
@@ -170,7 +201,8 @@ const session = useConsoleDocumentPresence({
   client: props.client,
   collection: props.collection.name,
   documentId: () => (creating.value ? undefined : props.documentId),
-  canWrite: () => canWrite.value,
+  // Local-only edits need no lease, so a holder opens no dialog for them.
+  canWrite: () => canWrite.value && !local.value,
   // While this page joins or edits in the live room, the room holds the lease for it.
   live: () => Boolean(liveRoom.value),
   onDigest: onRemoteDigest,
@@ -186,7 +218,7 @@ const { dialogOpen: leaseDialogOpen, holder: leaseHolder, others: sessionOthers,
 const liveDefinition = consoleLiveDefinition(props.setup);
 const liveFallback = ref<"document" | "unreachable">();
 const liveRoom = computed(() => {
-  if (!liveDefinition || !hasBody.value || creating.value || liveFallback.value || props.documentId === undefined) return undefined;
+  if (!liveDefinition || !hasBody.value || creating.value || liveFallback.value || local.value || props.documentId === undefined) return undefined;
   return single.value ? props.collection.name : `${props.collection.name}/${props.documentId}`;
 });
 const live = liveDefinition
@@ -296,11 +328,15 @@ function focusedField(target: EventTarget | null): string | undefined {
 }
 
 function onFieldFocus(event: FocusEvent): void {
-  if (liveActive.value) live?.focus(focusedField(event.target));
+  const field = focusedField(event.target);
+  previewHighlight.value = field;
+  if (liveActive.value) live?.focus(field);
 }
 
 function onFieldBlur(event: FocusEvent): void {
-  if (liveActive.value && !focusedField(event.relatedTarget)) live?.focus(undefined);
+  if (focusedField(event.relatedTarget)) return;
+  previewHighlight.value = undefined;
+  if (liveActive.value) live?.focus(undefined);
 }
 
 /** Who else focuses each field, keyed by the id of its control, for avatars on the property rows. */
@@ -317,7 +353,7 @@ provide("vitehubFieldPeople", fieldPeople);
 const sessionsUnchecked = computed(() => !creating.value && (sessionUnreachable.value || sessionPresence.value?.available === false));
 /** The one line under the header that says who holds the lease and what this tab can do about it. */
 const leaseBanner = computed<{ icon: string, text: string } | undefined>(() => {
-  if (!canWrite.value || creating.value) return;
+  if (!canWrite.value || creating.value || local.value) return;
   const name = holderName.value;
   if (leaseMode.value === "blocked") {
     if (holderLive.value) return { icon: "i-lucide-users", text: `Read-only · ${name}` };
@@ -339,7 +375,7 @@ const holderLive = computed(() => session.holder.value?.kind === "live");
 /** Saves another tab refused while it held the lease. Their edits stay on screen. */
 const refusedEdits = ref(0);
 /** Whether this tab may change the document now: write access, and no other tab holds the lease. */
-const editable = computed(() => canWrite.value && (creating.value || leaseMode.value === "free" || leaseMode.value === "editing"));
+const editable = computed(() => canWrite.value && (local.value || creating.value || leaseMode.value === "free" || leaseMode.value === "editing"));
 const leaseCompareOpen = ref(false);
 const leaseCompare = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
 // A collection with several globs offers a folder for each. The id starts with the folder below the one that all globs share.
@@ -349,14 +385,22 @@ const folderPrefix = computed(() => folders.value[folderIndex.value]?.prefix ?? 
 const id = computed(() => (creating.value ? (newId.value.trim() ? `${folderPrefix.value}${newId.value.trim()}` : "") : props.documentId!));
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
-  // The live room saves on its own; nothing waits on this tab.
-  if (liveActive.value) return false;
+  // The live room saves on its own, and local-only edits never save: nothing waits on this tab.
+  if (liveActive.value || local.value) return false;
   if (creating.value) return Boolean(newId.value.trim()) || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data)) || Boolean(draft.value.body.trim());
   // A singleton that does not exist yet is dirty once it differs from its defaults.
   if (!base.value) return single.value && state.value !== "deleted" && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(savedVersion.value.data));
   // The editor writes canonical Markdown, which can drop a trailing newline that the stored file has.
   return draft.value.body.trimEnd() !== base.value.body.trimEnd() || dataDirty.value;
 });
+/** Local-only edits differ from the version they started as. */
+const localChanged = computed(() => {
+  const start = localStart.value;
+  if (!local.value || !start) return false;
+  return draft.value.body.trimEnd() !== start.body.trimEnd() || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(start.data));
+});
+/** Someone saved the shared draft after the local edits started from it. Apply then asks before overwriting. */
+const sharedMoved = computed(() => local.value && !loading.value && Boolean(base.value) && base.value!.digest !== localBase.value);
 const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(base.value!.data)));
 const deleted = computed(() => !creating.value && !loading.value && !base.value && state.value === "deleted");
 // A singleton that was never saved opens with its defaults instead.
@@ -376,7 +420,7 @@ const idError = computed(() => (creating.value && newId.value && !isConsoleDocum
  * Drafts save on their own once they exist. A new document waits for Create, since its id names the file. A singleton
  * has a fixed file, so its first edit creates it.
  */
-const autosaves = computed(() => !liveActive.value && canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
+const autosaves = computed(() => !liveActive.value && !local.value && canWrite.value && !creating.value && (Boolean(base.value) || (single.value && state.value !== "deleted")) && !conflict.value && !publishing.value && !restoring.value && session.mayWrite.value);
 const sourceParts = computed(() => (storedFile.value === undefined ? undefined : splitConsoleFrontmatter(storedFile.value)));
 
 // "Saving…" shows only when a save takes longer than 200ms, then stays at least 400ms, so fast saves do not flicker.
@@ -404,7 +448,9 @@ type HeaderAction = "conflict" | "fields" | "retry" | "site";
  */
 const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
   if (publishing.value) return { label: "Publishing…", pending: true, tone: "neutral" };
+  if (applyingLocal.value) return { label: "Applying…", pending: true, tone: "neutral" };
   if (savingVisible.value) return { label: "Saving…", pending: true, tone: "neutral" };
+  if (local.value) return { label: localChanged.value ? "Local edits · not saved" : "Local only", tone: localChanged.value ? "warning" : "neutral" };
   if (liveActive.value && live) {
     if (live.saveStatus.value?.error) return { action: "retry", label: "Not saved · retry", tone: "error" };
     if (errorCount.value) return { action: "fields", label: `${errorCount.value === 1 ? "1 field needs" : `${errorCount.value} fields need`} attention`, tone: "error" };
@@ -486,8 +532,9 @@ async function load(): Promise<void> {
   loadError.value = undefined;
   try {
     const document = await props.client.get(props.collection.name, props.documentId!);
-    // In a live room the fields and body come from the room. Only the stored version and its state come from here.
-    if (document && liveActive.value) {
+    // In a live room the fields and body come from the room, and local-only edits stay on screen. Only the stored
+    // version and its state come from here.
+    if (document && (liveActive.value || local.value)) {
       takeState(document);
       return;
     }
@@ -681,6 +728,11 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
 function onRemoteDigest(digest: string | null): void {
   // A live room reloads its people itself.
   if (liveActive.value) return;
+  // Local-only edits stay on screen. The stored version updates, so Apply knows the shared draft moved.
+  if (local.value) {
+    if (!loading.value && digest !== null && base.value?.digest !== digest) void load();
+    return;
+  }
   if (creating.value || loading.value || saving.value || publishing.value || restoring.value || dirty.value) return;
   if ((base.value?.digest ?? null) === digest) return;
   if (!base.value && digest === null) return;
@@ -770,6 +822,10 @@ function dataChangedSinceErrors(): boolean {
 }
 
 watch(draft, () => {
+  if (local.value) {
+    keepLocal();
+    return;
+  }
   if (liveActive.value) {
     live?.writeFields(compact(draft.value.data));
     return;
@@ -807,6 +863,11 @@ function useTheirs(): void {
  */
 async function publish(): Promise<void> {
   if (!canPublish.value || publishing.value || errorCount.value) return;
+  // Local-only edits are not part of a publish. The person reviews the shared draft that would go live instead.
+  if (local.value) {
+    await openSharedPublish();
+    return;
+  }
   // The site changed after this draft started from it. Publishing would erase that change, so compare first.
   if (base.value?.conflict) {
     await openSiteConflict();
@@ -833,6 +894,7 @@ async function publish(): Promise<void> {
     if (result.documents.length && pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
     else if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
     notifyChanged();
+    previewReloads.value++;
     if (removing) await router.replace(listRoute());
     // Edits made while publishing stay on screen and save as the next draft.
     else if (!dirty.value) await load();
@@ -863,6 +925,176 @@ async function publish(): Promise<void> {
     publishing.value = false;
   }
   if (dirty.value) scheduleAutosave();
+}
+
+/** Keeps the local-only edits in this tab's session storage, so a reload keeps them. */
+function keepLocal(): void {
+  if (!local.value || !localStart.value || props.documentId === undefined) return;
+  localStorageFailed.value = !writeConsoleLocalDraft(window.sessionStorage, props.collection.name, props.documentId, {
+    base: localBase.value,
+    start: localStart.value,
+    version: { body: draft.value.body, data: clone(draft.value.data) },
+  });
+}
+
+/**
+ * Edits in this tab only. Shared edits on screen save first, so the local edits start from the stored shared draft and
+ * Apply can tell when someone else saved after it.
+ */
+async function startLocal(): Promise<void> {
+  if (local.value || !canWrite.value || creating.value || !base.value) return;
+  clearTimeout(autosaveTimer);
+  await bodyEditor.value?.commit();
+  await settled();
+  const inRoom = liveActive.value;
+  if (inRoom && !(await saveLive())) return;
+  if (!inRoom && dirty.value) {
+    await save();
+    if (dirty.value || conflict.value || saveError.value) return;
+  }
+  // The live room holds the body, so the body on screen is the one the room just saved.
+  const start: Version = { body: inRoom ? base.value.body : draft.value.body, data: clone(draft.value.data) };
+  localBase.value = base.value.digest;
+  localStart.value = clone(start);
+  draft.value = start;
+  editing.value = "local";
+  keepLocal();
+  // Local edits need no lease: report as a viewer, so other people keep editing the shared draft.
+  if (leaseMode.value === "editing") {
+    session.resume();
+    void session.refresh();
+  }
+}
+
+/** Back to Collaborative. Changed local edits ask to apply or discard them first. */
+function requestShared(): void {
+  if (!local.value) return;
+  if (localChanged.value) {
+    localExitOpen.value = true;
+    return;
+  }
+  void discardLocal();
+}
+
+function setEditing(next: "shared" | "local"): void {
+  if (next === "local") void startLocal();
+  else requestShared();
+}
+
+function endLocal(): void {
+  if (props.documentId !== undefined) clearConsoleLocalDraft(window.sessionStorage, props.collection.name, props.documentId);
+  localExitOpen.value = false;
+  localConflict.value = undefined;
+  localStart.value = undefined;
+  editing.value = "shared";
+  session.resume();
+}
+
+/** Drops the local edits and shows the shared draft again. */
+async function discardLocal(): Promise<void> {
+  endLocal();
+  base.value = null;
+  await load();
+}
+
+/**
+ * Saves the local edits over the shared draft they started from. When someone saved the shared draft since, nothing is
+ * saved and the comparison opens; `ifDigest` then names the newer draft that the person compared.
+ */
+async function applyLocal(ifDigest: string | null = localBase.value): Promise<void> {
+  if (!local.value || applyingLocal.value || props.documentId === undefined) return;
+  await bodyEditor.value?.commit();
+  // A live room holds the lease for everyone in it, so the save passes that lease; a single editor's lease still refuses it.
+  const roomFor = Boolean(liveDefinition && hasBody.value && !liveFallback.value);
+  if (!roomFor && !(await session.claim())) return;
+  applyingLocal.value = true;
+  try {
+    const saved = await props.client.save(props.collection.name, props.documentId, {
+      body: draft.value.body,
+      data: compact(draft.value.data),
+      ifDigest,
+      session: consoleTabSession,
+      ...(roomFor ? { live: true } : {}),
+    });
+    endLocal();
+    accept(saved);
+    savedAt.value = new Date().toISOString();
+    notifyChanged();
+    toast.show({ title: "Local edits saved to the shared draft" });
+    if (revisions.value.length || historyOpen.value || panel.value === "history") void loadRevisions();
+  }
+  catch (error) {
+    const issues = consoleFieldIssues(error);
+    if (isConsoleConflict(error)) {
+      localExitOpen.value = false;
+      localConflict.value = { theirs: await props.client.get(props.collection.name, props.documentId).catch(() => null) };
+    }
+    else if (issues) {
+      fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, issues));
+      errorSnapshot = Object.fromEntries(Object.entries(draft.value.data).map(([name, value]) => [name, stableConsoleJSON(value ?? null)]));
+      localExitOpen.value = false;
+      await focusFirstInvalid();
+    }
+    else if (consoleLeaseHolder(error)) toast.error("Someone else is editing. Your local edits stay here. Try again when they stop.");
+    else toast.error(`Couldn't apply. ${consoleErrorMessage(error, "Try again.")}`, { label: "Retry", onClick: () => void applyLocal(ifDigest) });
+  }
+  finally {
+    applyingLocal.value = false;
+  }
+}
+
+/** Loads the shared draft and the site version, so the person sees what Publish would put live. */
+async function openSharedPublish(): Promise<void> {
+  if (props.documentId === undefined) return;
+  sharedPublishOpen.value = true;
+  sharedPublish.value = undefined;
+  sharedPublishLoading.value = true;
+  try {
+    const [draftDocument, site] = await Promise.all([
+      props.client.get(props.collection.name, props.documentId),
+      props.client.get(props.collection.name, props.documentId, "published"),
+    ]);
+    sharedPublish.value = { draft: draftDocument, site };
+    if (draftDocument) takeState(draftDocument);
+  }
+  catch (error) {
+    sharedPublishOpen.value = false;
+    toast.error(`Couldn't load the shared draft. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  finally {
+    sharedPublishLoading.value = false;
+  }
+}
+
+/** Publishes exactly the shared draft that the dialog showed. The local edits stay in this tab. */
+async function publishShared(): Promise<void> {
+  const reviewed = sharedPublish.value;
+  if (!reviewed?.draft || publishing.value || props.documentId === undefined) return;
+  if (reviewed.draft.conflict) {
+    sharedPublishOpen.value = false;
+    await openSiteConflict();
+    return;
+  }
+  publishing.value = true;
+  try {
+    await props.client.publish(props.collection.name, [{ digest: reviewed.draft.digest, id: props.documentId }]);
+    sharedPublishOpen.value = false;
+    toast.show({ title: "Shared draft published. Your local edits are still here." });
+    notifyChanged();
+    previewReloads.value++;
+    await load();
+  }
+  catch (error) {
+    if (consolePublishMismatches(error) || consolePublishedConflicts(error)) {
+      toast.error("The shared draft changed while you reviewed it. Review it again.");
+      await openSharedPublish();
+    }
+    else if (consoleFieldIssues(error)) toast.error("The shared draft has invalid fields. Fix them in Collaborative, then publish.");
+    else toast.error(`Couldn't publish. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  finally {
+    publishing.value = false;
+  }
 }
 
 const scheduleAt = computed(() => (scheduleDate.value ? consoleLocalScheduleTime(scheduleDate.value.toString(), scheduleTime.value.toString()) : undefined));
@@ -1141,7 +1373,8 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
-  if (!dirty.value) return;
+  // Local-only edits survive a reload of this tab, but not closing it.
+  if (!dirty.value && !localChanged.value) return;
   event.preventDefault();
 }
 
@@ -1248,6 +1481,142 @@ function onTitleKeydown(event: KeyboardEvent): void {
   }
 }
 
+// Side browser: the page of the document, kept open in the URL as `?preview`. Its width is kept per browser.
+const previewUrl = computed(() => consolePreviewUrl(base.value?.url, window.location.origin));
+const previewOpen = computed(() => route.query.preview !== undefined && !creating.value && Boolean(previewUrl.value));
+const previewView = ref<ConsolePreviewView>("draft");
+const previewViewport = ref<ConsolePreviewViewport>("desktop");
+const previewReloads = ref(0);
+/** The field focused in the editor, outlined in the page. */
+const previewHighlight = ref<string>();
+const previewWidthKey = "vitehub:console:preview-width";
+const previewWidth = ref(Number(window.localStorage.getItem(previewWidthKey)) || 560);
+const splitRoot = ref<HTMLElement>();
+/** Wide screens show the preview next to the editor; small ones show it over the editor. */
+const wideQuery = window.matchMedia("(min-width: 1024px)");
+const wide = ref(wideQuery.matches);
+const onWideChange = (event: MediaQueryListEvent) => (wide.value = event.matches);
+wideQuery.addEventListener("change", onWideChange);
+onBeforeUnmount(() => wideQuery.removeEventListener("change", onWideChange));
+/** The live room body, read from the editor, since `v-model` does not follow it in a room. */
+const liveBody = ref<string>();
+let liveBodyTimer: ReturnType<typeof setTimeout> | undefined;
+onBeforeUnmount(() => clearTimeout(liveBodyTimer));
+watch(liveActive, () => (liveBody.value = undefined));
+
+function setPreview(open: boolean): void {
+  const query = { ...route.query };
+  if (open) query.preview = null;
+  else delete query.preview;
+  void router.replace({ query });
+}
+
+/** What the draft view renders: the fields and body on screen, saved or not. */
+const previewDocument = computed(() => ({
+  collection: props.collection.name,
+  id: id.value,
+  data: compact(draft.value.data),
+  ...(hasBody.value ? { body: liveActive.value ? liveBody.value ?? base.value?.body ?? "" : draft.value.body } : {}),
+}));
+/** Top-level text fields, which change in place in the page while this tab can edit. */
+const previewTextFields = computed(() => (editable.value ? fields.value.filter(field => field.kind === "string" || field.kind === "text").map(field => field.name) : []));
+
+function onBodyChange(): void {
+  if (!liveActive.value || !previewOpen.value) return;
+  clearTimeout(liveBodyTimer);
+  liveBodyTimer = setTimeout(async () => {
+    const markdown = await bodyEditor.value?.markdown();
+    if (markdown !== null && markdown !== undefined) liveBody.value = markdown;
+  }, 250);
+}
+
+/**
+ * A click on a field in the page. A text field is edited in the page, so the editor only shows its row; any other
+ * field gets focus in the editor.
+ */
+async function onPreviewSelect(field: string): Promise<void> {
+  if (!wide.value) return;
+  const inPlace = previewTextFields.value.includes(field);
+  if (field === "body") {
+    if (!inPlace) bodyEditor.value?.focus("start");
+    return;
+  }
+  if (titleField.value?.name === field && mode.value === "rich") {
+    titleInput.value?.scrollIntoView({ block: "nearest" });
+    if (!inPlace) titleInput.value?.focus({ preventScroll: true });
+    return;
+  }
+  if (mode.value !== "rich") await changeMode("rich");
+  await nextTick();
+  const row = document.querySelector<HTMLElement>(`.vitehub-document-editor [data-vitehub-field="field-${field.replace(/[^a-zA-Z0-9_-]/g, "-")}"]`);
+  if (!row) return;
+  row.scrollIntoView({ block: "center" });
+  row.animate([{ backgroundColor: "color-mix(in oklab, var(--ui-primary) 14%, transparent)" }, { backgroundColor: "transparent" }], { duration: 1200, easing: "ease-out" });
+  if (!inPlace) row.querySelector<HTMLElement>("input, textarea, select, button, [contenteditable='true']")?.focus({ preventScroll: true });
+}
+
+/** Text typed in the page, written to the field like typing in the editor. */
+function onPreviewEdit(field: string, value: string): void {
+  if (!editable.value || !previewTextFields.value.includes(field)) return;
+  draft.value = { ...draft.value, data: { ...draft.value.data, [field]: value } };
+  if (titleField.value?.name === field) void nextTick(resizeTitle);
+}
+
+function setPreviewWidth(width: number): void {
+  const total = splitRoot.value?.clientWidth ?? window.innerWidth;
+  previewWidth.value = consolePreviewWidth(width, total);
+  window.localStorage.setItem(previewWidthKey, String(previewWidth.value));
+}
+
+const resizing = ref(false);
+function onSplitterPointerDown(event: PointerEvent): void {
+  if (event.button !== 0 || !(event.currentTarget instanceof HTMLElement)) return;
+  event.preventDefault();
+  const handle = event.currentTarget;
+  handle.setPointerCapture(event.pointerId);
+  resizing.value = true;
+  const right = splitRoot.value?.getBoundingClientRect().right ?? window.innerWidth;
+  const move = (next: PointerEvent) => setPreviewWidth(right - next.clientX);
+  const stop = () => {
+    resizing.value = false;
+    handle.removeEventListener("pointermove", move);
+    handle.removeEventListener("pointerup", stop);
+    handle.removeEventListener("pointercancel", stop);
+  };
+  handle.addEventListener("pointermove", move);
+  handle.addEventListener("pointerup", stop);
+  handle.addEventListener("pointercancel", stop);
+}
+
+/** Arrows move the divider, Shift moves it further, Home makes the preview widest, End narrowest. */
+function onSplitterKeydown(event: KeyboardEvent): void {
+  const step = event.shiftKey ? 96 : 32;
+  const total = splitRoot.value?.clientWidth ?? window.innerWidth;
+  const next = { ArrowLeft: previewWidth.value + step, ArrowRight: previewWidth.value - step, Home: total, End: 0 }[event.key];
+  if (next === undefined) return;
+  event.preventDefault();
+  setPreviewWidth(next);
+}
+
+const editingItems = computed(() => [[
+  {
+    label: "Collaborative",
+    description: liveDefinition && hasBody.value ? "Edit the shared draft with everyone. It saves as you type." : "Edit the shared draft. It saves as you type.",
+    icon: "i-lucide-users",
+    type: "checkbox" as const,
+    checked: !local.value,
+    onUpdateChecked: () => setEditing("shared"),
+  },
+  {
+    label: "Local only",
+    description: "Edits stay in this tab and save nowhere until you apply them.",
+    icon: "i-lucide-laptop",
+    type: "checkbox" as const,
+    checked: local.value,
+    onUpdateChecked: () => setEditing("local"),
+  },
+]]);
+
 // Right rail: Outline or History, kept in the URL as `?panel=history`.
 const panel = computed<"history" | "outline" | undefined>(() => (route.query.panel === "history" || route.query.panel === "outline" ? route.query.panel : undefined));
 function setPanel(next: "history" | "outline" | undefined): void {
@@ -1317,10 +1686,13 @@ const menuItems = computed(() => [[
     : []),
   { label: "Copy id", icon: "i-lucide-copy", onSelect: () => void navigator.clipboard?.writeText(id.value) },
   ...(base.value ? [{ label: "Copy path", icon: "i-lucide-folder", onSelect: () => void navigator.clipboard?.writeText(base.value!.path) }] : []),
-], ...(editable.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
+], ...(editable.value && !local.value && base.value && !single.value ? [[{ label: "Delete", icon: "i-lucide-trash-2", color: "error" as const, onSelect: () => (deleteOpen.value = true) }]] : [])]);
 </script>
 
 <template>
+  <!-- Two columns, each with its own header: the editor with its page header, and the side browser with its toolbar. -->
+  <div ref="splitRoot" class="relative flex min-h-0 flex-1">
+  <div class="flex min-w-0 flex-1 flex-col">
   <!-- A singleton named like its page, such as Settings, shows the name once. -->
   <ConsolePageHeader :title="title" :back="back" :trail="back && back.label !== title ? [back] : []">
     <template v-if="schedule" #title-trailing>
@@ -1362,9 +1734,41 @@ const menuItems = computed(() => [[
           </ConsoleStatus>
         </UTooltip>
       </span>
+      <UDropdownMenu
+        v-if="canWrite && base && !creating && !missing && !deleted && !loadError"
+        :items="editingItems"
+        :content="{ align: 'end' }"
+        :ui="{ content: 'w-72', itemDescription: 'whitespace-normal!' }"
+      >
+        <UButton
+          size="sm"
+          variant="ghost"
+          :color="local ? 'warning' : 'neutral'"
+          :icon="local ? 'i-lucide-laptop' : 'i-lucide-users'"
+          trailing-icon="i-lucide-chevron-down"
+          :aria-label="`Editing: ${local ? 'Local only' : 'Collaborative'}`"
+          :loading="applyingLocal"
+        >
+          <span class="hidden sm:inline">{{ local ? "Local only" : "Collaborative" }}</span>
+        </UButton>
+      </UDropdownMenu>
+      <UTooltip v-if="base && !creating && !missing" :text="previewUrl ? 'Preview the page' : 'Set url on the collection to preview its pages'" :content="{ side: 'bottom' }">
+        <UButton
+          variant="ghost"
+          size="sm"
+          icon="i-lucide-app-window"
+          aria-label="Preview the page"
+          :aria-pressed="previewOpen"
+          :disabled="!previewUrl"
+          :active="previewOpen"
+          active-variant="soft"
+          @click="setPreview(!previewOpen)"
+        />
+      </UTooltip>
       <div
         v-if="hasBody && !creating && !loading && !missing && !deleted && !loadError"
-        class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset md:flex"
+        class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset"
+        :class="previewOpen ? '' : 'md:flex'"
         role="radiogroup"
         aria-label="Editing mode"
       >
@@ -1388,7 +1792,7 @@ const menuItems = computed(() => [[
       <UFieldGroup v-else-if="publishable" size="sm">
         <UTooltip :text="errorCount ? consoleFixFieldsLabel(errorCount) : undefined" :disabled="!errorCount" :content="{ side: 'bottom' }">
           <UButton
-            :label="state === 'deleted' ? 'Publish deletion' : 'Publish'"
+            :label="state === 'deleted' ? 'Publish deletion' : local ? 'Publish shared draft' : 'Publish'"
             :loading="publishing"
             :disabled="Boolean(conflict) || scheduling || Boolean(errorCount)"
             :aria-description="errorCount ? consoleFixFieldsLabel(errorCount) : undefined"
@@ -1396,7 +1800,7 @@ const menuItems = computed(() => [[
           />
         </UTooltip>
         <UDropdownMenu
-          v-if="state !== 'deleted'"
+          v-if="state !== 'deleted' && !local"
           :items="publishMenu"
           :content="{ align: 'end' }"
           :ui="{ content: 'max-w-72', itemDescription: 'whitespace-normal!' }"
@@ -1452,6 +1856,16 @@ const menuItems = computed(() => [[
         :actions="[{ label: 'History', icon: 'i-lucide-history', color: 'neutral', variant: 'outline', onClick: () => (historyOpen = true) }]"
       />
       <article v-else class="mx-auto w-full max-w-[52rem] px-6 pt-10 pb-8 sm:px-16 sm:pt-14">
+        <div v-if="local" class="mb-6 grid gap-1.5 rounded-md bg-warning/5 px-3 py-2 text-[13px] ring-1 ring-warning/30 ring-inset" role="status" aria-live="polite">
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+            <UIcon name="i-lucide-laptop" class="size-4 shrink-0 text-warning" aria-hidden="true" />
+            <span class="min-w-0 flex-1 text-default">Local only · Your edits stay in this tab. Nobody sees them, and nothing saves until you apply them.</span>
+            <UButton size="xs" color="neutral" variant="ghost" label="Discard…" :disabled="!localChanged || applyingLocal" @click="localExitOpen = true" />
+            <UButton size="xs" color="neutral" variant="outline" label="Apply to shared draft" :disabled="!localChanged" :loading="applyingLocal" @click="applyLocal()" />
+          </div>
+          <p v-if="sharedMoved" class="ps-7 text-muted">Someone saved the shared draft after your local edits started. Apply compares them before it saves.</p>
+          <p v-if="localStorageFailed" class="ps-7 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
+        </div>
         <div v-if="leaseBanner" class="mb-6 grid gap-1.5 rounded-md px-3 py-2 text-[13px] ring-1 ring-default ring-inset" role="status" aria-live="polite">
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <UIcon :name="leaseBanner.icon" class="size-4 shrink-0 text-muted" aria-hidden="true" />
@@ -1588,6 +2002,7 @@ const menuItems = computed(() => [[
           :document-id="id"
           :disabled="!editable || Boolean(live?.readOnlyReason.value)"
           label="Body"
+          @change="onBodyChange"
           @outline="outline = $event"
         />
         <div v-else-if="hasBody && liveRoom" v-show="mode === 'rich'" class="flex min-h-[40vh] items-start gap-2 text-[13px] text-muted" role="status">
@@ -1671,6 +2086,49 @@ const menuItems = computed(() => [[
       </div>
     </aside>
   </div>
+  </div>
+
+  <template v-if="previewOpen && previewUrl && base">
+    <div
+      v-if="wide"
+      class="group relative z-10 -mx-1 w-2 shrink-0 cursor-col-resize touch-none focus-visible:outline-none"
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Resize the preview"
+      aria-controls="vitehub-document-preview"
+      :aria-valuenow="previewWidth"
+      :aria-valuemin="320"
+      :aria-valuetext="`Preview ${previewWidth} pixels wide`"
+      tabindex="0"
+      @pointerdown="onSplitterPointerDown"
+      @keydown="onSplitterKeydown"
+    >
+      <div class="mx-auto h-full w-px bg-(--ui-border) transition-colors group-hover:bg-(--ui-border-accented) group-focus-visible:w-0.5 group-focus-visible:bg-primary" :class="resizing ? 'w-0.5 bg-primary' : ''" />
+    </div>
+    <ConsoleDocumentPreview
+      id="vitehub-document-preview"
+      v-model:view="previewView"
+      v-model:viewport="previewViewport"
+      :class="wide ? 'shrink-0' : 'absolute inset-0 z-20'"
+      :style="wide ? { width: `${previewWidth}px` } : undefined"
+      :client="client"
+      :collection="collection"
+      :document-id="id"
+      :url="previewUrl"
+      :document="previewDocument"
+      :text-fields="previewTextFields"
+      :local="local"
+      :highlight="previewHighlight"
+      :reloads="previewReloads"
+      :overlay="!wide"
+      @close="setPreview(false)"
+      @select="onPreviewSelect"
+      @edit="onPreviewEdit"
+    />
+    <!-- While the divider moves, the page must not take the pointer. -->
+    <div v-if="resizing" class="absolute inset-0 z-30 cursor-col-resize" />
+  </template>
+  </div>
 
   <UModal
     :open="conflictOpen && Boolean(conflict)"
@@ -1694,6 +2152,80 @@ const menuItems = computed(() => [[
         <UButton variant="ghost" label="Keep editing" @click="conflictOpen = false" />
         <UButton variant="outline" label="Load theirs" @click="useTheirs" />
         <UButton color="error" label="Overwrite with mine" :loading="saving" @click="keepMine" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="localExitOpen"
+    title="Apply your local edits?"
+    description="Collaborative edits the shared draft. Save your local edits to it first, or discard them."
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) localExitOpen = false }"
+  >
+    <template #body>
+      <ConsoleDocumentDiff v-if="localStart" :before="localStart" :after="{ body: draft.body, data: compact(draft.data) }" :format="collection.format" :name="fileName" />
+    </template>
+    <template #footer>
+      <div class="flex w-full flex-wrap justify-end gap-2">
+        <UButton variant="ghost" label="Keep editing locally" @click="localExitOpen = false" />
+        <UButton color="error" variant="outline" label="Discard local edits" :disabled="applyingLocal" @click="discardLocal" />
+        <UButton label="Apply to shared draft" :loading="applyingLocal" @click="applyLocal()" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="Boolean(localConflict)"
+    title="The shared draft changed"
+    description="Someone saved the shared draft after your local edits started from it, so nothing was saved. Compare them, then choose."
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) localConflict = undefined }"
+  >
+    <template #body>
+      <div v-if="localConflict" class="grid gap-3">
+        <p class="text-xs text-muted">
+          <span class="font-medium text-highlighted">Removed lines</span> are in the shared draft,
+          <span class="font-medium text-highlighted">added lines</span> are your local edits.
+        </p>
+        <ConsoleDocumentDiff :before="localConflict.theirs ? { body: localConflict.theirs.body, data: localConflict.theirs.data } : null" :after="{ body: draft.body, data: compact(draft.data) }" :format="collection.format" :name="fileName" />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full flex-wrap justify-end gap-2">
+        <UButton variant="ghost" label="Keep editing locally" @click="localConflict = undefined" />
+        <UButton variant="outline" label="Discard mine" :disabled="applyingLocal" @click="discardLocal" />
+        <UButton color="error" label="Overwrite with mine" :loading="applyingLocal" @click="applyLocal(localConflict?.theirs?.digest ?? null)" />
+      </div>
+    </template>
+  </UModal>
+
+  <UModal
+    :open="sharedPublishOpen"
+    title="Publish the shared draft?"
+    description="This publishes the shared draft that everyone edits. Your local edits are not part of it and stay in this tab."
+    :ui="{ content: 'sm:max-w-3xl' }"
+    @update:open="(open) => { if (!open) sharedPublishOpen = false }"
+  >
+    <template #body>
+      <ConsoleLoading v-if="sharedPublishLoading" label="Loading the shared draft…" />
+      <div v-else-if="sharedPublish" class="grid gap-3">
+        <p class="text-xs text-muted">
+          <span class="font-medium text-highlighted">Removed lines</span> are on the site,
+          <span class="font-medium text-highlighted">added lines</span> are the shared draft.
+        </p>
+        <ConsoleDocumentDiff
+          :before="sharedPublish.site ? { body: sharedPublish.site.body, data: sharedPublish.site.data } : null"
+          :after="sharedPublish.draft ? { body: sharedPublish.draft.body, data: sharedPublish.draft.data } : null"
+          :format="collection.format"
+          :name="fileName"
+        />
+      </div>
+    </template>
+    <template #footer>
+      <div class="flex w-full justify-end gap-2">
+        <UButton variant="ghost" label="Cancel" @click="sharedPublishOpen = false" />
+        <UButton label="Publish shared draft" :disabled="!sharedPublish?.draft" :loading="publishing" @click="publishShared" />
       </div>
     </template>
   </UModal>
@@ -1829,7 +2361,7 @@ const menuItems = computed(() => [[
         @more="loadRevisions(true)"
       />
     </template>
-    <template v-if="preview?.document && editable" #footer>
+    <template v-if="preview?.document && editable && !local" #footer>
       <UButton icon="i-lucide-rotate-ccw" label="Restore this version" :loading="restoring" @click="restore" />
     </template>
   </USlideover>

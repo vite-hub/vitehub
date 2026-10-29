@@ -17,7 +17,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { documents } from "../src/collections.ts"
-import { contentPreviewCookieName, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
+import { contentPreviewCookieName, contentPreviewFrameParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -271,6 +271,99 @@ describe("content preview", { timeout: 30_000 }, () => {
         ? { preview: true, body: { bypass: true, title: "Draft" }, cacheControl: "private, no-store" }
         : { preview: false, body: { bypass: false, title: "Published" }, cacheControl: "s-maxage=60" })
     }
+  })
+
+  it("renders a preview frame form with its documents in place of the drafts, and stores nothing", async () => {
+    const { content, posts } = await setup()
+    const app = new H3()
+      .get("/blog/hello", async event => ({
+        url: event.req.url,
+        method: event.req.method,
+        get: (await posts.get("hello"))?.data.title,
+        body: (await posts.get("hello"))?.body,
+        list: (await posts.list()).items.map(item => item.data.title),
+        published: (await posts.get("hello", { ref: "published" }))?.data.title,
+        stored: (await posts.get("hello", { ref: "draft" }))?.data.title,
+      }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ maxAge: 120 })
+    const frame = (form: unknown, headers: Record<string, string> = { "sec-fetch-site": "same-origin", origin: "https://site.test" }) => nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify(form) }),
+    }))
+
+    const response = await frame({ token, documents: [{ collection: "posts", id: "hello", data: { title: "On screen" }, body: "# Typed" }] })
+    expect(response.status).toBe(200)
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    expect(await response.json()).toEqual({
+      url: "https://site.test/blog/hello",
+      method: "GET",
+      get: "On screen",
+      body: "# Typed",
+      list: ["On screen", "New"],
+      published: "Published",
+      stored: "Draft",
+    })
+    // The same form without documents renders the stored draft.
+    expect(await (await frame({ token })).json()).toMatchObject({ get: "Draft", list: ["Draft", "New"] })
+    expect((await posts.get("hello", { ref: "draft" }))?.data.title).toBe("Draft")
+    expect((await posts.get("hello"))?.data.title).toBe("Published")
+  })
+
+  it("refuses preview frames without a valid token or from another site", async () => {
+    const { content } = await setup()
+    const handler = vi.fn(() => "page")
+    const app = new H3().get("/blog/hello", handler)
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign()
+    const post = (form: string, headers: Record<string, string> = {}) => nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      body: form,
+    }))
+    const field = (value: unknown) => new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify(value) }).toString()
+    const [version, expires, signature] = token.split(".")
+    const forged = `${version}.${Number(expires) + 600}.${signature}`
+
+    expect((await post(field({ token: forged }))).status).toBe(403)
+    expect((await post(field({ token: "garbage" }))).status).toBe(403)
+    expect((await post("not a form")).status).toBe(403)
+    expect((await post(field({ token, documents: [{ collection: "posts", id: "hello", data: [] }] }))).status).toBe(403)
+    expect((await post(field({ token }), { "sec-fetch-site": "cross-site" })).status).toBe(403)
+    expect((await post(field({ token }), { origin: "https://evil.test" })).status).toBe(403)
+    // A cookie does not stand in for the form token.
+    expect((await post(field({}), { cookie: await previewCookie(content) })).status).toBe(403)
+    expect(handler).not.toHaveBeenCalled()
+    expect((await post(field({ token }), { "sec-fetch-site": "same-origin" })).status).toBe(200)
+    // The parameter on a GET grants nothing.
+    const page = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`))
+    expect(page.headers.get("cache-control")).toBeNull()
+  })
+
+  it("renders preview frames on Nitro 2 as a GET of the page", async () => {
+    const { content, posts } = await setup()
+    const { token } = await content.preview.sign()
+    const seen: Array<{ method: string, url: string, title: unknown }> = []
+    const nitroApp = {
+      h3App: {
+        async handler(event: { node: { req: { method: string, url: string } } }) {
+          seen.push({ method: event.node.req.method, url: event.node.req.url, title: (await posts.get("hello"))?.data.title })
+        },
+      },
+      hooks: { hook: () => undefined },
+    }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const body = new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, documents: [{ collection: "posts", id: "hello", data: { title: "On screen" } }] }) }).toString()
+    const request = Object.assign((async function* () {
+      yield new TextEncoder().encode(body)
+    })(), { method: "POST", url: `/blog/hello?lang=en&${contentPreviewFrameParameter}`, headers: { host: "site.test", "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" } })
+    await nitroApp.h3App.handler({ node: { req: request } })
+    expect(seen).toEqual([{ method: "GET", url: "/blog/hello?lang=en", title: "On screen" }])
+    expect(request.headers).not.toHaveProperty("content-type")
   })
 
   it("sets and clears a secure, HttpOnly, SameSite=Strict cookie through an H3 event", async () => {

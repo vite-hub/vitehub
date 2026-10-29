@@ -6,7 +6,7 @@ navigation.order: 8
 icon: i-lucide-eye
 ---
 
-A preview cookie makes one browser read the `draft` ref through your real pages. Requests without it keep reading `published`, and the site shows no editing UI. Your app sets the cookie from its own route. The ViteHub Console content editor does not set it.
+A preview cookie makes one browser read the `draft` ref through your real pages. Requests without it keep reading `published`, and the site shows no editing UI. Your app sets the cookie from its own route. The ViteHub Console content editor does not set it: its side browser uses [preview frames](#preview-frames) instead.
 
 ## Enable preview
 
@@ -37,6 +37,8 @@ export default defineEventHandler(event => content.preview.disable(event))
 | `content.preview.disable(event)` | Appends a cookie that expires now. Returns `{ setCookie, expiresAt: null }`. |
 | `content.preview.run(event, callback)` | Runs `callback` in preview when the event carries a valid cookie. Otherwise it runs unchanged. |
 | `content.preview.active()` | `true` inside a preview request. |
+| `content.preview.sign({ maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames), without a cookie. Check `content.can()` first, as for `enable()`. |
+| `content.preview.document(collection, id)` | The document that the current preview frame shows in place of its stored draft, or `undefined`. |
 
 `event` is an H3 event or a Web `Request`. A `Request` has no response, so set the returned `setCookie` header yourself.
 
@@ -61,6 +63,30 @@ This works the same with the `vitehub()` Vite plugin on Nitro 3 and with the `vi
 Preview needs the host's `AsyncLocalStorage` request context. Cloudflare Workers users must enable the `nodejs_als` compatibility flag in the Worker configuration. ViteHub reports a configuration error when this API is unavailable, before serving requests.
 
 Call `content.preview.run(event, callback)` yourself only for requests that do not go through Nitro, such as a test or a custom server.
+
+## Preview frames
+
+The document editor of the Console shows the page of a document in a side browser next to the editor. The page renders through your own routes, with the fields and body on screen, before anything saves. The collection needs a `url`, such as `documents({ url: '/blog/:id' })`, on the Console origin.
+
+```ts [server/content.ts]
+posts: documents({ path: 'posts/**/*.md', url: '/blog/:id', fields: { title: z.string() } }),
+```
+
+```ts [server/routes/blog/[...id].get.ts]
+const post = await content.collection('posts').get(id) // the document on screen in a preview frame
+return html`<h1 ${contentField('posts', post.id, 'title')}>${post.data.title}</h1>`
+```
+
+The Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of the same name holds `{ token, documents }` as JSON: a token from `content.preview.sign()`, 15 minutes in the Console, and the documents on screen. The generated Nitro plugin checks the token and runs the page as a `GET` of its own URL, without the parameter:
+
+- `content.collection(name).get()` and `list()` without `ref` or `revision` return the posted documents in place of their stored drafts. Other documents read `draft`.
+- Nested requests in the same request, such as `/api/content/**` during SSR, keep the same scope. Comark reads, such as `content.get()` and `queryCollection()`, read the stored draft.
+- Nothing is stored. The response is `private, no-store` and `noindex`.
+- A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
+
+The Published view loads the page with a plain `GET`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
+
+Pages must allow a frame from their own origin: `frame-ancestors 'self'` or no `frame-ancestors`, and no `X-Frame-Options: DENY`. Data that the page fetches from the browser after it loads does not carry the frame scope: it reads `published`.
 
 ## Signing key
 

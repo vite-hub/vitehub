@@ -3278,6 +3278,9 @@ importers:
 
   playground/content:
     dependencies:
+      '@comark/html':
+        specifier: catalog:markdown
+        version: 0.7.0(katex@0.17.0)(shiki@4.5.0)
       '@libsql/client':
         specifier: catalog:database
         version: 0.18.0
