@@ -20,7 +20,7 @@ export default defineConfig({
         }
       },
     }],
-    entry: ["src/cli.ts", "src/errors.ts", "src/index.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/dev.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
+    entry: ["src/cli.ts", "src/errors.ts", "src/index.ts", "src/operations.ts", "src/runtime/cloudflare-kv.ts", "src/runtime/upstash-driver.ts", "src/vite.ts", "src/virtual.ts"],
     exports: {
       customExports: normalizePackageExports,
       inlinedDependencies: false,
