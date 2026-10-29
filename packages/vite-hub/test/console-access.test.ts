@@ -31,8 +31,9 @@ import type { ConsoleRequestEvent } from "../src/console/runtime/server/request.
 
 const policyKey = Symbol.for("vitehub.console.access")
 const serverRoot = fileURLToPath(new URL("../src/console/runtime/server/", import.meta.url))
-// The page shell and the empty client script carry no project data. Static assets are public in the same way.
-const shellRoutes = new Set(["client.get.ts", "page.get.ts", "sign-in.ts"])
+// The page shell, sign-in redirect and empty client script carry no project data. Static assets are public in the same way.
+// The Schedule run route runs a signed dispatch and nothing else; it does not read Console data.
+const shellRoutes = new Set(["client.get.ts", "page.get.ts", "schedule-run.ts", "sign-in.ts"])
 
 function event(headers: Record<string, string> = {}): ConsoleRequestEvent {
   return { method: "GET", req: new Request("http://vitehub.local/api/_vitehub/console/data", { headers }) }
@@ -81,9 +82,11 @@ describe("Console data route contract", () => {
     }
   })
 
-  it("guards the Schedule run RPC operation", async () => {
-    const { consoleScheduleRunHandler } = await import("../src/console/runtime/server/schedule-run.ts")
-    await expect(rejection(await consoleScheduleRunHandler(event()))).resolves.toMatchObject({ status: 500 })
+  it("takes only signed dispatches on the Schedule run route", async () => {
+    const route = (await import("../src/console/runtime/server/schedule-run.ts")).default
+    const response = await route(event() as never)
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toMatchObject({ message: expect.stringMatching(/signed dispatches only.*VITEHUB_DISPATCH_KEY.*Console credentials/) })
   })
 })
 
