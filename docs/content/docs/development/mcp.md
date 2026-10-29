@@ -67,9 +67,47 @@ Fix: Unlock it first.
 
 `structuredContent.error` has `code`, `message`, `fix`, and `details` for failures below status 500. A call to an unknown tool, or a message the server does not know, is a JSON-RPC error.
 
-## Comments tools
+## Package tools
 
-When [Comments](/docs/comments) is installed, the endpoint also serves its tools. Ask an agent, for example: "Read the open comments on /pricing and fix them."
+Installed packages also contribute tools alongside operations. They use the same Console section grants and OAuth scopes. When a registered tool shares an operation’s MCP name, the registered tool supplies the schema and implementation.
+
+With [Comments](/docs/comments), ask an agent, for example: "Read the open comments on /pricing and fix them."
+
+### Content, section `content`
+
+| Tool | Needs | Does |
+| --- | --- | --- |
+| `content_list_collections` | Content `read` | Lists readable collections and their field schemas. |
+| `content_list_documents` | Content `read` | Lists readable documents, draft digests, and `nextCursor`. Filters: `collection`, `search`, `state`, `cursor`, `limit`, default 50 and at most 200. |
+| `content_read_document` | Content `read` | Reads the draft for `collection` and `id`. For a singleton, use its collection name as `id`. |
+| `content_save_draft` | Content `write` | Saves `data` and `body` with `ifDigest`. Use the current draft digest, or `null` for a new document. Does not publish. |
+
+These tools call the same owner actions as the Console. Each call passes the Console user to `content.can()`. Lists filter documents by that user's access. Saves preserve digest conflict checks and edit leases. They cannot override another editor's lease. Saves are marked as destructive writes because they replace a draft. These registered tools have a 256 KiB request body limit, including the JSON-RPC envelope.
+
+### Database, section `databases`
+
+| Tool | Does |
+| --- | --- |
+| `database_list_databases` | Lists the Database names installed in the Console. |
+| `database_get_schema` | Lists tables, columns, and relationships for `database`. Defaults to the first Database. Does not query rows. |
+
+### KV, section `kv`
+
+| Tool | Does |
+| --- | --- |
+| `kv_list_keys` | Lists keys without values. Accepts `store`, `prefix`, `cursor`, and `limit`, default 200 and at most 500. |
+
+### Blob, section `blob`
+
+| Tool | Does |
+| --- | --- |
+| `blob_list_objects` | Lists object names, sizes, content types, and upload dates. Accepts `store`, `prefix`, `cursor`, and `limit`, default 100 and at most 250. |
+
+KV and Blob default to the `default` store. Only stores installed in the Console can be selected. A result cursor continues the listing. Blob uses the Console's default filter for ViteHub-owned paths. It returns no bytes, URLs, HTTP metadata, or custom metadata.
+
+All Database, KV, Blob, and Content read tools are marked read-only.
+
+### Comments, section `comments`
 
 | Tool | Needs | Does |
 | --- | --- | --- |

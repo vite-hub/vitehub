@@ -93,6 +93,8 @@ export function addConsoleRpcHandler(
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
     const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)
     const conflict = !registration.middleware && retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
+    // Discovery middleware serves Console-owned URLs first and delegates the rest to the app.
+    if (conflict && registration.absolute) continue
     if (conflict) {
       const message =
         registration.suffix === "/_vitehub/rpc/**"

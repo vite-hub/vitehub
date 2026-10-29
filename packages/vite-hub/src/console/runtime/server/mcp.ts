@@ -13,6 +13,7 @@ import { isConsoleDevelopmentRuntime } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
 import type { AnyOperation, OperationContext, OperationFailure } from "@vite-hub/internal/operations"
+import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
 import type { H3Event } from "h3"
 import type { ConsoleAccess } from "./access.ts"
 import type { McpTool, McpToolResult } from "./mcp-protocol.ts"
@@ -57,10 +58,11 @@ function toolTitle(operation: AnyOperation): string {
 }
 
 /** A tool for each operation that MCP offers and the caller's sections show. The call checks the section again. */
-function operationTools(context: ToolContext): McpTool[] {
+function operationTools(context: ToolContext, registeredNames: ReadonlySet<string>): McpTool[] {
   const { access } = context
   return consoleOperationRegistry().list()
     .filter(operation => operation.mcp !== false
+      && !registeredNames.has(operationToolName(operation.name))
       // An operation that reads its section from the input is checked when it runs.
       && (operation.section instanceof Function || operationAccessAllows(access, operation.section, operation.readOnlyWhen ? undefined : operation)))
     .map((operation) => {
@@ -107,12 +109,9 @@ function operationTools(context: ToolContext): McpTool[] {
 }
 
 /** The tools that owner packages register, such as Comments: their section is installed and in the user's Console access. */
-function registeredTools({ access, event }: ToolContext): McpTool[] {
-  const installed = getConsoleSections()
-  return getViteHubMcpTools()
-    .filter(tool => installed.includes(tool.section) && (
-      tool.annotations?.readOnlyHint === true ? consoleAccessAllows(access, tool.section) : consoleAccessWrites(access, tool.section)
-    ))
+function registeredTools({ access, event }: ToolContext, tools: readonly ViteHubMcpTool[]): McpTool[] {
+  return tools
+    .filter(tool => tool.annotations?.readOnlyHint === true ? consoleAccessAllows(access, tool.section) : consoleAccessWrites(access, tool.section))
     .map(tool => ({
       name: tool.name,
       title: tool.title,
@@ -132,6 +131,12 @@ function registeredTools({ access, event }: ToolContext): McpTool[] {
           }
         }
         catch (error) {
+          // A Console request error tells the Agent what to change without exposing server failures.
+          const status = Number(Reflect.get(Object(error), "statusCode"))
+          if (status >= 400 && status < 500 && error instanceof Error) {
+            const statusMessage = Reflect.get(error, "statusMessage")
+            return { content: [{ type: "text", text: typeof statusMessage === "string" ? statusMessage : error.message }], isError: true }
+          }
           console.error(`[vitehub] ViteHub MCP tool ${tool.name} failed:`, error)
           return { content: [{ type: "text", text: `${tool.name} failed on the server.` }], isError: true }
         }
@@ -168,10 +173,15 @@ const guarded = withConsoleAccess(async (event: H3Event, access: ConsoleAccess) 
     return Response.json({ code, ...(fix ? { fix } : {}), message }, { headers: { "cache-control": "no-store" }, status: 403 })
   }
   const context = { access, event, request }
+  const installed = getConsoleSections()
+  const registered = getViteHubMcpTools().filter(tool => installed.includes(tool.section))
+  // Package tools keep their advertised contract when an operation has the same MCP name.
+  // Resolve names before access filtering, so a hidden registered tool cannot fall back to a different operation.
+  const registeredNames = new Set(registered.map(tool => tool.name))
   return serveMcp(request, {
     serverInfo,
     instructions,
-    tools: [...operationTools(context), ...registeredTools(context)],
+    tools: [...operationTools(context, registeredNames), ...registeredTools(context, registered)],
     ...(access.scopes ? { scopes: access.scopes } : {}),
     challenge: async scopes => mcpChallenge(await oauthState(event), { description: "The access token lacks a scope that this tool needs.", error: "insufficient_scope", scope: scopes.join(" ") }),
   })

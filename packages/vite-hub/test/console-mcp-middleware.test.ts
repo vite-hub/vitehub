@@ -91,7 +91,7 @@ it.each(["", "/portal"])("runs generated middleware before MCP at mount '%s' wit
     })
     const handler = async (event: object) => await guard.default(event) ?? Reflect.apply(consoleMcpHandler, undefined, [event])
     const app = createApp()
-    app.use(eventHandler(handler))
+    app.use(mount || "/", eventHandler(handler))
     const server = createServer(toNodeListener(app))
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
     try {

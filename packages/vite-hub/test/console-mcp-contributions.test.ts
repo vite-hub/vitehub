@@ -2,10 +2,15 @@ import { Readable } from "node:stream"
 
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { H3 } from "h3"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
+import { commentsOperations } from "../../comments/src/operations-core/operations.ts"
+import { commentsMcpTools } from "../../comments/src/runtime/mcp.ts"
+import { ada, anchor, createComments } from "../../comments/test/harness.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { addConsoleRpcHandler } from "../src/console/nitro.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
+import { installConsoleDatabase } from "../src/console/runtime/server/database.ts"
 import handler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
@@ -42,12 +47,47 @@ async function rpc(message: unknown, init: { headers?: Record<string, string>, m
 }
 
 afterEach(() => {
+  installConsoleOperations([])
+  vi.restoreAllMocks()
   calls.length = 0
   Reflect.deleteProperty(globalThis, policyKey)
   Reflect.deleteProperty(globalThis, Symbol.for("vitehub.mcp.tools"))
 })
 
 describe("MCP owner contributions", () => {
+  it("resolves real Comments operations and registered tools to one callable contract", async () => {
+    const comments = await createComments()
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Please fix this", author: ada })
+    installConsoleAccess({ mode: "auth", check: async () => undefined, user: async () => ada })
+    installConsoleSections("/mcp-test", ["comments"])
+    installConsoleOperations([{ operations: commentsOperations, plugin: "@vite-hub/comments" }])
+    registerViteHubMcpTools("comments", commentsMcpTools(comments))
+
+    expect((await rpc({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "test", version: "1" } } })).status).toBe(200)
+    expect((await rpc({ jsonrpc: "2.0", id: 2, method: "ping" })).body.result).toEqual({})
+    const list = (await rpc({ jsonrpc: "2.0", id: 3, method: "tools/list" })).body.result.tools
+    const names = list.map((entry: { name: string }) => entry.name)
+    expect(new Set(names).size).toBe(names.length)
+    expect(list.find((entry: { name: string }) => entry.name === "comments_reply").inputSchema.required).toEqual(["id", "body"])
+    const result = await rpc({ jsonrpc: "2.0", id: 4, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Fixed" } } })
+    expect(result.body.result.isError).toBe(false)
+    const [, updated] = await comments.get(thread!.id)
+    expect(updated?.comments.at(-1)).toMatchObject({ body: "Fixed", author: ada })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments:read"] }) })
+    const readOnly = await rpc({ jsonrpc: "2.0", id: 5, method: "tools/list" })
+    expect(readOnly.body.result.tools.some((entry: { name: string }) => entry.name === "comments_reply")).toBe(false)
+    expect((await rpc({ jsonrpc: "2.0", id: 6, method: "tools/call", params: { name: "comments_reply", arguments: { id: thread!.id, body: "Denied" } } })).body.error.code).toBe(-32602)
+  })
+
+  it("retains application OAuth wildcard discovery handlers", () => {
+    const handlers = ["oauth-protected-resource", "oauth-authorization-server"].map(name => ({ route: `/.well-known/${name}/**`, handler: `/app/${name}.js` }))
+    const config = { handlers: [...handlers] }
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
+    for (const handler of handlers) expect(config.handlers).toContainEqual(handler)
+    expect(config.handlers.filter(handler => handler.route.endsWith("/**") && handler.route.startsWith("/.well-known/"))).toEqual(handlers)
+    expect(config.handlers[0]?.handler).toBe("/runtime/server/mcp-discovery.js")
+  })
+
   it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {
     installConsoleAccess({ mode: "open" })
     installConsoleSections("/mcp-test", ["comments"])
@@ -187,5 +227,49 @@ describe("MCP owner contributions", () => {
     expect(calls).toHaveLength(0)
     expect((await rpc(call("small"))).body.result.isError).toBe(false)
     expect(calls).toHaveLength(1)
+  })
+
+  it("runs registered Database tools only inside installed and allowed sections", async () => {
+    installConsoleDatabase("/mcp-test", {}, [])
+    installConsoleSections("/mcp-test", ["databases", "comments"])
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["databases"] }) })
+    const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+    expect(list.body.result.tools.map((tool: { name: string }) => tool.name).filter((name: string) => name.startsWith("database_"))).toEqual(["database_list_databases", "database_get_schema"])
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "database_list_databases" } }
+    expect((await rpc(call)).body.result.structuredContent).toEqual({ databases: [] })
+    installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
+    expect((await rpc(call)).body.error.code).toBe(-32602)
+    installConsoleAccess({ mode: "open" })
+    installConsoleSections("/mcp-test", ["comments"])
+    expect((await rpc(call)).body.error.code).toBe(-32602)
+  })
+
+  it.each([undefined, "2025-06-18", "2025-11-25"])("reports schema validation failures and actionable tool request errors for revision %s", async (version) => {
+    installConsoleDatabase("/mcp-test", {}, [])
+    installConsoleSections("/mcp-test", ["databases"])
+    installConsoleAccess({ mode: "open" })
+    const init = { headers: version ? { "MCP-Protocol-Version": version } : undefined }
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "database_get_schema", arguments: { database: 7 } } }
+    const invalid = (await rpc(call, init)).body
+    if (version === "2025-11-25") expect(invalid.result).toMatchObject({ isError: true, content: [{ text: expect.stringContaining("database_get_schema") }] })
+    else expect(invalid.error).toMatchObject({ code: -32602, message: expect.stringContaining("database_get_schema") })
+    const validCall = { ...call, params: { ...call.params, arguments: { database: "missing" } } }
+    expect((await rpc(validCall, init)).body.result).toMatchObject({ content: [{ text: "No Database Definitions are configured." }], isError: true })
+  })
+
+  it.each([
+    { error: Object.assign(new Error("Choose a valid limit."), { statusCode: 400 }), text: "Choose a valid limit." },
+    { error: Object.assign(new Error("Internal diagnostics."), { statusCode: 404, statusMessage: "Store not found." }), text: "Store not found." },
+    { error: Object.assign(new Error("Private server details."), { statusCode: 500, statusMessage: "Private server details." }), text: "comments_checked failed on the server." },
+    { error: new Error("Private server details."), text: "comments_checked failed on the server." },
+  ])("returns safe tool error text: $text", async ({ error, text }) => {
+    vi.spyOn(console, "error").mockImplementation(() => {})
+    installConsoleSections("/mcp-test", ["comments"])
+    installConsoleAccess({ mode: "open" })
+    const checked = tool("comments_checked", "comments")
+    checked.call = async () => { throw error }
+    registerViteHubMcpTools("comments", [checked])
+    const result = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: checked.name } })
+    expect(result.body.result).toEqual({ content: [{ type: "text", text }], isError: true })
   })
 })
