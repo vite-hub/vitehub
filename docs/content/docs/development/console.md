@@ -198,11 +198,19 @@ Each connection has its own grant and its own MCP session. So you can open the s
 
 ### What the MCP client keeps
 
-The Console keeps MCP connections in server memory, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. A ViteHub MCP connection keeps no credentials. The browser gets the account, the server details, the scopes, and the time the token expires. A server restart ends all connections.
+The Console keeps MCP connections on the server, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. A ViteHub MCP connection keeps no credentials. The browser gets the account, the server details, the scopes, and the time the token expires.
+
+By default, connections stay in server memory, and a restart ends them. Set `VITEHUB_CONSOLE_MCP_KEY` to keep them in the app's default [KV](/docs/kv) store instead:
+
+```sh
+openssl rand -base64 32
+```
+
+With the key, the Console seals each connection and each client registration with AES-GCM and writes it under `vitehub:console:mcp-client:`. The key names hold a hash of the owner, not their id or email. A sealed value opens only under its own key name and with the same key, so after a key change the old connections read as missing. Connections then outlive a restart, and every instance of the app reads the same ones, so a sign-in can start on one instance and finish on another. Use a KV driver that every instance shares, such as Cloudflare KV. Two requests that change one connection at the same time keep the last write. When both refresh the token, the connection can ask you to sign in again.
 
 Every MCP request starts on the server. A person who has the `mcp-client` section can make the server send requests to URLs that they choose, so give the section only to people you trust with the network of the server. Agents and ViteHub MCP cannot use these connections. The `vitehub` CLI of `vite dev` uses them as the local developer.
 
-Use the MCP client in development or on one Node server. Hosts that run many instances, such as Cloudflare Workers, keep one memory per instance. A sign-in can start on one instance and finish on another, where it fails.
+Without the key, use the MCP client in development or on one Node server. Hosts that run many instances, such as Cloudflare Workers, keep one memory per instance. A sign-in can start on one instance and finish on another, where it fails.
 
 ## Develop against a fixture
 
@@ -668,6 +676,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_MCP_UNREACHABLE` | `502` | Check that the MCP server runs and that the URL is its Streamable HTTP endpoint, such as `/mcp`. |
 | `CONSOLE_MCP_SIGNED_OUT` | `409` | Sign in again. For a token, connect again with a new one. |
 | `CONSOLE_MCP_AUTHORIZATION_FAILED` | `400`, `404`, `409`, `502` | Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration. |
+| `CONSOLE_MCP_KEY_INVALID` | `500` | Set `VITEHUB_CONSOLE_MCP_KEY` to 32 random bytes as base64 or hex, such as the output of `openssl rand -base64 32`. |
 
 A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
