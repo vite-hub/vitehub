@@ -200,6 +200,12 @@
       "require": "./dist/runtime/mcp-tools.js",
       "default": "./dist/runtime/mcp-tools.js"
     },
+    "./runtime/page-tools": {
+      "types": "./dist/runtime/page-tools.d.ts",
+      "import": "./dist/runtime/page-tools.js",
+      "require": "./dist/runtime/page-tools.js",
+      "default": "./dist/runtime/page-tools.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",

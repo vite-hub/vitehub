@@ -66,6 +66,7 @@ export default defineConfig({
       "src/runtime/cloudflare-hosted.ts",
       "src/runtime/h3-v1-request.ts",
       "src/runtime/mcp-tools.ts",
+      "src/runtime/page-tools.ts",
       "src/runtime/random.ts",
       "src/runtime/request-origin.ts",
       "src/runtime/time-zone.ts",
