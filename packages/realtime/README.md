@@ -1,10 +1,10 @@
 # @vite-hub/realtime
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Yjs" src="https://img.shields.io/badge/Yjs-collaboration-f7df1e?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Yjs" src="https://comark-ui.onmax.me/badge.svg?label=Yjs&amp;value=collaboration">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/realtime` synchronizes TipTap editors through Yjs while a ViteHub Workspace owns the canonical Markdown files. Use the package directly when you compose ViteHub's modular Vite integrations. Use [`vite-hub`](https://www.npmjs.com/package/vite-hub) when you want the combined distribution.

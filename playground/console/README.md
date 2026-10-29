@@ -6,8 +6,9 @@ Run the real Console client against deterministic, synthetic data:
 pnpm exec vp run console:dev
 ```
 
-Open <http://localhost:5173/_vitehub/>. Console components and `@vite-hub/ui`
-load directly from source, so UI edits use Vite hot module replacement.
+Open <http://localhost:5173/_vitehub/>. Console components, `@vite-hub/ui`, and
+the browser modules of Auth, Content, and Realtime load directly from source, so
+the playground needs no build and UI edits use Vite hot module replacement.
 
 The `Review image attachments` session covers persisted input and output images with landscape and portrait fixtures. `mock-rpc.ts` connects the Console's RPC calls to the synthetic HTTP responses.
 
@@ -22,9 +23,19 @@ the read-only Usage, KV, Workflow, Queue, and search responses needed by the
 Console. `rpc.ts` connects the Console's SSE RPC transport to those local fixture
 routes. It also serves a synthetic Connections management API
 with three OAuth Connections, one API key Connection, their activity, and one pending approval. Usage filters and pagination use the real usage aggregation code.
-Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. The Email outbox uses the real development outbox driver and Console reader.
+Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows, and Queues answer from synthetic stores, records, and definitions in `mock-api.ts`, so every Console section renders without a provider. The `passkey` Database table has no rows, so it shows the empty table state. The Email outbox uses the real development outbox driver and Console reader.
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
+
+To check Content loading and Rich/Source editing, start this playground on a fixed port and run the browser regression:
+
+```bash
+pnpm exec vp dev --config playground/console/vite.config.ts --host 127.0.0.1 --port 3087
+# In another terminal, from the repository root:
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-content.browser.mjs
+```
+
+The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
 
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/api/_vitehub/console/`, and it also matches the paths under it:

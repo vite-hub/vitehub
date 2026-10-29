@@ -493,7 +493,6 @@ async function createTrustedHostSession(options: {
   const processGroups = new Set<number>();
   const session = {
     defaultWorkingDirectory: options.workspace ? options.root : workspace,
-    description: "Trusted host Sandbox.",
     env: options.env,
     home: options.home,
     id: options.sessionId || randomUUID(),

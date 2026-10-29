@@ -7,20 +7,21 @@ import { H3Event } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { defineSchedule } from "@vite-hub/schedule"
+import { scheduleOperations } from "@vite-hub/schedule/operations"
 import { resetScheduleRuntime } from "@vite-hub/schedule/runtime"
 import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
 
 import { consoleDefinitionsKey, consoleDefinitionsRegistryKey, consoleDefinitionsRootKey, consoleSchedulesKey, consoleSchedulesRegistryKey, consoleSchedulesRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { discoverConsoleBuildCatalog } from "../src/console/build.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import definitionsHandlerRoute from "../src/console/runtime/server/definitions.get.ts"
 import { installConsoleDefinitions, installConsoleSchedules } from "../src/console/runtime/server/definitions.ts"
-import scheduleRunRoute, { handleConsoleScheduleRunRequest, handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
+import scheduleRunRoute, { handleDispatchScheduleRunRequest } from "../src/console/runtime/server/schedule-run.ts"
+import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
-import type { ConsoleRpcInput, ConsoleRpcMethod } from "../src/console/runtime/rpc.ts"
 import { allowed } from "./support/console-access.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
@@ -55,6 +56,7 @@ afterEach(async () => {
     Reflect.deleteProperty(process, key)
   }
   resetScheduleRuntime()
+  installConsoleOperations([])
 })
 
 const scheduleSummary = (name: string) => ({
@@ -65,11 +67,21 @@ const scheduleSummary = (name: string) => ({
 })
 
 function installSchedules(handler: () => unknown = () => {}) {
+  installConsoleOperations([{ operations: scheduleOperations, plugin: "@vite-hub/schedule/vite" }])
   installConsoleSections("/schedule-run", ["schedules"])
   installConsoleDefinitions("/schedule-run", { schedules: { definitions: [scheduleSummary("sync"), scheduleSummary("nightly")], kind: "definition-catalog" } })
   installConsoleSchedules("/schedule-run", {
     sync: async () => ({ default: defineSchedule("*/5 * * * *", handler, { manual: true }) }),
   })
+}
+
+async function call(operation: string, input: Record<string, unknown>): Promise<unknown> {
+  const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
+    body: JSON.stringify({ input, operation }),
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
+    method: "POST",
+  }))
+  return response.json()
 }
 
 function runRequest(body: unknown, headers: Record<string, string> = {}) {
@@ -87,9 +99,9 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/sync.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("sync")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "sync" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], [], undefined, undefined, true)
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
     const invokeEnabled = await readFile(plugin, "utf8")
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], [])
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [])
     const invokeDisabled = await readFile(plugin, "utf8")
 
     expect(invokeEnabled).toContain(`import { installConsoleDefinitions, installConsoleSchedules } from "vite-hub/console/definitions"`)
@@ -104,7 +116,7 @@ describe("Console Schedule runs", () => {
     const handler = join(root, "server/schedules/__proto__.ts")
     const catalog = { agents: [], content: { schedules: { definitions: [scheduleSummary("__proto__")], kind: "definition-catalog" as const } }, manualSchedules: [{ handler, name: "__proto__" }] }
 
-    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], [], undefined, undefined, true)
+    await writeConsoleNitroPlugin(plugin, root, ["schedules"], [], catalog, [], undefined, undefined, true)
 
     expect(await readFile(plugin, "utf8")).toContain(`{ ["__proto__"]: () => import(${JSON.stringify(pathToFileURL(handler).href)}) }`)
   })
@@ -150,18 +162,9 @@ describe("Console Schedule runs", () => {
   it("runs a Schedule through the Console RPC operation", async () => {
     let calls = 0
     installSchedules(() => { calls++ })
-    async function call(method: ConsoleRpcMethod, input: ConsoleRpcInput) {
-      const response = await handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call", {
-        body: JSON.stringify({ input, method }),
-        headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
-        method: "POST",
-      }))
-      return response.json()
-    }
-
-    const run = await call(consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST" })
-    const unavailable = await call(consoleRpcMethods.scheduleRun, { body: { name: "nightly" }, method: "POST" })
-    const read = await call(consoleRpcMethods.scheduleRun, { method: "GET" })
+    const run = await call("schedule.run", { name: "sync" })
+    const unavailable = await call("schedule.run", { name: "nightly" })
+    const read = await call("schedule.run", {})
 
     expect(run).toEqual({
       ok: true,
@@ -176,11 +179,12 @@ describe("Console Schedule runs", () => {
       },
     })
     expect(unavailable).toMatchObject({
+      code: "SCHEDULE_DEFINITION_NOT_FOUND",
       message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation.",
       ok: false,
       status: 404,
     })
-    expect(read).toMatchObject({ ok: false, status: 405 })
+    expect(read).toMatchObject({ code: "INTERNAL_R0022", ok: false, status: 400 })
     expect(calls).toBe(1)
   })
 
@@ -189,18 +193,19 @@ describe("Console Schedule runs", () => {
       throw new TypeError("mailbox unavailable")
     })
 
-    const response = await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }))
+    const body = await call("schedule.run", { name: "sync" })
 
-    expect(response.status).toBe(200)
-    const body: unknown = await response.json()
     expect(body).toEqual({
-      run: {
-        completedAt: expect.any(String),
-        error: { message: "mailbox unavailable", name: "TypeError" },
-        id: expect.stringMatching(/^srun_manual_sync_/),
-        scheduleId: "sync",
-        startedAt: expect.any(String),
-        status: "failed",
+      ok: true,
+      value: {
+        run: {
+          completedAt: expect.any(String),
+          error: { message: "mailbox unavailable", name: "TypeError" },
+          id: expect.stringMatching(/^srun_manual_sync_/),
+          scheduleId: "sync",
+          startedAt: expect.any(String),
+          status: "failed",
+        },
       },
     })
   })
@@ -248,27 +253,23 @@ describe("Console Schedule runs", () => {
     expect(await response.json()).toEqual({ message: expect.stringMatching(/Dispatch is not configured|Malformed dispatch signature/) })
   })
 
-  it("accepts only same-origin JSON requests on the Console route", async () => {
+  it("takes only signed dispatches on the route, and sends everyone else to the operation", async () => {
     installSchedules()
+    const response = await scheduleRunRoute(Object.assign(Object.create(null), { req: runRequest({ name: "sync" }) }))
 
-    const form = await handleConsoleScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", {
+    expect(response.status).toBe(401)
+    expect(await response.json()).toEqual({ message: expect.stringContaining("vitehub schedule run") })
+  })
+
+  it("rejects non-JSON, malformed, and oversized dispatch bodies before reading their full stream", async () => {
+    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
+    const form = await handleDispatchScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", {
       body: "name=sync",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       method: "POST",
-    }))
-    const crossOrigin = await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }, { origin: "https://attacker.example" }))
-    const malformed = await handleConsoleScheduleRunRequest(new Request("https://app.example/_vitehub/schedules/run", {
-      body: "{",
-      headers: { "content-type": "application/json" },
-      method: "POST",
-    }))
-    const sameOrigin = await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }, { origin: "https://app.example" }))
+    }), env)
+    expect(form.status).toBe(415)
 
-    expect([form.status, crossOrigin.status, malformed.status, sameOrigin.status]).toEqual([415, 403, 400, 200])
-    expect(sameOrigin.headers.get("cache-control")).toBe("no-store")
-  })
-
-  it("rejects oversized bodies before reading their full stream", async () => {
     let cancelled = false
     let reads = 0
     const body = new ReadableStream<Uint8Array>({
@@ -285,61 +286,54 @@ describe("Console Schedule runs", () => {
       duplex: "half",
     } as RequestInit)
 
-    expect((await handleConsoleScheduleRunRequest(request)).status).toBe(413)
+    const response = await handleDispatchScheduleRunRequest(request, env)
+    expect(response.status).toBe(413)
+    await expect(response.json()).resolves.toEqual({ message: "Schedule run request body is too large." })
     expect(reads).toBe(1)
     expect(cancelled).toBe(true)
     expect(body.locked).toBe(false)
-    expect((await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }, { "content-length": "16385" }))).status).toBe(413)
+    expect((await handleDispatchScheduleRunRequest(runRequest({ name: "sync" }, { "content-length": "16385" }), env)).status).toBe(413)
   })
 
-  it("keeps the Schedule size error when stream cancellation fails", async () => {
-    const body = new ReadableStream<Uint8Array>({
-      pull(controller) { controller.enqueue(new Uint8Array(17 * 1_024)) },
-      cancel() { throw new Error("cleanup failed") },
-    }, { highWaterMark: 0 })
-    const request = new Request("https://app.example/_vitehub/schedules/run", {
-      body,
-      headers: { "content-type": "application/json" },
-      method: "POST",
-      duplex: "half",
-    } as RequestInit)
-
-    const response = await handleConsoleScheduleRunRequest(request)
-
-    expect(response.status).toBe(413)
-    await expect(response.json()).resolves.toEqual({ message: "Schedule run request body is too large." })
-    expect(body.locked).toBe(false)
-  })
-
-  it("accepts an exact-limit streamed Schedule body and releases the reader", async () => {
+  it("accepts an exact-limit streamed dispatch body and releases the reader", async () => {
     installSchedules()
+    const env = { VITEHUB_SECRET: "dispatch-root-secret-at-least-32-characters" }
     const payload = JSON.stringify({ name: "sync", label: "café 🌍" })
-    const encoded = new TextEncoder().encode(payload)
+    const text = payload + " ".repeat(16 * 1_024 - new TextEncoder().encode(payload).byteLength)
+    const key = await resolveViteHubDispatchKey(env)
+    const encoded = new TextEncoder().encode(text)
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        for (const byte of encoded) controller.enqueue(new Uint8Array([byte]))
-        controller.enqueue(new TextEncoder().encode(" ".repeat(16 * 1_024 - encoded.byteLength)))
+        for (let offset = 0; offset < encoded.byteLength; offset += 512) controller.enqueue(encoded.slice(offset, offset + 512))
         controller.close()
       },
     })
     const request = new Request("https://app.example/_vitehub/schedules/run", {
       body,
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", ...await signViteHubDispatch({ actor: "ci", body: text, key: key!, operation: "schedule.run" }) },
       method: "POST",
       duplex: "half",
     } as RequestInit)
 
-    expect((await handleConsoleScheduleRunRequest(request)).status).toBe(200)
+    expect((await handleDispatchScheduleRunRequest(request, env)).status).toBe(200)
     expect(body.locked).toBe(false)
   })
 
-  it("returns 404 when Console invocation did not install Schedule runs", async () => {
+  it("answers 404 through the operation when Console invocation did not install Schedule runs", async () => {
     installConsoleSections("/schedule-run", ["schedules"])
     installConsoleSchedules("/schedule-run", {})
+    installConsoleOperations([{ operations: scheduleOperations, plugin: "@vite-hub/schedule/vite" }])
 
-    const response = await handleConsoleScheduleRunRequest(runRequest({ name: "sync" }))
+    expect(await call("schedule.run", { name: "sync" })).toMatchObject({ code: "SCHEDULE_DEFINITION_NOT_FOUND", ok: false, status: 404 })
+  })
 
-    expect(response.status).toBe(404)
-    await expect(response.json()).resolves.toEqual({ message: "Schedule run is not available. Set manual: true on the Schedule Definition and enable Console invocation." })
+  it("lists the runs and the attempts of a Schedule", async () => {
+    installSchedules()
+    await call("schedule.run", { name: "sync" })
+    const runs = await call("schedule.runs", { id: "sync" }) as { ok: true, value: { runs: Array<{ id: string }> } }
+    expect(runs).toMatchObject({ ok: true, value: { runs: [{ scheduleId: "sync", status: "succeeded" }] } })
+    const attempts = await call("schedule.attempts", { id: runs.value.runs[0]!.id })
+    expect(attempts).toMatchObject({ ok: true, value: { attempts: [{ status: "succeeded" }], run: { id: runs.value.runs[0]!.id } } })
+    expect(await call("schedule.attempts", { id: "srun_missing" })).toMatchObject({ code: "SCHEDULE_RUN_NOT_FOUND", ok: false, status: 404 })
   })
 })

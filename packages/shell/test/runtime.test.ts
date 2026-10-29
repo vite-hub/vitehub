@@ -6,6 +6,7 @@ import {
   createShellRuntime,
 } from "../src/index.ts"
 import { createJustBashProvider } from "../src/providers/just-bash.ts"
+import { createShellRuntime as createPackagedShellRuntime } from "../dist/index.js"
 import { MemoryWorkspace } from "./workspace-test-utils.ts"
 import {
   createReadonlyWorkspaceFs,
@@ -62,6 +63,61 @@ function createBackgroundProvider(
 function stoppedProcessObservation(command: string) {
   return { command, event: "command_finished" as const, exitCode: 0, stderr: "", stdout: "" }
 }
+
+describe.each([
+  ["source", createShellRuntime],
+  ["packaged", createPackagedShellRuntime],
+] as const)("%s background output limits", (_entry, createRuntime) => {
+  it.each([
+    { policyLimit: 4, requested: undefined, limit: 4 },
+    { policyLimit: 4, requested: 100, limit: 4 },
+    { policyLimit: 4, requested: 2, limit: 2 },
+    { policyLimit: 4, requested: 0, limit: 0 },
+    { policyLimit: undefined, requested: undefined, limit: undefined },
+  ])("enforces policy $policyLimit with requested limit $requested", async ({ policyLimit, requested, limit }) => {
+    const stdout: string[] = []
+    const stderr: string[] = []
+    let providerLimit: number | undefined
+    const provider = createBackgroundProvider(async (command, options) => {
+      providerLimit = options?.maxOutputLength
+      options?.onStdout?.("abc")
+      options?.onStderr?.("123")
+      return {
+        id: "worker", command,
+        async stop() {
+          options?.onStdout?.("defghi")
+          options?.onStderr?.("456789")
+          return new class implements ShellObservation {
+            get command() { return command }
+            get event() { return "command_finished" as const }
+            get exitCode() { return 0 }
+            get stdout() { return "abcdefghi" }
+            get stderr() { return "123456789" }
+          }()
+        },
+      }
+    })
+    const session = createRuntime({ provider, policy: { maxOutputLength: policyLimit } }).createSession()
+    try {
+      const process = await session.startProcess("worker", {
+        maxOutputLength: requested,
+        onStdout: value => stdout.push(value),
+        onStderr: value => stderr.push(value),
+      })
+      const result = await process.stop()
+      expect(stdout.join("")).toBe("abcdefghi".slice(0, limit))
+      expect(stderr.join("")).toBe("123456789".slice(0, limit))
+      expect(providerLimit).toBe(limit)
+      expect(result).toMatchObject({ command: "worker", event: "command_finished", exitCode: 0 })
+      const suffix = limit === undefined ? "" : `\n[output truncated to ${limit} characters]\n`
+      expect(result.stdout).toBe(`${"abcdefghi".slice(0, limit)}${suffix}`)
+      expect(result.stderr).toBe(`${"123456789".slice(0, limit)}${suffix}`)
+      expect(result.outputTruncated).toBe(limit === undefined ? undefined : true)
+      expect(result.maxOutputLength).toBe(limit)
+    }
+    finally { await session.dispose() }
+  })
+})
 
 describe("@vite-hub/shell just-bash runtime", () => {
   it("exposes stable public package subpaths", async () => {

@@ -325,7 +325,7 @@ export interface ViteHubNitroDevEndpointOptions extends ViteHubNitroDevForwardOp
   authorize?: (request: IncomingMessage) => Promise<Response | undefined>
   /** Public discovery metadata. Never include credentials. */
   discovery?: Record<string, unknown>
-  /** Vite Development Server route that the CLI calls, for example `/__vitehub/schedule/dev`. */
+  /** Vite Development Server route that the CLI calls, for example `/__vitehub/workspace/dev`. */
   route: string
 }
 

@@ -23,14 +23,18 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/agent` | Agent Definition, invocation, trigger, and Agent Actor APIs. |
 | `vite-hub/agent/capabilities` | Official Capability factories. |
 | `vite-hub/agent/channels` | Official Channel Kind helpers. |
-| `vite-hub/agent/gateways` | LLM proxy and gateway presets for provider Drivers. |
 | `vite-hub/agent/eval` | Agent Eval authoring helpers; install Evalite and the test runner explicitly. |
 | `vite-hub/agent/observability` | `useObservability()` for the instance configured by `vitehub({ observability })`. |
+| `vite-hub/logs` | Evlog's logger API and readable LogSource helpers. Requires the optional `evlog` peer. |
+| `vite-hub/logs/source` | Server-side LogSource contract, query validation, and cursor errors without Evlog. |
+| `vite-hub/logs/memory` | Bounded local buffer for an existing redacted drain. Runtime independent from Evlog; its types require `evlog`. |
+| `vite-hub/logs/host` | Install and resolve a project's LogSource through the process-shared registry without Evlog. |
 | `vite-hub/agent/cloudflare` | Cloudflare Agent state configuration helpers. |
 | `vite-hub/agent/vue` | Vue Agent client handle and AI SDK chat composable. |
 | `vite-hub/agent/server` and `vite-hub/agent/state/sqlite` | Manual server integration and libSQL-compatible durable Agent state. |
 | `vite-hub/agent/server/github` | GitHub host access, App credentials, command execution and checkout lifecycle. |
 | `vite-hub/agent/process-host` | Attach a long-running Node process host to an Agent Definition from a preset. |
+| `vite-hub/gateways` | [AI gateways](/docs/agents/ai-gateways): routes for Codex and Claude Code model requests, and `ask()` for TypeSafe Jev questions. Re-exports `@vite-hub/gateways`. |
 | `vite-hub/presets/babysitter` | Composable Babysitter repair-loop preset. |
 | `vite-hub/presets/babysitter/server` | Babysitter host runtime integration. |
 | `vite-hub/presets/labeller` | Gmail labelling preset with ordered rules, Jev fallback, and allowlisted message actions. |
@@ -50,7 +54,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/documents` | Content document editor registration for framework server integrations. |
 | `vite-hub/console/definitions` | Read-only Definition inspection registration for framework server integrations. |
 | `vite-hub/console/env` | Server Env declaration inventory registration for framework server integrations. |
-| `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |
 | `vite-hub/console/ui` | Agent Invocation views from the Console: `AgentInvocation`, `AgentInvocationList`, and `AgentCapabilityInspector`. |
@@ -72,9 +75,11 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/browser/controllers/cdp` and `vite-hub/browser/controllers/playwright` | Advanced raw CDP and Playwright Browser Session controllers. |
 | `vite-hub/browser/providers/cloudflare` and `vite-hub/browser/providers/local` | Advanced explicit provider selection for low-level Browser Clients. |
 | `vite-hub/channels` and `vite-hub/channels/server` | Outbound Channel Definitions with `defineOutboundChannel()` and discovered named delivery. |
-| `vite-hub/comments` | `defineComments()` for `server/comments.ts`, the Comments runtime, and the thread, comment, and anchor types. |
+| `vite-hub/comments` | `defineComments()` for `server/comments.ts`: a named export provides the live-site runtime; a default export defines authorized [Comment operations](/docs/comments/operations/get-started). |
 | `vite-hub/comments/anchor`, `vite-hub/comments/database`, `vite-hub/comments/realtime`, `vite-hub/comments/runtime`, and `vite-hub/comments/runtime/auth` | Pin anchors for the browser, the Comments tables, and the presence room, API handler, Nitro plugin, and Auth session reader that generated output imports. |
+| `vite-hub/comments/client`, `vite-hub/comments/rpc`, `vite-hub/comments/server`, and `vite-hub/comments/database/postgres` | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
 | `vite-hub/connections`, `vite-hub/connections/google`, and `vite-hub/connections/server` | Connection Definitions, the Google preset with typed Gmail Operations, and runtime access. |
+| `vite-hub/connections/chatgpt` | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `vite-hub/connections/agent` and `vite-hub/connections/http` | Agent primitive handle, and the management and OAuth routes that the Console mounts. |
 | `vite-hub/sandbox` | Sandbox Definitions and built-in runtime selection for trusted-host, Crabbox, Cloudflare Sandbox, and Vercel Sandbox execution. |
 | `vite-hub/sandbox/ssh` | `sshLaunch` for provider Driver launch callbacks and `serveSsh` for a trusted SSH runner. |
@@ -92,6 +97,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/kv` | KV Runtime Helper. |
 | `vite-hub/markdown-template` | Portable Markdown rendering from template strings. |
 | `vite-hub/markdown-template/file` | Filesystem Markdown rendering from explicit file paths or `file:` URLs. |
+| `vite-hub/operations` | `defineOperation()` and its types. See [Operations](/docs/development/operations). |
 | `vite-hub/queue` | Queue Definitions and dispatch helpers. |
 | `vite-hub/rate-limit` | Source-local managed Rate Limit handles and direct Rate Limiters. |
 | `vite-hub/realtime`, `vite-hub/realtime/server`, and `vite-hub/realtime/vue` | Realtime Definitions, manual server integration, and Vue collaborative editing, saved through [Realtime document adapters](/docs/realtime/server-api#custom-document-adapters). |
@@ -99,7 +105,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/runtime/h3` | H3 Runtime Context adapter, Standard Context types, and `installStandardContext()`. |
 | `vite-hub/runtime/node` | Node process, host, and Linux cgroup resource observations. |
 | `vite-hub/sandbox` | Sandbox Definitions and Sandbox Run helpers. |
-| `vite-hub/sandbox-task` | Sandbox Task Definitions and `runSandboxTask()`. |
+| `vite-hub/sandbox/task` | Sandbox Task Definitions and `runSandboxTask()`. |
 | `vite-hub/schedule` and `vite-hub/schedule/runtime` | Static Schedule Definitions, manual runs, and Schedule Run stores. |
 | `vite-hub/schedule/runtime/process` | Process Runtime that runs Static Schedules in a long-lived Node process. |
 | `vite-hub/schedule/runtime/kv` | ViteHub KV storage adapter for Schedule Runs. |
@@ -120,7 +126,7 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/ui/tool-list`, `vite-hub/ui/trace-run` | Focused imports for tool contract and trace run components. |
 | `vite-hub/ui/code-view`, `vite-hub/ui/file-view`, `vite-hub/ui/file-diff`, `vite-hub/ui/multi-file-diff`, `vite-hub/ui/patch-diff`, `vite-hub/ui/unresolved-file` | Focused imports for code and diff components. |
 | `vite-hub/ui/file-tree` | Focused import for the file tree component. |
-| `vite-hub/ui/avatar-stack`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
+| `vite-hub/ui/avatar-stack`, `vite-hub/ui/comments`, `vite-hub/ui/connection-status`, `vite-hub/ui/sync-status` | Focused imports for collaboration components. |
 | `vite-hub/ui/nuxt` and `vite-hub/ui/vite` | Register the canonical UI package for Nuxt or Vue with Vite. |
 | `vite-hub/tsconfig` | TypeScript config that includes ViteHub's generated declaration entry without taking ownership of application source includes. |
 | `vite-hub/workflow` | Workflow Definitions and run helpers. |
@@ -174,10 +180,13 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/channels/server` | Channels Runtime | Server-only discovered named delivery. |
 | `@vite-hub/comments` | Comments Package | `defineComments()`, `installComments()`, the runtime methods, and portable types. |
 | `@vite-hub/comments/anchor` | Comments Package | Browser helpers that create and place [anchors](/docs/comments/server-api#anchors) of pins. |
-| `@vite-hub/comments/database` | Comments Package | `commentsSchema`, the two tables that Comments adds to a Database. |
+| `@vite-hub/comments/database` | Comments Package | `commentsSchema` for the live-site API, or `commentsOperationsSchema` for numbered Comment operations. |
 | `@vite-hub/comments/realtime` and `@vite-hub/comments/runtime` | Comments Package | The presence room definition, the Comments API handler, and the Nitro plugin that generated output imports. |
 | `@vite-hub/connections` and `@vite-hub/connections/google` | Connections Package | Connection Definitions, `apiKey()`, the Google preset, and typed Gmail Operations. |
+| `@vite-hub/connections/chatgpt` | Connections Package | The `chatgpt()` Connection provider for signing in with a ChatGPT plan. |
 | `@vite-hub/connections/server`, `@vite-hub/connections/http`, and `@vite-hub/connections/agent` | Connections Runtime | Runtime access with `useConnection()`, management and OAuth routes, and the Agent primitive handle. |
+| `@vite-hub/comments/client`, `@vite-hub/comments/rpc`, `@vite-hub/comments/server`, and `@vite-hub/comments/database/postgres` | Comments Package | The operations browser client and anchors, RPC transport, server runtime, and Postgres tables. |
+| `@vite-hub/comments/operations` | Comments Package | The `comments.*` operations. The framework distribution imports them for you. |
 | `@vite-hub/content`, `@vite-hub/content/client`, and `@vite-hub/content/database` | Content Package | Comark Content runtime definition, document collections with drafts and publishing, ViteHub Source adaptation, server handler, typed client, and the sessions table schema. |
 | `@vite-hub/content/presets/cms` | Content Package | The `cms` preset that stores document collections on a contributed Workspace. |
 | `@vite-hub/cli` | CLI Package | The `vitehub` command and its programmatic CLI entry. Use the `vite-hub` distribution for application integration. |
@@ -212,7 +221,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/shell/providers/just-bash` | Shell Package | Just Bash Shell provider. |
 | `@vite-hub/shell/workspace` | Shell Package | Read-only Workspace filesystem adapters and mount paths for Shell providers. |
 | `@vite-hub/ui`, `@vite-hub/ui/<name>`, and `@vite-hub/ui/headless` | UI Package | AI SDK-native Vue components, shadcn/ui parts, and headless message scrolling. |
-| `@vite-hub/sandbox-task` | Sandbox Task Package | Sandbox Task Definitions and `runSandboxTask()`. |
+| `@vite-hub/sandbox/task` | Sandbox Package | Sandbox Task Definitions and `runSandboxTask()`. |
 | `@vite-hub/schedule` and `@vite-hub/schedule/runtime` | Schedule Package | Schedule Definition helpers, manual runs, and Schedule Run stores. |
 | `@vite-hub/schedule/runtime/kv` | Schedule Package | Explicit storage adapter; requires the optional `@vite-hub/kv` peer. |
 | `@vite-hub/schedule/runtime/process` | Schedule Package | Process Runtime that runs Static Schedules in a long-lived Node process. |
@@ -235,9 +244,9 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/blob/vite` | Register the Blob Vite Integration. |
 | `@vite-hub/browser/vite` | Register Cloudflare Browser Run Provider Output. |
 | `@vite-hub/channels/vite` | Register Channel Definition discovery and generated runtime bindings. |
-| `@vite-hub/comments/vite` | Register `server/comments.ts` discovery, the Comments API, its Database tables, the presence rooms, and the overlay. |
+| `@vite-hub/comments/vite` | Discover `server/comments.ts`, then register the selected live-site API or Comment operations, its Database tables, and the Console section. |
 | `@vite-hub/connections/vite` | Register Connection Definition discovery and the generated runtime module. |
-| `@vite-hub/content/vite` | Register the `vitehub content` commands, the Content inspector, and their dev-only endpoint. |
+| `@vite-hub/content/vite` | Register the `vitehub content` commands, the Content operations, and the Content inspector. |
 | `@vite-hub/database/vite` | Register the Database Vite Integration. |
 | `@vite-hub/email/vite` | Configure one built-in Email provider and generate its runtime binding. |
 | `@vite-hub/env/vite` | Register the Env Vite Integration and `env()` declaration helper. |
@@ -246,7 +255,7 @@ for libraries, focused integrations, and advanced composition.
 | `@vite-hub/queue/vite` | Register the Queue Vite Integration. |
 | `@vite-hub/rate-limit/vite` | Register Rate Limit source collection and provider output. |
 | `@vite-hub/realtime/vite` | Register Realtime Definition discovery and generated runtime wiring. |
-| `@vite-hub/sandbox-task/vite` | Register the Sandbox Task Vite Integration. |
+| `@vite-hub/sandbox/task/vite` | Register the Sandbox Task Vite Integration. |
 | `@vite-hub/schedule/vite` | Register the Schedule Vite Integration. |
 | `@vite-hub/source/vite` | Register Source discovery, generated artifacts, and Nitro route integration. |
 | `@vite-hub/workflow/vite` | Register the Workflow Vite Integration. |

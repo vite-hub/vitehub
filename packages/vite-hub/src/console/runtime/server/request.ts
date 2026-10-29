@@ -1,4 +1,5 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
 interface ConsoleHeaders {
   get(name: string): string | null
@@ -31,6 +32,7 @@ export interface ConsoleRequestEvent {
     headers?: ConsoleHeaders
     json?: () => Promise<unknown>
     method?: string
+    signal?: AbortSignal
     url?: string | URL
   }
   res?: {
@@ -117,6 +119,11 @@ export async function consoleRequestJSON(event: ConsoleRequestEvent, maximumByte
 /** A Console failure with an HTTP status. The code defaults to the Console code of the status. */
 export function consoleRequestError(statusCode: number, statusMessage: string, code: ConsoleDiagnosticCode = consoleStatusDiagnosticCode(statusCode)): Error {
   return Object.assign(consoleDiagnostic(code, statusMessage), { statusCode, statusMessage })
+}
+
+/** Tells if the Console runs on a development server. */
+export function isConsoleDevelopmentRuntime(): boolean {
+  return isConsoleDevelopmentBuild()
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {

@@ -42,6 +42,47 @@ describe("probeImage", () => {
     expect(probeImage(new TextEncoder().encode(source))).toMatchObject({ contentType: "image/svg+xml", format: "svg", ...size })
   })
 
+  it("handles deeply nested AVIF boxes without overflowing the call stack", () => {
+    const bytes = new Uint8Array(16 + 20_000 * 8)
+    const view = new DataView(bytes.buffer)
+    view.setUint32(0, 16)
+    bytes.set(new TextEncoder().encode("ftypavif"), 4)
+    for (let offset = 16; offset < bytes.length; offset += 8) {
+      view.setUint32(offset, bytes.length - offset)
+      bytes.set([0x69, 0x70, 0x63, 0x6F], offset + 4)
+    }
+
+    expect(probeImage(bytes)).toBeUndefined()
+  })
+
+  it.each([0, 1])("keeps AVIF sibling order after nested and truncated boxes with rotation %s", (rotation) => {
+    function box(type: string, ...payload: Uint8Array[]): Uint8Array {
+      const bytes = new Uint8Array(8 + payload.reduce((length, part) => length + part.length, 0))
+      new DataView(bytes.buffer).setUint32(0, bytes.length)
+      bytes.set(new TextEncoder().encode(type), 4)
+      let offset = 8
+      for (const part of payload) {
+        bytes.set(part, offset)
+        offset += part.length
+      }
+      return bytes
+    }
+    const dimensions = new Uint8Array(12)
+    const view = new DataView(dimensions.buffer)
+    view.setUint32(4, 31)
+    view.setUint32(8, 17)
+    const nested = box("ipco", box("ispe", dimensions), box("irot", new Uint8Array([1 - rotation])))
+    const truncated = box("ipco", new Uint8Array([0, 0, 0, 32, 105, 115, 112, 101]))
+    const metadata = box("meta", new Uint8Array(4), box("iprp", nested, truncated, box("irot", new Uint8Array([rotation]))))
+    const bytes = new Uint8Array([...box("ftyp", new TextEncoder().encode("avif")), ...metadata])
+
+    expect(probeImage(bytes)).toMatchObject({
+      format: "avif",
+      width: rotation ? 17 : 31,
+      height: rotation ? 31 : 17,
+    })
+  })
+
   it("returns undefined for other files and truncated headers", async () => {
     expect(probeImage(new TextEncoder().encode("%PDF-1.7"))).toBeUndefined()
     expect(probeImage(new TextEncoder().encode("<svg>"))).toBeUndefined()

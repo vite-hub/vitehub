@@ -1,4 +1,4 @@
-import { commentsApiPath } from "../page.ts"
+import { commentsApiRoute } from "../page.ts"
 
 import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread } from "../types.ts"
 
@@ -7,6 +7,11 @@ export interface CommentsSession {
   can: { read: boolean, comment: boolean, resolve: boolean }
   realtime: boolean
   content: boolean
+}
+
+/** Request-scoped permissions for an existing thread, evaluated with that thread's authorization context. */
+export interface CommentsThread extends CommentThread {
+  can?: { comment: boolean, resolve: boolean }
 }
 
 export interface CommentsField {
@@ -28,9 +33,7 @@ export interface CommentsApiError {
 export type ApiResult<T> = [CommentsApiError, undefined] | [undefined, T]
 
 const guestKey = "vitehub-comments-guest"
-
-// The overlay is one of the Comments assets, so the API is next to it, below the same app base.
-const apiPath = commentsApiPath(import.meta.url)
+const route = commentsApiRoute(import.meta.url)
 
 /** The guest name and id this browser chose, when the site lets guests comment. */
 export function readGuest(): { id: string, name: string } | undefined {
@@ -57,7 +60,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
   }
   let response: Response
   try {
-    response = await fetch(`${apiPath}${path}`, { ...init, headers, credentials: "same-origin" })
+    response = await fetch(`${route}${path}`, { ...init, headers, credentials: "same-origin" })
   }
   catch {
     return [{ code: "COMMENTS_OFFLINE", why: "The server cannot be reached." }, undefined]
@@ -73,7 +76,7 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
 /** A thread of the `"pages"` scope. The Comments API returns only these, and each has an anchor. */
-export type PageThread = CommentThread & { anchor: CommentAnchor }
+export type PageThread = CommentsThread & { anchor: CommentAnchor }
 
 export const api = {
   session: () => call<CommentsSession>("/session"),

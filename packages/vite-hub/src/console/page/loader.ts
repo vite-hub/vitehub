@@ -2,4 +2,4 @@
 // so the page tools work in an app without Comments.
 import { loadViteHubPageTools } from "@vite-hub/internal/runtime/page-tools-loader"
 
-void loadViteHubPageTools()
+void loadViteHubPageTools({ session: new URL("../session", import.meta.url).pathname })

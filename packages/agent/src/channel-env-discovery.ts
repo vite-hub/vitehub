@@ -10,7 +10,7 @@ import type { ChannelEnvField } from "./channel-env.ts"
 
 const channelFactoryModules = new Set(["@vite-hub/agent/channels", "vite-hub/agent/channels"])
 const capabilityFactoryModules = new Set(["@vite-hub/agent/capabilities", "vite-hub/agent/capabilities"])
-const gatewayFactoryModules = new Set(["@vite-hub/agent/gateways", "vite-hub/agent/gateways"])
+const gatewayFactoryModules = new Set(["@vite-hub/gateways", "vite-hub/gateways"])
 const agentModules = new Set(["@vite-hub/agent", "vite-hub/agent"])
 
 /** One built-in Channel use in an Agent file. `optionKeys` is undefined when the options are not a static object literal. */
@@ -941,7 +941,7 @@ export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?:
 
 /**
  * Declare the Server Env of each gateway preset used by a discovered Agent, such as
- * `cliproxy()` or `cloudflareAccess()` imported from `vite-hub/agent/gateways`.
+ * `cliproxy()` or `cloudflareAccess()` imported from `vite-hub/gateways`.
  * The values stay optional, so one server can host Agents that do not use the gateway.
  */
 export function discoverAgentGatewayEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {

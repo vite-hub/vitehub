@@ -1,10 +1,10 @@
 # @vite-hub/auth
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Better Auth" src="https://img.shields.io/badge/Better%20Auth-powered-0f766e?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Better Auth" src="https://comark-ui.onmax.me/badge.svg?label=Better+Auth&amp;value=powered">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/auth` defines one server-owned Auth Definition and turns it into a Better Auth server for ViteHub apps.

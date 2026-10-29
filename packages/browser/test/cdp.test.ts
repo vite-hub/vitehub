@@ -1,6 +1,8 @@
+import { getEventListeners } from "node:events"
 import { setImmediate } from "node:timers/promises"
 
 import { describe, expect, it, vi } from "vitest"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import { cdp } from "../src/controllers/cdp.ts"
 import { createBrowser } from "../src/index.ts"
@@ -28,6 +30,59 @@ class FakeSocket extends EventTarget {
 }
 
 describe("cdp controller", () => {
+  it.each(["complete", "reject", "pending"])("cancels a failed Cloudflare upgrade body when cancellation is %s", async (behavior) => {
+    const cancel = vi.fn(() => {
+      if (behavior === "reject") return Promise.reject(new Error("cleanup failed"))
+      if (behavior === "pending") return new Promise<void>(() => {})
+    })
+    const response = new Response(new ReadableStream({ cancel }), { status: 503 })
+    const connecting = cdp().attach({
+      binding: { fetch: async () => response },
+      kind: "cloudflare-binding",
+      sessionId: "provider-session",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "provider", name: "cloudflare" },
+      sessionId: "public-id",
+    })
+
+    await expect(Promise.race([connecting, setImmediate().then(() => "pending")])).rejects.toMatchObject({
+      code: "BROWSER_PROVIDER_ERROR",
+      details: { status: 503 },
+    })
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(response.bodyUsed).toBe(true)
+  })
+
+  it.each([
+    ["closing", 2],
+    ["closed", 3],
+  ] as const)("rejects new commands when the socket is %s", async (_state, readyState) => {
+    const socket = new FakeSocket()
+    const send = vi.spyOn(socket, "send").mockImplementation(() => {})
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    socket.readyState = readyState
+    if (readyState === 3) socket.dispatchEvent(new Event("close"))
+
+    try {
+      const command = attached.client.send("Target.getTargets")
+      await expect(Promise.race([command, setImmediate().then(() => "pending")])).rejects.toMatchObject({
+        code: "BROWSER_PROVIDER_ERROR",
+        details: { operation: "send a command without an open connection" },
+      })
+      expect(send).not.toHaveBeenCalled()
+    }
+    finally {
+      socket.close()
+      await attached.release()
+    }
+  })
+
   it("times out when a local CDP socket never opens and removes setup listeners", async () => {
     vi.useFakeTimers()
     const socket = new FakeSocket()
@@ -60,41 +115,81 @@ describe("cdp controller", () => {
     vi.useRealTimers()
   })
 
-  it("rejects when a local CDP socket closes before opening", async () => {
-    class ClosingSocket extends EventTarget {
-      readyState = 0
-
-      constructor() {
-        super()
-        queueMicrotask(() => {
-          this.readyState = 3
-          this.dispatchEvent(new Event("close"))
-        })
-      }
-
-      close() {
-        this.readyState = 3
-      }
-
-      send() {}
+  it.each(["error", "close"])("rejects a local socket %s before opening and cleans up setup", async (event) => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    function PendingSocket() {
+      return socket
     }
-    vi.stubGlobal("WebSocket", ClosingSocket)
+    vi.stubGlobal("WebSocket", PendingSocket)
 
-    const connecting = cdp().attach({
-      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
-      kind: "cdp",
-    }, {
-      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
-      sessionId: "public-id",
-    })
-    const timed = new Promise<never>((_resolve, reject) => {
-      setTimeout(() => reject(new Error("timed out waiting for the CDP socket")), 100)
-    })
+    try {
+      const connecting = cdp().attach({
+        endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+        kind: "cdp",
+      }, {
+        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        sessionId: "public-id",
+      })
+      socket.dispatchEvent(new Event(event))
+      await expect(connecting).rejects.toBeInstanceOf(ViteHubError)
+      await expect(connecting).rejects.toMatchObject({
+        code: "BROWSER_PROVIDER_ERROR",
+        details: { operation: "connect to the browser", provider: "cdp" },
+        message: "[vitehub:browser] cdp could not connect to the browser.",
+      })
+      const failure = await Promise.resolve(connecting).catch((error: unknown) => error)
+      for (const type of ["open", "error", "close"]) {
+        expect(getEventListeners(socket, type)).toHaveLength(0)
+        socket.dispatchEvent(new Event(type))
+      }
+      expect(vi.getTimerCount()).toBe(0)
+      await vi.advanceTimersByTimeAsync(30_000)
+      await expect(connecting).rejects.toBe(failure)
+      expect(socket.close).not.toHaveBeenCalled()
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
+  })
 
-    await expect(Promise.race([connecting, timed])).rejects.toMatchObject({
-      code: "BROWSER_PROVIDER_ERROR",
-      details: { operation: "connect to the browser" },
-    })
+  it("opens a local socket and removes setup listeners before later events", async () => {
+    vi.useFakeTimers()
+    const socket = new FakeSocket()
+    socket.readyState = 0
+    function PendingSocket() {
+      return socket
+    }
+    vi.stubGlobal("WebSocket", PendingSocket)
+
+    try {
+      const connecting = cdp().attach({
+        endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+        kind: "cdp",
+      }, {
+        provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+        sessionId: "public-id",
+      })
+      socket.readyState = 1
+      socket.dispatchEvent(new Event("open"))
+      for (const type of ["open", "error", "close"]) {
+        expect(getEventListeners(socket, type)).toHaveLength(0)
+        socket.dispatchEvent(new Event(type))
+      }
+      expect(vi.getTimerCount()).toBe(0)
+      const attached = await connecting
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(socket.close).not.toHaveBeenCalled()
+      await expect(attached.client.send("Target.getTargets")).resolves.toEqual({ method: "Target.getTargets" })
+      await attached.release()
+      expect(socket.close).toHaveBeenCalledOnce()
+    }
+    finally {
+      vi.unstubAllGlobals()
+      vi.useRealTimers()
+    }
   })
 
   it("retains public session ownership until the socket closes after a failed release", async () => {
@@ -259,6 +354,42 @@ describe("cdp controller", () => {
     socket.emit("Page.lifecycleEvent", { loaderId: "ignored", name: "load" })
     expect(listener).toHaveBeenCalledOnce()
     await attached.release()
+  })
+
+  it.each([false, true])("keeps newer subscriptions after repeated cleanup with a retained event group: %s", async (retainGroup) => {
+    const socket = new FakeSocket()
+    const attached = await cdp({ connect: async () => socket }).attach({
+      endpoint: "ws://127.0.0.1:9222/devtools/browser/id",
+      kind: "cdp",
+    }, {
+      provider: { features: { liveHandoff: false }, isolation: "trusted-host", name: "local" },
+      sessionId: "public-id",
+    })
+    try {
+      const listener = vi.fn()
+      const newerListener = vi.fn()
+      const retainedListener = vi.fn()
+      const stop = attached.client.on("Page.lifecycleEvent", listener)
+      if (retainGroup) attached.client.on("Page.lifecycleEvent", retainedListener)
+      stop()
+      const stopResubscribed = attached.client.on("Page.lifecycleEvent", listener)
+      const stopNewer = attached.client.on("Page.lifecycleEvent", newerListener)
+      stop()
+
+      socket.emit("Page.lifecycleEvent", { name: "load" })
+      expect(listener).toHaveBeenCalledExactlyOnceWith({ name: "load" }, "page-session")
+      expect(newerListener).toHaveBeenCalledExactlyOnceWith({ name: "load" }, "page-session")
+      expect(retainedListener).toHaveBeenCalledTimes(retainGroup ? 1 : 0)
+
+      stopResubscribed()
+      stopNewer()
+      socket.emit("Page.lifecycleEvent", { name: "load" })
+      expect(listener).toHaveBeenCalledOnce()
+      expect(newerListener).toHaveBeenCalledOnce()
+    }
+    finally {
+      await attached.release()
+    }
   })
 
   it("allows protocol events with omitted parameters", async () => {

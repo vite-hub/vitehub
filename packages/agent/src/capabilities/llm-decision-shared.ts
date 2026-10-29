@@ -1,8 +1,9 @@
-import { ask } from "../ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { getMessageText } from "../messages.ts"
 import { loadAiSdk } from "../internal/ai-sdk-runtime.ts"
 import { askJev } from "../internal/ask-runtime.ts"
 
+import type { AiGateway } from "@vite-hub/gateways"
 import type { Message } from "../messages.ts"
 import type { AgentCapabilityRuntimeContext } from "../types.ts"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
@@ -152,7 +153,7 @@ export interface JevDecision {
  */
 export async function jevDecision(
   context: AgentCapabilityRuntimeContext,
-  options: { history?: boolean | number, model?: unknown, prompt?: string },
+  options: { gateway?: AiGateway<{ ask: true }>, history?: boolean | number, model?: unknown, prompt?: string },
   decision: { choices: NormalizedLlmDecisionChoice[], task: string },
 ): Promise<JevDecision | undefined> {
   if (options.model !== undefined || context.driver?.kind !== "ask") return
@@ -169,7 +170,7 @@ export async function jevDecision(
     : { request: latestUserText(input.prompt, messages), ...(history ? { history } : {}) }
   const criteria = Object.fromEntries(decision.choices.map(choice => [choice.key, choice.description]))
   const instructions = [options.prompt, decision.task].filter(Boolean).join("\n\n")
-  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: { context } }, state, {
+  const { decision: answer } = await askJev({ abortSignal: context.abortSignal, event: { context }, ...(options.gateway ? { gateway: options.gateway } : {}) }, state, {
     decision: ask.choice(instructions, criteria),
   })
   return { choice: answer.choice, confidence: answer.confidence, probabilities: { ...answer.probabilities } }

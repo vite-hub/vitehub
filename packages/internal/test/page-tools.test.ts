@@ -219,6 +219,52 @@ describe("installViteHubPageTools on Nitro 3", () => {
 })
 
 describe("installViteHubPageTools on Nitro 2", () => {
+  it.each([undefined, "script-src 'nonce-response'"])("uses Node's CSP only when the returned Response has none (%s)", async (responsePolicy) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
+    installViteHubPageTools(app)
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+    const headers = new Headers({ "content-type": "text/html" })
+    if (responsePolicy) headers.set("content-security-policy", responsePolicy)
+    const response = { body: new Response("<body>Page</body>", { headers }) }
+    respond({ node: {
+      req: { url: "/?vitehub", headers: {} },
+      res: { getHeader: (name: string) => name === "content-security-policy" ? "script-src 'strict-dynamic' 'nonce-node'" : undefined },
+    } }, response)
+    const nonce = responsePolicy ? "response" : "node"
+    const tags = loaderTag.replace(" data-vitehub", ` nonce="${nonce}" data-vitehub`)
+    expect(await response.body.text()).toBe(`<body>Page${tags}</body>`)
+    expect(response.body.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it("isolates both hooks per app while sharing registrations and installation across bundled owners", async () => {
+    const appA = nitro2App()
+    const appB = nitro2App()
+    registerViteHubPageTool(appA, comments)
+    installViteHubPageTools(appA)
+    installViteHubPageTools(appB)
+    vi.resetModules()
+    const otherOwner = await import("../src/runtime/page-tools.ts")
+    otherOwner.registerViteHubPageTool(appB, { ...comments, script: "/app-b.js" })
+    otherOwner.registerViteHubPageTool(appB, pill)
+    otherOwner.installViteHubPageTools(appB)
+    otherOwner.installViteHubPageTools(appA)
+    const event = { web: { request: new Request("http://site.test/?vitehub") } }
+    for (const [app, tags] of [[appA, loaderTag], [appB, loaderTag]] as const) {
+      expect(app.handlers.get("render:html")).toHaveLength(1)
+      expect(app.handlers.get("beforeResponse")).toHaveLength(1)
+      const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
+      const html = { bodyAppend: [] as string[] }
+      render(html, { event })
+      expect(html.bodyAppend).toEqual([tags])
+      const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+      const response = { body: new Response("<body>Page</body>", { headers: { "content-type": "text/html" } }) }
+      respond(event, response)
+      expect(await response.body.text()).toBe(`<body>Page${tags}</body>`)
+    }
+  })
+
   it("adds the loader in Nuxt's render:html hook, and keeps that page out of shared caches", () => {
     const app = nitro2App()
     registerViteHubPageTool(app, comments)
@@ -467,11 +513,12 @@ describe("mounted page tool exclusions", () => {
     const otherOwner = await import("../src/runtime/page-tools.ts")
     otherOwner.installViteHubPageTools(app, { base: "/portal/" })
     installViteHubPageTools(app)
-    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api/data"]) {
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data"]) {
       expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).not.toContain("data-vitehub-page-tools")
       expect(await (await other.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
     }
-    for (const path of ["/portal/pricing", "/portals/_vitehub"]) {
+    expect(await (await app.fetch(new Request("http://site.test/portals/_vitehub?vitehub"))).text()).not.toContain("data-vitehub-page-tools")
+    for (const path of ["/portal/pricing"]) {
       expect(await (await app.fetch(new Request(`http://site.test${path}?vitehub`))).text()).toContain("data-vitehub-page-tools")
     }
   })
@@ -483,7 +530,7 @@ describe("mounted page tool exclusions", () => {
     installViteHubPageTools(app, { base: "/portal/" })
     const render = app.handlers.get("render:html")![0] as (html: { bodyAppend: string[] }, context: unknown) => void
     const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body: Response }) => void
-    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api/data", "/portal/pricing"]) {
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data", "/portal/pricing"]) {
       const event = { node: { req: { url: path, headers: { cookie: "vitehub-tools=1" } } } }
       const html = { bodyAppend: [] as string[] }
       const original = new Response("<body>Page</body>", { headers: { "content-type": "text/html" } })

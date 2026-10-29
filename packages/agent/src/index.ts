@@ -1,3 +1,4 @@
+import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
@@ -2072,27 +2073,6 @@ export { agentWithSkills } from "./internal/colocated-agent-skills.ts"
 export { isResolvedAgentTriggerHandledInvocation, verifyAgentWebhookRequest } from "./trigger-runtime.ts"
 export type { AgentWebhookVerificationResult, ResolvedAgentTriggerHandledInvocation, ResolvedAgentTriggerInvocation, ResolvedAgentTriggerInvocationResult } from "./trigger-runtime.ts"
 export * from "./messages.ts"
-export { ask } from "./ask.ts"
-export type {
-  AskAnswer,
-  AskAnswers,
-  AskChanceAnswer,
-  AskChanceCriteria,
-  AskChanceQuestion,
-  AskChoiceAnswer,
-  AskChoiceCriteria,
-  AskChoiceLabels,
-  AskChoiceQuestion,
-  AskEntry,
-  AskIfQuestion,
-  AskJson,
-  AskQuestion,
-  AskQuestions,
-  AskScoreAnswer,
-  AskScoreCriteria,
-  AskScoreQuestion,
-  AskSwitchQuestion,
-} from "./ask.ts"
 export {
   agentInvocationStreamRoute,
   createAgentInvocationStreamResponse,
@@ -2213,9 +2193,10 @@ function agentRequiresWritableWorkspace(options: {
 /** Check Agent Sandbox combinations that cannot run the provider inside the Sandbox. */
 function validateAgentSandbox(
   sandbox: unknown,
-  driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly launch?: unknown, readonly toolchain?: unknown },
+  driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly gateway?: unknown, readonly launch?: unknown, readonly toolchain?: unknown },
   options: { hasWorkspace: boolean },
 ) {
+  if (isChatGPTGateway(driver.gateway)) throw agentDiagnostics.AGENT_R1015()
   if (!hasRuntimeType(sandbox, "object") || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
     throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ sandbox }) requires a Sandbox definition with a runtime." })
   }
@@ -9132,6 +9113,7 @@ export async function streamAgentInline<
   input: AgentRunInput<CALL_OPTIONS, AgentRunInputContextValues, NoInfer<TData>>,
   options: { output?: "events" | "ui-message-stream" } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
+  context = withAgentIdentityOwner(agent, context)
   return await executeAgentInvocation(agent, context, input, {
     kind: "stream",
     output: options.output || "events",

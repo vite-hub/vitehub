@@ -34,7 +34,7 @@ export const content = defineContent({
 })
 ```
 
-Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, and the Console. Pattern values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. A pattern whose field has no value, or a function that returns `null`, gives `url: null`: that document has no page. Collections without `url` leave the key out, and `collection.routable` is `false`.
+Every read of a routable collection carries `url`: `get()`, `list()`, `save()`, and the Console. Pattern values are encoded per path segment, so the id `2026/hello` becomes `/blog/2026/hello`. A pattern whose field has no value, or a function that returns `null`, gives `url: null`: that document has no page. Collections without `url` leave the key out, and `collection.routable` is `false`. [`content.resolve(path)`](/docs/content/configure#find-the-document-of-a-page) uses the same `url` to find the document of a page.
 
 A pattern must start with `/` and may only name `:id` and defined fields; anything else throws `CONTENT_R0006` when the definition loads.
 

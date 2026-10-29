@@ -12,6 +12,8 @@ export const workspaceErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
     WORKSPACE_R0069: dynamicError,
     WORKSPACE_R0070: dynamicError,
     WORKSPACE_R0071: dynamicError,
+    WORKSPACE_R0072: dynamicError,
+    WORKSPACE_R0073: dynamicError,
     WORKSPACE_R0001: dynamicError,
     WORKSPACE_R0002: dynamicError,
     WORKSPACE_R0003: dynamicError,

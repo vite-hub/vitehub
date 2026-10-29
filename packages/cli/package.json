@@ -5,10 +5,14 @@
   "keywords": [
     "agent",
     "cli",
+    "development-tools",
     "eval",
+    "nuxt",
+    "typescript",
+    "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -39,7 +43,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/cli#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/cli#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/cli#build && vp test"
   },
   "dependencies": {
@@ -51,6 +55,7 @@
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "typescript": "catalog:tooling",
+    "valibot": "catalog:runtime",
     "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
     "vitest": "catalog:tooling"

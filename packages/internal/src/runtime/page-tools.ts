@@ -67,8 +67,10 @@ function pathBelow(base: string, pathname: string): string {
  */
 export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  const path = pathBelow(viteHubBasePath(base), url.pathname)
-  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
+  base = viteHubBasePath(base)
+  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
+  const path = pathBelow(base, url.pathname)
+  if (path.startsWith("/_vitehub") || path === "/api" || path.startsWith("/api/")) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`))
@@ -167,12 +169,13 @@ export function scriptNonce(headers: Headers): string | undefined {
  * `index.html` Vite changed, gets no second one. The generated SPA inline check becomes the external loader, with
  * the response policy's nonce when present. This supports header or meta policies that allow same-origin external
  * scripts but block inline scripts. The page varies per person, so it drops `content-length` and sends
- * `cache-control: private, no-store`. Other responses return unchanged.
+ * `cache-control: private, no-store`. Other responses return unchanged. `policyHeaders` supplies the effective CSP
+ * when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response, base = ""): Response {
+export function injectPageToolsLoader(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = loaderTag(base, scriptNonce(response.headers))
+  const tag = loaderTag(base, scriptNonce(policyHeaders))
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   headers.set("cache-control", "private, no-store")
@@ -191,7 +194,9 @@ interface Nitro2Event {
 /** The Web request of an H3 1 event. Only the path, query, and headers matter to the hint. */
 function nitro2Request(event: Nitro2Event): Request | undefined {
   const node = event.node?.req
-  return event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
+  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
+  const path = node?.originalUrl || node?.url
+  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
 }
 
 /**
@@ -262,6 +267,12 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
     const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
-    if (request && wantsLoader(nitroApp, request, base)) response.body = injectPageToolsLoader(response.body, base)
+    if (request && wantsLoader(nitroApp, request, base)) {
+      // H3 preserves Node response headers unless the returned Response replaces them.
+      const headers = new Headers(response.body.headers)
+      const policy = event.node?.res?.getHeader?.("content-security-policy")
+      if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+      response.body = injectPageToolsLoader(response.body, base, headers)
+    }
   }])
 }

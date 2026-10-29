@@ -1,7 +1,7 @@
 import type { PrimitiveIconName } from "@vite-hub/ui/primitive-rail"
 
 /** Sections that the Console UI in `vite-hub` renders with its own components. Owner packages contribute the others. */
-export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "blob", "databases", "kv"] as const
+export const consoleBuiltinSectionIds = ["env", "connections", "agents", "usage", "channels", "logs", "blob", "databases", "kv"] as const
 
 export type ConsoleBuiltinSectionId = (typeof consoleBuiltinSectionIds)[number]
 
@@ -30,11 +30,18 @@ export const consoleSectionDetails: Readonly<Record<ConsoleBuiltinSectionId, Con
     label: "Agents",
     routeName: "vitehub-console-agents",
   },
+  logs: { description: "Read structured events from the connected log source.", icon: "i-lucide-logs", label: "Logs", routeName: "vitehub-console-logs" },
   usage: {
     description: "Review token use and cost evidence over time.",
     icon: "i-lucide-chart-column",
     label: "Usage",
     routeName: "vitehub-console-usage",
+  },
+  channels: {
+    description: "Read and export the conversations of Agent Channels.",
+    icon: "i-lucide-messages-square",
+    label: "Channels",
+    routeName: "vitehub-console-channels",
   },
   blob: {
     description: "Inspect configured Blob stores and object metadata without downloading contents.",
@@ -64,6 +71,8 @@ export type ConsoleSectionGroupId = (typeof consoleSectionGroupIds)[number]
 const consoleSectionGroupBySection: Readonly<Record<string, ConsoleSectionGroupId>> = {
   agents: "agents",
   usage: "agents",
+  channels: "agents",
+  logs: "runtime",
   databases: "data",
   kv: "data",
   blob: "data",
@@ -144,7 +153,9 @@ export const consolePrimitives: readonly ConsolePrimitive[] = [
   primitive("env", "Env", consoleSectionDetails.env.icon, "env", "Declare public, build-time, server runtime, and secret values behind typed accessors."),
   primitive("connections", "Connections", consoleSectionDetails.connections.icon, "connections", "Connect provider accounts with OAuth 2 or an API key and call their APIs with access rules."),
   primitive("agents", "Agents", consoleSectionDetails.agents.icon, "agents", "Define a server-side Agent, choose how it runs, and connect it to your application.", "getting-started/first-agent"),
+  primitive("logs", "Logs", consoleSectionDetails.logs.icon, "logs", "Read structured logs and diagnostic guidance from your existing pipeline."),
   primitive("usage", "Usage", consoleSectionDetails.usage.icon, "development/console", "Review the token use and cost that Agent Invocations record.", "agents"),
+  primitive("channels", "Channels", consoleSectionDetails.channels.icon, "agents/channels", "Read and export the conversations that Agents have in Telegram, Slack, and other Channels.", "agents/channels"),
   primitive("content", "Content", "i-lucide-file-pen-line", "content", "Edit Markdown documents with validated fields, drafts, publishing, and revision history."),
   primitive("comments", "Comments", "i-lucide-message-square-text", "comments", "Pin comments to any page of the site, reply, resolve, and edit Content text in place."),
   primitive("blob", "Blob", consoleSectionDetails.blob.icon, "blob", "Store uploads, generated files, binary objects, and metadata with one object-storage API."),
@@ -208,6 +219,8 @@ export const consoleSectionShortcutKeys: Readonly<Record<string, string>> = {
   content: "t",
   comments: "n",
   usage: "u",
+  channels: "v",
+  logs: "l",
   databases: "d",
   kv: "k",
   blob: "b",
@@ -314,6 +327,7 @@ export function resolveConsoleSectionIds(options: {
   database?: unknown;
   email?: unknown;
   kv?: unknown;
+  logs?: unknown;
   preset?: unknown;
   queue?: unknown;
   rateLimit?: unknown;
@@ -326,9 +340,10 @@ export function resolveConsoleSectionIds(options: {
     && Boolean(options.workflow || (options.agent && options.preset !== "netlify"))
   return [
     ...(options.auth ? ["auth"] : []),
+    ...(options.logs ? ["logs"] : []),
     ...(options.env ? ["env"] : []),
     ...(options.connections ? ["connections"] : []),
-    ...(options.agent ? ["agents", "usage"] : []),
+    ...(options.agent ? ["agents", "usage", "channels"] : []),
     ...(options.blob ? ["blob"] : []),
     ...(options.database ? ["databases"] : []),
     ...(options.email ? ["email"] : []),

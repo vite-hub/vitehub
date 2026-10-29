@@ -122,6 +122,85 @@ describe("Vite plugin", () => {
     await expect(readFile(join(root, ".vitehub", "env", "server.d.ts"), "utf8")).resolves.toContain("export interface ServerEnv")
   })
 
+  it.each(["serve", "build"] as const)("keeps public contract types after %s configuration resolves", async (command) => {
+    const root = await temporaryDirectory("vitehub-env-contract-types-")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "contract-types" }), "utf8")
+    const plugin = hubEnv()
+    const declarations = {
+      public: {
+        mode: env.enum(["draft", "send"], { default: "draft", mode: "build" }),
+        label: env({ default: "label", mode: "build", optional: true, type: "string | undefined" }),
+        settings: env({
+          default: { enabled: true },
+          mode: "build",
+          schema: { safeParse: (input: unknown) => ({ data: input, success: true as const }) },
+          type: "{ enabled: boolean }",
+        }),
+      },
+    }
+    await plugin.api.prepareTypes(declarations, root)
+    const ambientPath = join(root, ".vitehub", "types", "env.d.ts")
+    const publicPath = join(root, ".vitehub", "env", "public.d.ts")
+    const preparedAmbient = await readFile(ambientPath, "utf8")
+    const preparedPublic = await readFile(publicPath, "utf8")
+
+    await resolveConfig({
+      configFile: false,
+      env: declarations,
+      logLevel: "silent",
+      plugins: [plugin],
+      root,
+    }, command)
+
+    expect(await readFile(publicPath, "utf8")).toBe(preparedPublic)
+    expect(await readFile(ambientPath, "utf8")).toBe(preparedAmbient)
+    expect(preparedPublic).toContain('"mode": "draft" | "send"')
+    expect(preparedPublic).toContain('"settings": { enabled: boolean }')
+    expect(plugin.api.getPublicEnv()).toEqual({ mode: "draft", label: "label", settings: { enabled: true } })
+  })
+
+  it.each(["serve", "build"] as const)("uses resolved values for opaque public schema types after %s configuration", async (command) => {
+    const root = await temporaryDirectory("vitehub-env-opaque-types-")
+    await writeFile(join(root, "package.json"), JSON.stringify({ name: "opaque-types" }), "utf8")
+    const plugin = hubEnv()
+    const schema = {
+      safeParse: (input: unknown) => input === null || typeof input === "string"
+        ? { data: input, success: true as const }
+        : { error: new Error("Expected a nullable string"), success: false as const },
+    }
+    const declarations = {
+      public: {
+        label: env({ default: null, mode: "build", schema, source: env.custom("label", () => "production") }),
+        nullable: env({ default: "fallback", mode: "build", schema, source: env.custom("nullable", () => null) }),
+        defaulted: env({ default: null, mode: "build", schema, source: env.custom("defaulted", () => undefined) }),
+      },
+    }
+    await plugin.api.prepareTypes(declarations, root)
+    const typePaths = [join(root, ".vitehub", "env", "public.d.ts"), join(root, ".vitehub", "types", "env.d.ts")]
+    for (const path of typePaths) {
+      const preparedTypes = await readFile(path, "utf8")
+      expect(preparedTypes).toContain('"label": null')
+      expect(preparedTypes).toContain('"nullable": string')
+      expect(preparedTypes).toContain('"defaulted": null')
+    }
+
+    await resolveConfig({
+      configFile: false,
+      env: declarations,
+      logLevel: "silent",
+      plugins: [plugin],
+      root,
+    }, command)
+
+    for (const path of typePaths) {
+      const resolvedTypes = await readFile(path, "utf8")
+      expect(resolvedTypes).toContain('"label": string')
+      expect(resolvedTypes).toContain('"nullable": null')
+      expect(resolvedTypes).toContain('"defaulted": null')
+    }
+    expect(plugin.api.getPublicEnv()).toEqual({ label: "production", nullable: null, defaulted: null })
+  })
+
   it("rejects unparsed typed defaults in public and nested define config", async () => {
     const root = await temporaryDirectory("vitehub-env-defaults-")
     await writeFile(join(root, "package.json"), JSON.stringify({ name: "typed-defaults" }), "utf8")

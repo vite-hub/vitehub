@@ -5,12 +5,16 @@
   "keywords": [
     "blob",
     "cloudflare",
+    "netlify",
+    "object-storage",
     "r2",
+    "s3",
+    "typescript",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -159,17 +163,17 @@
       "require": "./dist/media.js",
       "default": "./dist/media.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./reference": {
       "types": "./dist/reference.d.ts",
       "import": "./dist/reference.js",
       "require": "./dist/reference.js",
       "default": "./dist/reference.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",
@@ -206,7 +210,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/blob#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/blob#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/blob#build && vp test"
   },
   "dependencies": {
