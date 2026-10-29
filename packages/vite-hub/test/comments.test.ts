@@ -700,7 +700,7 @@ describe("the overlay session", () => {
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
     installComments({ definition: defineComments({ authorize: () => false }), store })
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
-    installComments({ definition: defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" }), store })
+    installComments({ definition: defineComments({ authorize: ({ thread }) => thread!.author.id === "ana" } satisfies CommentsDefinition), store })
     expect(await value("comments.session")).toEqual({ canRead: false, canWrite: false, user: ana })
     // The optional subject is the only accepted input.
     expect(await failure("comments.session", { threadId: "x" })).toMatchObject({ code: "INTERNAL_R0022" })
