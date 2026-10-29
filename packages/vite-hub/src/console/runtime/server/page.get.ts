@@ -1,5 +1,5 @@
 import { consoleMountBase } from "../console-route.ts"
-import { consoleAllowsRequest, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
+import { consoleAllowsRequest, consoleAppAuthBasePath, consoleSignInPage, consoleSignInRedirect } from "./access.ts"
 import { assertConsoleRequest, consoleRequestURL } from "./request.ts";
 import { isConsoleDevelopmentBuild } from "./development.ts"
 
@@ -18,7 +18,7 @@ const page = `<!doctype html>
     <link rel="stylesheet" href="/_vitehub/assets/__VITEHUB_CONSOLE_STYLE_ASSET__">
   </head>
   <body>
-    <div id="app"></div>
+    <div id="app"><p role="status" style="padding:2rem;font:14px/1.5 system-ui">Opening Console…</p><noscript>Enable JavaScript to use the Console.</noscript></div>
     <script type="module" src="/api/_vitehub/console/client.js"></script>
     <script type="module" src="/_vitehub/assets/__VITEHUB_CONSOLE_SCRIPT_ASSET__"></script>
   </body>
@@ -36,9 +36,11 @@ export default async function consolePageHandler(event: ConsoleRequestEvent): Pr
   const mountBase = consoleMountBase(pathname)
   // The Console links to the sign-in page when a session ends while the page is open.
   const signInPage = consoleSignInPage(pathname)
+  const authBase = await consoleAppAuthBasePath(event)
+  const authMeta = authBase ? `\n    <meta name="vitehub-console-auth-base" content="${escapeAttribute(authBase)}">` : ""
   const signInMeta = signInPage ? `\n    <meta name="vitehub-console-sign-in" content="${escapeAttribute(signInPage)}">` : ""
   const mountedPage = page
-    .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}`)
+    .replace('<meta name="robots" content="noindex, nofollow">', robots => `${robots}${signInMeta}${authMeta}`)
     .replaceAll('href="/_vitehub/assets/', `href="${mountBase}/_vitehub/assets/`)
     .replaceAll('src="/api/_vitehub/console/client.js"', `src="${mountBase}/api/_vitehub/console/client.js"`)
     .replaceAll('src="/_vitehub/assets/', `src="${mountBase}/_vitehub/assets/`)

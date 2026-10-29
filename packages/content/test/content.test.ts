@@ -894,6 +894,14 @@ describe("contentSource", () => {
 })
 
 describe("defineContentHandler", () => {
+  it("disables HTTP access while retaining server reads", async () => {
+    const content = defineContent({ route: false, source: { async items() { return [{ key: "guide", path: "guide.md", content: "# Guide" }] } } })
+    expect(await content.get("/guide")).toMatchObject({ path: "/guide" })
+    const response = await defineContentHandler(content).fetch(new Request("https://example.test/api/content/guide"))
+    expect(response.status).toBe(404)
+    expect(await content.get("/guide")).toMatchObject({ path: "/guide" })
+  })
+
   it("preserves repeated Node header values from another realm", async () => {
     let received: string | null = null
     const handler = defineContentHandler({

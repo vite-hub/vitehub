@@ -5,9 +5,14 @@ const styles = `:host{display:flex}button{display:inline-flex;align-items:center
 const start: ViteHubPageToolModule["default"] = (context) => {
   const { bar, tool, signal } = context
   const shadow = bar.attachShadow({ mode: "open" })
-  shadow.innerHTML = `<style>${styles}</style><button type="button" aria-haspopup="dialog" aria-expanded="false"></button>`
-  const button = shadow.querySelector("button")!
+  const style = document.createElement("style")
+  style.textContent = styles
+  const button = document.createElement("button")
+  button.type = "button"
+  button.setAttribute("aria-haspopup", "dialog")
+  button.setAttribute("aria-expanded", "false")
   button.textContent = tool.label
+  shadow.append(style, button)
   const assetPath = new URL(import.meta.url).pathname
   const base = assetPath.slice(0, assetPath.lastIndexOf("/assets/"))
   const isContent = tool.id === "content"

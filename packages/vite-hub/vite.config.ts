@@ -71,6 +71,7 @@ export default defineConfig({
         { from: "src/cloudflare-prerender.mjs", to: "dist" },
         { from: "src/error-diagnostics.ts", to: "dist" },
         { from: ".vitehub/console", to: "dist/console/runtime/public" },
+        { from: ".vitehub/comments-overlay", to: "dist" },
         {
           from: "src/console/runtime/components/console-wrap.ts",
           to: "dist/console/runtime/components",
@@ -113,6 +114,14 @@ export default defineConfig({
         },
         {
           from: "src/console/runtime/components/console-definitions.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-operation-view.vue",
+          to: "dist/console/runtime/components",
+        },
+        {
+          from: "src/console/runtime/components/console-workflow-actions.vue",
           to: "dist/console/runtime/components",
         },
         {
@@ -248,6 +257,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
@@ -280,6 +290,7 @@ export default defineConfig({
         { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+        { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
         { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
         { from: "../ui/styles.css", to: "dist/ui" },
@@ -304,7 +315,6 @@ export default defineConfig({
             page.code = page.code
               .replaceAll("__VITEHUB_CONSOLE_STYLE_ASSET__", consoleAsset("console-", ".css"))
               .replaceAll("__VITEHUB_CONSOLE_SCRIPT_ASSET__", consoleAsset("console-", ".js"));
-            // The `console` page tool registration names its script. It can sit in a shared chunk.
             const tool = consoleAsset("page-tool-", ".js");
             for (const output of Object.values(bundle)) {
               if (output.type === "chunk") output.code = output.code.replaceAll("__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__", tool);
@@ -343,17 +353,20 @@ export default defineConfig({
         "src/console/runtime/client/media-uploads.ts",
         "src/console/runtime/client/presence.ts",
         "src/console/runtime/client/publish.ts",
+        "src/console/runtime/client/operation-view.ts",
         "src/console/runtime/client/problem.ts",
+        "src/console/runtime/client/rate-limit.ts",
+        "src/console/runtime/client/read-only.ts",
         "src/console/runtime/client/schedule-run.ts",
         "src/console/runtime/client/schema-form.ts",
         "src/console/runtime/client/sign-in.ts",
         "src/console/runtime/client/time.ts",
         "src/console/runtime/client/toast.ts",
+        "src/console/runtime/client/workflow.ts",
         "src/console/runtime/definitions.ts",
         "src/console/runtime/rpc.ts",
         "src/console/runtime/sections.ts",
         "src/console/runtime/server/agents.get.ts",
-        "src/console/runtime/server/blob.get.ts",
         "src/console/runtime/server/channel-replay.ts",
         "src/console/runtime/server/client.get.ts",
         "src/console/runtime/server/database.get.ts",
@@ -367,7 +380,7 @@ export default defineConfig({
         "src/console/runtime/server/env.get.ts",
         "src/console/runtime/server/auth-manage.ts",
         "src/console/runtime/server/env-manage.ts",
-        "src/console/runtime/server/kv.get.ts",
+        "src/console/runtime/server/logs.get.ts",
         "src/console/runtime/server/mcp.ts",
         "src/console/runtime/server/page.get.ts",
         "src/console/runtime/server/page-session.ts",
@@ -398,23 +411,26 @@ export default defineConfig({
           delete exports["./console/runtime/client/env-status"];
           delete exports["./console/runtime/client/format"];
           delete exports["./console/runtime/client/live"];
+          delete exports["./console/runtime/client/operation-view"];
           delete exports["./console/runtime/client/media"];
           delete exports["./console/runtime/client/media-library"];
           delete exports["./console/runtime/client/media-uploads"];
           delete exports["./console/runtime/client/presence"];
           delete exports["./console/runtime/client/publish"];
           delete exports["./console/runtime/client/problem"];
+          delete exports["./console/runtime/client/rate-limit"];
+          delete exports["./console/runtime/client/read-only"];
           delete exports["./console/runtime/client/schedule-run"];
           delete exports["./console/runtime/client/schema-form"];
           delete exports["./console/runtime/client/sign-in"];
           delete exports["./console/runtime/client/time"];
           delete exports["./console/runtime/client/toast"];
+          delete exports["./console/runtime/client/workflow"];
           delete exports["./console/runtime/definitions"];
           delete exports["./console/runtime/rpc"];
           delete exports["./console/runtime/sections"];
           delete exports["./console/runtime/server/agents.get"];
           delete exports["./console/runtime/server/blob"];
-          delete exports["./console/runtime/server/blob.get"];
           delete exports["./console/runtime/server/channel-replay"];
           delete exports["./console/runtime/server/client.get"];
           delete exports["./console/runtime/server/database"];
@@ -431,8 +447,7 @@ export default defineConfig({
           delete exports["./console/runtime/server/auth-manage"];
           delete exports["./console/runtime/server/env-manage"];
           delete exports["./console/runtime/server/env"];
-          delete exports["./console/runtime/server/kv.get"];
-          delete exports["./console/runtime/server/kv"];
+          delete exports["./console/runtime/server/logs.get"];
           delete exports["./console/runtime/server/mcp"];
           delete exports["./console/runtime/server/page.get"];
           delete exports["./console/runtime/server/page-session"];
@@ -458,7 +473,6 @@ export default defineConfig({
             "./console/definitions": "./dist/console/runtime/server/definitions.js",
             "./console/documents": "./dist/console/runtime/server/documents.js",
             "./console/env": "./dist/console/runtime/server/env.js",
-            "./console/kv": "./dist/console/runtime/server/kv.js",
             "./console/sections": "./dist/console/runtime/server/sections.js",
             "./ui/styles.css": "./dist/ui/styles.css",
             "./tsconfig": "./tsconfig.json",
@@ -473,8 +487,7 @@ export default defineConfig({
       publint: true,
     },
     {
-      // The page tools loader at `/_vitehub/page/assets/loader.js`. Nitro serves it as a public asset, so it bundles
-      // everything and shares no chunk with the Console.
+      // The shared browser loader bundles independently of the Console's server chunks.
       deps: { alwaysBundle: [/./], onlyBundle: false },
       dts: false,
       entry: { "console/runtime/page/loader": "src/console/page/loader.ts" },

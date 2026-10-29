@@ -113,6 +113,75 @@ The error details contain the declaration path and source kind. The rejected val
 
 The helpers also work in `env.public` and `env.define` with `mode: 'build'`.
 
+## Import an environment schema
+
+Use `envSchema()` to make a committed `.env.example` the contract for both typed accessors and runtime checks. This is an explicit opt-in. Existing declarations remain available when a code-first schema fits better.
+
+```ts [vite.config.ts]
+import { envSchema, hubEnv } from '@vite-hub/env/vite'
+import { defineConfig } from 'vite'
+
+export default defineConfig({
+  plugins: [hubEnv()],
+  env: envSchema(new URL('./.env.example', import.meta.url)),
+})
+```
+
+```dotenv [.env.example]
+# @public
+VITEHUB_PUBLIC_APP_NAME=Acme
+
+# @type=number(min=1, max=10, isInt=true) @public
+VITEHUB_RETRIES=3
+
+# @type=boolean @public
+VITEHUB_DRY_RUN=false
+
+# @example="obtain-a-token-from-the-provider"
+VITEHUB_API_TOKEN=
+```
+
+The example produces `usePublicEnv().appName`, `useServerEnv().retries`, `useServerEnv().dryRun`, and a `SecretEnv<string>` at `useServerEnv().apiToken`. Public fields resolve at build time. Private fields resolve at server runtime, so a deployment-only secret is not required during prepare or build.
+
+The importer uses the restricted `env-spec-v1` profile from the [Nuxt module](https://nuxt-safe-runtime-config.onmax.me), with [@env-spec comment syntax](https://varlock.dev/env-spec/reference/). ViteHub owns its environment reader and serializable runtime parsers. The importer does not load developer `.env` files, fetch secrets, run Varlock, or evaluate dynamic expressions.
+
+Try the [runnable schema lab](https://github.com/vite-hub/vitehub/tree/main/packages/env/examples/schema-lab) for a browser bundle and Node production server built from one contract. It includes a production test for consumer types, startup failures, redaction, browser output, and server values that change across restarts of the same build. Public Env values are captured during the build.
+
+### Review defaults before opting in
+
+A nonempty assignment supplies a real default. `KEY=` has no default, while `KEY=""` explicitly declares an empty string. Use `@example="sample"` for documentation without a runtime value. Unlike a conventional example file, placeholder assignments become defaults here.
+
+All fields are required and sensitive unless a static annotation changes that. `@optional` is the inverse of `@required`; `@public` is the inverse of `@sensitive`. An unannotated type is always string. Numeric-looking strings keep their contents, including leading zeroes.
+
+| Type annotation | Result |
+| --- | --- |
+| `@type=string(minLength=1, maxLength=80)` | String with inclusive length constraints. |
+| `@type=number(min=0, max=100, isInt=true)` | Finite decimal number with bounds and an optional safe-integer constraint. |
+| `@type=boolean` | Boolean parsed from `true`, `false`, `1`, or `0`. |
+| `@type=enum(draft, send)` | String union. Mark the field non-sensitive because choices appear in metadata. |
+| `@type=array(string)` | JSON array with typed items. |
+| `@type=object(enabled=boolean, retries=number)` | Exact JSON object shape with required properties. |
+| `@type=url` | Absolute URL validated with the platform `URL` constructor; output remains a string. |
+
+Required empty inputs fail even when a default exists. Optional empty strings remain strings and obey length constraints. Optional empty inputs for other types count as missing, so a default applies when present. Invalid present values fail instead of falling back to a default. Defaults receive the same type and constraint checks.
+
+### Control names and exposure
+
+The default prefix is `VITEHUB_`. Only keys beginning with `VITEHUB_PUBLIC_` enter Public Env. They must be explicitly non-sensitive. Marking a private field `@public` clears sensitivity but keeps it on the server. This rule prevents a metadata annotation alone from moving a value into the browser.
+
+```ts
+env: envSchema(new URL('./.env.example', import.meta.url), {
+  prefix: 'APP_',
+  paths: { APP_DATABASE_URL: 'database.url' },
+})
+```
+
+With `prefix: 'APP_'`, only `APP_PUBLIC_` names enter Public Env. With `prefix: ''`, `PUBLIC_` marks public names. Keys without the configured prefix stay private. Output names strip the prefix and use camel case. Groups are created only by explicit `paths` mappings. Public paths must be flat; unsafe, duplicate, or overlapping paths fail.
+
+Each field reads its exact schema key with canonical lookup disabled. For example, mapping `DATABASE_URL` to `database.url` continues to read `DATABASE_URL`; `VITEHUB_DATABASE_URL` cannot override it. This differs from ordinary code-first declarations described below.
+
+The profile accepts only supported static annotations and type constraints. It rejects dynamic expansion, secret-provider functions, duplicate declarations and decorators, and unknown arguments. Generated types describe `usePublicEnv()` and `useServerEnv()` after validation. `process.env` remains raw string input.
+
 ## Variable names
 
 Every env-backed declaration reads two kinds of variable name, in this order:
@@ -174,3 +243,5 @@ Add the generated type directory to `tsconfig.json` when the app wants field-lev
   ]
 }
 ```
+
+Array and object defaults are quoted JSON, such as `VITEHUB_TAGS='["one"]'`. Types can nest, for example `array(object(name=string))`. Bare `array` and `object` accept JSON without a fixed shape. JSON members are validated without coercion; exact object shapes reject unknown or missing properties. Sensitive declarations cannot contain nested enums because their choices appear in metadata. Dynamic expressions and transforms remain available through the existing code-first APIs where supported.

@@ -22,6 +22,7 @@ import {
   consoleRevisionLabel,
   consoleSeoFallbacks,
   consoleSeoField,
+  consoleDocumentFolders,
   consoleSingularLabel,
   isConsoleConflict,
   isConsoleDocumentId,
@@ -43,6 +44,8 @@ import ConsoleDocumentDiff from "./console-document-diff.vue";
 import ConsoleDocumentHistory from "./console-document-history.vue";
 import ConsoleSchemaForm from "./console-schema-form.vue";
 import ConsoleMarkdownEditor from "./console-markdown-editor.vue";
+import ConsoleLoading from "./console-loading.vue";
+import ConsoleState from "./console-state.vue";
 import ConsolePropertyRow from "./console-property-row.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePresenceAvatars from "./console-presence-avatars.vue";
@@ -332,7 +335,11 @@ const refusedEdits = ref(0);
 const editable = computed(() => canWrite.value && (creating.value || leaseMode.value === "free" || leaseMode.value === "editing"));
 const leaseCompareOpen = ref(false);
 const leaseCompare = ref<{ mine: Version, theirs: ConsoleDocument | null }>();
-const id = computed(() => (creating.value ? newId.value.trim() : props.documentId!));
+// A collection with several globs offers a folder for each. The id starts with the folder below the one that all globs share.
+const folders = computed(() => consoleDocumentFolders(props.collection));
+const folderIndex = ref(0);
+const folderPrefix = computed(() => folders.value[folderIndex.value]?.prefix ?? "");
+const id = computed(() => (creating.value ? (newId.value.trim() ? `${folderPrefix.value}${newId.value.trim()}` : "") : props.documentId!));
 const savedVersion = computed<Version>(() => (base.value ? { body: base.value.body, data: base.value.data } : { body: "", data: consoleSchemaDefaults(props.collection.schema) }));
 const dirty = computed(() => {
   // The live room saves on its own; nothing waits on this tab.
@@ -396,6 +403,7 @@ type HeaderAction = "conflict" | "fields" | "retry";
  * the last save time: they save within a second, so the header does not flicker while someone types.
  */
 const headerStatus = computed<{ action?: HeaderAction, label: string, pending?: boolean, savedAt?: string, tone: "error" | "neutral" | "success" | "warning" } | undefined>(() => {
+  if (publishing.value) return { label: "Publishing…", pending: true, tone: "neutral" };
   if (savingVisible.value) return { label: "Saving…", pending: true, tone: "neutral" };
   if (liveActive.value && live) {
     if (live.saveStatus.value?.error) return { action: "retry", label: "Not saved · retry", tone: "error" };
@@ -473,6 +481,7 @@ function showSavedIssues(document: ConsoleDocument): void {
 async function load(): Promise<void> {
   if (creating.value) return;
   loading.value = true;
+  loadError.value = undefined;
   try {
     const document = await props.client.get(props.collection.name, props.documentId!);
     // In a live room the fields and body come from the room. Only the stored version and its state come from here.
@@ -677,7 +686,9 @@ function onRemoteDigest(digest: string | null): void {
   const viewing = leaseMode.value === "free";
   const before = base.value?.digest;
   void load().then(() => {
-    if (viewing && !dirty.value && base.value?.digest !== before) toast.show({ title: `This ${single.value ? "page" : noun.value.toLowerCase()} was updated` });
+    if (base.value?.digest === before) return;
+    notifyChanged();
+    if (viewing && !dirty.value) toast.show({ title: `This ${single.value ? "page" : noun.value.toLowerCase()} was updated` });
   });
 }
 
@@ -811,7 +822,9 @@ async function publish(): Promise<void> {
   try {
     // Publish exactly the draft on screen. A deleted document has no draft to expect.
     const result = await props.client.publish(props.collection.name, [{ digest: base.value?.digest ?? null, id: id.value }]);
-    if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
+    const pullRequest = result.pullRequest;
+    if (result.documents.length && pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The changes go live when it merges.` });
+    else if (result.documents.length) toast.show({ title: removing ? `${noun.value} removed from the site` : "Changes published" });
     notifyChanged();
     if (removing) await router.replace(listRoute());
     // Edits made while publishing stay on screen and save as the next draft.
@@ -1085,8 +1098,22 @@ async function saveFromShortcut(): Promise<void> {
   if (dirty.value || conflict.value) await save();
 }
 
+async function changeMode(next: "rich" | "source"): Promise<void> {
+  if (next === "source") await bodyEditor.value?.commit();
+  mode.value = next;
+}
+
 function toggleMode(): void {
-  mode.value = mode.value === "rich" ? "source" : "rich";
+  void changeMode(mode.value === "rich" ? "source" : "rich");
+}
+
+async function onModeKeydown(event: KeyboardEvent): Promise<void> {
+  if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const group = event.currentTarget instanceof Element ? event.currentTarget.closest('[role="radiogroup"]') : null;
+  await changeMode(event.key === "Home" ? "rich" : event.key === "End" ? "source" : mode.value === "rich" ? "source" : "rich");
+  await nextTick();
+  group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
 }
 
 function onKeydown(event: KeyboardEvent): void {
@@ -1237,7 +1264,7 @@ const menuItems = computed(() => [[
       <UTooltip v-if="sessionsUnchecked" :text="sessionPresence?.reason ?? 'The Console could not reach the server. Saves still refuse to overwrite a newer version.'" :content="{ side: 'bottom' }">
         <span class="me-1 hidden lg:inline-flex"><ConsoleStatus label="Can't check who else is editing" /></span>
       </UTooltip>
-      <span class="me-1 hidden sm:inline-flex" role="status" aria-live="polite">
+      <span class="me-1 inline-flex" role="status" aria-live="polite">
         <button
           v-if="headerStatus?.action && !savingVisible"
           type="button"
@@ -1255,7 +1282,7 @@ const menuItems = computed(() => [[
         </UTooltip>
       </span>
       <div
-        v-if="hasBody && !creating && !missing && !deleted && !loadError"
+        v-if="hasBody && !creating && !loading && !missing && !deleted && !loadError"
         class="hidden items-center rounded-md p-0.5 ring-1 ring-default ring-inset md:flex"
         role="radiogroup"
         aria-label="Editing mode"
@@ -1267,7 +1294,9 @@ const menuItems = computed(() => [[
             class="h-6 rounded-[4px] px-2 text-xs focus-visible:outline-2"
             :class="mode === option.value ? 'bg-elevated text-highlighted' : 'text-muted hover:text-highlighted'"
             :aria-checked="mode === option.value"
-            @click="mode = option.value"
+            :tabindex="mode === option.value ? 0 : -1"
+            @click="changeMode(option.value)"
+            @keydown="onModeKeydown"
           >
             {{ option.label }}
           </button>
@@ -1312,21 +1341,17 @@ const menuItems = computed(() => [[
     </template>
   </ConsolePageHeader>
 
+  <p class="sr-only" role="status">{{ loading ? 'Loading document…' : '' }}</p>
   <div class="flex min-h-0 flex-1">
-    <div class="vitehub-document-editor min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <UAlert
+    <div class="vitehub-document-editor min-h-0 min-w-0 flex-1 overflow-y-auto" :aria-busy="loading">
+      <ConsoleState
         v-if="loadError"
         class="m-4"
-        color="error"
-        variant="subtle"
-        icon="i-lucide-cloud-off"
         :title="`Couldn't open this ${noun.toLowerCase()}`"
-        :description="consoleErrorMessage(loadError)"
-        :actions="[{ label: 'Try again', icon: 'i-lucide-refresh-cw', color: 'neutral', variant: 'outline', onClick: load }]"
+        :error="loadError"
+        :retry="load"
       />
-      <div v-else-if="loading" class="flex h-full items-center justify-center">
-        <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-      </div>
+      <ConsoleLoading v-else-if="loading" label="Loading document…" />
       <UEmpty
         v-else-if="missing"
         class="py-16"
@@ -1406,6 +1431,16 @@ const menuItems = computed(() => [[
             @focusin="onFieldFocus"
             @focusout="onFieldBlur"
           >
+            <ConsolePropertyRow v-if="creating && folders.length > 1" icon="i-lucide-folder" label="Folder" control="field-folder">
+              <USelect
+                id="field-folder"
+                v-model="folderIndex"
+                class="w-full"
+                variant="ghost"
+                :items="folders.map((entry, index) => ({ label: entry.folder || '/', value: index }))"
+                :ui="{ base: 'font-mono text-xs' }"
+              />
+            </ConsolePropertyRow>
             <ConsolePropertyRow v-if="creating" icon="i-lucide-file" label="Id" control="field-id" :error="idError" :missing="!newId.trim() && !idError">
               <UInput
                 id="field-id"
@@ -1419,7 +1454,7 @@ const menuItems = computed(() => [[
                 @update:model-value="idEdited = true"
               >
                 <template #trailing>
-                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${collection.path.split('*')[0]}${newId || '…'}${fileExtension}` : "From the title" }}</span>
+                  <span id="field-id-hint" class="text-xs text-dimmed">{{ idEdited ? `${folders[folderIndex]?.folder ?? ''}${newId || '…'}${fileExtension}` : "From the title" }}</span>
                 </template>
               </UInput>
             </ConsolePropertyRow>

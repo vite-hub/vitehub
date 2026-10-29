@@ -28,8 +28,13 @@ button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(forced-colors:active){.window{border:1px solid CanvasText}button:focus-visible{outline-color:Highlight}}
 `
 
-function icon(path: string): string {
-  return `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`
+function icon(data: string): SVGSVGElement {
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  for (const [name, value] of Object.entries({ width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  path.setAttribute("d", data)
+  svg.append(path)
+  return svg
 }
 
 /** A retained window: hiding and resizing never unmount its editor. */
@@ -37,13 +42,32 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   const host = document.createElement("vitehub-window")
   host.hidden = true
   const shadow = host.attachShadow({ mode: "open" })
-  shadow.innerHTML = `<style>${styles}</style><section class="window" role="dialog" aria-labelledby="title"><header><h2 id="title"></h2><button class="expand" type="button" aria-label="Expand window" title="Expand window">${icon('<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>')}</button><button class="hide" type="button" aria-label="Minimize window" title="Minimize window">${icon('<path d="M5 12h14"/>')}</button></header><div class="body"></div></section>`
-  const panel = shadow.querySelector<HTMLElement>(".window")!
-  const title = shadow.querySelector("h2")!
+  const style = document.createElement("style")
+  style.textContent = styles
+  const panel = document.createElement("section")
+  panel.className = "window"
+  panel.setAttribute("role", "dialog")
+  panel.setAttribute("aria-labelledby", "title")
+  const header = document.createElement("header")
+  const title = document.createElement("h2")
+  title.id = "title"
   title.textContent = options.title
-  const body = shadow.querySelector<HTMLElement>(".body")!
-  const expand = shadow.querySelector<HTMLButtonElement>(".expand")!
-  const hideButton = shadow.querySelector<HTMLButtonElement>(".hide")!
+  const body = document.createElement("div")
+  body.className = "body"
+  const control = (name: string, label: string, path: string) => {
+    const button = document.createElement("button")
+    button.className = name
+    button.type = "button"
+    button.setAttribute("aria-label", label)
+    button.title = label
+    button.append(icon(path))
+    return button
+  }
+  const expand = control("expand", "Expand window", "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5")
+  const hideButton = control("hide", "Minimize window", "M5 12h14")
+  header.append(title, expand, hideButton)
+  panel.append(header, body)
+  shadow.append(style, panel)
   const key = `vitehub-window:${options.id}`
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(key) ?? "null")

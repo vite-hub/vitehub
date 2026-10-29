@@ -17,7 +17,6 @@ import {
 
 import type { WorkspaceDevTokenOptions } from "./server.ts"
 import { workspaceErrorDiagnostics } from "./error-diagnostics.ts"
-import { workspaceHistoryCliFeatures } from "./history-cli.ts"
 import { hasRuntimeType } from "@vite-hub/runtime/internal/runtime-type"
 
 interface WorkspaceCliContext {
@@ -381,13 +380,13 @@ export async function runWorkspaceDevCli(
 export function createWorkspaceCliContributor(): WorkspaceCliContributor {
   return {
     namespaces: [{
-      description: "Workspace development workflows and retained history.",
+      description: "Workspace development workflows.",
       features: [{
         description: "Run commands through a Workspace Session.",
         name: "dev",
         run: async (args, context) => await runWorkspaceDevCli(args, context),
         usage: "vitehub workspace dev <workspace> [exec <command...>]",
-      }, ...workspaceHistoryCliFeatures],
+      }],
       name: "workspace",
     }],
   }

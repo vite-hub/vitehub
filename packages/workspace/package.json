@@ -3,13 +3,18 @@
   "version": "0.0.4",
   "description": "Agent-oriented filesystem state and Vite integration for ViteHub.",
   "keywords": [
+    "ai-agents",
     "cloudflare",
+    "filesystem",
+    "nuxt",
+    "nuxt-module",
+    "typescript",
     "vercel",
     "vite",
     "vitehub",
     "workspace"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -90,6 +95,12 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -139,12 +150,6 @@
       "require": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
     },
-    "./internal/runtime/history-dev": {
-      "types": "./dist/runtime/history-dev.d.ts",
-      "import": "./dist/runtime/history-dev.js",
-      "require": "./dist/runtime/history-dev.js",
-      "default": "./dist/runtime/history-dev.js"
-    },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
       "import": "./dist/runtime/state.js",
@@ -167,7 +172,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/workspace#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/workspace#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/workspace#build && vp test"
   },
   "dependencies": {

@@ -3,10 +3,12 @@
   "compilerOptions": {
     "forceConsistentCasingInFileNames": true,
     "rootDir": "..",
-    "baseUrl": "../..",
     "paths": {
+      "vite": [
+        "./node_modules/vite/dist/vite/node/index.d.ts"
+      ],
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../internal/src/*.ts"
       ]
     },
     "lib": [

@@ -379,7 +379,7 @@ describe("vitehub", () => {
         ]),
       })
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(
-        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","usage","workflows"])`,
+        `installConsoleSections(${JSON.stringify(root)}, ["env","agents","usage","channels","workflows"])`,
       )
     }
     finally {
@@ -452,7 +452,7 @@ describe("vitehub", () => {
         await callHook(inactive.configResolved, [inactiveConfig])
 
         const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
         })
@@ -471,8 +471,8 @@ describe("vitehub", () => {
       await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('installConsoleKV(')
-      expect(generated).toContain('["cache","sessions"]')
+      expect(generated).toContain('"kv"')
+      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
@@ -488,7 +488,7 @@ describe("vitehub", () => {
       await callHook(disabled.configResolved, [config])
 
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(disabledGenerated).not.toContain('"kv"')
       expect(config.nitro).not.toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
       })
@@ -682,6 +682,7 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
@@ -690,6 +691,7 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/operations",
       "@vite-hub/connections/types-cleanup",
       "@vite-hub/email/optional-peer-resolver",
       "@vite-hub/kv/optional-peers",
@@ -699,6 +701,8 @@ describe("vitehub", () => {
       "vite-hub/task",
       "vite-hub/nitro-cache-bypass",
       "vite-hub/types",
+      "vite-hub/nitro-order",
+      "vite-hub/nitro-order/run",
     ])
 
     expect(pluginNames(vitehub({
@@ -719,6 +723,7 @@ describe("vitehub", () => {
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
@@ -726,6 +731,8 @@ describe("vitehub", () => {
       "vite-hub/dependencies",
       "vite-hub/error-log",
       "@vite-hub/env/vite",
+      "vite-hub/operations",
+      "vite-hub/console",
       "@vite-hub/auth/vite",
       "@vite-hub/sandbox/task/vite",
       "vite-hub/agent-invocations",
@@ -747,6 +754,8 @@ describe("vitehub", () => {
       "vite-hub/nitro-cache-bypass",
       "vite-hub/nitro-workerd-dependencies",
       "vite-hub/types",
+      "vite-hub/nitro-order",
+      "vite-hub/nitro-order/run",
     ])
     expect((vitehub({ preset: "node" }).flat() as Plugin[]).filter(isIncludedNitroPlugin).map(plugin => plugin.name)).toContain("nitro:main")
     expect(pluginNames(vitehub({ preset: "node", sandboxTask: false }))).not.toContain("@vite-hub/sandbox/task/vite")
@@ -800,12 +809,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" }, { importBase: "vite-hub/_internal/kv" })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -920,7 +928,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
@@ -935,7 +942,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })

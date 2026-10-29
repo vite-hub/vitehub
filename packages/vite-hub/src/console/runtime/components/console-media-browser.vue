@@ -106,6 +106,10 @@ const hasDimensions = computed(() => items.value.some(file => file.width && file
 const selectedSet = computed(() => new Set(selected.value));
 const selecting = computed(() => selected.value.length > 0);
 /** Selection exists for bulk moves and deletes on the page, and for picking several files in the picker. */
+/** A folder or file that the store keeps for itself can be read here, but not uploaded to, moved, or deleted. */
+const folderProtected = computed(() => props.client.isProtected?.(folder.value) ?? false);
+const canWrite = computed(() => access.value.write && !folderProtected.value);
+const selectionManageable = computed(() => access.value.manage && !selectedFiles().some(file => props.client.isProtected?.(file.pathname)));
 const canSelect = computed(() => (props.mode === "page" ? access.value.manage : Boolean(props.multiple)));
 const pickable = (file: ConsoleMediaFile) => props.mode !== "picker" || consoleMediaAccepts(props.accept, file.contentType);
 
@@ -241,7 +245,7 @@ function keydown(event: KeyboardEvent): void {
     event.preventDefault();
     selected.value = items.value.filter(pickable).map(item => item.pathname);
   }
-  else if ((event.key === "Backspace" || event.key === "Delete") && selecting.value && props.mode === "page" && access.value.manage) {
+  else if ((event.key === "Backspace" || event.key === "Delete") && selecting.value && props.mode === "page" && selectionManageable.value) {
     event.preventDefault();
     void askRemove(selectedFiles());
   }
@@ -265,7 +269,7 @@ const dragDepth = ref(0);
 
 async function upload(files: readonly File[]): Promise<ConsoleMediaUploadResult[]> {
   if (!files.length) return [];
-  if (!access.value.write) {
+  if (!canWrite.value) {
     toast.error("You cannot upload files here. Ask for write access to a collection.");
     return [];
   }
@@ -290,13 +294,13 @@ function hasFiles(event: DragEvent): boolean {
 }
 
 function dragenter(event: DragEvent): void {
-  if (!hasFiles(event) || !access.value.write) return;
+  if (!hasFiles(event) || !canWrite.value) return;
   event.preventDefault();
   dragDepth.value++;
 }
 
 function dragover(event: DragEvent): void {
-  if (!hasFiles(event) || !access.value.write) return;
+  if (!hasFiles(event) || !canWrite.value) return;
   event.preventDefault();
   if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
 }
@@ -534,8 +538,8 @@ defineExpose({
           </UTooltip>
         </div>
         <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
-        <Teleport v-if="access.write" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
-          <UPopover v-model:open="folderOpen" :content="{ align: 'end' }">
+        <Teleport v-if="canWrite" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
+          <UPopover v-if="client.capabilities?.folders !== false" v-model:open="folderOpen" :content="{ align: 'end' }">
             <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
             <template #content>
               <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
@@ -579,7 +583,7 @@ defineExpose({
               <span class="truncate">{{ consoleFolderName(path) }}</span>
             </button>
             <UDropdownMenu
-              v-if="mode === 'page' && access.manage"
+              v-if="mode === 'page' && access.manage && client.capabilities?.folders !== false"
               :content="{ align: 'end' }"
               :items="[[{ label: 'Rename or move…', icon: 'i-lucide-pencil', onSelect: () => askMoveFolder(path) }], [{ label: 'Delete folder', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => askRemoveFolder(path) }]]"
             >
@@ -594,8 +598,8 @@ defineExpose({
           class="py-16"
           :icon="folder ? 'i-lucide-folder-open' : 'i-lucide-images'"
           :title="folder ? 'This folder is empty' : 'No media yet'"
-          :description="emptyDescription ?? (access.write ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"
-          :actions="access.write ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
+          :description="emptyDescription ?? (canWrite ? 'Drop files anywhere here, or upload them.' : 'Files that editors upload show here.')"
+          :actions="canWrite ? [{ label: 'Upload files', icon: 'i-lucide-upload', color: 'neutral', variant: 'outline', onClick: () => fileInput?.click() }] : []"
         />
 
         <ul v-else-if="view === 'grid' && items.length" class="vitehub-media-grid" :aria-label="`Files in ${folderLabel(folder)}`" :aria-multiselectable="canSelect ? 'true' : undefined" role="listbox">
@@ -691,8 +695,8 @@ defineExpose({
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
       <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
-      <UButton v-if="access.manage" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
-      <UButton v-if="access.manage" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
+      <UButton v-if="selectionManageable && client.capabilities?.move !== false" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
+      <UButton v-if="selectionManageable" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
         <UButton size="sm" variant="ghost" icon="i-lucide-x" aria-label="Clear selection" @click="selected = []" />
       </UTooltip>

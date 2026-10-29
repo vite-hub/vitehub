@@ -62,6 +62,24 @@ afterEach(() => {
 })
 
 describe("loadViteHubPageTools", () => {
+  it("starts tools and keeps exit usable when Trusted Types blocks HTML sinks", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool] })
+    vi.spyOn(ShadowRoot.prototype, "innerHTML", "set").mockImplementation(() => {
+      throw new TypeError("This document requires 'TrustedHTML' assignment.")
+    })
+    const { load, started, stopped } = modules({ console: false })
+
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([consoleTool])
+    expect(started).toHaveLength(1)
+    const { slots, exit } = pill()
+    expect(slots).toEqual(["console"])
+    expect(exit.querySelector("svg")?.namespaceURI).toBe("http://www.w3.org/2000/svg")
+    exit.click()
+    expect(stopped).toEqual(["console"])
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
   it("asks the session route, then imports and starts only the allowed tools", async () => {
     page("/pricing?vitehub")
     const fetch = session({ tools: [comments] })
