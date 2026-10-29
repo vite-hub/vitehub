@@ -159,17 +159,17 @@
       "require": "./dist/media.js",
       "default": "./dist/media.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./reference": {
       "types": "./dist/reference.d.ts",
       "import": "./dist/reference.js",
       "require": "./dist/reference.js",
       "default": "./dist/reference.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/state": {
       "types": "./dist/runtime/state.d.ts",

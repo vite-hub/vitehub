@@ -55,6 +55,12 @@
       "require": "./dist/markdown.js",
       "default": "./dist/markdown.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime/console": {
       "types": "./dist/runtime/console.d.ts",
       "import": "./dist/runtime/console.js",

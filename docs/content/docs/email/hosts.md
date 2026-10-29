@@ -57,7 +57,7 @@ pnpm vitehub email outbox show outbox-1 --html > message.html
 pnpm vitehub email preview welcome --data '{"user":{"name":"Ada"}}'
 ```
 
-`vitehub email outbox` reads the outbox through the Nitro runtime, so it needs a Vite + Nitro Development Server. With Nuxt or plain Vite, the command reports that the host is not supported. `vitehub email preview` does not need a server. The Console never renders captured HTML. It shows the HTML source as text.
+`vitehub email outbox` runs the `email.outbox-*` [operations](/docs/development/operations) in the app, so it needs a running Development Server for this project. With `--url` it reads the outbox of a deployed app that enables the Console, though only `vite dev` captures messages. `vitehub email preview` does not need a server. The Console never renders captured HTML. It shows the HTML source as text.
 
 ## Requirements
 
