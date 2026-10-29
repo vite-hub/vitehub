@@ -76,6 +76,7 @@ When `model` is set, it is the source of truth. Do not also use `paths` or `opti
 ## Accessibility
 
 - The inner tree has `role="tree"` and the accessible name **Files**. Pass `aria-label` for a more specific name, for example **Changed files**.
+- With `search: true`, the search input has the accessible name **Search files**.
 - Pierre handles keyboard navigation inside the tree.
 
 ## API Reference

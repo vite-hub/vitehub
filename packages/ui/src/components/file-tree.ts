@@ -72,8 +72,11 @@ export const FileTree = defineComponent({
       if (mountedModel !== model) releaseMountedModel();
       model.render({ fileTreeContainer: host });
       mountedModel = model;
+      // Pierre has no option to name the tree or its search input, which has only a placeholder.
       host.shadowRoot?.querySelector<HTMLElement>("[role='tree']")
         ?.setAttribute("aria-label", attrs["aria-label"] == null ? "Files" : String(attrs["aria-label"]));
+      host.shadowRoot?.querySelector<HTMLElement>("[data-file-tree-search-input]")
+        ?.setAttribute("aria-label", "Search files");
     };
     const setHost = (node: Element | null) => {
       host = node instanceof HTMLElement ? node : null;
