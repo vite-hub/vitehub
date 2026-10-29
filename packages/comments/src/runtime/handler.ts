@@ -1,3 +1,4 @@
+import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { defineHandler } from "h3"
@@ -212,7 +213,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return {
       ...read,
       ...(components ? { components } : {}),
-      ...(options.build && (options.build.commit || options.build.branch) ? { build: options.build } : {}),
+      ...(options.build && Object.values(options.build).some(Boolean) ? { build: options.build } : {}),
     }
   }
 
@@ -337,6 +338,13 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   return defineHandler(async (event) => {
     const request = requestOf(event)
+    const response = await route(event, request)
+    // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
+    if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
+    return response
+  })
+
+  async function route(event: H3Event, request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)
@@ -436,5 +444,5 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
 
     return json({ error: { code: "COMMENTS_NOT_FOUND", why: `No Comments route ${method} ${path}.` } }, { status: 404 })
-  })
+  }
 }

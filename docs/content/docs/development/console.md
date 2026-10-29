@@ -423,6 +423,87 @@ console: { auth: 'app', authorize: './server/console-authorize.ts', invoke: true
 
 Your access policy decides who can start invocations, because the invocation routes call it. A user also needs the `agents` section. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. Fixture mode always disables it.
 
+### Impersonate users
+
+`impersonation` lets a Console administrator open the app as one of its users, to see what that user sees. It is off by default:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts', impersonation: true }
+```
+
+It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), so that each start and stop has a record. Without app Auth, the build stops with `VITE_HUB_B0005`.
+
+```ts [server/auth.ts]
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { admin } from 'better-auth/plugins'
+
+export default defineAuth(() => {
+  const { db, schema } = useDatabase('auth')
+  return {
+    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
+    plugins: [admin({ adminUserIds: ['<your user id>'] })],
+    events: { store: createDatabaseAuthEventStore({ db }) },
+  }
+})
+```
+
+Open **Auth › Users**, select a user, and select **Impersonate**. The browser signs in to the app as that user, and the app opens. To stop, open the Console again and select **Stop impersonating**. Better Auth restores your own session.
+
+Two checks decide who can impersonate:
+
+- The Console access policy gives the `auth` section. A read-only grant (`'auth:read'`) cannot change Auth data, and this includes impersonation.
+- The app session has Better Auth's `user: ['impersonate']` permission, which the admin plugin's `adminRoles` and `adminUserIds` give.
+
+Better Auth refuses banned users and other administrators as targets. To allow administrators, set `admin({ allowImpersonatingAdmins: true })` or give the `impersonate-admins` permission. The user panel shows the reason when Better Auth refuses a user.
+
+The security model:
+
+| Rule | What it means |
+| --- | --- |
+| Off by default | Without `console.impersonation`, the Console shows no Impersonate action, and the Auth route answers `404` to start and stop. Better Auth's own admin endpoints stay as the app configures them. |
+| Short session | The session lasts `admin({ impersonationSessionDuration })` seconds, one hour by default. It never refreshes past that time, also when a client sends only the session cookie. |
+| Recorded | Auth Activity shows `impersonation.started` and `impersonation.stopped`, with you as the actor. Without `events.store`, the action is off. When the log cannot record a start, the impersonation does not start. |
+| No new credentials | An impersonation session cannot approve OAuth, MCP, or device clients, create API keys, register passkeys, set or change the password, change the email, phone number, or username, link or unlink accounts, read or refresh a linked account's provider tokens, change two-factor settings, create one-time tokens, or start another impersonation. These requests return `403` with `IMPERSONATION_FORBIDDEN`. |
+| Not in the Console | With app Auth, an impersonation session never opens the Console. Each Console page shows **Viewing the app as …** with **Stop impersonating**, and Console data routes return `403` with `CONSOLE_IMPERSONATING`. With Console Auth or Cloudflare Access, the Console keeps its own session and the Auth section shows a banner with **Stop impersonating**. |
+| Same origin | Start and stop use the Auth route, which requires the same origin and `x-vitehub-console: 1`. The **Viewing the app as …** page calls Better Auth's `stop-impersonating` endpoint, which checks the origin. |
+
+When the session ends before you stop it, Better Auth cannot restore your own session. Sign in again.
+
+App code can detect an impersonation session. On the server, `session.impersonatedBy` is the id of the administrator:
+
+```ts [server/api/me.get.ts]
+import { withAuth } from 'vite-hub/auth/server'
+
+export default withAuth((_event, { session, user }) => ({
+  id: user.id,
+  impersonatedBy: session.impersonatedBy ?? null,
+}))
+```
+
+In Vue, `useUserSession()` gives `impersonatedBy` and `stopImpersonating()`, so the app can show its own banner:
+
+```vue [components/ImpersonationBanner.vue]
+<script setup lang="ts">
+import { useUserSession } from 'vite-hub/auth/vue'
+
+const { impersonatedBy, stopImpersonating, user } = useUserSession()
+
+async function stop() {
+  await stopImpersonating()
+  window.location.assign('/_vitehub/auth/users')
+}
+</script>
+
+<template>
+  <div v-if="impersonatedBy" role="status">
+    Viewing the app as {{ user?.email }}
+    <button type="button" @click="stop">Stop impersonating</button>
+  </div>
+</template>
+```
+
 ### Manage Connections in production
 
 On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build mounts the Connections section and its management routes only with `connections: { management: true }`:
@@ -603,6 +684,7 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
 | `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
 | `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_IMPERSONATING` | `403` | This browser uses an impersonation session. Stop impersonating to get your own session back. |
 | `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |

@@ -1335,6 +1335,9 @@ importers:
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
+      '@vite-hub/forge':
+        specifier: workspace:*
+        version: link:../forge
       '@vite-hub/realtime':
         specifier: workspace:*
         version: link:../realtime
@@ -1372,6 +1375,9 @@ importers:
       happy-dom:
         specifier: 21.0.3
         version: 21.0.3
+      marked:
+        specifier: catalog:realtime
+        version: 17.0.6
       publint:
         specifier: catalog:tooling
         version: 0.3.25

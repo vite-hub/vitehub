@@ -28,6 +28,7 @@ Libraries can install `@vite-hub/comments` and use the same exports. `@vite-hub/
 | `database` | `default`, else the only Database | The Database name, as a string literal. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `people({ query, user })` | Authors of earlier comments | The people that `@` suggests, as `{ id, name }[]`. |
 | `onComment({ thread, comment, mentions })` | None | Runs after a new thread or a reply saves. Errors are logged, not returned. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people). |
+| `forge` | None | `{ provider: 'github', repository?, pullRequest?(thread), token?(author), title?, apiUrl? }`. Posts threads to the pull request of the preview. See [Post comments to the pull request](/docs/comments/configure#post-comments-to-the-pull-request). |
 
 ## Runtime methods
 
@@ -62,6 +63,8 @@ export default defineEventHandler(async (event) => {
 | `removeScope(scope)` | `{ removed }`, the number of threads it deleted with their comments. | `COMMENTS_NOT_INSTALLED` |
 | `people({ query, user, scope? })` | At most 20 `{ id, name }` whose name contains `query`: the `people` option, else the authors of `scope`, `'pages'` by default. | `COMMENTS_NOT_INSTALLED` |
 | `can({ user, action, thread?, scope? })` | `true` when the `authorize` policy allows the action. `scope` is the thread's, else `'pages'`. | None |
+| `sync(threadId)` | Nothing. With `forge`, brings the thread's pull request comments in line now, and posts what failed before. | None |
+| `flush()` | Nothing. Waits for the pull request syncs that earlier changes started. | None |
 
 `page` is normalized before it is stored or compared: Comments drops the query and the hash, joins repeated slashes, and removes a trailing slash. `/pricing/?plan=pro#faq` is `/pricing`.
 
@@ -89,6 +92,16 @@ interface CommentThread {
   createdAt: string
   updatedAt: string
   comments: Comment[]             // oldest first; the first comment opened the thread
+  forge?: CommentForgeLink | null // with the forge option: its pull request comment
+}
+
+interface CommentForgeLink {
+  repository: string              // 'owner/name'
+  pullRequest: number
+  state: 'posted' | 'pending' | 'failed'
+  url?: string                    // the comment of the first comment
+  error?: string                  // why GitHub refused it
+  postedAs?: 'author' | 'app'
 }
 
 interface Comment {
@@ -172,14 +185,14 @@ interface CommentContext {
     colorScheme?: 'light' | 'dark'
     timeZone?: string
   }
-  build?: { commit?: string, branch?: string }
+  build?: { commit?: string, branch?: string, repository?: string, pullRequest?: number }
 }
 ```
 
 - **Components:** the overlay walks the Vue component tree from the app container down to the element. A production build keeps that tree, so this works without Vue devtools and changes nothing in the HTML. Pages that Vue does not render get no components.
 - **URL:** the overlay drops all query parameters and the hash. The server checks that the submitted URL matches the request origin and thread page, then stores only the origin and normalized pathname.
 - **Files:** a production build keeps only the component name, which for `<script setup>` is the name of its file. At build time, Comments lists the `.vue` files of the project by name, and the server adds the files of each name to the thread. In Nuxt, it also uses the resolved component registry, including custom prefixes, component directories, and client/server suffixes. A name that two files share, such as `index`, gets both unless Nuxt resolves that name to a specific component. The list skips `node_modules`, `dist`, `public`, and dot directories. Nuxt rescans refresh its resolved names; in other Vite apps, restart the server after you add a component.
-- **Build:** the commit and branch come from the host or CI at build time (`VERCEL_GIT_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `COMMIT_REF`, or `GITHUB_SHA`), else from Git. The browser cannot set them, and cannot set file names.
+- **Build:** the commit and branch come from the host or CI at build time (`VERCEL_GIT_COMMIT_SHA`, `WORKERS_CI_COMMIT_SHA`, `CF_PAGES_COMMIT_SHA`, `COMMIT_REF`, or `GITHUB_SHA`), else from Git. The GitHub repository and the pull request come from the same place, for [`forge`](/docs/comments/configure#post-comments-to-the-pull-request). The browser cannot set them, and cannot set file names.
 
 The Console shows the context in each thread's fields. `describeCommentContext(context)` from `vite-hub/comments` returns the same label and value pairs.
 
