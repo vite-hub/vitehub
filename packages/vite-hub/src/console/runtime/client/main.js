@@ -9,6 +9,7 @@ import { createRouter, createWebHistory } from "vue-router";
 const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
+const ConsoleChannels = () => import("../components/console-channels.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
@@ -125,6 +126,20 @@ const router = createRouter({
       props: {
         agentsBase: consolePath("/api/_vitehub/console/agents"),
         blobBase: consolePath("/api/_vitehub/console/blob"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
+      component: ConsoleChannels,
+      name: "vitehub-console-channels",
+      path: "/channels",
+      meta: { consoleSection: "channels", title: "Channels · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        channelsBase: consolePath("/api/_vitehub/console/channels"),
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),

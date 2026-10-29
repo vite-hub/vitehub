@@ -151,8 +151,8 @@ export interface ConsoleBlobMediaClient extends ConsoleMediaClient {
 }
 
 /**
- * Lists one Blob Store through the Console Blob route as a read-only media library. Folders come from a folded listing.
- * Search matches the start of pathnames in the open folder, since Blob providers list by prefix. Write actions reject.
+ * Lists one Blob Store through the Console Blob route. Folders come from a folded listing.
+ * Search matches the start of pathnames in the open folder, since Blob providers list by prefix.
  */
 export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobMediaOptions): ConsoleBlobMediaClient {
   const objects = new Map<string, ConsoleBlobObject>()
@@ -177,6 +177,7 @@ export function createConsoleBlobMediaClient(base: string, options: ConsoleBlobM
   }
 
   return {
+    capabilities: { folders: false, move: false },
     async list(query = {}, signal) {
       const folder = query.folder ?? ""
       const search = query.search ?? ""

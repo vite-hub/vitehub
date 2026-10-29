@@ -83,6 +83,11 @@ export interface OperationContext {
    * model cannot take over a document that a person is editing.
    */
   overrideLeases?: boolean
+  /**
+   * What an Agent may read of the Channel conversations, set by `operations({ conversations })`. `participant`: only the
+   * threads that the Actor takes part in. `all`: every thread. Unset: none.
+   */
+  conversations?: "all" | "participant"
 }
 
 export interface OperationDefinition<Input, Output> {

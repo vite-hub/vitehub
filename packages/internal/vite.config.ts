@@ -12,6 +12,7 @@ export default defineConfig({
       "src/abort.ts",
       "src/agent-workflow.ts",
       "src/arrays.ts",
+      "src/channel-archive.ts",
       "src/cli.ts",
       "src/console.ts",
       "src/contributions.ts",

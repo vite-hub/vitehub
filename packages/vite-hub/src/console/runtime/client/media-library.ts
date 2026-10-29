@@ -109,6 +109,8 @@ export interface ConsoleMediaUploadOptions {
 
 /** The media library actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleMediaClient {
+  /** Supported mutations, in addition to the user's access. Omitted for a full Content media library. */
+  capabilities?: { folders: boolean, move: boolean }
   createFolder(parent: string, name: string): Promise<{ path: string }>
   /** Paths that the library shows but never changes, such as the files that ViteHub keeps for itself. */
   isProtected?(pathname: string): boolean

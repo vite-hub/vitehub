@@ -539,7 +539,7 @@ defineExpose({
         </div>
         <!-- The Media page moves its actions into the page header, next to the title, like New on a collection. -->
         <Teleport v-if="canWrite" :to="actionsTarget ?? 'body'" :disabled="!actionsTarget">
-          <UPopover v-model:open="folderOpen" :content="{ align: 'end' }">
+          <UPopover v-if="client.capabilities?.folders !== false" v-model:open="folderOpen" :content="{ align: 'end' }">
             <UButton size="sm" variant="outline" icon="i-lucide-folder-plus" :label="actionsTarget ? 'New folder' : undefined" aria-label="New folder" />
             <template #content>
               <form class="grid w-64 gap-2 p-3" @submit.prevent="createFolder">
@@ -583,7 +583,7 @@ defineExpose({
               <span class="truncate">{{ consoleFolderName(path) }}</span>
             </button>
             <UDropdownMenu
-              v-if="mode === 'page' && access.manage"
+              v-if="mode === 'page' && access.manage && client.capabilities?.folders !== false"
               :content="{ align: 'end' }"
               :items="[[{ label: 'Rename or move…', icon: 'i-lucide-pencil', onSelect: () => askMoveFolder(path) }], [{ label: 'Delete folder', icon: 'i-lucide-trash-2', color: 'error' as const, onSelect: () => askRemoveFolder(path) }]]"
             >
@@ -695,7 +695,7 @@ defineExpose({
     <div v-if="mode === 'page' && selecting" class="vitehub-media-bulk" role="toolbar" aria-label="Selected files">
       <span class="ps-1 text-[13px] text-highlighted tabular-nums">{{ selected.length }} selected</span>
       <span class="h-4 w-px bg-(--ui-border)" aria-hidden="true" />
-      <UButton v-if="selectionManageable" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
+      <UButton v-if="selectionManageable && client.capabilities?.move !== false" size="sm" variant="ghost" icon="i-lucide-folder-input" label="Move…" @click="askMove(selectedFiles())" />
       <UButton v-if="selectionManageable" size="sm" variant="ghost" color="error" icon="i-lucide-trash-2" label="Delete" @click="askRemove(selectedFiles())" />
       <UTooltip text="Clear selection" :kbds="['esc']">
         <UButton size="sm" variant="ghost" icon="i-lucide-x" aria-label="Clear selection" @click="selected = []" />
