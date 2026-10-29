@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
-import { resolve } from "node:path"
+import { dirname, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { build } from "esbuild"
@@ -21,6 +21,7 @@ import type { QueueModuleOptions } from "@vite-hub/queue"
 import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 
+const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const databaseRuntimeState = fileURLToPath(new URL("../src/_internal/database/runtime/state", import.meta.url))
 
 function fixtureDocument(id?: string) {
@@ -541,7 +542,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     expect(nitroConfig.externals).toEqual({
-      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
+      inline: ["existing-inline", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
       external,
       trace: false,
     })
@@ -588,14 +589,15 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/nitro-h3",
       "vite-hub/nitro-file-url",
       "vite-hub/nitro-cache-bypass",
       "existing-nitro-plugin",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite",
       "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite",
     ])
-    const kvResolver = plugins[3]!
-    const blobResolver = plugins[4]!
+    const kvResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/kv/vite")!
+    const blobResolver = plugins.find(plugin => plugin.name === "vite-hub/nuxt-runtime-resolver:@vite-hub/blob/vite")!
     const context = { marker: "nitro-context" }
     expect(Reflect.apply(kvResolver.resolveId as Function, context, ["#vitehub/kv/config"])).toBe("\0#vitehub/kv/config")
     expect(Reflect.apply(kvResolver.load as Function, context, ["\0#vitehub/kv/config"])).toBe(
@@ -2735,6 +2737,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(mocks.useEnvPlugin).toHaveBeenCalledWith(expect.objectContaining({ name: "@vite-hub/env/vite" }))
     expect(nitroConfig).toEqual({
       alias: {
+        "cloudflare:workers": "/tmp/vitehub-nuxt/.nuxt/vitehub/cloudflare-workers.dev.mjs",
         "#vitehub/env/description": "/tmp/vitehub-nuxt/.vitehub/env/description.mjs",
         "#vitehub/env/public": "/tmp/vitehub-nuxt/.vitehub/env/public.mjs",
         "#vitehub/env/server": "/tmp/vitehub-nuxt/.vitehub/env/server.mjs",
@@ -2749,7 +2752,7 @@ describe("ViteHub Nuxt integration", () => {
         },
       },
       ownerPlugin: true,
-      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] },
+      externals: { inline: ["vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] },
       handlers: [{ handler: "server/handler.ts", route: "/api/example" }],
       modules: ["agent-module"],
       preset: "cloudflare_module",
@@ -2762,6 +2765,7 @@ describe("ViteHub Nuxt integration", () => {
       rollupConfig: {
         plugins: [
           expect.objectContaining({ name: "vite-hub/nitro-cloudflare-workers-dev" }),
+          expect.objectContaining({ name: "vite-hub/nitro-h3" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),
         ],
@@ -3983,7 +3987,7 @@ describe("ViteHub Nuxt integration", () => {
     await runNitroConfigHook(nitroConfig)
 
     const expectedExternals = {
-      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"],
+      inline: ["consumer-package", matcher, "effect", "@effect/platform-node", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot],
       external: ["external-package"],
       trace: false,
     }
@@ -4014,10 +4018,101 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ preset: "node" }, nuxt)
     await runNitroConfigHook(nitroConfig)
 
-    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub"] })
+    expect(nitroConfig.externals).toEqual({ ...externals, inline: ["consumer-package", "vite-hub", "@vite-hub/", "/tmp/vitehub-nuxt/.vitehub", h3RuntimeRoot] })
     expect(externals.inline).toEqual(["consumer-package"])
     if (noExternals === undefined || Array.isArray(noExternals)) expect(nitroConfig).not.toHaveProperty("noExternals")
     else expect(nitroConfig.noExternals).toBe(noExternals)
+  })
+
+  it("resolves generated Workspace plugins from the project rather than server directory", async () => {
+    const fixture = createNuxt(false)
+    await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+    const config = { plugins: [".vitehub/nitro/workspace/plugin.ts", "/consumer/plugin.ts", "package-plugin"] }
+    await fixture.runNitroConfigHook(config)
+    expect(config.plugins).toEqual(["/tmp/vitehub-nuxt/.vitehub/nitro/workspace/plugin.ts", "/consumer/plugin.ts", "package-plugin"])
+  })
+
+  it("keeps H3 2 for ViteHub modules while leaving application H3 imports to Nuxt", async () => {
+    const fixture = createNuxt(false)
+    await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+    const config: Record<string, unknown> = {}
+    await fixture.runNitroConfigHook(config)
+    const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
+    const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+    for (const importer of [fileURLToPath(import.meta.resolve("@vite-hub/auth")), "/tmp/vitehub-nuxt/.vitehub/nitro/workspace/plugin.ts", "/tmp/vitehub-nuxt/.nuxt/vitehub/runtime.mjs", fileURLToPath(new URL("../src/nuxt.ts", import.meta.url))]) {
+      expect(resolver.resolveId?.("h3", importer)).toBe(fileURLToPath(import.meta.resolve("h3")))
+    }
+    expect(resolver.resolveId?.("h3", "/app/server/api/example.ts")).toBeUndefined()
+    expect(resolver.resolveId?.("other", "/app/node_modules/vite-hub/dist/nuxt.js")).toBeUndefined()
+  })
+
+  it.each([
+    ["node_modules/nitro", "nitro", "3.0.0-beta.1", true],
+    ["node_modules/.pnpm/nitro@3.0.0/node_modules/nitro", "nitro", "3.0.0", true],
+    ["node_modules/h3", "h3", "2.0.0", true],
+    ["node_modules/.pnpm/h3@2.0.0/node_modules/h3", "h3", "2.0.0", true],
+    ["node_modules/vite-hub", "vite-hub", "0.0.4", true],
+    ["node_modules/@vite-hub/auth", "@vite-hub/auth", "0.0.4", true],
+    ["packages/auth", "@vite-hub/auth", "0.0.4", true],
+    ["vite-hub", "consumer", "1.0.0", false],
+    ["@vite-hub", "consumer", "1.0.0", false],
+    [".vitehub", "consumer", "1.0.0", false],
+    ["vite-hub/node_modules/nitropack", "nitropack", "2.0.0", false],
+    ["@vite-hub/node_modules/unrelated", "unrelated", "1.0.0", false],
+    [".vitehub/node_modules/h3", "h3", "1.0.0", false],
+  ] as const)("identifies the H3 owner at the package boundary %s", async (layout, name, version, owned) => {
+    const directory = await mkdtemp("/tmp/vitehub-h3-owner-")
+    try {
+      const root = resolve(directory, layout)
+      const importer = resolve(root, "dist/runtime.mjs")
+      await mkdir(dirname(importer), { recursive: true })
+      await writeFile(resolve(root, "package.json"), JSON.stringify({ name, version }))
+      await writeFile(importer, "")
+      const fixture = createNuxt(false)
+      await viteHubNuxtModule({ preset: "node" }, fixture.nuxt)
+      const config: Record<string, unknown> = {}
+      await fixture.runNitroConfigHook(config)
+      const plugins = (config.rollupConfig as { plugins: Array<{ name: string, resolveId?: (id: string, importer: string) => string | undefined }> }).plugins
+      const resolver = plugins.find(plugin => plugin.name === "vite-hub/nitro-h3")!
+      for (const path of [importer, importer.replaceAll("/", "\\")]) {
+        expect(resolver.resolveId?.("h3", path)).toBe(owned ? fileURLToPath(import.meta.resolve("h3")) : undefined)
+      }
+    }
+    finally { await rm(directory, { force: true, recursive: true }) }
+  })
+
+  it("uses runtime bindings in Node Cloudflare development without a consumer shim", async () => {
+    const fixture = createNuxt(true)
+    await viteHubNuxtModule({ preset: "cloudflare" }, fixture.nuxt)
+    const config: Record<string, unknown> = {}
+    await fixture.runNitroConfigHook(config)
+    const alias = config.alias as Record<string, string>
+    const shim = await import(alias["cloudflare:workers"]!)
+    vi.stubGlobal("__env__", { EXAMPLE: "binding" })
+    vi.stubEnv("FALLBACK", "process")
+    try {
+      expect(shim.env.EXAMPLE).toBe("binding")
+      expect(shim.env.FALLBACK).toBe("process")
+      expect(Object.hasOwn(shim.env, "EXAMPLE")).toBe(true)
+      expect(Object.hasOwn(shim.env, "FALLBACK")).toBe(true)
+      expect(Object.hasOwn(shim.env, "MISSING_BINDING")).toBe(false)
+      expect(Object.keys(shim.env)).toContain("EXAMPLE")
+      expect(Object.assign({}, shim.env)).toMatchObject({ EXAMPLE: "binding", FALLBACK: "process" })
+      vi.stubGlobal("__env__", { NEXT: "next request" })
+      expect(Object.hasOwn(shim.env, "EXAMPLE")).toBe(false)
+      expect(Object.assign({}, shim.env)).toMatchObject({ NEXT: "next request", FALLBACK: "process" })
+      vi.stubGlobal("__env__", undefined)
+      expect(Object.assign({}, shim.env)).toHaveProperty("FALLBACK", "process")
+      let completed = false
+      await shim.waitUntil(Promise.resolve().then(() => { completed = true }))
+      expect(completed).toBe(true)
+    }
+    finally { vi.unstubAllGlobals(); vi.unstubAllEnvs() }
+    const production = createNuxt(false)
+    await viteHubNuxtModule({ preset: "cloudflare" }, production.nuxt)
+    const productionConfig: Record<string, unknown> = {}
+    await production.runNitroConfigHook(productionConfig)
+    expect(productionConfig.alias).not.toHaveProperty("cloudflare:workers")
   })
 
   it("preserves Nitro inline-all policy", async () => {

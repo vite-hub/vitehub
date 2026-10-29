@@ -144,6 +144,8 @@ Only `VITEHUB_PUBLIC_` names enter Public Env. Mark them `@public` or `@sensitiv
 
 Supported types are string with `minLength`/`maxLength`, number with `min`/`max`/`isInt`, boolean, string enum, absolute URL, JSON arrays, and object shapes. URLs remain strings. Sensitive enums are rejected because their choices appear in metadata. Optional non-string empty inputs become missing before defaulting; optional strings preserve empty inputs and still obey length constraints. Required present empty or invalid inputs fail, even when a default exists. Generated declarations describe the validated accessors; raw `process.env` types stay unchanged.
 
+The [runnable schema lab](./examples/schema-lab/README.md) builds a browser bundle and Node server from one contract. Its production test restarts the same artifact with different server values, checks startup failures and consumer types, and scans browser output for synthetic credentials. Public Env remains fixed at build time.
+
 ## Presets
 
 Presets return ordinary `env.server` declarations. Import them from `@vite-hub/env` or `@vite-hub/env/presets`.
