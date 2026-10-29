@@ -267,7 +267,7 @@ export default defineEventHandler(async (event) => {
 
 Comment-mode requests remove cache validators before fetching the asset. Otherwise the binding can return a bodyless `304`, and the browser reuses a cached page without the overlay. Requests without the comment hint retain their validators.
 
-The overlay is a custom element with a closed shadow root. Your CSS does not change it, and its CSS does not change your page.
+The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page.
 
 ## Mark Content fields
 

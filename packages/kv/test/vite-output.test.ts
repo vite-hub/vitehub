@@ -3,7 +3,7 @@ import { execFile } from "node:child_process"
 import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
+import { fileURLToPath, pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 
 import { afterEach, describe, expect, it } from "vitest"
@@ -252,7 +252,7 @@ describe("KV Vite output", () => {
       import("vite"),
       import("../src/vite.ts"),
     ])
-    await writeFile(entry, 'export { listKVDevStores } from "@vite-hub/kv/runtime/dev"')
+    await writeFile(entry, `export { listKVDevStores } from ${JSON.stringify(fileURLToPath(new URL("../src/runtime/operations.ts", import.meta.url)))}`)
 
     await build({
       appType: "custom",
@@ -272,7 +272,7 @@ describe("KV Vite output", () => {
     })
 
     const output = await readOutput(join(rootDir, "dist"))
-    // SAFETY: The fixture entry exports the real dev runtime's listKVDevStores function.
+    // SAFETY: The fixture entry exports the real operations runtime's listKVDevStores function.
     const worker = await import(pathToFileURL(join(rootDir, "dist", "worker.js")).href) as {
       listKVDevStores: () => Array<{ driver: string, name: string }>
     }

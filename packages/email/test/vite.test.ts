@@ -513,6 +513,7 @@ describe("hubEmail", () => {
     const modules = [
       { id: `/@fs/${template}?markdown-template` },
       { id: `${template}?markdown-template` },
+      { id: join(root, ".vitehub", "email", "preview.mjs") },
     ]
     const invalidateModule = vi.fn()
     const add = vi.fn()
@@ -535,6 +536,7 @@ describe("hubEmail", () => {
     handlers.get("change")?.(template)
     await vi.waitFor(() => expect(send).toHaveBeenCalledOnce())
     for (const module of modules) expect(invalidateModule).toHaveBeenCalledWith(module)
+    await expect(readFile(join(root, ".vitehub", "email", "preview.mjs"), "utf8")).resolves.toContain("Updated welcome")
     await expect(stat(join(root, ".vitehub", "email", "templates"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
