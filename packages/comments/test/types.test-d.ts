@@ -2,9 +2,14 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineComments } from "../src/index.ts"
 
-import type { CommentsErrorCode } from "../src/index.ts"
+import type { CommentsAuthorizeContext, CommentsErrorCode } from "../src/index.ts"
 
 const comments = defineComments()
+
+it("exposes live scopes in the shared authorization policy", () => {
+  expectTypeOf<CommentsAuthorizeContext["scope"]>().toEqualTypeOf<string | undefined>()
+  defineComments({ authorize: ({ scope }) => scope === "pages" })
+})
 
 describe("Comments error unions", () => {
   it("types each method with the codes it returns", async () => {

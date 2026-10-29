@@ -1,21 +1,17 @@
-import * as v from "valibot"
+import { installStandaloneOperationRpc, publishStandaloneOperationServer } from "@vite-hub/internal/operations-vite"
 import { existsSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 
 import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutput, contributeProviderRuntime, createProviderDeploymentOutputGenerationState, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import { createNoExternalAddition, hasNitroConfigContext, isServerEnvironment, resolveNitroVercelFunctionName, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { isPlainObject } from "@vite-hub/internal/object"
 import { getHostingProvider, resolveHost } from "@vite-hub/internal/hosting"
-import { createViteHubDevToken } from "@vite-hub/internal/dev-token"
 import { findExportNames, hasCJSSyntax } from "mlly"
 import { transform } from "esbuild"
 import { init as initCommonJS, parse as parseCommonJS } from "cjs-module-lexer"
 import { dirname, relative, resolve } from "pathe"
 
-import { blobDevRuntimeRoute, blobDevTokenNamespace, blobDevTokenServerHeader } from "./dev.ts"
 import { blobPackageName, cloudflareImagesBinding, createCloudflareR2Bindings, getBlobVercelRuntimePackages, renderBlobRuntimeModule } from "./internal/nitro-runtime.ts"
 import { createBlobCloudflareProvisionStep, createBlobVercelProvisionStep } from "./provision.ts"
 import {
@@ -23,11 +19,11 @@ import {
   BLOB_VITE_PLUGIN_NAME,
   resolveBlobViteConfig,
 } from "./vite-config.ts"
-import { registerBlobDevEndpoint } from "./vite-dev.ts"
 
 import type { BlobViteRuntimeConfig } from "./vite-config.ts"
 import type { BlobModuleOptions, BlobServeConfig, ResolvedBlobModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import { blobErrorDiagnostics } from "./error-diagnostics.ts"
 import { findMissingFilesSdkPeers } from "./internal/files-sdk-peers.ts"
 import type { Plugin, ResolvedConfig } from "vite"
@@ -37,7 +33,6 @@ const generatedNitroBlobPlugin = ".vitehub/nitro/blob/plugin.ts"
 const generatedNitroBlobRuntime = ".vitehub/nitro/blob/runtime.mjs"
 const generatedNitroBlobMiddleware = ".vitehub/nitro/blob/middleware.ts"
 const generatedBlobServeRouteHandler = ".vitehub/blob/serve-route.ts"
-const generatedNitroBlobDevHandler = ".vitehub/nitro/blob/dev-handler.ts"
 const blobServeModuleExtensions = [".ts", ".mts", ".cts", ".js", ".mjs", ".cjs"]
 const AUTH_SERVER_ID = "#vitehub/auth/server"
 const AUTH_VITE_PLUGIN_NAME = "@vite-hub/auth/vite"
@@ -55,7 +50,7 @@ interface BlobProvisionContributingPlugin {
   }
 }
 
-export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI }
+export type BlobVitePlugin = Plugin & BlobProvisionContributingPlugin & { api: BlobVitePluginAPI, vitehub: { operations: readonly OperationContributionEntry[] } }
 
 interface InternalBlobModuleOptions {
   importBase?: string
@@ -142,11 +137,8 @@ function isGeneratedNitroRegistration(value: unknown, generatedPath: string): bo
     && (value === generatedPath || value.replaceAll("\\", "/").endsWith(`/${generatedPath}`))
 }
 
-/**
- * Merges the generated Blob registrations into the Nitro config. `devHandler` is the absolute path of the Nitro route
- * that `vitehub blob` commands reach. Pass it only in `vite dev`.
- */
-function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string, devHandler?: string): Record<string, unknown> {
+/** Merges the generated Blob registrations into the Nitro config. */
+function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined, cloudflare: boolean, root?: string): Record<string, unknown> {
   const nitro = cloneNitroConfig(value)
   const externals = cloneNitroConfig(nitro.externals)
   const inline = Array.isArray(externals.inline) ? externals.inline : []
@@ -159,15 +151,11 @@ function mergeNitroBlobConfig(value: unknown, serve: BlobServeConfig | undefined
     ? nitro.plugins.filter(entry => !isGeneratedNitroRegistration(entry, generatedNitroBlobPlugin))
     : []
   nitro.handlers = Array.isArray(nitro.handlers)
-    ? nitro.handlers.filter(handler =>
-        !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware)
-        && !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobDevHandler),
-      )
+    ? nitro.handlers.filter(handler => !isGeneratedNitroRegistration(handler?.handler, generatedNitroBlobMiddleware))
     : []
   const kit = createNitroServerKit(nitro)
   kit.addPlugin(plugin)
   if (cloudflare) kit.addHandler({ handler: middleware, middleware: true })
-  if (devHandler) kit.addHandler({ handler: devHandler, route: blobDevRuntimeRoute })
   if (!serve) return kit.config
   if (Array.isArray(kit.config.handlers)) {
     const existingHandlers = kit.config.handlers.filter(handler =>
@@ -358,21 +346,6 @@ async function resolveBlobServeAuthorizeModule(
   return authorizeModule
 }
 
-function resolveBlobDevHandler(root: string): string {
-  return resolve(resolveViteHubProjectRoot(root), generatedNitroBlobDevHandler)
-}
-
-/** Writes the Nitro route that `vitehub blob` commands reach. The Vite dev endpoint guards every request to it. */
-async function writeBlobDevHandler(file: string, importBase: string, rootDir: string, serverId: string): Promise<void> {
-  await writeFileIfChanged(file, renderViteHubNitroDevHandler({ arguments: [rootDir, serverId], export: "handleBlobDevRequest", module: `${importBase}/runtime/dev` }))
-}
-
-function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
-  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
-  const baseURL: unknown = isPlainObject(nitro) ? Reflect.get(nitro, "baseURL") : undefined
-  return v.is(v.string(), baseURL) ? baseURL : process.env.NITRO_APP_BASE_URL
-}
-
 function isAuthDefinitionPath(file: string, rootDir: string, serverDirs: string[] | undefined): boolean {
   const projectRelativePath = relative(rootDir, resolve(file)).replaceAll("\\", "/")
   if (/^server\.auth\.(?:[cm]?[jt]s)$/.test(projectRelativePath)) return true
@@ -421,7 +394,6 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
   let blob: BlobModuleOptions | undefined = options
   let rootDir = process.cwd()
   let runtimeConfig: BlobViteRuntimeConfig | undefined
-  let devTokenServerId: string | undefined
   // Nuxt replays `config` with the host command, but its replayed resolved config has no `command`.
   let command: string | undefined
   let resolved: ResolvedConfig | undefined
@@ -433,6 +405,8 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
     name: BLOB_VITE_PLUGIN_NAME,
     api: { getConfig },
     vitehub: {
+      // The Console, `vitehub blob`, and agents run these. The app imports them through `vite-hub`.
+      operations: [{ export: "blobOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).blobOperations, module: "@vite-hub/blob/operations" }],
       cli: async () => {
         const { createBlobCliNamespaces } = await import(/* @vite-ignore */ "./cli.js")
         return {
@@ -441,21 +415,24 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         }
       },
     },
-    config(config, env) {
-      command = env.command
-      blob = config.blob ?? blob
-      const configuredNitro = (config as { nitro?: unknown }).nitro
-      const cloudflare = isNitroCloudflareHost(configuredNitro)
-      const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
-      const nitro = mergeNitroBlobConfig(
-        configuredNitro,
-        blobConfig.blob ? blobConfig.blob.serve : undefined,
-        cloudflare,
-        hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
-        env.command === "serve" ? resolveBlobDevHandler(config.root || process.cwd()) : undefined,
-      )
-      const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
-      ;(config as { nitro?: unknown }).nitro = composedNitro
+    config: {
+      order: "pre",
+      handler(config, env) {
+        command = env.command
+        blob = config.blob ?? blob
+        const configuredNitro = (config as { nitro?: unknown }).nitro
+        const cloudflare = isNitroCloudflareHost(configuredNitro)
+        const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
+        const nitro = mergeNitroBlobConfig(
+          configuredNitro,
+          blobConfig.blob ? blobConfig.blob.serve : undefined,
+          cloudflare,
+          hasNitroConfigContext(config) ? resolveViteHubProjectRoot(config.root || process.cwd()) : undefined,
+        )
+        const composedNitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
+        ;(config as { nitro?: unknown }).nitro = composedNitro
+        return installStandaloneOperationRpc(config, env?.command ?? "build", "@vite-hub/blob/operations")
+      },
     },
     async configResolved(config) {
       resolved = config
@@ -464,13 +441,11 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
       const configuredNitro = (config as { nitro?: unknown }).nitro
       const cloudflare = isNitroCloudflareHost(configuredNitro)
       const blobConfig = resolveBlobViteConfig(blob, cloudflare ? { hosting: "cloudflare" } : undefined)
-      const devHandler = config.command === "serve" ? resolveBlobDevHandler(rootDir) : undefined
       const nitro = mergeNitroBlobConfig(
         configuredNitro,
         blobConfig.blob ? blobConfig.blob.serve : undefined,
         cloudflare,
         rootDir,
-        devHandler,
       )
       ;(config as { nitro?: unknown }).nitro = mergeNitroCloudflareBlobOutput(config, nitro, blob, cloudflare)
       runtimeConfig = blobConfig
@@ -492,18 +467,9 @@ export function hubBlob(options?: BlobModuleOptions, internalOptions: InternalBl
         await resolveBlobServeAuthorizeModule(config, rootDir, runtimeConfig.blob ? runtimeConfig.blob.serve : undefined),
         (config.command ?? command) === "serve",
       )
-      if (devHandler) {
-        devTokenServerId = (await createViteHubDevToken(rootDir, blobDevTokenNamespace)).serverId
-        await writeBlobDevHandler(devHandler, importBase, rootDir, devTokenServerId)
-      }
     },
     configureServer(server) {
-      registerBlobDevEndpoint(server, {
-        devTokenServerId: () => devTokenServerId,
-        discovery: () => devTokenServerId ? { blobDevTokenServerId: devTokenServerId } : {},
-        forwardHeaders: ["x-vitehub-dev-token", blobDevTokenServerHeader],
-        nitroBaseURL: () => readNitroBaseURL(resolved),
-      })
+      publishStandaloneOperationServer(server)
       if (!runtimeConfig?.blob || !runtimeConfig.blob.serve?.authorize) return
       // SAFETY: ViteHub hosts add the optional shared server directories to the resolved Vite config.
       const serverDirs = (server.config as ResolvedConfig & { [VITEHUB_SERVER_DIRS]?: string[] })[VITEHUB_SERVER_DIRS]

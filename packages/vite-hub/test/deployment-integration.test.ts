@@ -250,6 +250,45 @@ describe("built-in deployment preset integration", () => {
     }
   })
 
+  it.each(["before", "after"] as const)("derives deployment resources from the root set by a plugin %s vitehub", async (position) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-deployment-root-"))
+    const appRoot = join(root, "app")
+    let capturedWrangler: unknown
+    try {
+      await mkdir(appRoot)
+      await writeFile(join(root, "package.json"), JSON.stringify({ name: "original-root" }))
+      await writeFile(join(appRoot, "package.json"), JSON.stringify({ name: "application-root" }))
+      const rootPlugin = { name: "application-root", config: () => ({ root: appRoot }) }
+      const hub = vitehub({ preset: "cloudflare", blob: true, queue: true, rateLimit: true, sandboxTask: true, env: false })
+      const config = await resolveConfig({
+        configFile: false,
+        nitro: { modules: [{ name: "capture-resources", setup(nitro) {
+          capturedWrangler = structuredClone(nitro.options.cloudflare?.wrangler)
+        } }] },
+        root,
+        plugins: position === "before" ? [rootPlugin, hub] : [hub, rootPlugin],
+      }, "build")
+      expect(config.root).toBe(appRoot)
+      expect(config).toMatchObject({
+        blob: { bucketName: "application-root", driver: "cloudflare-r2" },
+        nitro: { cloudflare: { wrangler: {
+          name: "application-root",
+          r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
+        } } },
+        queue: { namePrefix: "application-root-", provider: "cloudflare" },
+        rateLimit: { namespace: "application-root", provider: "cloudflare" },
+        sandboxTask: { name: "application-root-sandbox", provider: "cloudflare" },
+      })
+      expect(capturedWrangler).toMatchObject({
+        name: "application-root",
+        r2_buckets: [{ binding: "BLOB", bucket_name: "application-root" }],
+      })
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("declares optional Server Env for gateway presets used by Agents", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-gateway-env-"))
     try {

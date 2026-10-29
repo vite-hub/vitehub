@@ -95,11 +95,26 @@ export interface Comment {
 
 export type CommentThreadStatus = "open" | "resolved"
 
+/**
+ * Fields that app code keeps on a thread, such as where its own UI anchors it: at most 50 keys, and strings of at most
+ * 4,000 characters.
+ */
+export type CommentMetadata = Record<string, string | number | boolean | null>
+
 export interface CommentThread {
   id: string
+  /**
+   * The list the thread belongs to. `"pages"` for threads that people pin on the app's pages; app code picks its own,
+   * such as `doc:42`, for threads in its own UI.
+   */
+  scope: string
+  /** 1, 2, 3, … in the order threads start in their scope, so people can say "#3". */
+  number: number
   /** Normalized pathname of the page, such as `/pricing`. */
   page: string
-  anchor: CommentAnchor
+  /** Where the overlay places the pin. Null for a thread that app code anchors itself, in `metadata`. */
+  anchor: CommentAnchor | null
+  metadata: CommentMetadata | null
   /** Null for threads that server code created without it. */
   context: CommentContext | null
   status: CommentThreadStatus
@@ -125,6 +140,8 @@ export type CommentsUser = Record<string, unknown> & { id: string }
 export interface CommentsAuthorizeContext {
   user: CommentsUser | null
   action: CommentsAction
+  /** The scope of the threads, such as `"pages"` for the overlay and the Console. */
+  scope: string
   /** The thread the action changes. Undefined for reads and new threads. */
   thread?: CommentThread
 }
@@ -163,6 +180,8 @@ export interface DefineCommentsOptions {
 }
 
 export interface ListCommentThreadsOptions {
+  /** Only the threads of this scope. Without it, threads of every scope. */
+  scope?: string
   /** Only the threads of this page. */
   page?: string
   status?: CommentThreadStatus
@@ -171,11 +190,20 @@ export interface ListCommentThreadsOptions {
 }
 
 export interface CreateCommentThreadInput {
+  /** Default `"pages"`, which needs an `anchor`. */
+  scope?: string
   page: string
-  anchor: CommentAnchor
+  anchor?: CommentAnchor
   context?: CommentContext
+  metadata?: CommentMetadata
   body: string
   author: CommentAuthor
+  mentions?: CommentMention[]
+}
+
+export interface EditCommentInput {
+  body: string
+  /** Replaces the mentions. Default: none. */
   mentions?: CommentMention[]
 }
 
@@ -183,6 +211,14 @@ export interface ReplyInput {
   body: string
   author: CommentAuthor
   mentions?: CommentMention[]
+}
+
+export interface ReplyOptions {
+  /**
+   * Reply to a resolved thread, and keep it resolved, for apps whose own UI allows that. Default `false`: the reply
+   * fails with `COMMENTS_RESOLVED`, as on the overlay.
+   */
+  allowResolved?: boolean
 }
 
 /** Codes of the errors that Comments methods return in the `[error, data]` tuple. */

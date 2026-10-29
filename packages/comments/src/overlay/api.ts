@@ -75,13 +75,16 @@ async function call<T>(path: string, init: RequestInit = {}): Promise<ApiResult<
 
 const post = (body: unknown): RequestInit => ({ method: "POST", body: JSON.stringify(body) })
 
+/** A thread of the `"pages"` scope. The Comments API returns only these, and each has an anchor. */
+export type PageThread = CommentsThread & { anchor: CommentAnchor }
+
 export const api = {
   session: () => call<CommentsSession>("/session"),
-  threads: (page: string) => call<CommentsThread[]>(`/threads?page=${encodeURIComponent(page)}`),
-  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<CommentsThread>("/threads", post(input)),
+  threads: (page: string) => call<PageThread[]>(`/threads?page=${encodeURIComponent(page)}`),
+  create: (input: { page: string, anchor: CommentAnchor, context: CommentContext, body: string, mentions: CommentMention[] }) => call<PageThread>("/threads", post(input)),
   reply: (thread: string, input: { body: string, mentions: CommentMention[] }) => call<Comment>(`/threads/${encodeURIComponent(thread)}/comments`, post(input)),
-  resolve: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
-  reopen: (thread: string) => call<CommentsThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
+  resolve: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/resolve`, { method: "POST" }),
+  reopen: (thread: string) => call<PageThread>(`/threads/${encodeURIComponent(thread)}/reopen`, { method: "POST" }),
   remove: (thread: string) => call<null>(`/threads/${encodeURIComponent(thread)}`, { method: "DELETE" }),
   removeComment: (thread: string, comment: string) => call<null>(`/threads/${encodeURIComponent(thread)}/comments/${encodeURIComponent(comment)}`, { method: "DELETE" }),
   people: (query: string) => call<CommentMention[]>(`/people?q=${encodeURIComponent(query)}`),
