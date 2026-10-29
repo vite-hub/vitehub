@@ -166,7 +166,11 @@ vitehub({
 
 This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
 
-The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`.
+The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`, and ViteHub MCP. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`.
+
+### Open ViteHub MCP
+
+ViteHub MCP accepts the Console session, so it needs no sign-in or token. Each request to it carries the session of the Console request that started it: the session cookie, the `Authorization` header, or the Cloudflare Access token. The Console keeps none of them. It sends them only to `/_vitehub/mcp` on the origin and mount of that request. ViteHub MCP then lists the tools of your Console sections, the same tools that an Agent gets when it connects as you. One session is one account, so **Connect** opens the same connection again.
 
 ### Sign in with OAuth
 
@@ -194,7 +198,7 @@ Each connection has its own grant and its own MCP session. So you can open the s
 
 ### What the MCP client keeps
 
-The Console keeps MCP connections in server memory, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. The browser gets the account, the server details, the scopes, and the time the token expires. A server restart ends all connections.
+The Console keeps MCP connections in server memory, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. A ViteHub MCP connection keeps no credentials. The browser gets the account, the server details, the scopes, and the time the token expires. A server restart ends all connections.
 
 Every MCP request starts on the server. A person who has the `mcp-client` section can make the server send requests to URLs that they choose, so give the section only to people you trust with the network of the server. Agents and ViteHub MCP cannot use these connections. The `vitehub` CLI of `vite dev` uses them as the local developer.
 

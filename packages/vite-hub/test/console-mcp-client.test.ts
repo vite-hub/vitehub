@@ -28,7 +28,7 @@ const people: Record<string, { email: string, name: string }> = {
 }
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
-const seen = { grants: [] as string[], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
+const seen = { grants: [] as string[], mcpCookies: [] as string[], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
 const codes = new Map<string, { challenge: string, person: string, redirectUri: string, resource: string | null }>()
 const tokens = new Map<string, string>()
 const issued: string[] = []
@@ -141,7 +141,20 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
     response.writeHead(200).end()
     return
   }
+  if (url.pathname === "/_vitehub/mcp") {
+    // ViteHub MCP reads the Console session of each request. Here the session cookie names the person.
+    const person = /(?:^|; )console=(\w+)/.exec(request.headers.cookie ?? "")?.[1]
+    if (!person || !people[person]) {
+      response.writeHead(401).end()
+      return
+    }
+    const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined })
+    await mcpServer(() => person).connect(transport)
+    await transport.handleRequest(request, response, request.method === "POST" ? JSON.parse(await body(request)) : undefined)
+    return
+  }
   if (url.pathname === "/mcp") {
+    if (request.headers.cookie) seen.mcpCookies.push(request.headers.cookie)
     const token = /^Bearer (\S+)$/.exec(request.headers.authorization ?? "")?.[1]
     const person = token === "fin_lucia" ? "lucia" : token && !seen.revoked.has(token) ? tokens.get(token) : undefined
     if (!person) {
@@ -200,10 +213,10 @@ afterEach(() => {
 
 /** Console RPC calls, as the person in `user` when the access checks sessions. Every body is kept to check for tokens. */
 const responses: string[] = []
-async function rpc<T>(operation: string, input: unknown = {}, user?: string): Promise<{ status: number, value: T, failure?: { code: string, message: string } }> {
+async function rpc<T>(operation: string, input: unknown = {}, user?: string, headers: Record<string, string> = {}): Promise<{ status: number, value: T, failure?: { code: string, message: string } }> {
   const response = await handleConsoleRpcRequest(new Request(`${origin}/_vitehub/rpc/__call`, {
     body: JSON.stringify({ input, operation }),
-    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...(user ? { "x-test-user": user } : {}) },
+    headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...(user ? { "x-test-user": user } : {}), ...headers },
     method: "POST",
   }))
   const text = await response.text()
@@ -262,7 +275,11 @@ describe("MCP client section", () => {
   it("finds the app's own MCP server in its protected resource metadata", async () => {
     install()
     const overview = await rpc<ConsoleMcpOverview>("mcp-client.list")
-    expect(overview.value).toEqual({ connections: [], servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }], sharedSession: false })
+    expect(overview.value).toEqual({
+      connections: [],
+      servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }, { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` }],
+      sharedSession: false,
+    })
   })
 
   it("says when the Console shares its session with the app's own sign-in", async () => {
@@ -312,6 +329,28 @@ describe("MCP client section", () => {
 
     // The browser never gets a token.
     for (const token of issued) expect(responses.join("\n")).not.toContain(token)
+  })
+
+  it("connects to ViteHub MCP with the Console session of each request, and sends it nowhere else", async () => {
+    install()
+    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ email: "ada@example.com", id: "admin-1", name: "Ada" }) })
+    const lucia = { cookie: "console=lucia" }
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/_vitehub/mcp" }, undefined, lucia)
+    expect(started.value.authorizationUrl).toBeUndefined()
+    expect(started.value.connection).toMatchObject({ auth: "console", identity: { email: "ada@example.com", name: "Ada", subject: "admin-1" }, label: "Ada", status: "connected" })
+    expect(started.value.connection.grant).toBeUndefined()
+    const id = started.value.connection.id
+    const call = (headers: Record<string, string>) => rpc<ConsoleMcpOutcome>("mcp-client.call", { id, tool: "whoami" }, undefined, headers)
+    expect((await call(lucia)).value.result).toMatchObject({ content: [{ text: "Lucía", type: "text" }] })
+    // The Console keeps no session: a request without one is refused, and one with a session works again.
+    expect((await call({})).failure).toMatchObject({ code: "CONSOLE_MCP_SIGNED_OUT", message: "ViteHub MCP did not accept your Console session." })
+    expect((await rpc<ConsoleMcpConnectResult>("mcp-client.reconnect", { id }, undefined, lucia)).value.connection.status).toBe("connected")
+    // One Console session is one account: connecting again opens the same connection.
+    expect((await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/_vitehub/mcp" }, undefined, lucia)).value.connection.id).toBe(id)
+    // Other servers on this origin, such as the app's own /mcp, never get the Console session.
+    const other = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }, undefined, lucia)
+    expect(other.value.authorizationUrl).toBeDefined()
+    expect(seen.mcpCookies).toEqual([])
   })
 
   it("asks for offline_access when the authorization server offers it, so the grant can be refreshed", async () => {
