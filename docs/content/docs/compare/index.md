@@ -31,6 +31,34 @@ use with ViteHub.
 - [ViteHub and Nitro](/docs/compare/nitro) explains the server foundation that
   ViteHub uses.
 
+## Hosts
+
+- [Vercel vs Netlify vs Cloudflare](/docs/compare/vercel-netlify-cloudflare)
+  compares queues, cron, storage, sandboxes, and pricing models on each host.
+
+## When ViteHub is the wrong choice
+
+Use another tool in these cases:
+
+- **Your framework has no ViteHub integration.** ViteHub integrates with Vite,
+  through `vitehub()` and Nitro, and with Nuxt 4.5.2 or newer. Next.js and
+  other frameworks with their own server build have no integration. Read
+  [Frameworks and hosts](/docs/frameworks-hosts#choose-a-framework).
+- **You need a stable API today.** ViteHub releases can change the public API.
+- **You need MySQL.** ViteHub Database supports SQLite, libSQL, Cloudflare D1,
+  and Postgres.
+- **You need retrieval with a vector store.** ViteHub has no vector store and
+  no embedding pipeline. Mastra has both.
+- **You build only for Cloudflare and want one stateful object for each agent.**
+  The Cloudflare Agents SDK gives each agent instance its own SQL storage,
+  WebSocket connections, and schedules.
+- **Your host does not provide the feature.** For example, ViteHub has no Rate
+  Limit driver for Vercel, and Queue on Netlify needs a Cloudflare or Vercel
+  provider. Check the [support matrix](/docs/frameworks-hosts/support-matrix)
+  before you choose.
+- **You want a hosted agent platform.** ViteHub has no hosted runtime. It runs
+  inside your app, on your host account.
+
 These pages cite official documentation checked on 29 October 2026. They do not
 rank speed, cost, security, or production readiness. ViteHub is early and its
 API still changes. Check the installed versions and the

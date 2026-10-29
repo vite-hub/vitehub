@@ -2,7 +2,14 @@ import * as v from "valibot";
 import type { AuthConsoleErrorCode } from "@vite-hub/auth/console-runtime";
 import type { ResultError } from "@vite-hub/runtime";
 import { getAuthConsoleForRequest } from "@vite-hub/auth/server";
-import { consoleRequest, withConsoleAccess, type ConsoleAccessRoute } from "./access.ts";
+import {
+  consoleAccessWrites,
+  consoleImpersonation,
+  consoleRequest,
+  withConsoleAccess,
+  type ConsoleAccess,
+  type ConsoleAccessRoute,
+} from "./access.ts";
 import {
   assertConsoleRequest,
   consoleRequestError,
@@ -35,6 +42,7 @@ const mutation = v.variant("action", [
   v.object({ action: v.literal("revokeSession"), id }),
   v.object({ action: v.literal("revokeConsent"), id }),
 ]);
+const stop = v.object({ action: v.literal("stopImpersonating") });
 const query = v.optional(
   v.object({
     offset: v.optional(v.number()),
@@ -84,7 +92,7 @@ function failure(error: ResultError<AuthConsoleErrorCode>): Response {
   );
 }
 
-async function handler(event: ConsoleRequestEvent): Promise<Response> {
+async function handler(event: ConsoleRequestEvent, access: ConsoleAccess): Promise<Response> {
   assertConsoleRequest(event, ["POST"]);
   if (!getConsoleSections().includes("auth"))
     throw consoleRequestError(404, "Auth section not found.");
@@ -103,7 +111,8 @@ async function handler(event: ConsoleRequestEvent): Promise<Response> {
   )
     throw consoleRequestError(403, "The Console request must use the same origin.");
   const input = await consoleRequestJSON(event);
-  const api = getAuthConsoleForRequest(request, event);
+  const impersonation = consoleImpersonation();
+  const api = getAuthConsoleForRequest(request, event, { impersonation });
   try {
     const command = v.safeParse(read, input);
     if (command.success) {
@@ -118,17 +127,32 @@ async function handler(event: ConsoleRequestEvent): Promise<Response> {
             : operation === "activity"
               ? await api.activity(activity)
               : operation === "user"
-                ? await api.user(id!)
+                ? await api.user(id!, request)
                 : operation === "organization"
                   ? await api.organization(id!, query)
                   : await api[operation](query);
       if (error) return failure(error);
       return Response.json(data, { headers: { "cache-control": "no-store" } });
     }
-    const action = v.safeParse(mutation, input);
+    const action = v.safeParse(v.union([mutation, stop]), input);
     if (!action.success)
       return Response.json({ message: "Invalid Auth Console request." }, { status: 400 });
-    const [error, response] = await api.execute(action.output, request);
+    // A read-only grant (`"auth:read"`) lists Auth data. It never changes it.
+    if (!consoleAccessWrites(access, "auth"))
+      return Response.json(
+        { message: "This Console access can read Auth data but not change it." },
+        { status: 403, headers: { "cache-control": "no-store" } },
+      );
+    const { output } = action;
+    if ((output.action === "impersonate" || output.action === "stopImpersonating") && !impersonation)
+      return Response.json(
+        { message: "Impersonation is off. Set console.impersonation to true to enable it." },
+        { status: 404, headers: { "cache-control": "no-store" } },
+      );
+    const [error, response] =
+      output.action === "stopImpersonating"
+        ? await api.stopImpersonating(request)
+        : await api.execute(output, request);
     return error ? failure(error) : response;
   } catch (error) {
     globalThis.console.error("[vitehub] Auth Console operation failed.", error);

@@ -345,12 +345,14 @@ Use `listAuthEvents(filters)` and `aggregateAuthEvents({ from, to })` from `@vit
 
 For `vitehub auth events`, configure `events.authorize`. The read endpoint requires a session and an explicit `true` result. Give the CLI the Auth base URL with `--url`, and the session cookie through `VITEHUB_AUTH_COOKIE`.
 
-Event writes are separate from auth mutations. Storage failures warn with `AUTH_EVENT_WRITE_FAILED` and do not reject a completed auth action. Read [Auth event log](https://vitehub.dev/docs/auth/events) for the event list, metric definitions, privacy rules, retention, and coverage limits.
+Event writes are separate from auth mutations. Storage failures warn with `AUTH_EVENT_WRITE_FAILED` and do not reject a completed auth action. `impersonation.started` is the exception: without its record, the impersonation does not start. Read [Auth event log](https://vitehub.dev/docs/auth/events) for the event list, metric definitions, privacy rules, retention, and coverage limits.
 
 ## Auth Console
 
 The primary Auth Definition adds `/_vitehub/auth` to the ViteHub Console. It lists users, active sessions, organizations, and approved OAuth clients. Better Auth additional fields become columns. Set `console.fields.<name>.editable` to allow edits, `console.columns` for batch computed values, and `console.roles` or `console.actions` for read-only policy with a reason. `console.access` holds short descriptions of the app's sign-in rules.
 
-`getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.
+`getAuthConsoleForRequest(request)` from `@vite-hub/auth/server` exposes the same inspection API to trusted server code. Changes use Better Auth's plugin APIs. Impersonation is off unless the host passes `{ impersonation: true }` as the third argument, as `console.impersonation` does, and it needs `events.store`.
+
+With Better Auth's admin plugin, Auth bounds every impersonation session. It never refreshes past `impersonationSessionDuration`, and it cannot create OAuth, MCP, or device grants, API keys, passkeys, passwords, email or phone number changes, username changes, linked accounts, two-factor settings, one-time tokens, or another impersonation. It also cannot unlink an account, or read or refresh a linked account's provider tokens (`403`, `IMPERSONATION_FORBIDDEN`). Server code reads `session.impersonatedBy`; `useUserSession()` gives `impersonatedBy` and `stopImpersonating()`. Read [Auth Console](https://vitehub.dev/docs/auth/console) for the full contract and the OAuth grant revocation limit.
 
 Overview shows database totals and, with `events.store`, active users, a 30-day chart, sign-in methods, and recent events. Activity filters event groups and subject users before cursor pagination. User panels include recent events. Both pages show the `events.store` setup when recording is disabled. Server callers use `inspect.overview()` and `inspect.activity({ group, userId, cursor, limit })`. Manual hosts pass their event store as the third argument to `createAuthConsole(auth, consoleOptions, eventStore)`.
