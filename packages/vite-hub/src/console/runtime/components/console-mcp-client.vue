@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { consoleMcpAccount, consoleMcpEndpoint, consoleMcpInitials, consoleMcpStatus, groupConsoleMcpConnections, requestConsoleMcp } from "../client/mcp-client";
@@ -50,6 +50,7 @@ function setQuery(next: Record<string, string | undefined>): void {
   void router.replace({ query });
 }
 
+// A connection that the URL names but that no longer exists, such as after a disconnect, falls back to the first one.
 const selected = computed(() => connections.value.find(connection => connection.id === queryValue("connection")) ?? connections.value[0]);
 const peers = computed(() => selected.value ? connections.value.filter(connection => connection.url === selected.value!.url) : []);
 const tab = computed({ get: () => queryValue("tab") ?? "tools", set: (value: string) => setQuery({ item: undefined, tab: value }) });
@@ -113,10 +114,6 @@ onMounted(() => {
   rememberConsoleSection("mcp-client");
   void load();
 });
-// A connection that the URL names but that no longer exists falls back to the first one.
-watch(selected, (connection) => {
-  if (connection && queryValue("connection") && connection.id !== queryValue("connection")) setQuery({ connection: connection.id, item: undefined });
-});
 onBeforeUnmount(() => request?.abort());
 </script>
 
@@ -130,13 +127,13 @@ onBeforeUnmount(() => request?.abort());
       :collapsed-size="4"
       :min-size="13"
       :max-size="26"
-      :menu="{ title: 'MCP', description: 'MCP servers and the accounts connected to them.' }"
+      :menu="{ title: 'MCP client', description: 'MCP servers and the accounts connected to them.' }"
       :ui="{ body: 'gap-0 overflow-hidden p-0' }"
       resizable
     >
       <template #header="{ collapsed }">
         <div v-if="!collapsed" class="vitehub-console__panel-title">
-          <span class="min-w-0 flex-1 truncate">MCP</span>
+          <span class="min-w-0 flex-1 truncate">MCP client</span>
           <UTooltip text="Connect to a server">
             <UButton aria-label="Connect to a server" color="neutral" icon="i-lucide-plus" size="xs" variant="ghost" @click="connect()" />
           </UTooltip>
@@ -213,7 +210,7 @@ onBeforeUnmount(() => request?.abort());
         @disconnected="disconnected"
       />
       <template v-else>
-        <ConsolePageHeader title="MCP">
+        <ConsolePageHeader title="MCP client">
           <template #right>
             <UButton color="neutral" icon="i-lucide-plus" label="Connect" size="sm" variant="soft" @click="connect()" />
           </template>
