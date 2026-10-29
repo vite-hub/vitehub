@@ -87,7 +87,7 @@ A frame token reads the draft of its one document, and nothing else:
 - A form that posts any other document, or a token that is changed in any part, gets `403`. A frame token is not a preview cookie token, and a preview cookie token is not a frame token. Use `enable()` for a preview of the whole site.
 - Nested requests in the same request, such as `/api/content/**` during SSR, keep the frame scope; a preview cookie does not widen it.
 - Nothing is stored. The response is `private, no-store` and `noindex`, and Nitro's cache is bypassed.
-- A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. `Origin` must match the page URL with its protocol, which comes from `x-forwarded-proto` behind a proxy or from the TLS connection. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
+- A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. `Origin` must match the page URL with its protocol, which comes from `x-forwarded-proto` behind a proxy or from the TLS connection. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL. A form from another site is refused before its body is read. The body may be 1 MiB at most: the plugin counts the bytes as they arrive, does not trust `Content-Length`, and stops reading and answers `403` at the first byte over the limit.
 
 The Published view loads the page with a `GET` of `?vitehub-content-published`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
 
