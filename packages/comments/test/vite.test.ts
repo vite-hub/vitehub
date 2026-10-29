@@ -80,7 +80,7 @@ describe("hubComments", () => {
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("overlay: \"/api/_vitehub/comments/assets/overlay.js?v=2\", base: \"/portal\"")
     // Nitro serves its routes below its own baseURL, as Nuxt does for `app.baseURL`.
-    const nested = await configure(hubComments(), root, { base: "/portal/", nitro: { baseURL: "/portal/" } } as UserConfig)
+    const nested = await configure(hubComments(), root, { base: "/portal/", nitro: { baseURL: "/portal/" } })
     expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/api/_vitehub/comments/**", "/_vitehub/page/session"])
     // The overlay finds the API next to itself.
     expect(commentsApiRoute("http://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=2")).toBe("/portal/api/_vitehub/comments")
