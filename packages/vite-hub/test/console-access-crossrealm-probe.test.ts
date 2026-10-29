@@ -33,7 +33,8 @@ describe("cross-realm console access probe", () => {
     const authorize = vi.fn((() => response) as unknown as ConsoleAuthorize)
     const handler = vi.fn(() => "unreachable")
     installConsoleAccess({ mode: "open", authorize })
-    const result = await withConsoleAccess(handler, { anySection: true })({ req: request })
+    // Happy DOM's AbortSignal type has its own private fields. Exercise the foreign runtime boundary directly.
+    const result = await Reflect.apply(withConsoleAccess(handler, { anySection: true }), undefined, [{ req: request }])
     expect(authorize).toHaveBeenCalledWith({ request })
     expect(handler).not.toHaveBeenCalled()
     expect(result).not.toBe(response)

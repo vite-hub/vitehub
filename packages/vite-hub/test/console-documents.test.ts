@@ -4,17 +4,18 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { createViteHubConsoleActionError } from "@vite-hub/internal/console"
+import { runOperation } from "@vite-hub/internal/operations"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { discoverConsoleBuildCatalog, withConsoleDocumentEditorSections } from "../src/console/build.ts"
 import { consoleDocumentEditorSectionIds, describeConsoleDocumentEditors } from "../src/console/contributions.ts"
 import { consoleDocumentsKey, consoleDocumentsRegistryKey, consoleDocumentsRootKey, consoleSectionsKey, consoleSectionsRegistryKey, consoleSectionsRootKey } from "../src/console/internal.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { insertConsoleSection } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess, withConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleDocuments } from "../src/console/runtime/server/documents.ts"
-import { handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
+import { consoleOperationRegistry, handleConsoleRpcRequest } from "../src/console/runtime/server/rpc.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleDefinitions } from "../src/console/runtime/server/definitions.ts"
 
@@ -73,10 +74,10 @@ function install(actions: ConsoleDocumentActions, sections: readonly string[] = 
   installConsoleDefinitions("/app", { content: { collections: [], kind: "document-editor" } }, [])
 }
 
-async function call(method: string, input: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
+async function call(operation: string, input: Record<string, unknown>, headers: Record<string, string> = {}): Promise<{ body: Record<string, unknown>, status: number }> {
   const request = new Request("http://localhost/_vitehub/rpc/__call", {
-    // The client puts the method first, so a large document body can be classified within the ordinary limit.
-    body: JSON.stringify({ method, input }),
+    // The client puts the operation first, so a large document body can be classified within the ordinary limit.
+    body: JSON.stringify({ operation, input }),
     headers: { "content-type": "application/json", [consoleRpcHeader]: "1", ...headers },
     method: "POST",
   })
@@ -86,7 +87,7 @@ async function call(method: string, input: Record<string, unknown>, headers: Rec
 }
 
 const documents = (action: string, body: unknown, headers?: Record<string, string>) =>
-  call(consoleRpcMethods.documents, { body, method: "POST", query: { action, section: "content" } }, headers)
+  call("documents.action", { action, body, section: "content" }, headers)
 
 describe("Console document editor route", () => {
   it("runs an owner action with the signed-in user, read only when the action needs it", async () => {
@@ -95,7 +96,7 @@ describe("Console document editor route", () => {
     installConsoleAccess({ check: async () => undefined, mode: "auth", user: readUser })
     install(fakeActions({ save }))
 
-    const sections = await call(consoleRpcMethods.sections, {})
+    const sections = await call("sections.list", {})
     expect(sections.status).toBe(200)
     expect(sections.body.value).not.toHaveProperty("scoped")
     // Navigation does not read the user.
@@ -118,7 +119,7 @@ describe("Console document editor route", () => {
     const save = vi.fn()
     install(fakeActions({ save }))
     await expect(documents("save", {})).resolves.toMatchObject({ body: { ok: false, status: 403 }, status: 403 })
-    await expect(call(consoleRpcMethods.definitions, { query: { section: "content" } })).resolves.toMatchObject({ status: 403 })
+    await expect(call("definitions.list", { section: "content" })).resolves.toMatchObject({ status: 403 })
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -127,11 +128,46 @@ describe("Console document editor route", () => {
     install(fakeActions({ list: () => ({ changes: [], items: [], nextCursor: null, states: { changed: 0, deleted: 0, draft: 0, published: 0 }, total: 0 }) }))
     await expect(documents("list", { collection: "posts" })).resolves.toMatchObject({ status: 200 })
     // `scoped` tells the Overview that other sections may exist but are hidden from this user.
-    await expect(call(consoleRpcMethods.sections, {})).resolves.toMatchObject({ body: { value: { scoped: true, sections: ["content"] } } })
-    for (const method of [consoleRpcMethods.kv, consoleRpcMethods.agents, consoleRpcMethods.env]) {
+    await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { scoped: true, sections: ["content"] } } })
+    for (const method of ["agents.list", "env.get"]) {
       await expect(call(method, {}), method).resolves.toMatchObject({ status: 403 })
     }
-    await expect(call(consoleRpcMethods.definitions, { query: { section: "kv" } })).resolves.toMatchObject({ status: 403 })
+    await expect(call("definitions.list", { section: "kv" })).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("tells the client which visible sections it may only read", async () => {
+    installConsoleAccess({ authorize: () => ({ sections: ["content", "kv:read", "blob:read", "blob"] }), mode: "open" })
+    await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { readOnly: ["kv"], scoped: true } } })
+    installConsoleAccess({ authorize: () => true, mode: "open" })
+    expect((await call("sections.list", {})).body.value).not.toHaveProperty("readOnly")
+  })
+
+  it("requires a write grant to acquire or take over an edit lease", async () => {
+    const session = vi.fn(() => ({ available: true }))
+    install(fakeActions({ session }))
+    const input = { collection: "posts", id: "hello", session: "viewer" }
+    const agent = (action: string) => runOperation(consoleOperationRegistry(), "documents.action", { action: "session", body: { ...input, action }, section: "content" }, {
+      access: { mode: "agent", sections: "all" }, surface: "agent", user: { id: "viewer" },
+    })
+
+    installConsoleAccess({ authorize: () => ({ sections: ["content:read"] }), mode: "open" })
+    for (const action of ["report", "release"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 200 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: true })
+    }
+    session.mockClear()
+    for (const action of ["acquire", "takeover"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 403 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: false, status: 403 })
+    }
+    expect(session).not.toHaveBeenCalled()
+
+    installConsoleAccess({ authorize: () => ({ sections: ["content"] }), mode: "open" })
+    for (const action of ["acquire", "takeover"]) {
+      await expect(documents("session", { ...input, action })).resolves.toMatchObject({ status: 200 })
+      await expect(agent(action)).resolves.toMatchObject({ ok: true })
+    }
+    expect(session).toHaveBeenCalledTimes(4)
   })
 
   it("serves the dashboard and search actions of every section page with the section access", async () => {
@@ -153,7 +189,7 @@ describe("Console document editor route", () => {
   it("reads the collections that the owner allows through the definitions route", async () => {
     installConsoleAccess({ mode: "open" })
     install(fakeActions())
-    await expect(call(consoleRpcMethods.definitions, { query: { section: "content" } })).resolves.toMatchObject({
+    await expect(call("definitions.list", { section: "content" })).resolves.toMatchObject({
       body: { ok: true, value: { collections: [{ name: "posts" }], kind: "document-editor", section: "content" } },
       status: 200,
     })
@@ -164,7 +200,7 @@ describe("Console document editor route", () => {
     installConsoleSections("/app", ["content"])
     installConsoleDocuments("/app", { content: { actions: () => fakeActions({ collections: () => [], setup: () => ({ access: { message: "Add `authorize`.", docs: "https://vitehub.dev/docs/content/configure#access" } }) }), load: async () => ({}) } })
     installConsoleDefinitions("/app", { content: { collections: [], kind: "document-editor", setup: { schedule: { message: "Add a runner." } } } }, [])
-    await expect(call(consoleRpcMethods.definitions, { query: { section: "content" } })).resolves.toMatchObject({
+    await expect(call("definitions.list", { section: "content" })).resolves.toMatchObject({
       body: { ok: true, value: { collections: [], kind: "document-editor", section: "content", setup: { access: { message: "Add `authorize`.", docs: "https://vitehub.dev/docs/content/configure#access" }, schedule: { message: "Add a runner." } } } },
       status: 200,
     })
@@ -211,7 +247,7 @@ describe("Console document editor route", () => {
     await expect(documents("collections", {})).resolves.toMatchObject({ status: 400 })
     // The Console calls `mediaAccess` itself before media changes; the browser cannot.
     await expect(documents("mediaAccess", {})).resolves.toMatchObject({ status: 400 })
-    await expect(call(consoleRpcMethods.documents, { body: {}, method: "POST", query: { action: "get", section: "kv" } })).resolves.toMatchObject({ status: 404 })
+    await expect(call("documents.action", { action: "get", body: {}, section: "kv" })).resolves.toMatchObject({ status: 404 })
   })
 
   it("reports a module that fails to load as unavailable and retries it", async () => {
@@ -239,7 +275,7 @@ describe("Console document editor route", () => {
     install(fakeActions({ save: save as never }))
     const body = "x".repeat(200 * 1024)
     await expect(documents("save", { body })).resolves.toEqual({ body: { ok: true, value: { length: body.length } }, status: 200 })
-    await expect(call(consoleRpcMethods.kv, { query: { padding: "x".repeat(200 * 1024) } })).resolves.toMatchObject({ status: 413 })
+    await expect(call("env.get", { search: "x".repeat(200 * 1024) })).resolves.toMatchObject({ status: 413 })
   })
 })
 
@@ -288,19 +324,21 @@ describe("Console document editor discovery", () => {
     const root = await temporaryRoot()
     const plugin = join(root, "console.mjs")
     const entry = join(root, "server/content.ts")
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [], ["default"])
+    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [])
     const source = await readFile(plugin, "utf8")
 
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
       { entry, export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console", section: "content" },
     ])
-    expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    expect(source).toContain(`import { installConsoleDocuments, loadConsoleDocumentActions } from "vite-hub/console/documents"`)
+    expect(source).toContain('registerContentMcpTools(() => loadConsoleDocumentActions("content"))')
+    expect(source).toContain('import { registerContentMcpTools } from "vite-hub/_internal/content/runtime/console"')
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from "vite-hub/_internal/content/runtime/console"`)
     expect(source).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)
     expect(source).toContain(`"id":"content"`)
 
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [], ["default"])
+    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [])
     const without = await readFile(plugin, "utf8")
     expect(without).not.toContain("installConsoleDocuments")
     expect(without).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)

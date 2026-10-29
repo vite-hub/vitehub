@@ -290,7 +290,7 @@ With the webhook queue, ViteHub stores the task key, the name of the task's Agen
 
 A task's own `prepare` replaces the trigger's `prepare`. The trigger's `prepare` runs only for results without a task. `prepare` returns new input, nothing to keep the input, or a handled `Response`. In the queue, `ignored()` and other 2xx or 4xx answers settle the delivery without an Invocation, and a 5xx answer retries it. A task's `run` result settles the delivery the same way when it is a `Response`.
 
-Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. `busy: 'steer'` sends input to a running Invocation, so it does not run `prepare` or tasks. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
+Without the queue, `prepare` and the task run before the webhook is answered, and a handled `Response` is the answer. Direct calls such as `runAgentTrigger()` run them too. With `busy: 'steer'`, a delivery that starts a queued Invocation runs `prepare` on each attempt. A delivery that steers an active Invocation sends its accepted input directly and skips `prepare`. Put work needed for every delivery in `invoke`. Steering cannot select a named task. `replayChannel()` and `dispatch()` record items in the replaying Agent's journal, so they reject a task that runs another Agent.
 
 
 

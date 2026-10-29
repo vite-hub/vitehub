@@ -1,3 +1,5 @@
+import { Window } from "happy-dom"
+import { marked } from "marked"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { commentsSchema } from "../src/database.ts"
@@ -719,7 +721,35 @@ describe("forge render", () => {
 
   it("keeps app mentions and thread numbers from linking on GitHub", () => {
     expect(unlinked("@grace in #12, mail a@b.c")).toBe("@⁠grace in #⁠12, mail a@⁠b.c")
-    expect(renderComment(thread, thread.comments[0], "author")).toContain("Ask @⁠grace | see #⁠12")
+    expect(renderComment(thread, thread.comments[0], "author")).toContain("Ask @⁠grace \\| see \\#⁠12")
+  })
+
+  it.each(["app", "author"] as const)("keeps Markdown and HTML literal when posted as %s", (postedAs) => {
+    const body = "[review](https://example.com) ![image](https://example.com/x.png)\n<b>bold</b> &lt;i&gt;\n**bold** _emphasis_ ~~strike~~ `code`\\\n# Heading\n- item\n1. ordered\n2) ordered"
+    const literal = "\\[review\\](https\\://example.com) \\!\\[image\\](https\\://example.com/x.png)\n\\<b\\>bold\\</b\\> &amp;lt;i&amp;gt;\n\\*\\*bold\\*\\* \\_emphasis\\_ \\~\\~strike\\~\\~ \\`code\\`\\\\\n\\# Heading\n\\- item\n1\\. ordered\n2\\) ordered"
+    const first = { ...thread.comments[0], body }
+    const reply = { ...first, id: "c2" }
+    const withReply = { ...thread, comments: [first, reply] }
+    for (const comment of [first, reply]) {
+      const rendered = renderComment(withReply, comment, postedAs)
+      expect(rendered).toContain(postedAs === "app" ? literal.split("\n").map(line => `> ${line}`).join("\n") : literal)
+    }
+    const summary = renderSummary({ title: "Preview comments", threads: [{ thread: withReply, failed: false }] })
+    expect(summary).toContain("\\[review\\](https\\://example.com) \\!\\[image\\](https\\://example.com/x.png)")
+  })
+
+  it.each(["app", "author"] as const)("renders URLs and indentation as plain text when posted as %s", (postedAs) => {
+    const lines = ["[review](https://example.com)", "https://example.com", "http://example.com", "www.example.com", "    four leading spaces", "\tleading tab"]
+    const first = { ...thread.comments[0], body: lines.join("\n\n") }
+    const reply = { ...first, id: "c2" }
+    const withReply = { ...thread, comments: [first, reply] }
+    for (const comment of [first, reply]) {
+      const document = new Window().document
+      document.body.innerHTML = marked.parse(renderComment(withReply, comment, postedAs), { async: false, gfm: true })
+      expect(document.querySelectorAll('a[href*="example.com"]')).toHaveLength(0)
+      expect(document.querySelectorAll("pre")).toHaveLength(0)
+      for (const line of lines) expect(document.body.textContent).toContain(line)
+    }
   })
 
   it("keeps author display names from linking in threads, replies, and summaries", () => {
@@ -727,13 +757,13 @@ describe("forge render", () => {
     const first = { ...thread.comments[0], author }
     const reply = { ...first, id: "c2" }
     const named = { ...thread, createdBy: author, comments: [first, reply] }
-    expect(renderComment(named, first, "app")).toContain("**@⁠owner #⁠12 (guest)** commented")
-    expect(renderComment(named, reply, "app")).toContain("**@⁠owner #⁠12 (guest)** replied")
-    expect(renderSummary({ title: "Preview comments", threads: [{ thread: named, failed: false }] })).toContain("@⁠owner #⁠12 (guest)")
+    expect(renderComment(named, first, "app")).toContain("**@⁠owner \\#⁠12 (guest)** commented")
+    expect(renderComment(named, reply, "app")).toContain("**@⁠owner \\#⁠12 (guest)** replied")
+    expect(renderSummary({ title: "Preview comments", threads: [{ thread: named, failed: false }] })).toContain("@⁠owner \\#⁠12 (guest)")
   })
 
   it("escapes table cells in the summary", () => {
     const summary = renderSummary({ title: "Preview comments", threads: [{ thread, failed: true }] })
-    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&comments#comment-t1) | Ask @⁠grace \\| see #⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
+    expect(summary).toContain("| [#⁠3](https://pr7.preview.acme.dev/forecast?group=eu&comments#comment-t1) | Ask @⁠grace \\| see \\#⁠12<br><sub>`/forecast` · Ada</sub> | Open, not posted yet |")
   })
 })

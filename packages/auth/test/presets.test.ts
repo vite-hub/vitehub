@@ -167,10 +167,12 @@ describe("stateless() sessions without a database", () => {
     mockProviders()
     const jar = await signInWith(handle, "github")
     // HTTPS adds the __Secure- prefix. The session data and the provider account are encrypted cookies.
+    // `vitehub_session` is the marker that tells the page a session exists.
     expect(jar.names().sort()).toEqual([
       "__Secure-better-auth.account_data",
       "__Secure-better-auth.session_data",
       "__Secure-better-auth.session_token",
+      "vitehub_session",
     ])
 
     // Simulate a restart: drop every cached instance, then read the session over HTTP and through the server API.

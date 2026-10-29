@@ -2,9 +2,33 @@ import { describe, expectTypeOf, it } from "vitest"
 
 import { defineComments } from "../src/index.ts"
 
-import type { CommentsErrorCode } from "../src/index.ts"
+import type { CommentsAuthorizeContext, CommentsErrorCode, CommentsGitHubAccess } from "../src/index.ts"
+import type { CommentsDefinition } from "../src/operations-core/define.ts"
+import type { DefineCommentsOptions as LiveCommentsOptions } from "../src/types.ts"
 
 const comments = defineComments()
+
+it("exposes live scopes in the shared authorization policy", () => {
+  expectTypeOf<CommentsAuthorizeContext["scope"]>().toEqualTypeOf<string | undefined>()
+  defineComments({ authorize: ({ scope }) => scope === "pages" })
+})
+
+it("types GitHub access in a policy alongside custom identity", () => {
+  defineComments({
+    identify: () => ({ id: "ana" }),
+    authorize: ({ user }) => {
+      expectTypeOf(user?.github).toEqualTypeOf<CommentsGitHubAccess | undefined>()
+      return user?.github?.write === true
+    },
+  })
+})
+
+it("accepts policies already typed for either entry form", () => {
+  const live: LiveCommentsOptions = { authorize: ({ action }) => action === "comment" }
+  const operations: CommentsDefinition = { authorize: ({ action }) => action === "write" }
+  defineComments(live)
+  defineComments(operations)
+})
 
 describe("Comments error unions", () => {
   it("types each method with the codes it returns", async () => {

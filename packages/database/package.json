@@ -3,15 +3,23 @@
   "version": "0.0.4",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "keywords": [
+    "cloudflare",
+    "d1",
     "database",
     "db",
     "drizzle",
+    "drizzle-orm",
+    "libsql",
+    "nuxt",
+    "nuxt-module",
     "postgres",
     "sqlite",
+    "turso",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -156,7 +164,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/database#build && node ../../node_modules/typescript-native/bin/tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/database#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/database#build && vp test"
   },
   "dependencies": {

@@ -1,3 +1,4 @@
+import { contentMcpTools } from "../src/runtime/mcp.ts"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -98,6 +99,17 @@ async function failure(promise: unknown) {
 }
 
 describe("Content Console actions", { timeout: 30_000 }, () => {
+  it("keeps setup available for a read-only runtime without collections", async () => {
+    const content = defineContent({ source: { items: async () => [] }, logger: false })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+
+    await expect(actions.collections(anonymous)).resolves.toEqual([])
+    const setup = await actions.setup!(anonymous)
+    expect(setup.schedule).toBeUndefined()
+    expect(setup.access).toMatchObject({ message: expect.stringContaining("authorize") })
+  })
+
   it("lists the collections a user may read, with what they may do", async () => {
     const { actions } = await setup()
     const collections = await actions.collections(writer)
@@ -629,6 +641,7 @@ describe("Content Console section", () => {
 
   it("names the fix for scheduled publishes when no Schedule Definition calls publishDue()", async () => {
     const root = await temporaryRoot()
+    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/content/presets/cms"\nexport const content = defineContent({ extends: cms })\n`)
     const schedule = async (name: string, source: string) => {
       const file = join(root, `${name}.ts`)
       await writeFile(file, source)
@@ -650,6 +663,16 @@ describe("Content Console section", () => {
     })
     // Without Schedule, no Schedule Definition runs, even one that calls publishDue().
     await expect(inspect({ projectRoot: root }, join(root, "content.ts"))).resolves.toMatchObject({ schedule: { message: expect.stringContaining("Enable Schedule") } })
+  })
+
+  it.each(["vite-hub/content", "@vite-hub/content"])("does not ask for a schedule runner with the GitHub cms store from %s", async (module) => {
+    const root = await temporaryRoot()
+    const file = join(root, "content.ts")
+    await writeFile(file, `import { defineContent } from "${module}"\nimport cms from "${module}/presets/cms"\nexport const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }] })\n`)
+
+    const inspect = contentConsoleSection.inspect!
+    await expect(inspect({ projectRoot: root }, file)).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, schedules: [] }, file)).resolves.toEqual({})
   })
 
   it("shows the section only when server/content.ts defines document collections", async () => {
@@ -674,4 +697,55 @@ describe("Content Console section", () => {
       { id: "media", label: "Media", icon: "i-lucide-image", group: "Manage", requires: ["blob"], view: { kind: "media-library" } },
     ])
   })
+})
+
+describe("Content MCP tools", () => {
+  it("loads actions only on call and keeps collection and document read checks", async () => {
+    const { content, actions } = await setup()
+    await content.collection("posts").save("hello", { data: { title: "Hello", date: "2026-10-01" }, body: "Draft" }, { ifDigest: null })
+    let loads = 0
+    const tools = contentMcpTools(async () => { loads++; return actions })
+    expect(loads).toBe(0)
+    const call = (name: string, input: Record<string, unknown>, user = reader.user) =>
+      tools.find(tool => tool.name === name)!.call(input, { user, event: null })
+    const collections = await call("content_list_collections", {})
+    expect(collections.structured).toMatchObject({ value: expect.arrayContaining([expect.objectContaining({ name: "posts" })]) })
+    const listed = await call("content_list_documents", { collection: "posts", limit: 1 })
+    expect(listed.structured).toMatchObject({ value: { items: [{ id: "hello" }] } })
+    expect((await call("content_read_document", { collection: "posts", id: "hello" })).structured).toMatchObject({ value: { body: "Draft" } })
+    expect((await call("content_read_document", { collection: "posts", id: "hello" }, { id: "outsider", role: "none" })).isError).toBe(true)
+    expect((await call("content_list_documents", { collection: "posts", limit: 201 })).isError).toBe(true)
+    expect((await call("content_list_collections", {}, { id: "outsider", role: "none" })).structured).toEqual({ value: [] })
+  })
+
+  it("saves with the Console user, denies readers, and preserves digest conflicts", async () => {
+    const { content, actions } = await setup()
+    const tool = contentMcpTools(async () => actions).find(tool => tool.name === "content_save_draft")!
+    expect(tool.annotations).toEqual({ readOnlyHint: false, destructiveHint: true })
+    const input = { collection: "posts", id: "new", data: { title: "New", date: "2026-10-01" }, body: "Draft", ifDigest: null }
+    expect((await tool.call(input, { ...reader, event: null })).isError).toBe(true)
+    expect((await tool.call(input, { ...writer, event: null })).isError).not.toBe(true)
+    expect((await tool.call(input, { ...writer, event: null })).isError).toBe(true)
+    expect((await tool.call({ ...input, session: "someone-elses-tab" }, { ...writer, event: null })).isError).toBe(true)
+    expect(await content.collection("posts").get("new", { ref: "published" })).toBeNull()
+    expect(await content.collection("posts").get("new", { ref: "draft" })).toMatchObject({ body: "Draft" })
+  })
+})
+
+
+it("Content MCP filters denied documents and respects another editor's lease", async () => {
+  const { content, actions } = await setup(await historyWorkspace({ sessions: true }))
+  await content.collection("posts").save("private", { data: { title: "Private", date: "2026-10-01" }, body: "Draft" }, { ifDigest: null })
+  const restricted = createContentConsoleActions({ content: {
+    ...content,
+    can: async (context: Parameters<typeof content.can>[0]) => context.id !== "private" && await content.can(context),
+  } })
+  const tools = contentMcpTools(async () => restricted)
+  expect((await tools.find(tool => tool.name === "content_list_documents")!.call({ collection: "posts" }, { ...reader, event: null })).structured).toMatchObject({ value: { items: [] } })
+  expect((await tools.find(tool => tool.name === "content_read_document")!.call({ collection: "posts", id: "private" }, { ...reader, event: null })).isError).toBe(true)
+  await actions.session({ collection: "posts", id: "private", session: "editor-tab", action: "acquire" }, editor)
+  const draft = await content.collection("posts").get("private", { ref: "draft" })
+  const save = contentMcpTools(async () => actions).find(tool => tool.name === "content_save_draft")!
+  const result = await save.call({ collection: "posts", id: "private", data: { title: "Changed", date: "2026-10-01" }, body: "Changed", ifDigest: draft!.digest }, { ...writer, event: null })
+  expect(result).toMatchObject({ isError: true, structured: { code: "CONTENT_LEASE_HELD" } })
 })

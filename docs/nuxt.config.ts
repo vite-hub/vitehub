@@ -51,6 +51,16 @@ export default defineNuxtConfig({
             description: "Install the framework distribution or a focused owner package.",
             href: "https://vitehub.dev/raw/docs/getting-started/installation.md",
           },
+          {
+            title: "Compare ViteHub",
+            description: "Compare ViteHub with NuxtHub, Mastra, and the Cloudflare Agents SDK, and see when ViteHub is the wrong choice.",
+            href: "https://vitehub.dev/raw/docs/compare.md",
+          },
+          {
+            title: "Agent harness",
+            description: "See how ViteHub runs Codex, Claude Code, or a model loop with Capabilities, Workspaces, Sandboxes, and approvals.",
+            href: "https://vitehub.dev/raw/docs/agents/harness.md",
+          },
         ],
       },
       {
@@ -110,6 +120,14 @@ export default defineNuxtConfig({
     },
   },
   css: ["~/assets/main.css"],
+  postcss: {
+    plugins: {
+      cssnano: {
+        // postcss-calc 10.1.1 rejects comark-chat's valid nested calc() fallback. Let browsers evaluate it.
+        preset: ["default", { calc: false }],
+      },
+    },
+  },
   vite: {
     resolve: {
       alias: [
@@ -267,7 +285,17 @@ export default defineNuxtConfig({
             pattern: "vitehub.dev",
             custom_domain: true,
           },
+          // `server/middleware/canonical-url.ts` redirects this host to vitehub.dev.
+          {
+            pattern: "www.vitehub.dev",
+            custom_domain: true,
+          },
         ],
+        assets: {
+          // The Worker sees every page request, so www and trailing-slash URLs redirect
+          // even when the page is prerendered. Build assets skip the Worker.
+          run_worker_first: ["/*", "!/_nuxt/*"],
+        },
         observability: {
           enabled: true,
           head_sampling_rate: 0.1,

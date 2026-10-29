@@ -3,7 +3,7 @@ import { resolve } from "node:path"
 import { installConsoleDefinitionScope, installConsoleSchedulesScope, resolveConsoleDefinitions, resolveConsoleSchedules } from "../../internal.ts"
 import { isConsoleSectionId } from "../sections.ts"
 
-import { parseConsoleDocumentSetup } from "../definitions.ts"
+import { parseConsoleDocumentSetup, parseConsoleRecordActivity, parseConsoleRecordLink } from "../definitions.ts"
 
 import type { ConsoleContributedSection, ConsoleDefinitionField, ConsoleRecord, ConsoleSectionCatalog, ConsoleSectionContent } from "../definitions.ts"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
@@ -14,6 +14,7 @@ function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitio
 }
 
 function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
+  if (content.kind === "operation-view") return { kind: "operation-view" }
   if (content.kind === "auth-management") return { kind: "auth-management" };
   if (content.kind === "document-editor") {
     // The build-time setup hints, such as a missing scheduled publish runner, stay; collections are read per request.
@@ -42,6 +43,10 @@ export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRe
     if (record.runnable === true) {
       copied.runnable = true
     }
+    const link = parseConsoleRecordLink(record.link)
+    if (link) copied.link = link
+    const activity = parseConsoleRecordActivity(record.activity)
+    if (activity.length) copied.activity = activity
     return copied
   })
 }
@@ -49,9 +54,12 @@ export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRe
 function copySection(section: ConsoleContributedSection): ConsoleContributedSection {
   return {
     ...section,
-    view: section.view.kind === "record-table"
-      ? { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice }
-      : { kind: section.view.kind, notice: section.view.notice },
+    // SAFETY: An operation view holds only JSON, so the round trip copies it.
+    view: section.view.kind === "operation-view"
+      ? JSON.parse(JSON.stringify(section.view)) as typeof section.view
+      : section.view.kind === "record-table"
+        ? { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice }
+        : { kind: section.view.kind, notice: section.view.notice },
   }
 }
 

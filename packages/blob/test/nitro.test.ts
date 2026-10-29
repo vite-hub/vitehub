@@ -55,7 +55,7 @@ it("builds packed Blob imports with one shared named-store runtime in Nitro", as
     const inline = ["existing-inline"]
     const external = ["existing-external"]
     const config = { root, build: { outDir: "dist" }, nitro: { externals: { inline, external } } }
-    ;(plugin.config as (config: unknown, env: unknown) => void)(config, { command: "build" })
+    ;((typeof plugin.config === "function" ? plugin.config : plugin.config!.handler) as (config: unknown, env: unknown) => void)(config, { command: "build" })
     await (plugin.configResolved as (config: unknown) => Promise<void>)(config)
 
     expect(config.nitro.externals.external).toEqual(external)

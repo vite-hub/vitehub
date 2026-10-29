@@ -8,6 +8,7 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { requestOf } from "./request.ts"
 import { resolveCommentsUser } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
@@ -15,6 +16,7 @@ import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -45,13 +47,8 @@ export interface CommentsContent {
   collections(): readonly ContentCollectionLike[]
 }
 
-export interface CommentsHandlerOptions {
+export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
-  /**
-   * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
-   * Omitted when the app has neither. `false` denies access regardless of Comments guest policies.
-   */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
   /**
    * Sign in with GitHub, for apps without their own sign-in: people who are not signed in another way see **Sign in
    * with GitHub** in the overlay. It works once the server has a GitHub OAuth client.
@@ -168,15 +165,18 @@ function leaseHolder(error: unknown): string {
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
   const { comments } = options
 
-  async function resolveUser(event: H3Event): Promise<CommentsUser | null | false> {
-    return resolveCommentsUser(comments, event, async request => await options.session?.(request) ?? (comments.options.identify ? undefined : await options.githubLogin?.user(request)))
+  async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
+    return resolveCommentsUser(comments, event, {
+      ...options,
+      session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
+    }, action)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
-    const user = await resolveUser(event)
+    const user = await resolveUser(event, action)
     if (user === false || !await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
-    const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
+    const author = user ? authorOf(user) : guestFromHeaders(requestOf(event).headers)
     return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
   }
 
@@ -230,7 +230,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function readJson(event: H3Event): Promise<unknown> {
     try {
-      return await event.req.json()
+      return await requestOf(event).json()
     }
     catch {
       return undefined
@@ -243,7 +243,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => user === false ? false : comments.can({ user, action })))
+    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
     const github = options.githubLogin?.configured() ? options.githubLogin : undefined
     const pathname = new URL(event.req.url).pathname
     const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
@@ -268,13 +268,19 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }, { headers })
   }
 
-  async function permissions(user: CommentsUser | null, thread: CommentThread) {
-    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => comments.can({ user, action, thread })))
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentsAction, thread?: CommentThread): Promise<boolean> {
+    if (user === false) return false
+    if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
+    return comments.can({ user, action, thread })
+  }
+
+  async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
+    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => can(event, user, action, thread)))
     return { ...thread, can: { comment, resolve } }
   }
 
-  async function respondThread(user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
-    return error ? failure(error) : json({ data: await permissions(user, thread) })
+  async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
+    return error ? failure(error) : json({ data: await permissions(event, user, thread) })
   }
 
   /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
@@ -355,9 +361,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   }
 
   async function handle(event: H3Event) {
-    const response = await route(event)
+    const request = requestOf(event)
+    const response = await route(event, request)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.
-    if (event.req.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
+    if (request.method !== "GET" && comments.options.forge) resolveWaitUntil(event, { preferHost: true })?.(comments.flush())
     return response
   }
 
@@ -367,8 +374,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return env ? runWithActiveCloudflareEnv(env, () => handle(event)) : handle(event)
   })
 
-  async function route(event: H3Event): Promise<Response> {
-    const request = event.req
+  async function route(event: H3Event, request: Request): Promise<Response> {
     const url = new URL(request.url)
     const path = url.pathname.slice(url.pathname.indexOf(commentsRoute) + commentsRoute.length).replace(/\/+$/, "") || "/"
     const parts = path.split("/").filter(Boolean)
@@ -390,7 +396,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
         })
-        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(allowed.user, thread))) })
+        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))) })
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(event))
@@ -415,7 +421,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
           // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
           context.url = `${origin}${page}`
         }
-        return await respondThread(allowed.user, await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
+        return await respondThread(event, allowed.user, await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }
 
@@ -435,8 +441,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       if (method === "POST" && (action === "resolve" || action === "reopen")) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        if (action === "reopen") return await respondThread(allowed.user, await writes.reopen(allowed.grant, id))
-        return await respondThread(allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
+        if (action === "reopen") return await respondThread(event, allowed.user, await writes.reopen(allowed.grant, id))
+        return await respondThread(event, allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
       }
       if (method === "DELETE" && action === "comments" && parts[3]) {
         const commentId = decodeURIComponent(parts[3])

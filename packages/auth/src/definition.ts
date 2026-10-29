@@ -11,6 +11,7 @@ import type {
   AuthResolvedDefinitionOptions,
   AuthSecondaryStorageConfiguration,
   AuthSignInConfiguration,
+  AuthViteHubOptions,
 } from "./types.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { applyAuthPreset } from "./preset-options.ts"
@@ -130,13 +131,15 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
   validateAuthSignIn(access.signIn)
 }
 
-export function defineAuth<const TOptions extends AuthBetterAuthOptions>(
-  options: AuthDefinitionOptions<TOptions>,
-): AuthDefinition<AuthDefinitionOptions<TOptions>>
-
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(
   options: AuthDefinitionResolver<TOptions>,
 ): AuthDefinition<AuthDefinitionResolver<TOptions>>
+
+// `runtime` in the constraint makes a wrong runtime object report its own error. Without it, TypeScript reports that
+// the object is not a resolver function.
+export function defineAuth<const TOptions extends AuthBetterAuthOptions & Pick<AuthViteHubOptions, "runtime">>(
+  options: AuthDefinitionOptions<TOptions>,
+): AuthDefinition<AuthDefinitionOptions<TOptions>>
 
 export function defineAuth(
   options: AuthDefinitionOptions | AuthDefinitionResolver,

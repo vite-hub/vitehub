@@ -1,10 +1,13 @@
 import type { AccessAuthorizationContext } from "@vite-hub/runtime"
 import type { AuthAccessAuthorize, AuthDefinition, AuthDefinitionInput, AuthResolvedDefinitionOptions, AuthRuntimeConfiguration, AuthRuntimeContext, AuthSignInConfiguration } from "@vite-hub/auth"
-import { createAuthForRequest } from "@vite-hub/auth/server"
+import { createAuthForRequest, type getAuthForRequest } from "@vite-hub/auth/server"
 import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
+import { consoleMountBase } from "./runtime/console-route.ts"
+import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
+import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -13,7 +16,6 @@ function escapeHTML(value: string): string {
 }
 
 export function consoleAuthSignInPage(provider: string, request: Request, mountBaseURL = "/"): Response {
-  const development = isConsoleDevelopmentBuild()
   const buttonLabel = provider.toLowerCase() === "github" ? "Sign in with GitHub" : `Sign in with ${provider}`
   const startPath = consoleAuthPath(mountBaseURL, "/_vitehub?auth_start=1")
   const search = new URL(request.url).searchParams
@@ -24,6 +26,11 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       : search.has("signed_out")
         ? "You have signed out."
         : "Sign in to access the ViteHub Console."
+  return consoleSignInDocument(message, `<a href="${escapeHTML(startPath)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>`)
+}
+
+function consoleSignInDocument(message: string, actions: string, status = 200): Response {
+  const development = isConsoleDevelopmentBuild()
   const page = `<!doctype html>
 <html lang="en">
   <head>
@@ -37,32 +44,138 @@ export function consoleAuthSignInPage(provider: string, request: Request, mountB
       main { width: min(24rem, calc(100% - 3rem)); }
       h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; }
       p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; }
-      a { display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
-      a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      form { margin: .75rem 0; }
+      a, button { font: inherit; border: 0; cursor: pointer; display: inline-flex; min-height: 2.5rem; align-items: center; padding: 0 1rem; border-radius: .5rem; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); font-weight: 500; text-decoration: none; }
+      a:focus-visible, button:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
     </style>
   </head>
   <body>
     <main>
       <h1>Sign in</h1>
-      <p>${message}</p>
-      <a href="${escapeHTML(startPath)}"${development ? ' target="_top"' : ""}>${escapeHTML(buttonLabel)}</a>
+      <p role="status">${escapeHTML(message)}</p>
+      ${actions}
     </main>
   </body>
 </html>`
   return new Response(page, {
     headers: {
       "cache-control": "no-store",
-      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-security-policy": `default-src 'none'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'self' https:; frame-ancestors ${development ? "'self'" : "'none'"}`,
       "content-type": "text/html; charset=utf-8",
       "referrer-policy": "no-referrer",
       "x-content-type-options": "nosniff",
       "x-frame-options": development ? "SAMEORIGIN" : "DENY",
       "x-robots-tag": "noindex, nofollow",
     },
+    status,
   })
 }
 
-export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/"): Response | undefined {
+const impersonatedSessionSchema = v.looseObject({
+  session: v.looseObject({ impersonatedBy: v.pipe(v.string(), v.minLength(1)), expiresAt: v.pipe(v.union([v.date(), v.string()]), v.transform(value => new Date(value))) }),
+  user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)), name: v.optional(v.string(), ""), email: v.optional(v.string(), "") }),
+})
+
+function remainingTime(expiresAt: Date): string {
+  const minutes = Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60_000))
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`
+  const hours = Math.round(minutes / 60)
+  return `${hours} ${hours === 1 ? "hour" : "hours"}`
+}
+
+/**
+ * The page that an impersonation session gets instead of the Console. It leads back to the administrator's own session
+ * through Better Auth's `stop-impersonating` endpoint, then opens the user in the Console.
+ */
+export function consoleImpersonationPage(input: {
+  user: { name: string, email: string }
+  expiresAt: Date
+  stopPath: string
+  consolePath: string
+  appPath: string
+}): Response {
+  const development = isConsoleDevelopmentBuild()
+  const name = input.user.name || input.user.email || "this user"
+  const nonce = crypto.randomUUID()
+  const literal = (value: string) => JSON.stringify(value).replaceAll("<", "\\u003c")
+  const script = `
+    const button = document.querySelector("button");
+    const error = document.querySelector("[role=alert]");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Stopping…";
+      error.hidden = true;
+      try {
+        const response = await fetch(${literal(input.stopPath)}, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        if (!response.ok) throw new Error("Stop failed");
+        window.location.assign(${literal(input.consolePath)});
+      } catch {
+        error.hidden = false;
+        button.disabled = false;
+        button.textContent = "Stop impersonating";
+      }
+    });
+  `
+  const page = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Viewing as ${escapeHTML(name)} · ViteHub Console</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
+      main { width: min(26rem, calc(100% - 3rem)); }
+      .state { display: inline-flex; align-items: center; gap: .375rem; margin: 0 0 1rem; padding: .125rem .5rem; border-radius: 999px; background: light-dark(#fef3c7, #422006); color: light-dark(#92400e, #fcd34d); font-size: .8125rem; font-weight: 500; }
+      .state::before { content: ""; width: .375rem; height: .375rem; border-radius: 999px; background: currentColor; }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
+      p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; text-wrap: pretty; overflow-wrap: anywhere; }
+      .actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+      button, a { min-height: 2.5rem; display: inline-flex; align-items: center; padding: 0 1rem; border-radius: .5rem; font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; transition: transform 150ms ease-out; }
+      button { border: 1px solid transparent; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); }
+      a { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
+      button:not(:disabled):active, a:active { transform: scale(.96); }
+      button:disabled { opacity: .6; cursor: wait; }
+      button:focus-visible, a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      [role=alert] { margin: 1rem 0 0; color: light-dark(#b91c1c, #fca5a5); }
+      @media (prefers-reduced-motion: reduce) { button, a { transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="state">Impersonating</p>
+      <h1>Viewing the app as ${escapeHTML(name)}</h1>
+      <p>This browser uses the session of ${escapeHTML(input.user.email || name)}. The Console opens again after you stop impersonating. The session ends in about ${remainingTime(input.expiresAt)}.</p>
+      <div class="actions">
+        <button type="button">Stop impersonating</button>
+        <a href="${escapeHTML(input.appPath)}">Back to the app</a>
+      </div>
+      <p role="alert" hidden>Could not stop impersonating. Try again.</p>
+    </main>
+    <script nonce="${nonce}">${script}</script>
+  </body>
+</html>`
+  return new Response(page, {
+    headers: {
+      "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
+      "x-robots-tag": "noindex, nofollow",
+    },
+    status: 403,
+  })
+}
+
+export function consoleAuthPageResponse(request: Request, response: Response | undefined, mountBaseURL = "/", authBasePath: string = consoleAuthBasePath): Response | undefined {
   if (response?.status === 401 && request.method === "GET" && request.headers.get("accept")?.includes("text/html")) {
     const signIn = new URL(consoleAuthPath(mountBaseURL, "/_vitehub/sign-in"), request.url)
     if (new URL(request.url).searchParams.has("auth_error")) signIn.searchParams.set("auth_error", "signin")
@@ -76,7 +189,7 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
   ) return response
 
   const development = isConsoleDevelopmentBuild()
-  const signOutPath = consoleAuthPath(mountBaseURL, `${consoleAuthBasePath}/sign-out`)
+  const signOutPath = authBasePath === consoleAuthBasePath ? consoleAuthPath(mountBaseURL, `${authBasePath}/sign-out`) : `${authBasePath}/sign-out`
   const signedOutPath = consoleAuthPath(mountBaseURL, "/_vitehub/sign-in?denied=1")
   const signOutLiteral = JSON.stringify(signOutPath).replaceAll("<", "\\u003c")
   const signedOutLiteral = JSON.stringify(signedOutPath).replaceAll("<", "\\u003c")
@@ -142,6 +255,112 @@ export function consoleAuthPageResponse(request: Request, response: Response | u
     },
     status: 403,
   })
+}
+
+/** Use the app's configured social providers and session without a second Auth Definition or client. */
+export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest): {
+  signIn: (event: object, denied?: Response) => Promise<Response>
+  authBasePath: (event: object) => Promise<string>
+} {
+  async function requestAuth(event: object) {
+    const request = toEventRequest(event)
+    const url = consoleRequestURL({ req: request })
+    const authRequest = { headers: request.headers, url: url.href }
+    let auth = resolveAuth(authRequest, undefined, event)
+    let context = await auth.$context
+    // A static provider has no origin until its first HTTP request. Resolve it before reading its URLs.
+    if (!context.baseURL) {
+      auth = resolveAuth(authRequest, { baseURL: url.origin }, event)
+      context = await auth.$context
+    }
+    if (new URL(context.baseURL).origin !== url.origin) {
+      throw new TypeError("[vitehub] Console app Auth requires Auth baseURL and the Console to use the same origin. Serve Auth on the Console origin or configure independent console.auth.")
+    }
+    return { auth, context, request, url }
+  }
+  return {
+    async authBasePath(event) {
+      const { context } = await requestAuth(event)
+      return new URL(context.baseURL).pathname.replace(/\/$/, "")
+    },
+    signIn: async (event: object, denied?: Response): Promise<Response> => {
+      const { auth, context, request, url } = await requestAuth(event)
+      const mount = consoleMountBase(url.pathname)
+      const page = `${mount}/_vitehub/sign-in`
+      const authURL = new URL(context.baseURL)
+      if (denied && await isConsoleImpersonationRejection(denied)) {
+        const session = v.safeParse(impersonatedSessionSchema, await auth.api.getSession({ headers: request.headers }))
+        if (session.success) {
+          return consoleImpersonationPage({
+            user: session.output.user,
+            expiresAt: session.output.session.expiresAt,
+            stopPath: `${authURL.pathname.replace(/\/$/, "")}/admin/stop-impersonating`,
+            consolePath: `${mount}/_vitehub/auth/users?user=${encodeURIComponent(session.output.user.id)}`,
+            appPath: `${mount}/`,
+          })
+        }
+        // The impersonation ended after the check. The Console can open now.
+        return new Response(null, { headers: { "cache-control": "no-store", location: `${mount}/_vitehub` }, status: 303 })
+      }
+      if (denied) {
+        const diagnostic = v.safeParse(v.object({ code: v.literal("CONSOLE_ACCESS_DENIED") }), await denied.clone().json().catch(() => undefined))
+        const response = diagnostic.success ? new Response("Forbidden.", { status: 403, headers: { "content-type": "text/plain" } }) : denied
+        return consoleAuthPageResponse(request, response, mount, authURL.pathname.replace(/\/$/, "")) ?? denied
+      }
+      if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "POST") {
+        return new Response(null, { headers: { allow: "GET, HEAD, POST" }, status: 405 })
+      }
+      const target = consoleReturnPath(url.searchParams.get("redirect"), url, mount)
+      const retry = new URL(page, url)
+      retry.searchParams.set("redirect", target)
+      const actions = context.socialProviders.map((provider) => {
+        const start = new URL(retry)
+        start.searchParams.set("provider", provider.id)
+        const label = provider.id === "github" ? "GitHub" : provider.name
+        return `<form method="post" action="${escapeHTML(`${start.pathname}${start.search}`)}"${isConsoleDevelopmentBuild() ? ' target="_top"' : ""}><button type="submit">Sign in with ${escapeHTML(label)}</button></form>`
+      }).join("")
+      const render = (failed = false) => consoleSignInDocument(
+        failed ? "Sign-in failed. Try again." : actions ? "Sign in to access the ViteHub Console." : "No social sign-in provider is configured. Configure a provider in server Auth, or set console.signInPage to your app's sign-in page.",
+        actions,
+        actions ? 200 : 503,
+      )
+      if (request.method !== "POST") return render(url.searchParams.has("auth_error"))
+      // The Console starts OAuth with the app's own trusted origin. Cross-origin forms must not start a login.
+      if (request.headers.get("origin") !== url.origin || !await context.isTrustedOrigin(url.origin)) {
+        return new Response("Untrusted sign-in origin.", { status: 403 })
+      }
+      const provider = url.searchParams.get("provider")
+      if (!context.socialProviders.some(candidate => candidate.id === provider)) return render(true)
+      retry.searchParams.set("auth_error", "signin")
+      try {
+        const response = await auth.handler(new Request(`${authURL.href.replace(/\/$/, "")}/sign-in/social`, {
+          method: "POST",
+          headers: { "content-type": "application/json", origin: url.origin },
+          body: JSON.stringify({ provider, callbackURL: new URL(target, url).href, errorCallbackURL: retry.href }),
+        }))
+        if (!response.ok) return render(true)
+        const result = v.safeParse(v.object({ url: v.string() }), await response.json())
+        if (!result.success) return render(true)
+        const destination = new URL(result.output.url)
+        if (destination.protocol !== "https:" && destination.protocol !== "http:") return render(true)
+        const headers = new Headers(response.headers)
+        headers.delete("content-type")
+        headers.set("location", destination.href)
+        headers.set("cache-control", "no-store")
+        return new Response(null, { headers, status: 303 })
+      }
+      catch { return render(true) }
+    },
+  }
+}
+
+function consoleReturnPath(value: string | null, url: URL, mount: string): string {
+  const fallback = `${mount}/_vitehub`
+  if (!value || !/^\/(?!\/)[^\\\s]*$/.test(value)) return fallback
+  const target = new URL(value, url)
+  if (target.origin !== url.origin || !(target.pathname === fallback || target.pathname.startsWith(`${fallback}/`))) return fallback
+  if (target.pathname === `${fallback}/sign-in`) return fallback
+  return `${target.pathname}${target.search}${target.hash}`
 }
 
 export interface ConsoleAuthDefinition {
@@ -241,7 +460,8 @@ export interface ConsoleAuthorizeContext {
 /**
  * What `console.authorize` returns for one request.
  * - `true` allows every Console section.
- * - `{ sections }` allows only these section ids, for example `["content"]`. An empty list is `403`.
+ * - `{ sections }` allows only these section ids, for example `["content"]`. `"content:read"` allows only the operations of
+ *   that section that read. An empty list is `403`.
  * - `false` is `403`. A `Response` is returned as-is.
  */
 export type ConsoleAuthorizeResult = boolean | Response | { sections: readonly string[] }
@@ -257,6 +477,7 @@ export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuth
 }
 
 const consoleSessionSchema = v.looseObject({ user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)) }) })
+const endedSessionSchema = v.looseObject({ statusCode: v.literal(401), body: v.looseObject({ code: v.literal("FAILED_TO_GET_SESSION") }) })
 
 /** The part of a ViteHub Auth instance that reads the signed-in session. */
 export interface ConsoleSessionReader {
@@ -275,7 +496,9 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
   getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader
-  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false }) => Promise<Response | undefined>
+  /** `console.impersonation`. An impersonation session then never opens the Console. */
+  impersonation?: boolean
+  requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
   /** Rejects a request without a session. Used for a Console path that no access route matches. */
   requireSession: (event: object) => Promise<Response | undefined>
   routes: readonly { authorize: boolean, index: number, method?: string, route: string }[]
@@ -289,8 +512,30 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
   check: (event: object) => Promise<Response | undefined>
   user: (event: object) => Promise<ConsoleUser | undefined>
 } {
+  // One session read per request serves the impersonation check and the user reader.
+  const sessions = new WeakMap<object, Promise<unknown>>()
+  function readSession(event: object): Promise<unknown> {
+    let session = sessions.get(event)
+    if (!session) {
+      const request = toEventRequest(event)
+      session = options.getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers }).catch((error: unknown) => {
+        // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
+        // routes then send the browser to sign in.
+        if (v.is(endedSessionSchema, error)) return null
+        throw error
+      })
+      sessions.set(event, session)
+    }
+    return session
+  }
   return {
     async check(event) {
+      if (options.impersonation && v.is(impersonatedSessionSchema, await readSession(event))) {
+        return Response.json({ ...consoleDiagnosticBody("CONSOLE_IMPERSONATING"), ok: false, status: 403 }, {
+          headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+          status: 403,
+        })
+      }
       const request = toEventRequest(event)
       const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
@@ -304,11 +549,11 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
       if (!matched.length) return options.requireSession(event)
       const indexes = matched.map(route => route.index)
       const required = matched.filter(route => route.authorize).map(route => route.index)
-      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false })
+      return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false, reuse: true })
     },
-    user(event) {
-      const request = toEventRequest(event)
-      return readConsoleSessionUser(options.getAuthForRequest(request, undefined, event), request)
+    async user(event) {
+      const session = v.safeParse(consoleSessionSchema, await readSession(event))
+      return session.success ? session.output.user : undefined
     },
   }
 }
