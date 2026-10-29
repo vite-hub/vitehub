@@ -67,9 +67,22 @@ function pageIsDark(): boolean {
 function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: AbortSignal): HTMLElement {
   const pill = document.createElement("vitehub-pill")
   const shadow = pill.attachShadow({ mode: "open" })
-  shadow.innerHTML = `<style>${pillStyles}</style><div role="toolbar" aria-label="ViteHub tools"><button aria-label="Turn off ViteHub tools" title="Turn off ViteHub tools"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg></button></div>`
-  const toolbar = shadow.lastElementChild!
-  const button = toolbar.lastElementChild!
+  const style = document.createElement("style")
+  style.textContent = pillStyles
+  const toolbar = document.createElement("div")
+  toolbar.setAttribute("role", "toolbar")
+  toolbar.setAttribute("aria-label", "ViteHub tools")
+  const button = document.createElement("button")
+  button.setAttribute("aria-label", "Turn off ViteHub tools")
+  button.title = "Turn off ViteHub tools"
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
+  for (const [name, value] of Object.entries({ width: "15", height: "15", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "2", "stroke-linecap": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  path.setAttribute("d", "M18 6 6 18M6 6l12 12")
+  svg.append(path)
+  button.append(svg)
+  toolbar.append(button)
+  shadow.append(style, toolbar)
   for (const tool of tools) {
     const slot = document.createElement("slot")
     slot.name = tool.id
