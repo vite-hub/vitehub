@@ -27,6 +27,7 @@ vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => (
 vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/presence")>(),
   useConsoleDocumentPresence: () => ({
+    acquire: claimLease,
     claim: claimLease,
     holder: ref(null),
     mayWrite: ref(true),

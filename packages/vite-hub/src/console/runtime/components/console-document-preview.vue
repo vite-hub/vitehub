@@ -2,10 +2,12 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 
 import {
+  consolePreviewAddress,
   consolePreviewField,
   consolePreviewFormAction,
   consolePreviewFormValue,
   consolePreviewMobileWidth,
+  consolePreviewPublishedUrl,
 } from "../client/preview";
 import { consoleErrorMessage } from "../client/documents";
 
@@ -15,7 +17,8 @@ import type { ConsolePreviewDocument, ConsolePreviewView, ConsolePreviewViewport
 /**
  * The side browser of the document editor, with its own toolbar. The draft view posts the document on screen to the
  * page URL with a signed token, so the site renders it with its own routes and nothing is saved. The published view
- * loads the page as guests see it. Each render loads into a new frame and replaces the old one when it is ready, so
+ * loads the page with `?vitehub-content-published`, so it shows what guests see even when this browser has a whole-site
+ * preview cookie, which stays as it is. Each render loads into a new frame and replaces the old one when it is ready, so
  * the page does not flash and the Console history does not grow.
  *
  * Elements that `contentField()` marks select their field in the editor. Text fields of this document become editable
@@ -109,7 +112,7 @@ async function render(): Promise<void> {
   const key = ++frameCount;
   const name = frameName(key);
   // Keep the shown frame and the newest one. Older frames that did not load yet are dropped.
-  frames.value = [...frames.value.filter(frame => frame.key === shown.value), form ? { key, name } : { key, name, src: props.url.href }];
+  frames.value = [...frames.value.filter(frame => frame.key === shown.value), form ? { key, name } : { key, name, src: consolePreviewPublishedUrl(props.url) }];
   if (!form) return;
   await nextTick();
   // A form whose frame is gone would open a new window, so a newer render or unmount stops it here.
@@ -174,7 +177,7 @@ function onFrameLoad(frame: Frame, event: Event): void {
     address.value = "";
     return;
   }
-  address.value = `${page.location.pathname}${page.location.search}`.replace(/[?&]$/, "");
+  address.value = consolePreviewAddress(page.location);
   if (scroll) page.defaultView?.scrollTo(0, scroll);
   instrument(page);
 }
@@ -275,7 +278,7 @@ function applyHighlight(page = shownDocument()): void {
 /** Opens the page in a new tab: the draft view posts the same form there. */
 async function openInTab(): Promise<void> {
   if (!draft.value) {
-    window.open(props.url.href, "_blank", "noopener");
+    window.open(consolePreviewPublishedUrl(props.url), "_blank", "noopener");
     return;
   }
   try {

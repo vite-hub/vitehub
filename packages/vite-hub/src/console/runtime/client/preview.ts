@@ -1,10 +1,11 @@
-import { parseContentField } from "@vite-hub/content/client"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
 
 /**
  * The side browser of the document editor. The site renders the page of a document with its own routes: a draft view
  * posts a form with a token signed for that document and the version of it on screen to the page URL, and the
- * published view loads the page as guests do. The rest of the page reads published content. The frame is on the Console origin, so the editor reads the rendered page directly and never needs
- * messages from it.
+ * published view loads the page with `?vitehub-content-published`, so it reads what guests see even when the browser
+ * has a whole-site preview cookie. The rest of the page reads published content. The frame is on the Console origin,
+ * so the editor reads the rendered page directly and never needs messages from it.
  */
 
 /** What the side browser shows: the draft on screen, or the page that guests see. */
@@ -42,6 +43,22 @@ export function consolePreviewFormAction(url: URL, parameter: string): string {
   const action = new URL(url)
   action.searchParams.set(parameter, "")
   return action.href
+}
+
+/** The page URL of the published view. The parameter makes the request read `published` and grants nothing. */
+export function consolePreviewPublishedUrl(url: URL): string {
+  const published = new URL(url)
+  published.searchParams.set(contentPreviewPublishedParameter, "")
+  return published.href
+}
+
+/** The address of a page in the frame, without the parameters of the draft and published views. */
+export function consolePreviewAddress(location: { pathname: string, search: string }): string {
+  const search = new URLSearchParams(location.search)
+  search.delete(contentPreviewFrameParameter)
+  search.delete(contentPreviewPublishedParameter)
+  const query = search.toString()
+  return query ? `${location.pathname}?${query}` : location.pathname
 }
 
 /** The form field value of a draft view: the token of one document and the version of it on screen. */

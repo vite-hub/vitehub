@@ -290,7 +290,7 @@ await content.preview.sign({ collection: 'posts', id: 'hello', maxAge: 900 }) //
 content.preview.frame()                              // { collection, id, document? } in a preview frame
 ```
 
-A request with a valid preview cookie reads `draft` through every Content read above. A preview frame reads the draft of its one document through collection `get()` and `list()`, and `published` everywhere else. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
+A request with a valid preview cookie reads `draft` through every Content read above. A preview frame reads the draft of its one document through collection `get()` and `list()`, and `published` everywhere else. A request with `?vitehub-content-published` reads `published` even with the cookie. See [Draft preview](/docs/content/preview) for the signing key, the cookie, and caching.
 
 ## Field addresses
 

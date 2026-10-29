@@ -2,6 +2,7 @@ import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
 export const contentPreviewCookieName = "vitehub-content-preview"
@@ -21,11 +22,7 @@ const frameTokenVersion = "f1"
 const frameTokenPurpose = "vitehub.content.preview.frame"
 const frameTokenPattern = /^f1\.(\d{1,12})\.([\w-]{1,1400})\.([\w-]{43})$/
 
-/**
- * Marks a preview frame request: the search parameter of the page URL and the form field that carries
- * `{ token, documents }` as JSON. The parameter alone grants nothing.
- */
-export const contentPreviewFrameParameter = "vitehub-content-preview"
+export { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
 /** The largest preview frame form, in bytes. It carries a whole Markdown document. */
 const maximumFrameBytes = 1024 * 1024
 
@@ -102,8 +99,11 @@ export interface ContentPreview {
   disable(event: ContentPreviewEvent): ContentPreviewCookie
   /**
    * Run `callback` with the event's preview grant when its cookie holds a valid token, and mark the response
-   * `Cache-Control: private, no-store`. Without a valid token `callback` runs unchanged. In a ViteHub app the generated
-   * Nitro plugin and `/api/content/**` call it for you; call it yourself for requests that do not go through Nitro.
+   * `Cache-Control: private, no-store`. Without a valid token `callback` runs unchanged. An event whose URL, or
+   * same-origin `Referer`, has `?vitehub-content-published` reads `published` with or without the cookie. A run inside
+   * another run of the same request keeps the outer scope: a cookie never widens a published or frame request. In a
+   * ViteHub app the generated Nitro plugin and `/api/content/**` call it for you; call it yourself for requests that do
+   * not go through Nitro.
    */
   run<TResult>(event: ContentPreviewEvent, callback: () => TResult | Promise<TResult>): Promise<TResult>
   /**
@@ -113,7 +113,10 @@ export interface ContentPreview {
    * the frame posted for it. Every other read is published. See {@link defineContentPreviewPlugin}.
    */
   sign(options: ContentPreviewFrameOptions): Promise<ContentPreviewToken>
-  /** Whether Content reads in the current request use the `draft` ref: true with a preview cookie, false in a frame. */
+  /**
+   * Whether Content reads in the current request use the `draft` ref: true with a preview cookie, false in a frame and
+   * in a request with `?vitehub-content-published`.
+   */
   active(): boolean
   /** The current preview frame request, or undefined outside one. */
   frame(): ContentPreviewFrame | undefined
@@ -383,14 +386,17 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
   // Proof that one request carried a valid token. Only this runtime issues and checks it.
   const previewGrant = defineGrant("vitehub.content.preview", (expires: number) => expires)
   type Grant = ReturnType<typeof previewGrant.issue>
-  /** A cookie grant reads every draft. A frame grant reads the draft of its one document. */
-  interface State { grant: Grant, frame?: ContentPreviewFrame }
+  /**
+   * A cookie grant reads every draft. A frame grant reads the draft of its one document. A published request has no
+   * grant, and a cookie in a nested run cannot give it one.
+   */
+  type State = { grant: Grant, frame?: ContentPreviewFrame } | { published: true }
   const scope = createScope<State>(options.enabled)
   const resolved = new WeakMap<object, Promise<Grant | undefined>>()
 
-  function current(): State | undefined {
+  function current(): { grant: Grant, frame?: ContentPreviewFrame } | undefined {
     const state = scope.getStore()
-    return state && previewGrant.check(state.grant) !== undefined ? state : undefined
+    return state && "grant" in state && previewGrant.check(state.grant) !== undefined ? state : undefined
   }
 
   async function sign(signOptions: ContentPreviewOptions, method: string, scope?: string): Promise<{ maxAge: number, expires: number, token: string }> {
@@ -482,8 +488,10 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     async run(event, callback) {
       if (!options.enabled || !isObject(event)) return await callback()
       // A nested run in the same request, such as /api/content inside the generated plugin's scope, keeps its grant
-      // and the documents of a preview frame.
-      let state = current()
+      // and the documents of a preview frame, or its published reads.
+      let state: State | undefined = scope.getStore()
+      if (state && "grant" in state && previewGrant.check(state.grant) === undefined) state = undefined
+      if (!state && publishedRequest(event)) state = { published: true }
       if (!state) {
         let pending = resolved.get(event)
         if (!pending) {
@@ -509,6 +517,10 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     },
   }
   frames.set(preview, {
+    published() {
+      const state = scope.getStore()
+      return state !== undefined && "published" in state
+    },
     async run(form, callback) {
       if (!options.enabled) return
       const verified = await frameForToken(form.token)
@@ -528,8 +540,10 @@ interface ContentPreviewFrameForm {
   document?: ContentPreviewDocument
 }
 
-/** Runs a preview frame request with the grant of its token. Undefined when the token is not valid. */
 interface ContentPreviewFrames {
+  /** Whether the current request reads `published` only. */
+  published(): boolean
+  /** Runs a preview frame request with the grant of its token. Undefined when the token is not valid. */
   run<TResult>(form: ContentPreviewFrameForm, callback: () => TResult | Promise<TResult>): Promise<{ result: Awaited<TResult> } | undefined>
 }
 
@@ -592,6 +606,27 @@ function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | unde
   }
 }
 
+/**
+ * Whether a request asks for published reads: its URL has `?vitehub-content-published`, or its `Referer` is a page of
+ * the same origin with it, such as a fetch from the page in the Published view. It only takes draft access away.
+ */
+function publishedRequest(event: ContentPreviewEvent): boolean {
+  const parts = eventParts(event)
+  // An h3 v2 event has a URL object; a Request and a Node request have text.
+  const url = frameUrl(parts.url instanceof URL ? parts.url.href : parts.url, parts.headers, secureRequest(event))
+  if (!url) return false
+  if (url.searchParams.has(contentPreviewPublishedParameter)) return true
+  const referer = readHeader(parts.headers, "referer")
+  if (!referer) return false
+  try {
+    const from = new URL(referer)
+    return from.origin === url.origin && from.searchParams.has(contentPreviewPublishedParameter)
+  }
+  catch {
+    return false
+  }
+}
+
 function isFrameRequest(method: unknown, url: URL | undefined): url is URL {
   return String(method).toUpperCase() === "POST" && url !== undefined && url.searchParams.has(contentPreviewFrameParameter)
 }
@@ -643,14 +678,19 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * `revision` read that one document as a draft; every other read is published. Nothing is stored, and the response is
  * `private, no-store`. A form from another site, without a valid frame token, or with a document that the token does
  * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token.
+ *
+ * A request with `?vitehub-content-published` in its URL, or in its same-origin `Referer`, reads `published` even with a
+ * preview cookie, such as the Published view of the Console. Its nested runs do too. The page sees its URL with the
+ * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed.
  * ViteHub generates this plugin for `server/content.ts`.
  */
 export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
   return (nitroApp) => {
     const preview = content.preview
     if (!preview || !isObject(nitroApp)) return
+    const frame = frames.get(preview)
     // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
-    const previewing = () => preview.active() || preview.frame() !== undefined
+    const previewing = () => preview.active() || preview.frame() !== undefined || frame?.published() === true
     const removeCacheBypass = addCacheBypass(previewing)
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
@@ -660,8 +700,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
       }
     }
     const scoped = (event: unknown, next: () => unknown): unknown =>
-      isObject(event) && hasPreviewCookie(event) ? preview.run(event, next) : next()
-    const frame = frames.get(preview)
+      isObject(event) && (hasPreviewCookie(event) || publishedRequest(event)) ? preview.run(event, next) : next()
     /** Checks a preview frame form and runs the page with its grant, or returns the 403 response. */
     async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
       if (blocked) return forbidden("A preview frame must come from this site.")

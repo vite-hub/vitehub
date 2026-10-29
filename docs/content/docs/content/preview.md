@@ -36,7 +36,7 @@ export default defineEventHandler(event => content.preview.disable(event))
 | `content.preview.enable(event, { maxAge? })` | Appends the preview cookie to the response and returns `{ setCookie, expiresAt }`. `maxAge` is in seconds: default 3600 (one hour), from 60 to 86400. |
 | `content.preview.disable(event)` | Appends a cookie that expires now. Returns `{ setCookie, expiresAt: null }`. |
 | `content.preview.run(event, callback)` | Runs `callback` in preview when the event carries a valid cookie. Otherwise it runs unchanged. |
-| `content.preview.active()` | `true` inside a request with a valid preview cookie, where every read uses `draft`. `false` in a preview frame. |
+| `content.preview.active()` | `true` inside a request with a valid preview cookie, where every read uses `draft`. `false` in a preview frame and with [`?vitehub-content-published`](#published-reads). |
 | `content.preview.sign({ collection, id, maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames) of that one document, without a cookie. Check `content.can({ user, collection, id, action: 'read' })` first. |
 | `content.preview.frame()` | In a preview frame request, `{ collection, id, document? }`: the document its token signs and the version on screen that the frame posted. Otherwise `undefined`. |
 
@@ -89,9 +89,22 @@ A frame token reads the draft of its one document, and nothing else:
 - Nothing is stored. The response is `private, no-store` and `noindex`, and Nitro's cache is bypassed.
 - A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. `Origin` must match the page URL with its protocol, which comes from `x-forwarded-proto` behind a proxy or from the TLS connection. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
 
-The Published view loads the page with a plain `GET`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
+The Published view loads the page with a `GET` of `?vitehub-content-published`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
 
-Pages must allow a frame from their own origin: `frame-ancestors 'self'` or no `frame-ancestors`, and no `X-Frame-Options: DENY`. Data that the page fetches from the browser after it loads does not carry the frame scope: it reads `published`.
+Pages must allow a frame from their own origin: `frame-ancestors 'self'` or no `frame-ancestors`, and no `X-Frame-Options: DENY`. Data that the page fetches from the browser after it loads does not carry the frame scope: it reads `published`, or `draft` with a preview cookie.
+
+## Published reads
+
+A browser with a preview cookie reads drafts on every page. A request with `?vitehub-content-published` reads `published` instead, with the same cookie, such as the Published view of the Console:
+
+- Every Content read without `ref` or `revision` is `published`, and `content.preview.active()` is `false`. Nested requests and `content.preview.run()` calls in the same request stay `published`: the cookie does not widen them.
+- A request whose `Referer` is a page of the same origin with the parameter is `published` too, such as a `fetch()` from the page in the Published view. A page that sends no `Referer`, for example with `Referrer-Policy: no-referrer`, or a client-side navigation to a URL without the parameter, reads with the cookie again.
+- The cookie stays as it is: the response sets no cookie, and requests without the parameter preview the whole site as before.
+- The parameter only takes draft access away. It needs no token, and it never reads a draft or a posted document. A frame form needs its own token.
+- The page sees its URL with the parameter. The response is `private, no-store` and `noindex`, and Nitro's cache is bypassed, so the page shows the published content now, not a cached copy.
+- An explicit `{ ref: 'draft' }` or `{ revision }` in your server code is trusted server API and reads what it names.
+
+`contentPreviewPublishedParameter` from `@vite-hub/content` and `@vite-hub/content/client` holds the parameter name.
 
 ## Signing key
 

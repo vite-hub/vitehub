@@ -100,7 +100,7 @@ describe("Console document preview renders", () => {
     expect(state.view).toBe("published")
     await flushPromises()
     const [published] = frames(wrapper)
-    expect(frames(wrapper)).toEqual([{ name: published!.name, src: "https://site.test/blog/hello", visible: false }])
+    expect(frames(wrapper)).toEqual([{ name: published!.name, src: "https://site.test/blog/hello?vitehub-content-published=", visible: false }])
 
     late.resolve(tokenOf("late"))
     await flushPromises()

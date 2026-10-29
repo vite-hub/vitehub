@@ -17,7 +17,7 @@ import { createDriver } from "../../blob/src/drivers/fs.ts"
 import { shouldBypassCache } from "@vite-hub/internal/runtime/cache-bypass"
 
 import { documents } from "../src/collections.ts"
-import { contentPreviewCookieName, contentPreviewFrameParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
+import { contentPreviewCookieName, contentPreviewFrameParameter, contentPreviewPublishedParameter, defineContent, defineContentHandler, defineContentPreviewPlugin } from "../src/index.ts"
 
 const migration = await readFile(new URL("../../workspace/test/fixtures/history.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -63,7 +63,7 @@ async function setup() {
 }
 
 /** Enable preview on a throwaway request and return the Cookie header a browser would send. */
-async function previewCookie(content: Awaited<ReturnType<typeof setup>>["content"], options?: { maxAge?: number }) {
+async function previewCookie(content: Pick<Awaited<ReturnType<typeof setup>>["content"], "preview">, options?: { maxAge?: number }) {
   const { setCookie } = await content.preview.enable(new Request("https://site.test/_vitehub"), options)
   return setCookie.split(";", 1)[0]!
 }
@@ -558,5 +558,141 @@ describe("content preview", { timeout: 30_000 }, () => {
     await expect(content.preview.enable(new Request("https://site.test/"))).rejects.toMatchObject({ code: "CONTENT_R0008" })
     const request = new Request("https://site.test/", { headers: { cookie: `${contentPreviewCookieName}=v1.1.x` } })
     expect(await content.preview.run(request, () => content.preview.active())).toBe(false)
+  })
+})
+
+/**
+ * Posts A and B and page C, each published and then changed in the draft, plus drafts that were never published. A
+ * Nitro 3 app with a page that reads them every way, `/api/content/**`, and a nested request with the same cookie.
+ */
+async function publishedSite() {
+  vi.stubEnv("VITEHUB_CONTENT_KEY", key)
+  const workspace = await historyWorkspace()
+  const content = defineContent({
+    workspace,
+    collections: {
+      posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }),
+      pages: documents({ path: "pages/**/*.md", fields: { title: z.string() } }),
+    },
+    logger: false,
+  })
+  cleanup.push(() => content.dispose())
+  const posts = content.collection("posts")
+  const pages = content.collection("pages")
+  await posts.save("a", { data: { title: "A published" }, body: "A body" })
+  await posts.save("b", { data: { title: "B published" }, body: "B body" })
+  await pages.save("c", { data: { title: "C published" }, body: "C body" })
+  await content.publish()
+  await posts.save("a", { data: { title: "A draft" }, body: "A secret" })
+  await posts.save("b", { data: { title: "B draft" }, body: "B secret" })
+  await posts.save("b-unpublished", { data: { title: "B unpublished" }, body: "B" })
+  await pages.save("c", { data: { title: "C draft" }, body: "C secret" })
+  const cookie = await previewCookie(content)
+  const nitroApp: { fetch: (request: Request) => Promise<Response> | Response, h3: H3 } = { fetch: request => app.fetch(request), h3: undefined! }
+  const app: H3 = new H3()
+    .get("/page", async event => ({
+      url: event.req.url,
+      active: content.preview.active(),
+      bypass: shouldBypassCache(),
+      a: (await posts.get("a"))?.data.title,
+      aBody: (await posts.get("a"))?.body,
+      b: (await posts.get("b"))?.data.title,
+      bUnpublished: (await posts.get("b-unpublished"))?.data.title ?? null,
+      c: (await pages.get("c"))?.data.title,
+      posts: (await posts.list()).items.map(item => item.data.title),
+      hub: (await content.get("/posts/b"))?.data.title,
+      // A route that runs preview itself, and a nested request with the browser's cookie, such as SSR data fetching.
+      run: await content.preview.run(event, async () => (await pages.get("c"))?.data.title),
+      nested: await titleOf(await nitroApp.fetch(new Request("https://site.test/api/content/get/posts/b", { headers: { cookie } }))),
+    }))
+    .all("/api/content/**", defineContentHandler(content))
+  nitroApp.h3 = app
+  defineContentPreviewPlugin(content)(nitroApp)
+  const drafts = { active: true, bypass: true, a: "A draft", aBody: "A secret", b: "B draft", bUnpublished: "B unpublished", c: "C draft", posts: ["A draft", "B draft", "B unpublished"], hub: "B draft", run: "C draft", nested: "B draft" }
+  const published = { active: false, bypass: true, a: "A published", aBody: "A body", b: "B published", bUnpublished: null, c: "C published", posts: ["A published", "B published"], hub: "B published", run: "C published", nested: "B published" }
+  return { content, posts, cookie, nitroApp, drafts, published }
+}
+
+describe("published reads with a whole-site preview cookie", { timeout: 30_000 }, () => {
+  it("reads published title, body, and related data with ?vitehub-content-published, and leaves the cookie session working", async () => {
+    const { cookie, nitroApp, drafts, published } = await publishedSite()
+    const marked = `https://site.test/page?${contentPreviewPublishedParameter}`
+    const response = await nitroApp.fetch(new Request(marked, { headers: { cookie } }))
+    expect(await response.json()).toEqual({ ...published, url: marked })
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    // The cookie stays as it is: nothing clears or replaces it.
+    expect(response.headers.get("set-cookie")).toBeNull()
+    // The same cookie on a request without the parameter previews the whole site, as before.
+    expect(await (await nitroApp.fetch(new Request("https://site.test/page", { headers: { cookie } }))).json()).toEqual({ ...drafts, url: "https://site.test/page" })
+    expect(shouldBypassCache()).toBe(false)
+  })
+
+  it("reads published in a fetch from the published page, by its same-origin Referer only", async () => {
+    const { cookie, nitroApp } = await publishedSite()
+    const api = (referer: string) => nitroApp.fetch(new Request("https://site.test/api/content/get/posts/b", { headers: { cookie, referer } }))
+    expect(await titleOf(await api(`https://site.test/page?${contentPreviewPublishedParameter}`))).toBe("B published")
+    expect(await titleOf(await api("https://site.test/page"))).toBe("B draft")
+    // Another origin cannot change what this site reads.
+    expect(await titleOf(await api(`https://other.test/page?${contentPreviewPublishedParameter}`))).toBe("B draft")
+  })
+
+  it("keeps a draft frame of A to its one document, even with the whole-site cookie and nested preview runs", async () => {
+    const { content, cookie, nitroApp, published } = await publishedSite()
+    const { token } = await content.preview.sign({ collection: "posts", id: "a" })
+    const response = await nitroApp.fetch(new Request(`https://site.test/page?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: "https://site.test" },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "a", data: { title: "A on screen" }, body: "A typed" } }) }),
+    }))
+    expect(response.status).toBe(200)
+    // Only A is a draft. B and C, the nested request, and the route's own preview.run() stay published.
+    expect(await response.json()).toEqual({ ...published, url: "https://site.test/page", a: "A on screen", aBody: "A typed", posts: ["A on screen", "B published"] })
+  })
+
+  it("gives the parameter no draft access without a cookie or token, and accepts no document with it", async () => {
+    const { nitroApp, published } = await publishedSite()
+    const document = encodeURIComponent(JSON.stringify({ document: { collection: "posts", id: "b", data: { title: "Forged" } } }))
+    for (const url of [
+      `https://site.test/page?${contentPreviewPublishedParameter}`,
+      `https://site.test/page?${contentPreviewPublishedParameter}=${document}`,
+      `https://site.test/page?${contentPreviewPublishedParameter}&${contentPreviewFrameParameter}=${document}`,
+    ]) {
+      expect(await (await nitroApp.fetch(new Request(url))).json()).toEqual({ ...published, url })
+    }
+    // A POST with the parameter and a forged form is no frame: without a token it gets 403.
+    const forged = await nitroApp.fetch(new Request(`https://site.test/page?${contentPreviewPublishedParameter}&${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token: "v1.1.x", document: { collection: "posts", id: "b", data: { title: "Forged" } } }) }),
+    }))
+    expect(forged.status).toBe(403)
+  })
+
+  it("reads published on Nitro 2 with the cookie, isolated from preview requests of the same cookie", async () => {
+    const { content, posts, cookie } = await publishedSite()
+    const nitroApp = {
+      h3App: {
+        async handler(event: { node: { req: { url: string, headers: Record<string, string> }, res: ServerResponseLike } }) {
+          await new Promise(resolve => setTimeout(resolve, Math.random() * 5))
+          const nested = await content.preview.run(event, async () => (await posts.get("b"))?.data.title)
+          event.node.res.body = { url: event.node.req.url, active: content.preview.active(), a: (await posts.get("a"))?.data.title, nested }
+        },
+      },
+      hooks: { hook: () => undefined },
+    }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const results = await Promise.all(Array.from({ length: 16 }, async (_, index) => {
+      const url = index % 2 === 0 ? `/page?${contentPreviewPublishedParameter}` : "/page"
+      const event = { node: { req: { url, headers: { host: "site.test", cookie } }, res: serverResponse() } }
+      await nitroApp.h3App.handler(event)
+      return { body: event.node.res.body, cacheControl: event.node.res.headers["cache-control"], url }
+    }))
+    for (const result of results) {
+      expect(result.cacheControl).toBe("private, no-store")
+      expect(result.body).toEqual(result.url === "/page"
+        ? { url: "/page", active: true, a: "A draft", nested: "B draft" }
+        : { url: result.url, active: false, a: "A published", nested: "B published" })
+    }
   })
 })

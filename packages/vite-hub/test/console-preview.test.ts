@@ -3,10 +3,12 @@ import { describe, expect, it } from "vitest"
 import {
   clearConsoleLocalDraft,
   consoleEditorMinWidth,
+  consolePreviewAddress,
   consolePreviewField,
   consolePreviewFormAction,
   consolePreviewFormValue,
   consolePreviewMinWidth,
+  consolePreviewPublishedUrl,
   consolePreviewUrl,
   consolePreviewWidth,
   readConsoleLocalDraft,
@@ -31,6 +33,16 @@ describe("console preview", () => {
     expect(consolePreviewUrl("//evil.test/x", "https://site.test")).toBeUndefined()
     expect(consolePreviewUrl("javascript:alert(1)", "https://site.test")).toBeUndefined()
     expect(consolePreviewUrl(undefined, "https://site.test")).toBeUndefined()
+  })
+
+  it("loads the published view with the published parameter, and hides the view parameters from the address", () => {
+    const url = new URL("https://site.test/blog/hello?lang=en")
+    expect(consolePreviewPublishedUrl(url)).toBe("https://site.test/blog/hello?lang=en&vitehub-content-published=")
+    expect(url.search).toBe("?lang=en")
+    expect(consolePreviewAddress({ pathname: "/blog/hello", search: "?lang=en&vitehub-content-published=" })).toBe("/blog/hello?lang=en")
+    expect(consolePreviewAddress({ pathname: "/blog/hello", search: "?vitehub-content-published" })).toBe("/blog/hello")
+    expect(consolePreviewAddress({ pathname: "/blog/hello", search: "?lang=en&vitehub-content-preview=" })).toBe("/blog/hello?lang=en")
+    expect(consolePreviewAddress({ pathname: "/blog/hello", search: "" })).toBe("/blog/hello")
   })
 
   it("posts the token and the document in the form body, never in the URL", () => {

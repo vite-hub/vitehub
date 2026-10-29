@@ -377,6 +377,13 @@ const holderName = computed(() => {
   return session.ownOtherTab.value ? "You" : holder?.user.name ?? "Someone";
 });
 const holderLive = computed(() => session.holder.value?.kind === "live");
+/** In Local only, who holds the lease that Apply needs, while another tab edits the shared draft. */
+const localLeaseHolder = computed(() => {
+  const holder = sessionPresence.value?.holder;
+  if (!local.value || !holder || holder.self || holder.kind === "live" || leaseMode.value === "editing") return;
+  const name = holder.user.id === sessionPresence.value?.user?.id ? "You" : holder.user.name;
+  return name === "You" ? "Your other tab is editing the shared draft." : `${name} is editing the shared draft.`;
+});
 /** Saves another tab refused while it held the lease. Their edits stay on screen. */
 const refusedEdits = ref(0);
 /** Whether this tab may change the document now: write access, and no other tab holds the lease. */
@@ -1011,7 +1018,12 @@ async function applyLocal(ifDigest: string | null = localBase.value): Promise<vo
   await bodyEditor.value?.commit();
   // A live room holds the lease for everyone in it, so the save passes that lease; a single editor's lease still refuses it.
   const roomFor = Boolean(liveDefinition && hasBody.value && !liveFallback.value);
-  if (!roomFor && !(await session.claim())) return;
+  // Apply asks for the lease even after this tab opened read-only or its holder left. The server still refuses it while
+  // another tab edits, and the person then sees who and can apply again.
+  if (!roomFor && !(await session.acquire())) {
+    refuseLocal(() => void applyLocal(ifDigest));
+    return;
+  }
   applyingLocal.value = true;
   // Typing goes on during the request. Only this version is applied; later edits stay local and in session storage.
   const sent: Version = { body: draft.value.body, data: compact(draft.value.data) };
@@ -1060,6 +1072,21 @@ async function applyLocal(ifDigest: string | null = localBase.value): Promise<vo
   }
   finally {
     applyingLocal.value = false;
+    viewLocally();
+  }
+}
+
+/** Says why a save from Local only did not run, and offers to try again. The local edits stay on screen and in storage. */
+function refuseLocal(retry: () => void): void {
+  const holder = localLeaseHolder.value;
+  toast.error(holder ? `${holder} Your local edits stay here. Try again when they stop.` : "Couldn't get the edit lock. Your local edits stay here.", { label: "Retry", onClick: retry });
+}
+
+/** Local edits need no lease: after a save from Local only, this tab reports as a viewer again. */
+function viewLocally(): void {
+  if (local.value && leaseMode.value === "editing") {
+    session.resume();
+    void session.refresh();
   }
 }
 
@@ -1500,7 +1527,10 @@ async function resolveSharedSiteConflict(choice: "site" | "draft", site: Console
   const source = choice === "site" && site ? site : shared;
   // As in Apply: a live room holds the lease for everyone in it; otherwise this tab claims the lease for the save.
   const roomFor = Boolean(liveDefinition && hasBody.value && !liveFallback.value);
-  if (!roomFor && !(await session.claim())) return;
+  if (!roomFor && !(await session.acquire())) {
+    refuseLocal(() => void resolveSharedSiteConflict(choice, site, published, shared));
+    return;
+  }
   resolvingSite.value = true;
   try {
     const saved = await props.client.save(props.collection.name, props.documentId, {
@@ -1531,11 +1561,7 @@ async function resolveSharedSiteConflict(choice: "site" | "draft", site: Console
   }
   finally {
     resolvingSite.value = false;
-    // Local edits need no lease: report as a viewer again, as when Local only started.
-    if (leaseMode.value === "editing") {
-      session.resume();
-      void session.refresh();
-    }
+    viewLocally();
   }
 }
 
@@ -1949,6 +1975,7 @@ const menuItems = computed(() => [[
             <UButton size="xs" color="neutral" variant="ghost" label="Discard…" :disabled="!localChanged || applyingLocal" @click="localExitOpen = true" />
             <UButton size="xs" color="neutral" variant="outline" label="Apply to shared draft" :disabled="!localChanged" :loading="applyingLocal" @click="applyLocal()" />
           </div>
+          <p v-if="localLeaseHolder" class="ps-7 text-muted">{{ localLeaseHolder }} Apply when they stop.</p>
           <p v-if="sharedMoved" class="ps-7 text-muted">Someone saved the shared draft after your local edits started. Apply compares them before it saves.</p>
           <p v-if="localStorageFailed" class="ps-7 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
         </div>
