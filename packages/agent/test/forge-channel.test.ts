@@ -153,7 +153,7 @@ describe("Forge Channel core", () => {
     expect(fixture.calls).toHaveLength(2)
   })
 
-  it("keeps ownership on raw activity comments and supersedes owned duplicates", async () => {
+  it("reuses the original owned activity comment without rewriting duplicates", async () => {
     const writes: { id: number, body: string }[] = []
     const fetcher: typeof fetch = async (input, init) => {
       const url = new URL(String(input))
@@ -171,8 +171,7 @@ describe("Forge Channel core", () => {
     const channel = github({ app: { token: "token", fetch: fetcher }, activity: true })
     // SAFETY: This fixture supplies all fields consumed by the activity callback.
     await channel.activity?.update({ activity: { links: [], runId: "core-ownership", status: "running", tasks: [] }, channel, memo: vi.fn(), run: { runId: "core-ownership" }, runtime: "unknown", target: { repository: "acme/app", issue: 42 }, waitUntil: vi.fn() } as never)
-    expect(writes.map(write => write.id)).toEqual([2, 1])
+    expect(writes.map(write => write.id)).toEqual([1])
     expect(writes[0]?.body).toMatch(/^<!-- vitehub-agent-activity:/)
-    expect(writes[1]?.body).toBe("This Agent activity was superseded by a newer managed comment.")
   })
 })

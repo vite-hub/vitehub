@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { Response as ForeignResponse } from "undici"
 
 import { defineAuth } from "../src/index.ts"
-import { createAuthAccessHandler } from "../src/server.ts"
+import { createAuthAccessHandler, requireAuthAccessRoutes } from "../src/server.ts"
 
 const provider = vi.hoisted(() => ({
   betterAuth: vi.fn(),
@@ -23,6 +23,42 @@ describe("Auth access handlers", () => {
     })
     provider.getSession.mockReset().mockResolvedValue(session)
     provider.handler.mockReset()
+  })
+
+  it("reuses an opted-in successful route check only for the same request, Definition, and rules", async () => {
+    const authorize = vi.fn(() => true)
+    const definition = defineAuth({ access: { routes: [
+      { route: "/private/**", authorize },
+      { route: "/private/admin", authorize },
+    ] } })
+    const handler = createAuthAccessHandler([{ route: "/private/**", authorize: true }], definition)
+    const input = { req: new Request("https://app.example/private/admin") }
+    await expect(requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
+    await expect(handler(input)).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledOnce()
+    const next = { req: input.req.clone() }
+    await expect(handler(next)).resolves.toBeUndefined()
+    await expect(requireAuthAccessRoutes(next, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledTimes(2)
+    await expect(requireAuthAccessRoutes(input, [1], definition, [1])).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledTimes(3)
+    const otherAuthorize = vi.fn(() => false)
+    const otherDefinition = defineAuth({ access: { routes: [{ route: "/private/**", authorize: otherAuthorize }] } })
+    expect((await requireAuthAccessRoutes(input, [0], otherDefinition, [0]))?.status).toBe(403)
+    expect(otherAuthorize).toHaveBeenCalledOnce()
+  })
+
+  it("does not reuse a denial or an unchecked authorization requirement", async () => {
+    const authorize = vi.fn(() => false)
+    const definition = defineAuth({ access: { routes: [{ route: "/private", authorize }] } })
+    const input = { req: new Request("https://app.example/private") }
+    expect((await requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true }))?.status).toBe(403)
+    authorize.mockReturnValue(true)
+    await expect(requireAuthAccessRoutes(input, [0], definition, [0], { reuse: true })).resolves.toBeUndefined()
+    expect(authorize).toHaveBeenCalledTimes(2)
+    const missing = defineAuth({ access: { routes: ["/private"] } })
+    await expect(requireAuthAccessRoutes(input, [0], missing, [], { reuse: true })).resolves.toBeUndefined()
+    expect((await requireAuthAccessRoutes(input, [0], missing, [0]))?.status).toBe(403)
   })
 
   it.each(["web", "host"] as const)("matches exact, recursive and method rules for %s requests", async (adapter) => {

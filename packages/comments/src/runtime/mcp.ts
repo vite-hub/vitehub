@@ -72,14 +72,14 @@ function summary(thread: CommentThread): Record<string, unknown> {
 /**
  * The Comments tools of the ViteHub MCP server. Each call resolves the Comments identity and checks `authorize`,
  * as the overlay does. Pass the overlay's session reader; an app's own MCP server can instead supply `context.user`.
- * With a request event, a session denial is final; otherwise `identify` takes precedence over the session user.
+ * With a request event, Console denial is final; otherwise `identify` takes precedence over the session user.
  * Without an event, the tools use the checked `context.user` directly. Replies and resolves show that user as the author.
  */
 export function commentsMcpTools(comments: Comments, options: CommentsSessionOptions = {}): ViteHubMcpTool[] {
-  async function userFor(context: ViteHubMcpToolContext): Promise<CommentsUser | null | false> {
+  async function userFor(context: ViteHubMcpToolContext, action: CommentsAction): Promise<CommentsUser | null | false> {
     if (context.event === undefined || context.event === null) return commentsUser(context.user)
     // SAFETY: The MCP transport passes its request event to owner identity readers.
-    return resolveCommentsUser(comments, context.event as H3Event, options.session ?? (async () => commentsUser(context.user)))
+    return resolveCommentsUser(comments, context.event as H3Event, { ...options, session: options.session ?? (async () => commentsUser(context.user)) }, action)
   }
 
   async function threadFor(input: Record<string, unknown>, user: CommentsUser | null | false, action: CommentsAction): Promise<{ thread: CommentThread, grant: ToolGrant } | ViteHubMcpToolResult> {
@@ -111,7 +111,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context)
+        const user = await userFor(context, "read")
         if (user === false || !await comments.can({ user, action: "read" })) return forbidden("read")
         const status = input.status === "resolved" ? "resolved" : "open"
         const page = text(input.page)
@@ -139,7 +139,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
       annotations: { readOnlyHint: true },
       inputSchema: { type: "object", properties: { id: { type: "string", description: "The thread id." } }, required: ["id"], additionalProperties: false },
       async call(input, context) {
-        const found = await threadFor(input, await userFor(context), "read")
+        const found = await threadFor(input, await userFor(context, "read"), "read")
         if (!("thread" in found)) return found
         const { thread } = found
         return { text: describeThread(thread), structured: { thread: { ...thread } } }
@@ -157,7 +157,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context)
+        const user = await userFor(context, "comment")
         const found = await threadFor(input, user, "comment")
         if (!("thread" in found)) return found
         const { thread, grant } = found
@@ -181,7 +181,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         additionalProperties: false,
       },
       async call(input, context) {
-        const user = await userFor(context)
+        const user = await userFor(context, "resolve")
         const found = await threadFor(input, user, "resolve")
         if (!("thread" in found)) return found
         const { thread, grant } = found

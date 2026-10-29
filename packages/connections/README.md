@@ -261,3 +261,27 @@ Connection stores must implement `state.putForToken(state, revision)` as an atom
 An approved write that was sent to the provider can have an uncertain outcome after a lost response, a provider server error, or a local persistence failure. The runtime reports `CONNECTIONS_EXECUTION_UNKNOWN` and never replays that approval. Check the provider before requesting another approval. The management HTTP handler returns status 409 for this error.
 
 After confirmed provider revocation, local recovery reads the current token revision. A persisted revoked marker restores `revoked` state. If the original token remains, recovery marks it `reauth_required` and retains its mutation fence. A newer replacement token is not changed.
+
+## ChatGPT plan grants
+
+`chatgpt({ appName, appVersion? })` from `@vite-hub/connections/chatgpt` owns a Sign in with ChatGPT plan grant. It needs no client secret. Declare the Agents that may use it:
+
+```ts
+import { defineConnection } from "@vite-hub/connections"
+import { chatgpt } from "@vite-hub/connections/chatgpt"
+
+export default defineConnection({
+  provider: chatgpt({ appName: "My app" }),
+  access: { "agent:assistant": { read: true } },
+})
+```
+
+Start the local app and run `vitehub connections connect chatgpt`. The CLI opens the browser and listens on `127.0.0.1`. Connections validates PKCE, state, nonce and the signed ID token. It stores the issued client ID and refreshes rotating tokens under its existing durable mutation lease. One durable Connections store is one host. Its host ID survives sign-out and import. Keep that store across redeploys.
+
+`vitehub connections inspect chatgpt` shows the account, granted scopes, plan status, token expiry, registration and host ID. It never shows tokens. `vitehub connections models chatgpt` lists models whose visibility is `list`. Only the runtime-owned Codex gateway can use the grant. A public Connection client cannot fetch with it.
+
+For a VM, sign in on the laptop first. Run `vitehub connections export chatgpt --file ./chatgpt-grant.json`, transfer that owner-only file over SSH, then run `vitehub connections import chatgpt --file ./chatgpt-grant.json` against the destination app. Import keeps the destination host ID and immediately rotates the refresh token. Export removes the source token set, so the source can no longer use or revoke the transferred grant. Delete both copies of the transfer file after import. If export is interrupted after removing the source grant, sign in again. Do not copy a running grant to two refresh owners.
+
+Sign out with `vitehub connections revoke chatgpt --confirm chatgpt`. Revocation keeps the registration and host ID for the next sign-in.
+
+OpenAI plan usage is available to open-source projects, personal apps that run locally, and selected private apps. Paid or remotely hosted apps must join OpenAI's waitlist first. ViteHub does not enforce eligibility or fall back to API billing.

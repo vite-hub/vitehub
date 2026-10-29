@@ -61,15 +61,18 @@ The answer types come from the questions:
 | `ollama()` | `<url>/v1` | `<url>` | | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
 | `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | | `OPENROUTER_API_KEY` |
 | `openai()` | `https://api.openai.com/v1` | | | `OPENAI_API_KEY` |
+| `chatgpt()` | `https://api.openai.com/v1` through a ChatGPT Connection | | | None |
 | `anthropic()` | | `https://api.anthropic.com` | | `ANTHROPIC_API_KEY` |
 
-`typesafe()`, `vercel()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. The other presets return `AiGateway<{ ask: false }>`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, and Anthropic forward model APIs only, not TypeSafe's `/v1/systemone`.
+`typesafe()`, `vercel()`, and `cloudflare()` return `AiGateway<{ ask: true }>`. `chatgpt()` returns a `ChatGPTGateway` descriptor for the Agent runtime. The remaining presets return `AiGateway<{ ask: false }>`, so `ask()` on them is a type error. CLIProxyAPI, LiteLLM, Ollama, OpenRouter, OpenAI, and Anthropic forward model APIs only, not TypeSafe's `/v1/systemone`.
 
 `cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access, from `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. Pass it as `headers`, for example `cliproxy({ headers: cloudflareAccess() })`.
 
 `aiGatewayEnv` lists the variables that each preset reads.
 
 ## Credentials
+
+`chatgpt({ connection?: string })` is a credential-free descriptor for a ViteHub Codex Driver. It defaults to the `chatgpt` Connection. The Agent runtime applies the Connection's read policy and resolves a fresh plan token. This descriptor has no `apiKey` callback or `ask()` method. Configure `chatgpt({ appName })` from `@vite-hub/connections/chatgpt` on the Connection and sign in with `vitehub connections connect chatgpt`. See [ChatGPT plan usage](https://vitehub.dev/docs/connections/chatgpt).
 
 A preset reads each value that you do not pass when it sends a request. Direct `gateway.ask()` calls, including imports from `vite-hub/gateways`, read `process.env`: `VITEHUB_<PRESET>_<FIELD>` first, such as `VITEHUB_TYPESAFE_API_KEY`, then the vendor variable in the table. Agent Drivers, `llmGate()`, and `llmRoute()` supply Server Env, with the Cloudflare bindings of the request. For a direct call with provider-backed Server Env or request bindings, load the values in your application and pass them to the preset.
 

@@ -17,6 +17,32 @@ import type { UserConfig } from "vite"
 
 describe("Comments activation from the Console", () => {
   it.each([
+    "export default defineComments()",
+    "export const comments = defineComments(); export default defineComments()",
+  ])("keeps the Operations inbox for a default export: %s", async (source) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-comments-console-"))
+    try {
+      await mkdir(join(root, "server"))
+      await writeFile(join(root, "package.json"), "{}\n")
+      await writeFile(join(root, "server/comments.ts"), source)
+      const config: UserConfig = { root, base: "/portal/" }
+      for (const plugin of [hubComments(), consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["comments"] })]) {
+        const hook = plugin.config
+        if (!hook) throw new Error("Expected a config hook")
+        await Reflect.apply(typeof hook === "function" ? hook : hook.handler, {}, [config, { command: "build", mode: "production" }])
+      }
+      const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
+      expect(generated).toContain('"kind":"operation-view"')
+      expect(generated).toContain('"operation":"comments.list"')
+      expect(generated).not.toContain('"visit":')
+      expect(generated).not.toContain("readCommentsConsoleRecords")
+    }
+    finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
     { base: "/", mount: "" },
     { base: "/portal/", mount: "/portal" },
     { base: "https://cdn.example/portal/", mount: "" },

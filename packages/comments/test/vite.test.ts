@@ -1,13 +1,18 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
+import { H3 } from "h3"
 import { afterEach, describe, expect, it } from "vitest"
 
 import { componentNames, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
+import type { H3Event } from "h3"
+import type { RealtimeDefinition } from "@vite-hub/realtime"
+import type { createCommentsHandler } from "../src/runtime/handler.ts"
 
 const roots: string[] = []
 
@@ -26,6 +31,11 @@ async function configure(plugin: ReturnType<typeof hubComments>, root: string, e
   const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
   await hook.handler(config)
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
+}
+
+async function readComponentsModule(root: string): Promise<Record<string, string[]>> {
+  const source = await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")
+  return (await import(`data:text/javascript,${encodeURIComponent(source)}`)).default
 }
 
 afterEach(async () => {
@@ -78,7 +88,7 @@ describe("hubComments", () => {
     expect(await readCommentsBuild(root, { WORKERS_CI_COMMIT_SHA: "abc", WORKERS_CI_BRANCH: "main" })).toEqual({ commit: "abc", branch: "main" })
     expect(await readCommentsBuild(root, { GITHUB_SHA: "def", GITHUB_REF_NAME: "feat" })).toEqual({ commit: "def", branch: "feat" })
     await configure(hubComments(), root)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"PricingCard\":[\"app/components/PricingCard.vue\"]")
+    expect((await readComponentsModule(root)).PricingCard).toEqual(["app/components/PricingCard.vue"])
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("  components,")
   })
 
@@ -87,13 +97,18 @@ describe("hubComments", () => {
       "server/comments.ts": "export const comments = defineComments()",
       "app/components/constructor.vue": "<template />",
       "app/components/toString.vue": "<template />",
+      "app/components/__proto__.vue": "<template />",
     })
-    expect(await readCommentsComponents(root)).toEqual({
+    const expected = {
       constructor: ["app/components/constructor.vue"],
       toString: ["app/components/toString.vue"],
-    })
+      ["__proto__"]: ["app/components/__proto__.vue"],
+    }
+    expect(await readCommentsComponents(root)).toEqual(expected)
     await configure(hubComments(), root)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).toContain("\"constructor\":[\"app/components/constructor.vue\"]")
+    const components = await readComponentsModule(root)
+    expect(Object.hasOwn(components, "__proto__")).toBe(true)
+    expect(components).toEqual(expected)
   })
 
   it("maps resolved component names that are inherited object keys", async () => {
@@ -120,7 +135,7 @@ describe("hubComments", () => {
     ]
     await plugin.api.setComponents(entries)
     await configure(plugin, root)
-    const readMap = async () => JSON.parse((await readFile(join(root, ".vitehub/nitro/comments/components.mjs"), "utf8")).replace(/^export default /, ""))
+    const readMap = () => readComponentsModule(root)
     expect(await readMap()).toMatchObject({
       Cards: ["app/components/cards/index.vue"],
       Buy: ["app/components/(group)/Buy.client.vue"],
@@ -140,14 +155,45 @@ describe("hubComments", () => {
     await configure(plugin, root)
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
-    expect(handler).toContain("session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
+    expect(handler).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
     expect(handler).not.toContain("commentsAuthSession")
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(mcpPlugin).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
-    expect(mcpPlugin).toContain("session: commentsConsoleSession(consoleRealtimeAccess(\"comments\"))")
+    expect(mcpPlugin).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\"))")
     const directory = join(root, ".vitehub/nitro/realtime")
     await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
-    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { session: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
+  })
+
+  it("uses custom identify without calling Auth in generated HTTP and Realtime handlers", async () => {
+    const root = await project({
+      "server/comments.ts": `import { defineComments } from ${JSON.stringify(new URL("../dist/index.js", import.meta.url).href)}
+export const comments = defineComments({ identify: () => ({ id: "custom", name: "Custom" }) })`,
+      "auth.mjs": `export const calls = []
+export async function commentsAuthSession() { calls.push(true); throw new Error("Auth unavailable") }`,
+    })
+    const auth = pathToFileURL(join(root, "auth.mjs")).href
+    const plugin = hubComments({ auth: true, imports: {
+      auth,
+      runtime: new URL("../dist/runtime/index.js", import.meta.url).href,
+      realtime: new URL("../dist/realtime.js", import.meta.url).href,
+    } })
+    const directory = join(root, ".vitehub/nitro/realtime")
+    await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
+    await configure(plugin, root)
+    const { default: handler } = await import(pathToFileURL(join(root, ".vitehub/nitro/comments/handler.mjs")).href) as { default: ReturnType<typeof createCommentsHandler> }
+    const app = new H3().all("/api/_vitehub/comments/**", handler)
+    const response = await app.fetch(new Request("http://site.test/api/_vitehub/comments/session"))
+    expect(await response.json()).toMatchObject({ data: { user: { id: "custom", name: "Custom" }, can: { read: true } } })
+
+    const { default: room } = await import(pathToFileURL(join(directory, "comments.mjs")).href) as { default: RealtimeDefinition }
+    // SAFETY: the room only keys access by this event; the Auth reader must never run.
+    const event = {} as H3Event
+    const context = { event, definition: "comments", request: new Request("http://site.test") }
+    const user = await room.identify!(context)
+    expect(user).toEqual({ id: "custom", name: "Custom" })
+    expect(await room.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+    expect((await import(auth) as { calls: boolean[] }).calls).toEqual([])
   })
 
   it("adds the tables to the Database that defineComments names", async () => {
@@ -173,7 +219,7 @@ describe("hubComments", () => {
     expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
-    expect(mcpPlugin).toContain('session: commentsConsoleSession(consoleRealtimeAccess("comments"))')
+    expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
     const transform = plugin.transformIndexHtml
     if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])

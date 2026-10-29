@@ -6,6 +6,7 @@ import { relative, resolve } from "pathe"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext } from "@vite-hub/internal/cli"
 import type { ViteHubDefinitionSummary, ViteHubProviderOutputEntry } from "@vite-hub/internal/inspect"
+import type { AnyOperation } from "@vite-hub/internal/operations"
 
 type InspectContext = Pick<ViteHubCliContext, "rootDir" | "stderr" | "stdout">
 
@@ -54,7 +55,26 @@ function redactSummary(summary: ViteHubDefinitionSummary): ViteHubDefinitionSumm
   }
 }
 
-async function runDefinitions(args: string[], context: InspectContext, plugins: readonly unknown[]): Promise<number> {
+/** The operations of the app as one Definition kind. */
+function operationInspector(operations: readonly AnyOperation[]) {
+  return {
+    kind: "operation",
+    label: "Operations",
+    list: (): ViteHubDefinitionSummary[] => operations.map(operation => ({
+      fields: [
+        { label: "Kind", value: operation.kind },
+        { label: "Section", value: typeof operation.section === "string" ? operation.section : operation.section === false ? "any" : "from input" },
+        { label: "Description", value: operation.description },
+        { label: "Command", value: `vitehub ${operation.cli?.namespace ?? (typeof operation.section === "string" ? operation.section : operation.name.slice(0, operation.name.indexOf(".")))} ${operation.cli?.command ?? operation.name.slice(operation.name.indexOf(".") + 1)}` },
+      ],
+      file: "operations",
+      name: operation.name,
+      source: "operations",
+    })),
+  }
+}
+
+async function runDefinitions(args: string[], context: InspectContext, plugins: readonly unknown[], operations: readonly AnyOperation[]): Promise<number> {
   const parsed = parseArgs(args, { kind: true })
   if (parsed.help) {
     context.stdout.write([
@@ -75,7 +95,7 @@ async function runDefinitions(args: string[], context: InspectContext, plugins: 
     return 1
   }
 
-  const inspectors = await collectViteHubDefinitionInspectors(plugins)
+  const inspectors = [...await collectViteHubDefinitionInspectors(plugins), ...(operations.length ? [operationInspector(operations)] : [])]
   const selected = parsed.kind ? inspectors.filter(inspector => inspector.kind === parsed.kind) : inspectors
   if (parsed.kind && !selected.length) {
     const kinds = inspectors.map(inspector => inspector.kind).sort()
@@ -207,14 +227,14 @@ async function runProviderOutput(args: string[], context: InspectContext, plugin
 }
 
 /** Built-in namespace that renders package-owned inspection data. */
-export function createInspectNamespace(plugins: readonly unknown[]): ViteHubCliCommandNamespace {
+export function createInspectNamespace(plugins: readonly unknown[], operations: readonly AnyOperation[] = []): ViteHubCliCommandNamespace {
   return {
     description: "Inspect discovered Definitions and generated Provider Output.",
     features: [
       {
         description: "List Definitions discovered by each active package.",
         name: "definitions",
-        run: (args, context) => runDefinitions(args, context, plugins),
+        run: (args, context) => runDefinitions(args, context, plugins, operations),
         usage: definitionsUsage,
       },
       {

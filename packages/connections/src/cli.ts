@@ -1,4 +1,8 @@
 import { createServer } from "node:http"
+import { spawn } from "node:child_process"
+import { constants } from "node:fs"
+import { open, rm } from "node:fs/promises"
+import { chatgptTransferSchema } from "./internal/chatgpt-transfer.ts"
 
 import * as v from "valibot"
 
@@ -14,6 +18,8 @@ type CliContext = Pick<ViteHubCliContext, "env" | "stderr" | "stdout">
 
 export interface ConnectionsCliOptions {
   fetch?: typeof fetch
+  /** Browser opener. Pass false for non-interactive callers. */
+  openBrowser?: false | ((url: string) => Promise<void>)
   /** Input for `set-key`. Defaults to `process.stdin`. */
   stdin?: AsyncIterable<string | Uint8Array> & { isTTY?: boolean }
   /** Seconds to wait for the loopback callback. Defaults to 300. */
@@ -31,7 +37,7 @@ interface ParsedArgs {
 
 class CliError extends Error {}
 
-const valueFlags = new Set(["--before", "--confirm", "--cookie", "--name", "--port", "--status", "--url"])
+const valueFlags = new Set(["--before", "--confirm", "--cookie", "--file", "--name", "--port", "--status", "--url"])
 
 function parse(args: string[], env: NodeJS.ProcessEnv): ParsedArgs {
   const flags = new Map<string, string | true>()
@@ -100,10 +106,15 @@ function isLoopback(url: URL): boolean {
   return url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "[::1]"
 }
 
-const inspectionSchema = v.looseObject({
+const inspectionSchema = v.object({
+  connectedAt: v.optional(v.string()),
+  refreshedAt: v.optional(v.string()),
+  mcp: v.optional(v.string()),
+  expiresAt: v.optional(v.string()),
+  chatgpt: v.optional(v.object({ clientId: v.optional(v.string()), hostId: v.string(), plan: v.picklist(["enabled", "disabled"]) })),
   account: v.optional(v.looseObject({ email: v.optional(v.string()), id: v.string() })),
   actions: v.array(v.looseObject({ highRisk: v.boolean(), id: v.string(), method: v.string(), write: v.boolean() })),
-  credential: v.picklist(["api-key", "oauth2"]),
+  credential: v.picklist(["api-key", "oauth2", "chatgpt"]),
   keySource: v.optional(v.picklist(["fallback", "stored"])),
   name: v.string(),
   provider: v.string(),
@@ -168,6 +179,7 @@ function describeConnection(connection: ConnectionInspection): string {
   const lines = [
     `${connection.name}  ${connection.provider}  ${connection.status}${connection.account?.email ? `  ${connection.account.email}` : ""}`,
   ]
+  if (connection.chatgpt) lines.push(`  plan: ${connection.chatgpt.plan}`, `  expires: ${connection.expiresAt ?? "none"}`, `  host: ${connection.chatgpt.hostId}`, `  client: ${connection.chatgpt.clientId ?? "not registered"}`)
   if (connection.keySource === "fallback") lines.push("  key: provider fallback")
   if (connection.scopes.missing.length) lines.push(`  missing scopes: ${connection.scopes.missing.join(" ")}`)
   return lines.join("\n")
@@ -204,10 +216,21 @@ function port(parsed: ParsedArgs): number {
   return result
 }
 
+async function openBrowser(url: string): Promise<void> {
+  const command = process.platform === "darwin" ? "open" : process.platform === "win32" ? "explorer.exe" : "xdg-open"
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn(command, [url], { stdio: "ignore" })
+    child.once("error", reject)
+    child.once("exit", code => code === 0 ? resolve() : reject(new Error("Browser unavailable")))
+  })
+}
+
+type Callback = { code?: string, error?: string, clientId?: string, state: string }
+
 async function connectLoopback(name: string, parsed: ParsedArgs, context: CliContext, options: ConnectionsCliOptions): Promise<ConnectionInspection> {
-  let resolveCallback!: (value: { code: string, state: string }) => void
+  let resolveCallback!: (value: Callback) => void
   let rejectCallback!: (error: Error) => void
-  const callback = new Promise<{ code: string, state: string }>((resolve, reject) => {
+  const callback = new Promise<Callback>((resolve, reject) => {
     resolveCallback = resolve
     rejectCallback = reject
   })
@@ -221,17 +244,13 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     const state = url.searchParams.get("state")
     const code = url.searchParams.get("code")
     const done = (status: number, message: string) => outgoing.writeHead(status, { "content-type": "text/plain; charset=utf-8" }).end(`${message}\n`)
-    if (url.searchParams.get("error")) {
-      done(400, "The provider did not grant access. You can close this tab.")
-      rejectCallback(new CliError("The provider did not grant access."))
-      return
-    }
-    if (!state || !code || !isViteHubSecretEqual(state, expectedState)) {
+    const error = url.searchParams.get("error")
+    if (!state || (!code && !error) || !isViteHubSecretEqual(state, expectedState)) {
       done(400, "The authorization response does not match this request.")
       return
     }
     done(200, "Authorization received. You can close this tab and return to the terminal.")
-    resolveCallback({ code, state })
+    resolveCallback({ code: code ?? undefined, error: error ?? undefined, clientId: url.searchParams.get("client_id") ?? undefined, state })
   })
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject)
@@ -245,13 +264,24 @@ async function connectLoopback(name: string, parsed: ParsedArgs, context: CliCon
     const authorization = await request(parsed, options, { action: "authorize", name, redirectUri }, authorizationResponse)
     expectedState = authorization.state
     context.stderr.write(`Open this URL to connect "${name}":\n\n  ${authorization.url}\n\nWaiting for ${redirectUri} ...\n`)
+    if (options.openBrowser !== false) void (options.openBrowser ?? openBrowser)(authorization.url).catch(() => undefined)
     const result = await callback
     return (await request(parsed, options, { action: "complete", ...result }, connectionResponse)).connection
   }
   finally {
     clearTimeout(timeout)
-    server.close()
+    server.closeAllConnections()
+    await new Promise<void>(resolve => server.close(() => resolve()))
   }
+}
+
+function transferFile(parsed: ParsedArgs): string {
+  const path = flag(parsed, "--file")
+  if (!path) throw new CliError("Credential transfer requires --file <path>. Tokens are never printed.")
+  const url = appUrl(parsed)
+  if (url.protocol !== "https:" && !isLoopback(url)) throw new CliError("Credential transfer requires HTTPS or a loopback host.")
+  if (process.platform === "win32") throw new CliError("Credential transfer requires owner-only POSIX file permissions.")
+  return path
 }
 
 type Command = (parsed: ParsedArgs, context: CliContext, options: ConnectionsCliOptions) => Promise<number | void>
@@ -290,6 +320,55 @@ const commands: Record<string, { description: string, run: Command, usage: strin
       }
       const connection = await connectLoopback(name, parsed, context, options)
       write(context, parsed, connection, () => `Connected. ${describeConnection(connection)}`)
+    },
+  },
+  export: {
+    description: "Move a ChatGPT grant into a protected file for transfer to another host.",
+    usage: "vitehub connections export <name> --file <path> [--url <app>]",
+    async run(parsed, context, options) {
+      const name = requireName(parsed, "export")
+      const path = transferFile(parsed)
+      const file = await open(path, "wx", 0o600)
+      let complete = false
+      try {
+        const result = await request(parsed, options, { action: "chatgpt-export", name }, v.object({ credential: chatgptTransferSchema }), "error")
+        await file.writeFile(JSON.stringify(result.credential))
+        await file.sync()
+        complete = true
+      }
+      finally {
+        await file.close()
+        if (!complete) await rm(path, { force: true })
+      }
+      context.stdout.write(`Grant moved to ${path}. Transfer it over SSH, import it on the destination, then delete the file. This host can no longer use the grant.\n`)
+    },
+  },
+  import: {
+    description: "Import a ChatGPT credential file and take ownership of refreshes.",
+    usage: "vitehub connections import <name> --file <path> [--url <app>]",
+    async run(parsed, context, options) {
+      const name = requireName(parsed, "import")
+      const path = transferFile(parsed)
+      const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW)
+      let credential: unknown
+      try {
+        const info = await file.stat()
+        if (!info.isFile() || info.size > 60 * 1024 || (info.mode & 0o077) !== 0 || info.uid !== process.getuid?.()) throw new CliError("Use an owner-only credential file, at most 60 KiB. Run chmod 600 on the file.")
+        try { credential = JSON.parse(await file.readFile("utf8")) }
+        catch { throw new CliError("Invalid ChatGPT credential file.") }
+        if (!v.is(chatgptTransferSchema, credential)) throw new CliError("Invalid ChatGPT credential file.")
+      }
+      finally { await file.close() }
+      const { connection } = await request(parsed, options, { action: "chatgpt-import", name, credential }, connectionResponse, "error")
+      write(context, parsed, connection, () => `Imported. ${describeConnection(connection)}\nDelete the transferred credential file.`)
+    },
+  },
+  models: {
+    description: "List models available to a ChatGPT plan Connection.",
+    usage: "vitehub connections models <name> [--url <app>] [--json]",
+    async run(parsed, context, options) {
+      const { models } = await request(parsed, options, { action: "chatgpt-models", name: requireName(parsed, "models") }, v.object({ models: v.array(v.object({ id: v.string(), name: v.string() })) }))
+      write(context, parsed, models, () => models.map(model => `${model.id}  ${model.name}`).join("\n"))
     },
   },
   "set-key": {

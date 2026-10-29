@@ -87,7 +87,7 @@ function runtimeSourceOrigin(entry: RuntimeEnvEntry, env: RuntimeEnv, source: { 
   return conflict ? { conflict: true, via: "canonical" } : { via: "canonical" }
 }
 
-function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string): unknown {
+function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, value: unknown, found: boolean, path: string, snapshot = false): unknown {
   const resolved = found ? value : entry.default
   if (typeof resolved === "undefined") {
     if (entry.required) {
@@ -101,7 +101,8 @@ function resolvedRuntimeValue(entry: RuntimeEnvEntry | RuntimeProviderEntry, val
     const message = entry.secret ? "The value does not match its declared type." : parsed.message
     throw invalidRuntimeEnvValue(entry.source.kind, `Invalid ${path} from ${entry.source.kind}. ${message}`, path)
   }
-  return entry.secret ? new SecretEnv(parsed.data) : parsed.data
+  const data = snapshot ? snapshotValue(parsed.data) : parsed.data
+  return entry.secret ? new SecretEnv(data) : data
 }
 
 function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): unknown {
@@ -281,7 +282,7 @@ function localRegistryValue(value: unknown, env: RuntimeEnv, tolerateInvalid: bo
   if (isRuntimeEnvEntry(value)) {
     try {
       const source = readRuntimeSource(value, env)
-      return resolvedRuntimeValue(value, source.value, source.found, path)
+      return resolvedRuntimeValue(value, source.value, source.found, path, true)
     }
     catch (error) {
       if (!tolerateInvalid) throw error
@@ -314,11 +315,11 @@ async function loadRegistryValue(
   if (isRuntimeLiteralEntry(value)) return snapshotValue(value.value)
   if (isRuntimeEnvEntry(value)) {
     const source = readRuntimeSource(value, env)
-    return resolvedRuntimeValue(value, source.value, source.found, path)
+    return resolvedRuntimeValue(value, source.value, source.found, path, true)
   }
   if (isRuntimeProviderEntry(value)) {
     const resolved = await providerValue(value, loads)
-    return resolvedRuntimeValue(value, resolved, typeof resolved !== "undefined", path)
+    return resolvedRuntimeValue(value, resolved, typeof resolved !== "undefined", path, true)
   }
   if (!isRecord(value)) return undefined
 
@@ -330,8 +331,11 @@ async function loadRegistryValue(
 }
 
 function snapshotValue(value: unknown): unknown {
-  if (!Array.isArray(value)) return value
-  return Object.freeze(value.map(snapshotValue))
+  if (Array.isArray(value)) return Object.freeze(value.map(snapshotValue))
+  if (isRecord(value) && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, snapshotValue(item)])))
+  }
+  return value
 }
 
 function inspectionStatus(
