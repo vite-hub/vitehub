@@ -96,7 +96,7 @@ describe("hubComments", () => {
     const plugin = hubComments()
     await configure(plugin, await project({ "server/comments.ts": "export const comments = defineComments()" }), { base: "/portal/" })
     const page = transform(plugin, html)
-    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=5\")")
+    expect(page).toContain("import(\"/portal/_vitehub/page/assets/loader.js?v=6\")")
     // A second owner, such as the Console, sees the loader and adds no other.
     expect(transform(plugin, page!)).toBeUndefined()
   })
@@ -263,7 +263,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=5")')
+    expect(tags).toContain('import("/portal/_vitehub/page/assets/loader.js?v=6")')
   })
 
   it.each([

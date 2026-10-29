@@ -206,7 +206,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
               exitChecks.add(guard)
               attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
             }, tool, bar, signal: attempt.signal,
-            open: show && (tool.lazy === true || tool.id === open), exit,
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
             createWindow: options => {
               const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
               const retained = { ...window, show() {

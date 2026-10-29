@@ -95,8 +95,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=5")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=5")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=6")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=6")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -291,9 +291,25 @@ describe("lazy tools", () => {
     expect(document.querySelector("vitehub-pill")).toBeNull()
   })
 
-  it("keeps the query-selected window visible when a restored import finishes later", async () => {
+  it("restores a remembered eager window", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool] })
+    sessionStorage.setItem("vitehub-open:/_vitehub/page/session:console", "true")
+    const load = vi.fn(async () => ({ default(context: ViteHubPageToolContext) {
+      const trigger = document.createElement("button")
+      context.bar.append(trigger)
+      const window = context.createWindow({ id: context.tool.id, title: context.tool.label, trigger })
+      if (context.open) window.show()
+    } }))
+
+    await loadViteHubPageTools({ load })
+    expect(document.querySelector<HTMLElement>("vitehub-window")!.hidden).toBe(false)
+    pill().exit.click()
+  })
+
+  it.each([false, true])("keeps the query-selected window visible when a restored import finishes later (lazy: %s)", async (lazy) => {
     page("/?vitehub=console")
-    session({ tools: [{ ...consoleTool, lazy: true }, { ...comments, lazy: true }] })
+    session({ tools: [{ ...consoleTool, lazy: true }, { ...comments, lazy }] })
     sessionStorage.setItem("vitehub-open:/_vitehub/page/session:comments", "true")
     const started: string[] = []
     const tool: ViteHubPageToolModule = { default(context) {
