@@ -15,14 +15,17 @@ const credentialPaths: ReadonlySet<string> = new Set([
   "/change-password",
   "/email-otp/change-email",
   "/email-otp/request-email-change",
+  "/get-access-token",
   "/link-social",
   "/one-time-token/generate",
   "/passkey/generate-register-options",
   "/passkey/verify-registration",
   "/phone-number/verify",
+  "/refresh-token",
   "/two-factor/disable",
   "/two-factor/enable",
   "/two-factor/generate-backup-codes",
+  "/unlink-account",
 ])
 /** `/update-user` fields that change how the user signs in. The username plugin sets `username` from `displayUsername`. */
 const identityFields = ["displayUsername", "username"]

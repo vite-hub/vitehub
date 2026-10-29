@@ -71,6 +71,17 @@ async function app(options: { impersonationSessionDuration?: number } = {}) {
       database: database.sqlite,
       secret: "console-impersonation-test-secret-abcdefghijklmnopqrstuvwxyz",
       baseURL: origin,
+      socialProviders: {
+        google: {
+          clientId: "google-client",
+          clientSecret: "google-secret",
+          refreshAccessToken: async () => ({
+            accessToken: "refreshed-provider-access",
+            refreshToken: "rotated-provider-refresh",
+            accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+          }),
+        },
+      },
     },
   });
   await (await getMigrations(createBetterAuthOptions(definition))).runMigrations();
@@ -269,5 +280,55 @@ describe("Console impersonation", () => {
     const own = await request("oauth2/consent", { accept: true }, operator.cookie);
     expect(own.status).not.toBe(403);
     expect((await request("update-user", { username: "operator_alias" }, operator.cookie)).status).toBe(200);
+  });
+
+  it("blocks linked-account token retrieval and unlinking while keeping account metadata readable", async () => {
+    const { auth, request, operator, member } = await app();
+    const context = await auth.$context;
+    const account = await context.internalAdapter.createAccount({
+      userId: member.id,
+      providerId: "google",
+      accountId: "member-google",
+      accessToken: "provider-access",
+      refreshToken: "provider-refresh",
+      accessTokenExpiresAt: new Date(Date.now() + 3_600_000),
+      scope: "profile",
+    });
+
+    const started = await request("admin/impersonate-user", { userId: member.id }, operator.cookie);
+    expect(started.status).toBe(200);
+    const impersonating = jar(operator.cookie, started);
+    const responses = new Map<string, Response>();
+    for (const path of ["get-access-token", "refresh-token", "unlink-account"]) {
+      responses.set(path, await request(path, { accountId: account.id }, impersonating));
+    }
+    expect([...responses].map(([path, response]) => [path, response.status])).toEqual([
+      ["get-access-token", 403],
+      ["refresh-token", 403],
+      ["unlink-account", 403],
+    ]);
+    for (const [path, response] of responses) {
+      expect(await response.json(), path).toMatchObject({ code: "IMPERSONATION_FORBIDDEN" });
+    }
+
+    const accounts = await auth.handler(new Request(`${origin}/api/auth/list-accounts`, {
+      headers: { cookie: impersonating },
+    }));
+    expect(accounts.status).toBe(200);
+    expect(await accounts.json()).toContainEqual(expect.objectContaining({ id: account.id, providerId: "google" }));
+    expect((await context.internalAdapter.findAccounts(member.id)).find(value => value.id === account.id)).toMatchObject({
+      accessToken: "provider-access",
+      refreshToken: "provider-refresh",
+    });
+
+    // The account owner can still use the provider tokens and remove their own linked account.
+    const access = await request("get-access-token", { accountId: account.id }, member.cookie);
+    expect(access.status).toBe(200);
+    expect(await access.json()).toMatchObject({ accessToken: "provider-access" });
+    const refreshed = await request("refresh-token", { accountId: account.id }, member.cookie);
+    expect(refreshed.status).toBe(200);
+    expect(await refreshed.json()).toMatchObject({ accessToken: "refreshed-provider-access", refreshToken: "rotated-provider-refresh" });
+    expect((await request("unlink-account", { accountId: account.id }, member.cookie)).status).toBe(200);
+    expect((await context.internalAdapter.findAccounts(member.id)).some(value => value.id === account.id)).toBe(false);
   });
 });

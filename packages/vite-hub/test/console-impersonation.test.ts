@@ -69,7 +69,7 @@ describe("console.impersonation configuration", () => {
       expect(resolveConsoleAccessBuild({ auth: "app" }, { root })).not.toHaveProperty("impersonation")
       const routes = [{ authorize: true, index: 0, route: "/_vitehub/**" }]
       const file = join(root, "console.mjs")
-      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
+      await writeConsoleNitroPlugin(file, root, [], [], { agents: [], content: {} }, [], undefined, undefined, false, undefined, () => true, undefined, false, undefined, { check: { appRoutes: routes }, mode: "auth", impersonation: true })
       const generated = await readFile(file, "utf8")
       expect(generated).toContain("requireSession: vitehubWithAuthorization(true, () => undefined), impersonation: true })")
       expect(generated).toMatch(/installConsoleAccess\(\{ mode: "auth", .*impersonation: true \}\)/)
