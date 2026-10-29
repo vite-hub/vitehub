@@ -24,10 +24,6 @@ if (!landing && page.value) {
     description: page.value.description,
     ogDescription: page.value.description,
   });
-
-  useHead({
-    link: [{ rel: "canonical", href: `https://vitehub.dev${pagePath}` }],
-  });
 }
 </script>
 
