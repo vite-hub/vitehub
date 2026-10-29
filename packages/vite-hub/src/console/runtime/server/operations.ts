@@ -42,7 +42,7 @@ function legacyEvent(route: string, method: "GET" | "POST", request: LegacyReque
     env: context.env,
     context: Object.keys(params).length ? { params } : undefined,
     method,
-    req: { json: async () => request.body, method, url },
+    req: { json: async () => request.body, method, signal: context.request?.signal, url },
     res: context.response ?? {},
   }
   if (context.waitUntil) event.waitUntil = context.waitUntil
@@ -239,6 +239,15 @@ const invocationsWorkspace = defineConsoleOperation({
   section: "agents",
 })
 
+const logsList = defineConsoleOperation({
+  description: "Read structured events from the connected log source.",
+  input: v.strictObject({ text: optionalText, level: v.optional(v.picklist(["debug", "info", "warn", "error"])), service: optionalText, cursor: optionalText, limit: optionalCount }),
+  kind: "read",
+  name: "logs.list",
+  run: async (input, context) => (await import("./logs.get.ts")).default(legacyEvent("logs", "GET", { query: input }, context)),
+  section: "logs",
+})
+
 const kvList = defineConsoleOperation({
   description: "List the keys of a KV store.",
   input: v.strictObject({ cursor: optionalText, limit: optionalCount, prefix: optionalText, store: optionalText }),
@@ -358,6 +367,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsWorkspace,
   kvGet,
   kvList,
+  logsList,
   mediaAction,
   schedulesRun,
   searchQuery,

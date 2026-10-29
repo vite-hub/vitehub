@@ -191,13 +191,14 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       inspect: async () => {
         const definition = await discover()
         if (!definition) return
+        const features = await inspectContentEntry(definition)
         return {
           definitions: [{
             kind: "content",
             label: "Content",
             list: () => [{
               fields: [
-                { label: "Route", value: "/api/content/**" },
+                { label: "Route", value: features.route ? "/api/content/**" : "Disabled" },
                 { label: "Collections", value: "vitehub content collections" },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),

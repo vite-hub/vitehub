@@ -31,6 +31,7 @@ export interface ConsoleRequestEvent {
     headers?: ConsoleHeaders
     json?: () => Promise<unknown>
     method?: string
+    signal?: AbortSignal
     url?: string | URL
   }
   res?: {
