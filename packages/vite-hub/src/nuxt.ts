@@ -12,6 +12,7 @@ import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
+import { nitroOptionalPeers } from "./internal/nitro-optional-peers.ts"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
 import { normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
@@ -284,7 +285,7 @@ function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: s
 function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), nitroOptionalPeers(config), ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
