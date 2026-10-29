@@ -72,14 +72,17 @@ function avatar(person: { id: string, name: string, image?: string | null }): HT
   return h("span", { className: "avatar", style: `background:${colorOf(person.id)}`, "aria-hidden": "true" }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name))
 }
 
-/** Whether the host page shows its dark scheme: a `dark` class, as Nuxt UI and Tailwind set, or `color-scheme`. */
+/** Follows the host's theme classes, `data-theme`, or `color-scheme`, then the system preference. */
 function hostIsDark(): boolean {
   const root = document.documentElement
   if (root.classList.contains("dark")) return true
   if (root.classList.contains("light")) return false
+  if (root.dataset.theme === "dark") return true
+  if (root.dataset.theme === "light") return false
   const scheme = getComputedStyle(root).colorScheme
   if (scheme === "dark") return true
-  return scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches
+  if (scheme === "light") return false
+  return matchMedia("(prefers-color-scheme: dark)").matches
 }
 
 function ago(iso: string): string {

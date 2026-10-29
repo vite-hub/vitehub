@@ -67,6 +67,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   overlay.remove()
+  document.documentElement.removeAttribute("data-theme")
+  document.documentElement.style.colorScheme = ""
   history.replaceState(null, "", "/")
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -88,6 +90,41 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it.each(["dark", "light"])("follows the host's data-theme=%s on mount and when it changes", async (theme) => {
+    overlay.remove()
+    const opposite = theme === "dark" ? "light" : "dark"
+    document.documentElement.style.colorScheme = opposite
+    document.documentElement.dataset.theme = theme
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    const root = shadow.querySelector<HTMLElement>(".root")!
+    expect(root.dataset.theme).toBe(theme)
+
+    document.documentElement.dataset.theme = opposite
+    await vi.waitFor(() => expect(root.dataset.theme).toBe(opposite))
+    document.documentElement.style.colorScheme = theme
+    delete document.documentElement.dataset.theme
+    await vi.waitFor(() => expect(root.dataset.theme).toBe(theme))
+  })
+
+  it.each(["normal", "light dark"])("follows the system preference with color-scheme: %s", (scheme) => {
+    overlay.remove()
+    let prefersDark = true
+    const media = matchMedia("(prefers-color-scheme: dark)")
+    vi.spyOn(media, "matches", "get").mockImplementation(() => prefersDark)
+    vi.spyOn(globalThis, "matchMedia").mockReturnValue(media)
+    document.documentElement.style.colorScheme = scheme
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    const root = overlay.shadowRoot!.querySelector<HTMLElement>(".root")!
+    expect(root.dataset.theme).toBe("dark")
+
+    prefersDark = false
+    media.dispatchEvent(new Event("change"))
+    expect(root.dataset.theme).toBe("light")
+  })
+
   it("uses the loaded thread permissions for replies and resolution", async () => {
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
