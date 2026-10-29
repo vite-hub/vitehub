@@ -4,11 +4,21 @@
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
+    "agent-harness",
+    "ai-agents",
+    "cloudflare",
+    "netlify",
+    "nitro",
+    "nuxt",
+    "nuxt-module",
     "server",
+    "serverless",
+    "typescript",
+    "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -1382,6 +1392,7 @@
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
+    "@better-auth/oauth-provider": "catalog:auth",
     "@cfworker/json-schema": "4.1.1",
     "@cloudflare/sandbox": "catalog:sandbox",
     "@cloudflare/workers-types": "^5.20261016.1",
@@ -1423,6 +1434,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
+    "better-auth": "catalog:auth",
     "confbox": "^0.2.4",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",

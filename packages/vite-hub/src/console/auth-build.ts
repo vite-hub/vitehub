@@ -159,10 +159,10 @@ async function writeCloudflareAccessMiddleware(root: string, config: ResolvedClo
   return { auth: "cloudflare-access", clientSources: [], middleware }
 }
 
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL?: string): Promise<CloudflareAccessConsoleAuthHandlers>
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL?: string): Promise<SessionConsoleAuthHandlers>
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL?: string): Promise<ConsoleAuthHandlers>
-export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL = "/"): Promise<ConsoleAuthHandlers> {
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedCloudflareAccessConsoleAuth, mountBaseURL?: string, mcpResource?: string): Promise<CloudflareAccessConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthFiles | InlineConsoleAuth, mountBaseURL?: string, mcpResource?: string): Promise<SessionConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL?: string, mcpResource?: string): Promise<ConsoleAuthHandlers>
+export async function writeConsoleAuthHandlers(root: string, config: ResolvedConsoleAuthConfig, mountBaseURL = "/", mcpResource?: string): Promise<ConsoleAuthHandlers> {
   const directory = resolve(root, ".vitehub/nitro/console")
   if ("settings" in config) return writeCloudflareAccessMiddleware(root, config, mountBaseURL)
   const definitionFile = resolve(directory, "auth-definition.mjs")
@@ -216,7 +216,7 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
           ]),
       'import { toAuthRequest } from "#vitehub/auth/server"',
       'import { createConsoleAuthDefinition, prepareConsoleAuth } from "vite-hub/console/auth"',
-      `export const definition = createConsoleAuthDefinition(input, ${JSON.stringify(mountBaseURL)})`,
+      `export const definition = createConsoleAuthDefinition(input, ${JSON.stringify(mountBaseURL)}${mcpResource ? `, ${JSON.stringify(mcpResource)}` : ""})`,
       "export const signInProvider = input.signIn.provider",
       "export function prepare(event) { return prepareConsoleAuth(input, definition, toAuthRequest(event), event) }",
       "",
@@ -247,6 +247,14 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  await prepare(event)",
       "  return authorizeConsoleAccess(event)",
       "}",
+      "// Bearer identities have no browser session; keep the Console Auth allowlist in force.",
+      "export function authorizeConsoleBearer({ request, user }) {",
+      "  return input.authorize({ request, user, session: {} })",
+      "}",
+      "// The Better Auth instance of Console Auth. MCP access tokens are checked against its keys and users in-process.",
+      "export function createConsoleAuth(request, event) {",
+      "  return createAuthForRequest(definition, request, undefined, event)",
+      "}",
       "// The signed-in Console Auth user, for console.authorize and Connections activity.",
       "export function readConsoleUser(event) {",
       "  const request = toAuthRequest(event)",
@@ -260,12 +268,12 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  const path = mountBase && publicPath.startsWith(`${mountBase}/`) ? publicPath.slice(mountBase.length) : publicPath",
       "  if (path === '/api/_vitehub/console/auth' || path.startsWith('/api/_vitehub/console/auth/')) return",
       "  if (path === '/_vitehub/sign-in') return",
+      "  // The exact mounted MCP route verifies bearer tokens and returns OAuth discovery challenges.",
+      "  if (publicPath === `${mountBase}/_vitehub/mcp`) { await prepare(event); return }",
       "  // A signed dispatch request is verified by its route, which never falls back to a Console session.",
       "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
-      "  // ViteHub MCP is a data route for Agents: answer 401 instead of the sign-in page.",
-      "  if (path === '/_vitehub/mcp') return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start') }), mountBase)",
       "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "}",

@@ -23,6 +23,8 @@ export default defineConfig({
         "src/index.ts",
         "src/realtime.ts",
         "src/runtime/auth.ts",
+        "src/runtime/connect.ts",
+        "src/runtime/connect/node.ts",
         "src/runtime/console.ts",
         "src/runtime/index.ts",
         "src/vite.ts",

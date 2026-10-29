@@ -8,7 +8,9 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-ViteHub renders the Console UI and serves its static assets. The Console sends each call as one same-origin `POST` to `/_vitehub/rpc/__call` with `{ operation, input }`. An [operation](/docs/development/operations) is a named ability such as `invocations.list` or `content.publish`. The CLI calls the same route, so the same interface works on development servers and production hosts without separate resource routes.
+ViteHub renders the Console UI and serves its static assets. Agents reach the same operations through the [MCP endpoint](/docs/development/mcp) at `/_vitehub/mcp`.
+
+The Console sends each call as one same-origin `POST` to `/_vitehub/rpc/__call` with `{ operation, input }`. An [operation](/docs/development/operations) is a named ability such as `invocations.list` or `content.publish`. The CLI calls the same route, so the same interface works on development servers and production hosts without separate resource routes.
 
 The Console sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when `server/comments.ts` exists. It lists the threads that the team left on the app's pages, and opening the Console turns on the Comments toolbar on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs, and uploads (up to 8 MiB) or deletes objects through the `blob.put` and `blob.del` operations. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected, and edits or deletes it through the `kv.set` and `kv.del` operations. Rate Limit lists statically discovered policies and source locations, and reads or resets the live counter of a key you enter through the `rate-limit.peek` and `rate-limit.reset` operations. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
 
@@ -246,7 +248,7 @@ Fixtures often contain prompts and model output. Use synthetic or scrubbed recor
 
 ## Protect the Console route
 
-The Console registers its page and assets under `/_vitehub/**`, and its RPC route under `/_vitehub/rpc/**`. Provider status also uses `GET /api/_vitehub/console/status`.
+The Console registers its page and assets under `/_vitehub/**`, and its RPC route under `/_vitehub/rpc/**`. Provider status also uses `GET /api/_vitehub/console/status`. It also serves the [ViteHub skill](/docs/getting-started/ai-resources/agent-instructions-skills#install-from-your-app) as static files under `/_vitehub/.well-known/skills/`, so `npx skills add <app>/_vitehub` installs the skill version of the installed `vite-hub` package. These files need no Console sign-in.
 
 ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and includes the equivalent robots meta tag in the standalone Console page. These directives keep the Console out of search engines that honor them. They do not restrict access, so choose an access policy below.
 
@@ -468,6 +470,87 @@ console: { auth: 'app', authorize: './server/console-authorize.ts', invoke: true
 
 Your access policy decides who can start invocations, because the invocation routes call it. A user also needs the `agents` section. Setting `invoke: false` keeps inspection available and disables Agent Invocation creation. Fixture mode always disables it.
 
+### Impersonate users
+
+`impersonation` lets a Console administrator open the app as one of its users, to see what that user sees. It is off by default:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts', impersonation: true }
+```
+
+It needs app Auth with Better Auth's [admin plugin](https://www.better-auth.com/docs/plugins/admin) and the [Auth event log](/docs/auth/events), so that each start and stop has a record. Without app Auth, the build stops with `VITE_HUB_B0005`.
+
+```ts [server/auth.ts]
+import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
+import { useDatabase } from 'vite-hub/database/drizzle'
+import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { admin } from 'better-auth/plugins'
+
+export default defineAuth(() => {
+  const { db, schema } = useDatabase('auth')
+  return {
+    database: drizzleAdapter(db, { provider: 'sqlite', schema }),
+    plugins: [admin({ adminUserIds: ['<your user id>'] })],
+    events: { store: createDatabaseAuthEventStore({ db }) },
+  }
+})
+```
+
+Open **Auth › Users**, select a user, and select **Impersonate**. The browser signs in to the app as that user, and the app opens. To stop, open the Console again and select **Stop impersonating**. Better Auth restores your own session.
+
+Two checks decide who can impersonate:
+
+- The Console access policy gives the `auth` section. A read-only grant (`'auth:read'`) cannot change Auth data, and this includes impersonation.
+- The app session has Better Auth's `user: ['impersonate']` permission, which the admin plugin's `adminRoles` and `adminUserIds` give.
+
+Better Auth refuses banned users and other administrators as targets. To allow administrators, set `admin({ allowImpersonatingAdmins: true })` or give the `impersonate-admins` permission. The user panel shows the reason when Better Auth refuses a user.
+
+The security model:
+
+| Rule | What it means |
+| --- | --- |
+| Off by default | Without `console.impersonation`, the Console shows no Impersonate action, and the Auth route answers `404` to start and stop. Better Auth's own admin endpoints stay as the app configures them. |
+| Short session | The session lasts `admin({ impersonationSessionDuration })` seconds, one hour by default. It never refreshes past that time, also when a client sends only the session cookie. |
+| Recorded | Auth Activity shows `impersonation.started` and `impersonation.stopped`, with you as the actor. Without `events.store`, the action is off. When the log cannot record a start, the impersonation does not start. |
+| No new credentials | An impersonation session cannot approve OAuth, MCP, or device clients, create API keys, register passkeys, set or change the password, change the email, phone number, or username, link or unlink accounts, read or refresh a linked account's provider tokens, change two-factor settings, create one-time tokens, or start another impersonation. These requests return `403` with `IMPERSONATION_FORBIDDEN`. |
+| Not in the Console | With app Auth, an impersonation session never opens the Console. Each Console page shows **Viewing the app as …** with **Stop impersonating**, and Console data routes return `403` with `CONSOLE_IMPERSONATING`. With Console Auth or Cloudflare Access, the Console keeps its own session and the Auth section shows a banner with **Stop impersonating**. |
+| Same origin | Start and stop use the Auth route, which requires the same origin and `x-vitehub-console: 1`. The **Viewing the app as …** page calls Better Auth's `stop-impersonating` endpoint, which checks the origin. |
+
+When the session ends before you stop it, Better Auth cannot restore your own session. Sign in again.
+
+App code can detect an impersonation session. On the server, `session.impersonatedBy` is the id of the administrator:
+
+```ts [server/api/me.get.ts]
+import { withAuth } from 'vite-hub/auth/server'
+
+export default withAuth((_event, { session, user }) => ({
+  id: user.id,
+  impersonatedBy: session.impersonatedBy ?? null,
+}))
+```
+
+In Vue, `useUserSession()` gives `impersonatedBy` and `stopImpersonating()`, so the app can show its own banner:
+
+```vue [components/ImpersonationBanner.vue]
+<script setup lang="ts">
+import { useUserSession } from 'vite-hub/auth/vue'
+
+const { impersonatedBy, stopImpersonating, user } = useUserSession()
+
+async function stop() {
+  await stopImpersonating()
+  window.location.assign('/_vitehub/auth/users')
+}
+</script>
+
+<template>
+  <div v-if="impersonatedBy" role="status">
+    Viewing the app as {{ user?.email }}
+    <button type="button" @click="stop">Stop impersonating</button>
+  </div>
+</template>
+```
+
 ### Manage Connections in production
 
 On the development server, Console users can connect [Connections](/docs/connections), set API keys, refresh tokens, and disconnect. A production build mounts the Connections section and its management routes only with `connections: { management: true }`:
@@ -648,11 +731,14 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_SIGN_IN_REQUIRED` | `401` | Sign in again. |
 | `CONSOLE_ACCESS_DENIED` | `403` | Sign in with an account that the access policy allows. |
 | `CONSOLE_MANAGER_REQUIRED` | `403` | The session has no user id, so a management action cannot name its manager. Make sure the Auth Definition that protects the Console returns a user with an id. |
+| `CONSOLE_IMPERSONATING` | `403` | This browser uses an impersonation session. Stop impersonating to get your own session back. |
 | `CONSOLE_DEVELOPMENT_ONLY` | `403` | Rebuild and deploy with an explicit `console.auth` choice. Use `console: { auth: 'app' }` with the Primary Auth Definition, or configure a Console Auth session. Set `console.authorize` to restrict who may use it. |
 | `CONSOLE_ORIGIN_REJECTED` | `403` | Open the Console from its own URL. Proxies must forward the public `Host` and `Origin` headers. |
 | `CONSOLE_ACCESS_NOT_CONFIGURED` | `500` | Build the app with the ViteHub plugin. |
 | `CONSOLE_AUTHORIZE_REQUIRED` | `500` | Set `console.authorize`. |
 | `CONSOLE_AUTH_NOT_CONFIGURED` | `500` | Add an Auth Definition, or configure Cloudflare Access. |
+| `CONSOLE_MCP_ORIGIN_REQUIRED` | `503` | Set `vitehub({ publicUrl })` or `console.mcp.resource`, so [MCP OAuth](/docs/development/mcp#set-up-oauth) has an origin that a request cannot change. |
+| `CONSOLE_MCP_OAUTH_INCOMPLETE` | `503` | Add `jwt()` and `oauthProvider({ resources, scopes })` to the Auth, as in [Set up OAuth](/docs/development/mcp#set-up-oauth). |
 | `CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE` | `404` | Set `connections: { management: true }` for production. |
 | `CONSOLE_ENV_MANAGEMENT_UNAVAILABLE` | `404` | Give the Env declaration a management bridge. |
 | `CONSOLE_REQUEST_INVALID` | `400`, `405`, `413` | Reload the Console. Deploy the Console and the server from the same build. |

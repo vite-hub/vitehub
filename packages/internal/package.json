@@ -200,6 +200,12 @@
       "require": "./dist/runtime/mcp-tools.js",
       "default": "./dist/runtime/mcp-tools.js"
     },
+    "./runtime/page-tools": {
+      "types": "./dist/runtime/page-tools.d.ts",
+      "import": "./dist/runtime/page-tools.js",
+      "require": "./dist/runtime/page-tools.js",
+      "default": "./dist/runtime/page-tools.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -217,6 +223,12 @@
       "import": "./dist/runtime/time-zone.js",
       "require": "./dist/runtime/time-zone.js",
       "default": "./dist/runtime/time-zone.js"
+    },
+    "./build/included-nitro": {
+      "types": "./dist/build/included-nitro.d.ts",
+      "import": "./dist/build/included-nitro.js",
+      "require": "./dist/build/included-nitro.js",
+      "default": "./dist/build/included-nitro.js"
     },
     "./build/nitro-cache-bypass": {
       "types": "./dist/build/nitro-cache-bypass.d.ts",
@@ -390,6 +402,7 @@
     "@types/semver": "^7.8.0",
     "@valibot/to-json-schema": "catalog:runtime",
     "exsolve": "catalog:unjs",
+    "nitro": "catalog:unjs",
     "sharp": "0.35.5",
     "typescript": "catalog:tooling",
     "valibot": "catalog:runtime",

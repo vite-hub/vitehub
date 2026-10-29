@@ -167,6 +167,7 @@ const definitionsList = defineConsoleOperation({
 })
 
 const documentsAction = defineConsoleOperation({
+  mcp: false,
   description: "Run one document editor action of a Console section.",
   input: v.strictObject({ action: v.picklist(consoleDocumentActionNames), body: v.optional(v.unknown()), section: text }),
   kind: "write",
@@ -262,6 +263,7 @@ const logsList = defineConsoleOperation({
 })
 
 const mediaAction = defineConsoleOperation({
+  mcp: false,
   description: "Run one media library action of a Console section.",
   input: v.strictObject({ action: text, body: v.optional(v.unknown()), section: text }),
   kind: "write",

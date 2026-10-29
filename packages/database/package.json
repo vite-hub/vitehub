@@ -3,15 +3,23 @@
   "version": "0.0.4",
   "description": "Vite-first Drizzle database primitives for ViteHub.",
   "keywords": [
+    "cloudflare",
+    "d1",
     "database",
     "db",
     "drizzle",
+    "drizzle-orm",
+    "libsql",
+    "nuxt",
+    "nuxt-module",
     "postgres",
     "sqlite",
+    "turso",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -54,6 +62,18 @@
       "import": "./dist/config.js",
       "require": "./dist/config.js",
       "default": "./dist/config.js"
+    },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js",
+      "require": "./dist/connect.js",
+      "default": "./dist/connect.js"
+    },
+    "./connect/node": {
+      "types": "./dist/connect/node.d.ts",
+      "import": "./dist/connect/node.js",
+      "require": "./dist/connect/node.js",
+      "default": "./dist/connect/node.js"
     },
     "./drizzle": {
       "types": "./dist/drizzle.d.ts",

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { consoleProblem } from "../src/console/runtime/client/problem.ts"
-import { consoleFieldIssues, consoleInvalidDocument, consoleLeaseHolder, consolePublishMismatches, isConsoleConflict } from "../src/console/runtime/client/documents.ts"
+import { consoleFieldIssues, consoleInvalidDocument, consoleLeaseHolder, consolePublishedConflicts, consolePublishMismatches, isConsoleConflict } from "../src/console/runtime/client/documents.ts"
 import { ConsoleNetworkError, ConsoleRequestError, isRetryableConsoleRequestError, requestConsole } from "../src/console/runtime/client/request.ts"
 import {
   consoleDiagnosticAction,
@@ -23,6 +23,8 @@ const codes = [
   "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE",
   "CONSOLE_LOOPBACK_ONLY",
   "CONSOLE_MANAGER_REQUIRED",
+  "CONSOLE_MCP_OAUTH_INCOMPLETE",
+  "CONSOLE_MCP_ORIGIN_REQUIRED",
   "CONSOLE_NOT_FOUND",
   "CONSOLE_ORIGIN_REJECTED",
   "CONSOLE_REQUEST_FAILED",
@@ -173,6 +175,17 @@ describe("Console request diagnostics", () => {
     expect(error).toMatchObject({ status: 409 })
     expect(isConsoleConflict(error)).toBe(true)
     expect(consolePublishMismatches(error)).toEqual(documents)
+  })
+
+  it("tells a change on the site apart from a newer draft", async () => {
+    const documents = [{ id: "guide", expected: "base", actual: "site" }]
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({
+      code: "WORKSPACE_CONFLICT", details: { documents, ref: "published" }, message: "1 document also changed on the site.", ok: false, status: 409,
+    }, { status: 409 })))
+    const error = await requestConsole("/api/_vitehub/console/documents").catch((cause: unknown) => cause)
+    expect(consolePublishedConflicts(error)).toEqual(documents)
+    // Reloading the draft cannot fix it, so the newer-draft recovery must not run.
+    expect(consolePublishMismatches(error)).toBeUndefined()
   })
 
   it("keeps the lease holder on HTTP 409", async () => {

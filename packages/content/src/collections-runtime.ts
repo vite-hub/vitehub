@@ -10,6 +10,7 @@ import {
   comarkJsonSchema,
   compileSingletonPath,
   contentDocumentUrl,
+  contentUrlNeedsOnlyId,
   compileDocumentsPath,
   contentInvalid,
   contentInvalidDocuments,
@@ -24,6 +25,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
+import { mergeContentDocument } from "./merge.ts"
 import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -225,6 +227,16 @@ export interface ContentDocumentStatus {
   schedule?: ContentDocumentSchedule
   /** The open pull request that publishes this document. The document reaches `published` when it merges. */
   pullRequest?: ContentPullRequest
+  /**
+   * Set when the draft and the published version both changed this document since the draft took it from published,
+   * as when a Git commit edits a page that a CMS draft also edits. `publish()` refuses the document until a save with
+   * `ifPublishedDigest` set to `published` records which version the draft builds on. Only Stores whose draft is a
+   * branch of its own, such as the GitHub store, report it.
+   */
+  conflict?: {
+    /** Digest of the version that the draft started from, or null when the draft added the document. */
+    base: string | null
+  }
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
@@ -546,9 +558,11 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
   /**
-   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
-   * path with its `route` (by default the id after a slash, without a trailing `/index`). A query string, a hash, and a
-   * trailing slash are ignored. When two collections give one path, the first collection defined wins.
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`; a document whose `url` is null does not resolve. A collection without `url` maps the id
+   * after a slash, without a trailing `/index`. A pattern of `:id` alone reads no documents; a function or a pattern
+   * with fields reads them once per revision. A query string, a hash, and a trailing slash are ignored. When two
+   * collections give one path, the first collection defined wins.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved | null>
   supportsScheduling(): Promise<boolean>
@@ -787,10 +801,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   function isDocumentPath(path: string): boolean {
+    return documentFormat(path) !== undefined
+  }
+
+  /** The format of the collection that holds `path`, or undefined for a file of no collection. */
+  function documentFormat(path: string): ContentFormat | undefined {
     for (const collection of collections.values()) {
-      if (collection.compiled.match(path)) return true
+      if (collection.compiled.match(path)) return collection.compiled.format
     }
-    return false
   }
 
   /** Paths a Content commit changed, from its `metadata.content.documents`. Undefined for other commits and seeds. */
@@ -1023,17 +1041,37 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           into: "draft",
           message: "Bring published content into the draft",
           metadata: { content: { ...content, bases } },
-          onConflict: async (conflicts) => {
+          onConflict: async (conflicts, { read }) => {
             const left: string[] = []
-            for (const { path, theirs } of conflicts) {
-              if (!isDocumentPath(path) || !Object.hasOwn(carried, path)) continue
-              if (await draftHeld(path, theirs, draftHead)) bases[path] = theirs
-              else {
-                bases[path] = carried[path] ?? null
-                left.push(path)
+            const merged: Record<string, string> = {}
+            for (const { path, ours, theirs } of conflicts) {
+              const format = documentFormat(path)
+              if (format === undefined || !Object.hasOwn(carried, path)) continue
+              if (await draftHeld(path, theirs, draftHead)) {
+                bases[path] = theirs
+                continue
               }
+              // Edits to different fields or words merge. The result stays in the draft, so a person sees it before
+              // it is published; it now builds on the published version.
+              // Git's base advances even when an earlier sync kept a conflict. Use the unresolved Content base.
+              const base = carried[path] ?? null
+              if (base !== null && ours !== null && theirs !== null) {
+                const [baseText, oursText, theirsText] = await Promise.all([base, ours, theirs].map(async digest => new TextDecoder().decode(await read(digest))))
+                const result = mergeContentDocument(baseText!, oursText!, theirsText!, format)
+                if ("text" in result) {
+                  merged[path] = result.text
+                  bases[path] = theirs
+                  continue
+                }
+              }
+              bases[path] = carried[path] ?? null
+              left.push(path)
             }
-            return { content: { ...content, bases, ...(left.length ? { conflicts: left } : {}) } }
+            const paths = Object.keys(merged)
+            return {
+              metadata: { content: { ...content, bases, ...(paths.length ? { merged: paths } : {}), ...(left.length ? { conflicts: left } : {}) } },
+              ...(paths.length ? { files: merged } : {}),
+            }
           },
         })
       }
@@ -1244,13 +1282,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return document
     }
 
+    /** A draft lists work in progress with its issues. `published` and malformed files list only what validates. */
+    function listable(opened: OpenedRevision, parsed: ParsedText): parsed is ParsedText & { data: Record<string, unknown> } {
+      return !parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")
+    }
+
     async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
       return await memoize(indexes, opened.revision.id, async () => {
         const updated = await updatedAtMap(opened)
         const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          // A draft lists work in progress with its issues. `published` and malformed files list only what validates.
-          if (!parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
+          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
           // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
@@ -1502,6 +1544,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const parsed = await parseEntry(draft.opened!, entry)
         if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
       })
+      // Documents that publish() refuses because both sides changed them, by the rule that publish() applies.
+      const conflicts = new Map<string, string | null>()
+      if (bases && draft.revision) {
+        const ids = id === undefined ? new Set([...draftEntries.keys(), ...publishedEntries.keys()]) : new Set([id])
+        await mapLimit([...ids], 8, async (documentId) => {
+          const path = pathFor(documentId)
+          const publishedDigest = publishedEntries.get(documentId)?.digest
+          if (!Object.hasOwn(bases, path) || (draftEntries.get(documentId)?.digest ?? null) === (publishedDigest ?? null)) return
+          if ((publishedDigest ?? null) === bases[path]) return
+          if (await draftHeld(path, publishedDigest, draft.revision!)) return
+          conflicts.set(documentId, bases[path] ?? null)
+        })
+      }
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
@@ -1520,6 +1575,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (schedule) status.schedule = schedule
         const pullRequest = pending.get(pathFor(documentId))
         if (pullRequest) status.pullRequest = pullRequest
+        if (conflicts.has(documentId)) status.conflict = { base: conflicts.get(documentId) ?? null }
         return status
       }
       if (id !== undefined) return statusOf(id)
@@ -1588,8 +1644,39 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       collection = { ...shared, kind: "documents", path: definition.path, paths: definition.paths, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
     }
 
-    const route = definition.kind === "documents" ? definition.route ?? defaultRoute : undefined
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, route, sessionCollection }
+    let warnedUrl = false
+
+    /**
+     * The app path and id of each document on one revision, for `resolve()`. Without `url`, or with a pattern of `:id`
+     * alone, the ids are enough; any other `url` reads the documents that `list()` reads.
+     */
+    async function routes(opened: OpenedRevision): Promise<Array<[path: string, id: string]>> {
+      const url = definition.url
+      const found = [...entries(opened.files)]
+      const documents = url === undefined || contentUrlNeedsOnlyId(url)
+        ? found.map(([id]) => ({ id, data: {} }))
+        : (await mapLimit(found, 8, async ([id, entry]) => {
+            const parsed = await parseEntry(opened, entry)
+            return listable(opened, parsed) ? { id, data: parsed.data } : undefined
+          })).filter(document => document !== undefined)
+      const result: Array<[path: string, id: string]> = []
+      for (const document of documents) {
+        try {
+          const path = url === undefined ? defaultRoute(document.id) : contentDocumentUrl(url, document)
+          if (path !== null) result.push([path, document.id])
+        }
+        catch (error) {
+          // One document with a failing url does not hide the others.
+          if (!warnedUrl) {
+            warnedUrl = true
+            console.warn(`[vitehub] The url of Content collection ${JSON.stringify(name)} failed for document ${JSON.stringify(document.id)}. resolve() skips documents whose url fails: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+      }
+      return result
+    }
+
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, routes: single ? undefined : routes, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1880,7 +1967,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   /** The routes of one ref head: app path to document, the first collection winning. Built once per head. */
   const routeIndexes = new BoundedCache<Promise<ReadonlyMap<string, ContentResolved>>>(8)
-  const warnedRoutes = new Set<string>()
 
   async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
     if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
@@ -1891,24 +1977,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const index = await memoize(routeIndexes, opened.revision.id, async () => {
       const routes = new Map<string, ContentResolved>()
       for (const collection of collections.values()) {
-        if (!collection.route) continue
-        for (const [id, entry] of collection.entries(opened.files)) {
-          const parsed = await collection.parseEntry(opened, entry)
-          // Match get() and list(): drafts may have field issues, but malformed files are never readable.
-          if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) continue
-          let route: unknown
-          try {
-            route = collection.route(id)
-          }
-          catch (error) {
-            // One document with a failing route does not hide the others.
-            if (!warnedRoutes.has(collection.name)) {
-              warnedRoutes.add(collection.name)
-              console.warn(`[vitehub] The route of Content collection ${JSON.stringify(collection.name)} threw for document ${JSON.stringify(id)}. resolve() skips documents whose route throws: ${error instanceof Error ? error.message : String(error)}`)
-            }
-            continue
-          }
-          if (String(route) !== route) continue
+        if (!collection.routes) continue
+        for (const [route, id] of await collection.routes(opened)) {
           const key = normalizeRoute(route)
           if (!routes.has(key)) routes.set(key, { collection: collection.name, id })
         }

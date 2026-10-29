@@ -136,8 +136,13 @@ function translate(error: unknown): never {
   if (code === "WORKSPACE_CONFLICT") {
     const conflict = isRecord(details) ? details : {}
     const documents = publishMismatches(conflict)
+    const count = documents?.length === 1 ? "1 document" : `${documents?.length} documents`
+    // `published`: the site changed after the draft started from it, so publishing would erase that change.
+    if (documents && conflict.ref === "published") {
+      throw failure(409, "WORKSPACE_CONFLICT", `${count} also changed on the site after the draft started from ${documents.length === 1 ? "it" : "them"}. Nothing was published.`, { documents, ref: "published" })
+    }
     if (documents) {
-      throw failure(409, "WORKSPACE_CONFLICT", `${documents.length === 1 ? "1 document" : `${documents.length} documents`} changed since you reviewed them. Nothing was published.`, { documents, ref: "draft" })
+      throw failure(409, "WORKSPACE_CONFLICT", `${count} changed since you reviewed them. Nothing was published.`, { documents, ref: "draft" })
     }
     throw failure(409, "WORKSPACE_CONFLICT", "This document changed since you opened it.", {
       actual: conflict.actual ?? null,
@@ -440,6 +445,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
     const status = await collection.status(document.id)
     if (status) result.state = status.state
     if (status?.schedule) result.schedule = scheduleView(status.schedule)
+    if (status?.conflict) result.conflict = { published: status.published }
     return result
   }
 
@@ -575,6 +581,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
             }
             if (status?.schedule) summary.schedule = scheduleView(status.schedule)
             if (status?.issues) summary.issues = status.issues
+            if (status?.conflict) summary.conflict = { published: status.published }
             return summary
           }),
           nextCursor: page.nextCursor,
@@ -592,9 +599,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!isRecord(input)) throw invalidInput("get() requires { collection, id }.")
       const collection = open(input.collection)
       const id = text(input.id, "id")
+      const ref = input.ref ?? "draft"
+      if (ref !== "draft" && ref !== "published") throw invalidInput("ref must be draft or published.")
       await allow(context, collection, "read", id)
       return await attempt(async () => {
-        const document = await collection.get(id, { ref: "draft" })
+        const document = await collection.get(id, { ref })
         return document ? await view(collection, document) : null
       })
     },
@@ -619,7 +628,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (String(input.body) !== input.body) throw invalidInput("body must be a Markdown string.")
       const data = fieldValues(input.data)
       const ifDigest = digest(input.ifDigest)
-      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, metadata: writeMetadata(context), ...writeSession(input) })))
+      const published = input.ifPublishedDigest === undefined ? {} : { ifPublishedDigest: digest(input.ifPublishedDigest, "ifPublishedDigest") }
+      return await attempt(async () => await view(collection, await collection.save(id, { data, body: input.body }, { ifDigest, ...published, metadata: writeMetadata(context), ...writeSession(input), ...await liveWrite(input, collection, id) })))
     },
 
     async remove(input, context) {

@@ -20,6 +20,7 @@ import type {
   ContentDevDiffResult,
   ContentDevListResult,
   ContentDevPublishResult,
+  ContentDevRemoveResult,
   ContentDevRevisionsResult,
   ContentDevSaveResult,
   ContentDevSchedulesResult,
@@ -44,10 +45,10 @@ export interface ContentCliOptions {
 
 type ContentCliOption =
   | "at" | "collection" | "cursor" | "dry-run" | "file" | "id" | "if-digest" | "limit" | "message" | "override-lease"
-  | "ref" | "search" | "site" | "status" | "xml" | "yes"
+  | "ref" | "revision" | "search" | "site" | "status" | "xml" | "yes"
 
 type ContentCliCommandName =
-  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit"
+  | "collections" | "list" | "show" | "status" | "diff" | "revisions" | "edit" | "rm" | "restore"
   | "publish" | "schedule" | "scheduled" | "unschedule" | "sitemap"
 
 interface ContentCliCommand {
@@ -73,6 +74,7 @@ interface ParsedContentArgs {
   message?: string
   overrideLease: boolean
   ref?: ContentRef
+  revision?: string
   schedule?: string
   search?: string
   site?: string
@@ -105,6 +107,8 @@ const contentCommands: readonly ContentCliCommand[] = [
   { description: "Print a unified diff of one document from published to draft, frontmatter included. Omit the id for a singleton.", name: "diff", options: [], positionals: ["collection", "id?"] },
   { description: "List the revisions that saved, removed, restored, or published one document, newest first.", name: "revisions", options: ["ref", "limit", "cursor"], positionals: ["collection", "id?"] },
   { description: "Edit the draft of one document in $EDITOR, or save it from --file. Fails while someone else holds the edit lease, unless --override-lease.", name: "edit", options: ["file", "if-digest", "message", "override-lease"], positionals: ["collection", "id?"] },
+  { description: "Delete one document from the draft. The next publish deletes it from the site. Asks for confirmation unless --yes. Fails while someone else holds the edit lease, unless --override-lease.", name: "rm", options: ["message", "override-lease", "yes"], positionals: ["collection", "id?"] },
+  { description: "Save the version of one document from an earlier revision as its draft. Publishes nothing. Fails while someone else holds the edit lease, unless --override-lease.", name: "restore", options: ["revision", "message", "override-lease"], positionals: ["collection", "id?"] },
   { description: "Publish the listed draft documents in one revision, pinned to the digests shown. Asks for confirmation unless --yes. A draft saved after the list fails the publish.", name: "publish", options: ["collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "Publish the listed draft documents at a later time, pinned to the digests shown. A Schedule Definition that calls content.publishDue() runs it.", name: "schedule", options: ["at", "collection", "id", "message", "dry-run", "yes"], positionals: [] },
   { description: "List pending, overdue, and failed schedules, earliest first.", name: "scheduled", options: ["status"], positionals: ["collection?", "id?"] },
@@ -124,6 +128,7 @@ const optionUsage: Record<ContentCliOption, string> = {
   "message": "[--message <text>]",
   "override-lease": "[--override-lease]",
   "ref": "[--ref draft|published]",
+  "revision": "--revision <id>",
   "search": "[--search <text>]",
   "site": "[--site <url>]",
   "status": "[--status pending|overdue|failed]",
@@ -141,8 +146,9 @@ const optionHelp: Record<ContentCliOption, string> = {
   "if-digest": "  --if-digest <digest> Save only if the draft still has this digest, as `show --json` prints it.",
   "limit": "  --limit <n>          Show at most n entries. Defaults to 20 for revisions and 50 for list. Maximum 100.",
   "message": "  --message <text>     Revision message.",
-  "override-lease": "  --override-lease     Save even while another session holds the edit lease of the document.",
+  "override-lease": "  --override-lease     Write even while another session holds the edit lease of the document.",
   "ref": "  --ref <ref>          `draft` (default) or `published`. For revisions, `draft` lists saves and `published` publishes.",
+  "revision": "  --revision <id>      The revision to restore from, as `vitehub content revisions` lists it.",
   "search": "  --search <text>      Only documents whose search fields contain the text.",
   "site": "  --site <url>         Public origin of the URLs. Defaults to defineContent({ seo: { site } }).",
   "status": "  --status <status>    Only pending, overdue, or failed schedules.",
@@ -151,7 +157,7 @@ const optionHelp: Record<ContentCliOption, string> = {
 }
 
 const booleanOptions = { "dry-run": "dryRun", "override-lease": "overrideLease", "xml": "xml", "yes": "yes" } as const
-const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "search", "site", "status"] as const
+const valueOptions = ["at", "collection", "cursor", "file", "id", "if-digest", "limit", "message", "ref", "revision", "search", "site", "status"] as const
 
 function commandUsage(command: ContentCliCommand): string {
   const positionals = command.positionals.map(name => name.endsWith("?") ? ` [${name.slice(0, -1)}]` : ` <${name}>`).join("")
@@ -277,6 +283,7 @@ function parseArgs(command: ContentCliCommand, args: readonly string[], env: Nod
   })
   if (parsed.ids && parsed.collection === undefined) throw usageError("--id requires --collection.")
   if (command.options.includes("at") && parsed.at === undefined && !parsed.help) throw usageError("Missing --at.")
+  if (command.options.includes("revision") && parsed.revision === undefined && !parsed.help) throw usageError("Missing --revision. `vitehub content revisions` lists them.")
   if (command.options.includes("at") && parsed.at !== undefined && !parsed.help) {
     const value = parsed.at.trim()
     const date = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(value) ? new Date(value) : undefined
@@ -540,6 +547,8 @@ interface ContentDevResults {
   diff: ContentDevDiffResult
   list: ContentDevListResult
   publish: ContentDevPublishResult
+  remove: ContentDevRemoveResult
+  restore: ContentDevSaveResult
   revisions: ContentDevRevisionsResult
   save: ContentDevSaveResult
   schedule: ContentSchedule
@@ -557,13 +566,15 @@ type ContentDevCall = <TOperation extends ContentDevOperation>(
 ) => Promise<{ failure: ContentCliFailure, result?: undefined } | { failure?: undefined, result: ContentDevResults[TOperation] }>
 
 /** Ask before a write, unless `--yes`. Returns an exit code when the user did not confirm. */
-async function confirmWrite(parsed: ParsedContentArgs, context: ContentCliContext, options: ContentCliOptions, action: "Publish" | "Schedule"): Promise<number | undefined> {
+async function confirmWrite(parsed: ParsedContentArgs, context: ContentCliContext, options: ContentCliOptions, action: "Delete" | "Publish" | "Schedule"): Promise<number | undefined> {
   if (parsed.yes) return
   const confirmed = options.confirm ? await options.confirm(`${action}? [y/N] `) : await defaultConfirm(`${action}? [y/N] `)
+  const code = action === "Delete" ? "CONTENT_DELETE" : "CONTENT_PUBLISH"
   if (confirmed === undefined) {
-    return writeFailure(parsed, context, { code: "CONTENT_PUBLISH_UNCONFIRMED", message: `${action === "Publish" ? "Publishing" : "Scheduling"} needs confirmation. Pass --yes to ${action.toLowerCase()} without a prompt, or --dry-run to only list the changes.` })
+    const without = `Pass --yes to ${action.toLowerCase()} without a prompt${action === "Delete" ? "" : ", or --dry-run to only list the changes"}.`
+    return writeFailure(parsed, context, { code: `${code}_UNCONFIRMED`, message: `${{ Delete: "Deleting", Publish: "Publishing", Schedule: "Scheduling" }[action]} needs confirmation. ${without}` })
   }
-  if (!confirmed) return writeFailure(parsed, context, { code: "CONTENT_PUBLISH_CANCELLED", message: `${action} cancelled.` })
+  if (!confirmed) return writeFailure(parsed, context, { code: `${code}_CANCELLED`, message: `${action} cancelled.` })
 }
 
 /**
@@ -635,18 +646,18 @@ function leaseHolder(failure: ContentCliFailure): string | undefined {
   return `${holder.kind === "live" ? `A live session (${name})` : name} holds the edit lease${since}`
 }
 
-function writeSaveFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure, document: string, kept?: string): number {
+function writeSaveFailure(parsed: Pick<ParsedContentArgs, "json">, context: ContentCliContext, failure: ContentCliFailure, document: string, kept?: string, again = "Run the edit again."): number {
   if (parsed.json) return writeFailure(parsed, context, failure)
   const retry = kept ? `Your edit is kept in ${kept}. Save it with \`vitehub content edit ${document.replace("/", " ")} --file ${kept}\`.` : ""
   const holder = leaseHolder(failure)
   if (holder) {
-    context.stderr.write(`Nothing was saved. ${holder} on ${document}.\nWait until they finish, or pass --override-lease to save anyway.\n${retry ? `${retry}\n` : ""}`)
+    context.stderr.write(`Nothing was saved. ${holder} on ${document}.\nWait until they finish, or pass --override-lease to write anyway.\n${retry ? `${retry}\n` : ""}`)
     return 1
   }
   if (failure.code === "WORKSPACE_CONFLICT") {
     const details = isRecord(failure.details) ? failure.details : {}
     const actual = String(details.actual) === details.actual ? `draft is now ${shortDigest(details.actual)}` : "the draft was deleted"
-    context.stderr.write(`Nothing was saved. ${document} changed after you opened it (${actual}).\n${retry ? `${retry}\n` : "Run the edit again.\n"}`)
+    context.stderr.write(`Nothing was saved. ${document} changed after you opened it (${actual}).\n${retry || again}\n`)
     return 1
   }
   context.stderr.write(`${failure.message}\n${retry ? `${retry}\n` : ""}`)
@@ -722,6 +733,47 @@ async function runEdit(parsed: ParsedContentArgs, context: ContentCliContext, ca
   return 0
 }
 
+/** Delete one draft, pinned to the digest that the command read, after the user confirms. */
+async function runRemove(parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall, options: ContentCliOptions): Promise<number> {
+  const target = { collection: parsed.collection!, ...(parsed.id === undefined ? {} : { id: parsed.id }) }
+  const shown = await call("show", target)
+  if (shown.failure) return writeFailure(parsed, context, shown.failure)
+  const document = `${shown.result.collection}/${shown.result.id}`
+  if (!parsed.yes && !parsed.json) context.stderr.write(`Delete ${document} from the draft. The next publish deletes it from the site.\n`)
+  const declined = await confirmWrite(parsed, context, options, "Delete")
+  if (declined !== undefined) return declined
+  const removed = await call("remove", {
+    ...target,
+    ifDigest: shown.result.digest,
+    ...(parsed.message === undefined ? {} : { message: parsed.message }),
+    ...(parsed.overrideLease ? { lease: "override" } : {}),
+  })
+  if (removed.failure) return writeSaveFailure(parsed, context, removed.failure, document, undefined, "Run the command again.")
+  if (parsed.json) context.stdout.write(`${JSON.stringify(removed.result, null, 2)}\n`)
+  else context.stdout.write(`Deleted ${document} from the draft. Publish to delete it from the site.\n`)
+  return 0
+}
+
+/** Save a document's version from an earlier revision as its draft, pinned to the draft that the command read. */
+async function runRestore(parsed: ParsedContentArgs, context: ContentCliContext, call: ContentDevCall): Promise<number> {
+  const target = { collection: parsed.collection!, ...(parsed.id === undefined ? {} : { id: parsed.id }) }
+  // A deleted draft has no digest: the restore then requires that it is still missing.
+  const shown = await call("show", { ...target, create: true })
+  if (shown.failure) return writeFailure(parsed, context, shown.failure)
+  const document = `${shown.result.collection}/${shown.result.id}`
+  const restored = await call("restore", {
+    ...target,
+    ifDigest: shown.result.digest,
+    revision: parsed.revision,
+    ...(parsed.message === undefined ? {} : { message: parsed.message }),
+    ...(parsed.overrideLease ? { lease: "override" } : {}),
+  })
+  if (restored.failure) return writeSaveFailure(parsed, context, restored.failure, document, undefined, "Run the command again.")
+  if (parsed.json) context.stdout.write(`${JSON.stringify(restored.result, null, 2)}\n`)
+  else context.stdout.write(`Restored ${document} from revision ${parsed.revision} to the draft as ${shortDigest(restored.result.digest)}. Publish to put it on the site.\n`)
+  return 0
+}
+
 /** The roots that a dev server may name for this project: the Vite root and the ViteHub project root. */
 function projectRoots(rootDir: string): string[] {
   try {
@@ -787,6 +839,10 @@ async function runContentCommand(command: ContentCliCommand, args: string[], con
       return await runPublish(command, parsed, context, call, options)
     case "edit":
       return await runEdit(parsed, context, call, options)
+    case "rm":
+      return await runRemove(parsed, context, call, options)
+    case "restore":
+      return await runRestore(parsed, context, call)
     case "diff": {
       const { failure, result } = await call("diff", requestBody(parsed))
       if (failure) return writeFailure(parsed, context, failure)
@@ -877,7 +933,7 @@ export async function runContentCli(args: string[], context: ContentCliContext, 
 export function createContentCliContributor(options: ContentCliOptions = {}): ViteHubCliContributor {
   return {
     namespaces: [{
-      description: "Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.",
+      description: "Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.",
       features: contentCommands.map(command => ({
         description: command.description,
         name: command.name,

@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
+import { readViteHubConsoleActionFailure } from "@vite-hub/internal/console"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -18,6 +19,7 @@ import { createContentConsoleActions } from "../src/runtime/console.ts"
 import cms from "../src/presets/cms.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
+import type { ContentDocumentUrl } from "../src/index.ts"
 
 const sessionsTable = await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -40,7 +42,7 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string, seed?: boolean, token?: string | undefined } = {}) {
+async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, url?: ContentDocumentUrl<{ title: string }>, seed?: boolean, token?: string | undefined } = {}) {
   if (options.seed !== false) fake.commit("main", options.files ?? {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
@@ -70,7 +72,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
   })
   const content = defineContent({
     ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
-    collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.route ? { route: options.route } : {}) }) },
+    collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.url ? { url: options.url } : {}) }) },
     logger: false,
     ...(options.authorize ? { authorize: options.authorize } : {}),
   })
@@ -80,7 +82,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
 
 describe("Content on the GitHub store", () => {
   it("fails a request with a coded error that names the missing token", async () => {
-    const { content, posts } = await setup({ token: undefined, route: id => `/posts/${id}` })
+    const { content, posts } = await setup({ token: undefined, url: "/posts/:id" })
     const named = { code: "WORKSPACE_R0072", message: expect.stringContaining("VITEHUB_GITHUB_TOKEN") }
     await expect(content.resolve("/posts/a", { ref: "draft" })).rejects.toMatchObject(named)
     await expect(posts.get("a")).rejects.toMatchObject(named)
@@ -242,6 +244,96 @@ describe("Content on the GitHub store", () => {
       })
       expect(fake.head("main")).toBe(main)
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
+      // status() names the document before anyone tries to publish, and only that one.
+      expect(await posts.status("a")).toMatchObject({ state: "changed", published: textSha(page("A main")), conflict: { base: a.digest } })
+      expect((await posts.status()).filter(entry => entry.conflict).map(entry => entry.id)).toEqual(["a"])
+      // A save that names the published version resolves it. The publish merged `main` into the draft.
+      vi.advanceTimersByTime(6_000)
+      const draft = (await posts.raw("a", { ref: "draft" }))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: draft.digest, ifPublishedDigest: textSha(page("A main")) })
+      expect((await posts.status("a"))?.conflict).toBeUndefined()
+      expect((await content.publish()).documents.map(document => document.id)).toEqual(["a", "b"])
+    })
+
+    it("lets the Console compare and resolve a document that changed on both branches", async () => {
+      const { posts, content } = await setup({ authorize: () => true })
+      const actions = createContentConsoleActions({ content })
+      const context = { user: { id: "joy", name: "Joy" } }
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      onMain({ "content/posts/a.md": page("A main") })
+      const site = textSha(page("A main"))
+
+      // The refusal says the site changed, not that someone saved a newer draft.
+      const refused = await Promise.resolve(actions.publish({ collection: "posts", expect: [{ id: "a", digest: (await posts.raw("a", { ref: "draft" }))!.digest }] }, context)).catch((error: unknown) => error)
+      expect(readViteHubConsoleActionFailure(refused)).toMatchObject({
+        status: 409,
+        code: "WORKSPACE_CONFLICT",
+        message: "1 document also changed on the site after the draft started from it. Nothing was published.",
+        details: { ref: "published", documents: [{ id: "a", actual: site }] },
+      })
+      const opened = (await actions.get({ collection: "posts", id: "a" }, context))!
+      expect(opened.conflict).toEqual({ published: site })
+      expect((await actions.list({ collection: "posts" }, context)).items.find(item => item.id === "a")?.conflict).toEqual({ published: site })
+      expect(await actions.get({ collection: "posts", id: "a", ref: "published" }, context)).toMatchObject({ data: { title: "A main" }, digest: site })
+
+      // Keep my draft: the save names the site version that was compared, and publishing works again.
+      const kept = await actions.save({ collection: "posts", id: "a", data: opened.data, body: opened.body, ifDigest: opened.digest, ifPublishedDigest: site }, context)
+      expect(kept.conflict).toBeUndefined()
+      expect((await actions.publish({ collection: "posts", expect: [{ id: "a", digest: kept.digest }] }, context)).documents).toEqual([{ collection: "posts", id: "a", change: "update" }])
+    })
+
+    it("merges edits to different words of one document, and keeps a conflict on the same words", async () => {
+      const { posts, content } = await setup({ files: { "content/posts/a.md": page("A", "Monks bless the couple. Guests sit on the left.\n") } })
+      const a = (await posts.raw("a", { ref: "draft" }))!
+      await posts.save("a", { data: { title: "A" }, body: "Monks bless the couple with water. Guests sit on the left.\n" }, { ifDigest: a.digest })
+      onMain({ "content/posts/a.md": page("A main", "Monks bless the couple. Guests of the groom sit on the left.\n") })
+      // The next write brings main in. Both edits are in the draft, which now builds on main's version.
+      await posts.save("b", { data: { title: "B" }, body: "" })
+      vi.advanceTimersByTime(6_000)
+      const merged = page("A main", "Monks bless the couple with water. Guests of the groom sit on the left.\n")
+      expect((await posts.raw("a", { ref: "draft" }))?.text).toBe(merged)
+      expect(await posts.status("a")).toMatchObject({ state: "changed" })
+      // The sync merge before the save of b records which documents it merged.
+      const sync = fake.commits.get(fake.commits.get(fake.head("vitehub/content")!)!.parents[0]!)!
+      expect(sync.message).toContain("Bring published content into the draft")
+      expect(sync.message).toContain('"merged":["content/posts/a.md"]')
+      // Nothing reached main until a publish, which ships both edits.
+      expect(fake.tree("main").find(entry => entry.path === "content/posts/a.md")?.sha).toBe(textSha(page("A main", "Monks bless the couple. Guests of the groom sit on the left.\n")))
+      expect((await content.publish()).documents).toEqual([{ collection: "posts", id: "a", change: "update" }, { collection: "posts", id: "b", change: "add" }])
+      expect(fake.tree("main").find(entry => entry.path === "content/posts/a.md")?.sha).toBe(textSha(merged))
+
+      // The same words changed on both sides stay a conflict.
+      const draft = (await posts.raw("a", { ref: "draft" }))!
+      await posts.save("a", { data: { title: "A main" }, body: "Monks bless the couple with oil. Guests of the groom sit on the left.\n" }, { ifDigest: draft.digest })
+      onMain({ "content/posts/a.md": page("A main", "Monks bless the couple with flowers. Guests of the groom sit on the left.\n") })
+      await posts.save("b", { data: { title: "B again" }, body: "" })
+      vi.advanceTimersByTime(6_000)
+      expect((await posts.raw("a", { ref: "draft" }))?.text).toContain("with oil")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a", expected: textSha(merged) }] } })
+    })
+
+    it("keeps an unresolved field conflict across later syncs of the same JSON document", async () => {
+      const path = "content/posts/a.json"
+      const base = '{"title":"A","count":1}'
+      const { posts, content } = await setup({ path: ["content/posts/**/*.json"], files: { [path]: base } })
+      const draft = { title: "Draft", count: 1 }
+      await posts.save("a", { data: draft })
+      onMain({ [path]: '{"title":"Main","count":1}' })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "a", expected: textSha(base) }] } })
+
+      // Git now uses the first sync as its base; Content must still use the unresolved document base.
+      onMain({ [path]: '{"title":"Main","count":2}' })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "a", expected: textSha(base) }] } })
+      expect(fake.head("main")).toBe(main)
+      expect(JSON.parse((await posts.raw("a", { ref: "draft" }))!.text)).toEqual({ title: "Draft", count: 1 })
+
+      // Reviewing the published version explicitly still resolves the conflict.
+      const published = (await posts.raw("a", { ref: "published" }))!
+      const reviewed = { title: "Reviewed", count: 2 }
+      await posts.save("a", { data: reviewed }, { ifPublishedDigest: published.digest })
+      await expect(content.publish()).resolves.toMatchObject({ documents: [{ id: "a", change: "update" }] })
     })
 
     it("acknowledges published drafts across later main edits and partial publishes", async () => {
@@ -798,7 +890,7 @@ describe("Content on the GitHub store", () => {
         "packages/core/docs/guide/start.md": page("Start"),
         "packages/core/src/notes.md": page("Not a doc"),
       },
-      route: id => id.replace(/^docs\/pages\//, "/").replace(/^packages\/([^/]+)\/docs\//, "/$1/").replace(/\/index$/, "") || "/",
+      url: ({ id }) => id.replace(/^docs\/pages\//, "/").replace(/^packages\/([^/]+)\/docs\//, "/$1/").replace(/\/index$/, "") || "/",
     })
     // Only the files under the globs are documents. Their ids are the whole path, since the globs share no folder.
     expect((await posts.list()).items.map(item => item.id).sort()).toEqual(["docs/pages/index", "packages/core/docs/guide/start"])

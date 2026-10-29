@@ -649,7 +649,7 @@ A github() Channel that sets `app` gives its Agent forge access. The pull reques
 
 The Channel resolves one token for each repository. It uses `app.token` when you set it. Otherwise it mints an App installation token from `app` options or Server Env (`VITEHUB_GITHUB_APP_ID`, `VITEHUB_GITHUB_PRIVATE_KEY`, and the optional `VITEHUB_GITHUB_INSTALLATION_ID`), with `VITEHUB_GITHUB_TOKEN` as the fallback. Without a fixed installation, the App finds the installation of the repository.
 
-Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request repository gets no credentials. An Agent with two github() Channels that set `app` gets no forge access.
+Git credentials come from `forgeGitCredentials()` and `forgeGitAuthHeader()` in `@vite-hub/forge`. They are in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`, never in process arguments, and they reach only the pull request base and head repositories. A run without a pull request, such as a Teams or chat run, gets credentials for the repositories of the Agent's GitHub Workspace Sources, so it can clone them. A Source repository that the forge access cannot reach is left out. An Agent without GitHub Sources gets no credentials in such a run. An Agent with two github() Channels that set `app` gets no forge access.
 
 ```ts [server/agents/reviewer.ts]
 import { defineAgent } from 'vite-hub/agent'

@@ -31,6 +31,8 @@ export default defineConfig({
       "src/nuxt.ts",
       "src/virtual.ts",
       "src/vite.ts",
+      "src/connect.ts",
+      "src/connect/node.ts",
       "src/runtime/agent.ts",
       "src/runtime/d1.ts",
       "src/runtime/default-database.ts",

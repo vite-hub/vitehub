@@ -1,6 +1,7 @@
 import { defineDiagnostics, type Diagnostic } from "nostics"
 
 const consoleGuide = "https://vitehub.dev/docs/development/console"
+const mcpGuide = "https://vitehub.dev/docs/development/mcp"
 
 /** What the Console offers as the next step for a failure. */
 export type ConsoleDiagnosticAction = "docs" | "reload" | "retry" | "sign-in"
@@ -14,9 +15,12 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
+  | "CONSOLE_IMPERSONATING"
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
+  | "CONSOLE_MCP_ORIGIN_REQUIRED"
+  | "CONSOLE_MCP_OAUTH_INCOMPLETE"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -68,6 +72,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#how-each-mode-checks-a-request`,
       "docs",
     ),
+    CONSOLE_IMPERSONATING: code(
+      "This browser uses an impersonation session. The Console does not run as an impersonated user.",
+      "Stop impersonating to get your own session back, then open the Console again.",
+      `${consoleGuide}#impersonate-users`,
+      "docs",
+    ),
     CONSOLE_MANAGER_REQUIRED: code(
       "The Console accepted this request, but the session has no user id. Management actions record the user who made them.",
       "Sign out and sign in again. If this continues, make sure the Auth Definition that protects the Console returns a session user with an id.",
@@ -102,6 +112,18 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "The development Console without sign-in accepts only requests from this machine.",
       "Open the Console from localhost, or set console.auth to \"app\" or a Console Auth config so the Console checks who calls it.",
       `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_MCP_ORIGIN_REQUIRED: code(
+      "OAuth sign-in for MCP is off: the server has no configured public origin.",
+      "Set `vitehub({ publicUrl })` or `console.mcp.resource` to the public URL of the app, such as `https://app.example.com/_vitehub/mcp`, then build and deploy again.",
+      `${mcpGuide}#set-up-oauth`,
+      "docs",
+    ),
+    CONSOLE_MCP_OAUTH_INCOMPLETE: code(
+      "The Auth that signs the Console in cannot issue MCP access tokens.",
+      "Add `jwt()` and `oauthProvider({ resources: [\"<origin>/_vitehub/mcp\"], clientRegistrationDefaultResources: [\"<origin>/_vitehub/mcp\"], scopes: [..., \"vitehub:read\", \"vitehub:write\"] })` to that Auth. Without `resources`, Better Auth issues opaque tokens that the Console cannot check. The registration defaults link MCP clients to the resource.",
+      `${mcpGuide}#set-up-oauth`,
       "docs",
     ),
     CONSOLE_ENV_MANAGEMENT_UNAVAILABLE: code(
@@ -179,6 +201,12 @@ const consoleDiagnosticCodes = new Set<string>(Object.keys(consoleDiagnostics))
 
 export function isConsoleDiagnosticCode(value: unknown): value is ConsoleDiagnosticCode {
   return typeof value === "string" && consoleDiagnosticCodes.has(value)
+}
+
+/** Whether a Console rejection is `CONSOLE_IMPERSONATING`. The body is read from a clone. */
+export async function isConsoleImpersonationRejection(response: Response): Promise<boolean> {
+  const body: unknown = await response.clone().json().catch(() => undefined)
+  return body !== null && typeof body === "object" && Reflect.get(body, "code") === "CONSOLE_IMPERSONATING"
 }
 
 /** The Console code for an HTTP status when the failure site has no more specific code. */
