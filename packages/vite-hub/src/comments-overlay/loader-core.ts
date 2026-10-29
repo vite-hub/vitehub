@@ -112,10 +112,13 @@ function globPattern(glob: string): RegExp {
     const char = glob[index]!
     if (char === "*") {
       if (glob[index + 1] === "*") {
-        source += ".*"
         index++
-        // `/docs/**/` also matches `/docs/`.
-        if (glob[index + 1] === "/") index++
+        // A middle `**/` consumes only complete segments, including none.
+        if (glob[index + 1] === "/") {
+          source += "(?:[^/]+/)*"
+          index++
+        }
+        else source += ".*"
       }
       else source += "[^/]*"
     }

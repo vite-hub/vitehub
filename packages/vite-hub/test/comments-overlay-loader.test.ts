@@ -233,6 +233,13 @@ describe("the comments loader", () => {
     expect(readLoaderOptions("?f=x&s=other").session).toBe("always")
   })
 
+  it("bounds a middle globstar to complete path segments in paths and exclude", () => {
+    for (const [path, matches] of [["/docs/admin", true], ["/docs/x/admin", true], ["/docs/x/y/admin", true], ["/docs/not-admin", false], ["/docs/xadmin", false]] as const) {
+      expect(matchesPath(path, { exclude: [], paths: ["/docs/**/admin"] }), path).toBe(matches)
+      expect(matchesPath(path, { exclude: ["/docs/**/admin"], paths: [] }), path).toBe(!matches)
+    }
+  })
+
   it("takes the app base and trailing slashes off the page path", () => {
     expect(appPathname("/pricing", "/")).toBe("/pricing")
     expect(appPathname("/pricing/", "/")).toBe("/pricing")

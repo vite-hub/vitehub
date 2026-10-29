@@ -754,6 +754,7 @@ describe("Content operations", () => {
     await content.collection("posts").save("hello world", { data: { title: "Hello" } })
     await content.collection("pages").save("about", { data: { title: "About" } })
     await content.collection("pages").save("secret", { data: { title: "Secret" } })
+    await content.publish()
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
@@ -784,7 +785,7 @@ describe("Content operations", () => {
     const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
     const found = { ok: true, value: { collection: "posts", id: "hello" } }
     await posts.save("hello", { data: { title: "draft" } })
-    expect(await resolve("/blog/draft")).toEqual(found)
+    expect(await resolve("/blog/draft")).toEqual({ ok: true, value: null })
     expect(await resolve("/blog/published")).toEqual(found)
     // A pending deletion also leaves the published page online.
     await posts.remove("hello")
@@ -794,6 +795,56 @@ describe("Content operations", () => {
     // Publishing invalidates the fallback index as well as the draft index.
     await content.publish()
     expect(await resolve("/blog/published")).toEqual({ ok: true, value: null })
+  })
+
+  it("resolves the document served by the current published or preview ref when URLs collide", async () => {
+    vi.stubEnv("VITEHUB_CONTENT_KEY", "42".repeat(32))
+    const content = defineContent({
+      authorize: () => true,
+      collections: { pages: documents({ path: "pages/*.md", fields: { title: z.string() }, url: "/:title" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    const pages = content.collection("pages")
+    await pages.save("live", { data: { title: "about" } })
+    await content.publish()
+    await pages.save("live", { data: { title: "moved" } })
+    await pages.save("unpublished", { data: { title: "about" } })
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+    expect(await resolve("/moved")).toEqual({ ok: true, value: null })
+    const { setCookie } = await content.preview.enable(new Request("https://site.test/_vitehub"))
+    const request = new Request("https://site.test/about", { headers: { cookie: setCookie.split(";", 1)[0]! } })
+    await content.preview.run(request, async () => {
+      expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "unpublished" } })
+      expect(await resolve("/moved")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+      await pages.remove("unpublished")
+      expect(await resolve("/about")).toEqual({ ok: true, value: null })
+    })
+    expect(await resolve("/about")).toEqual({ ok: true, value: { collection: "pages", id: "live" } })
+  }, 15_000)
+
+  it("resolves a readable document even when collection enumeration is denied", async () => {
+    const content = defineContent({
+      authorize: ({ action, id }) => action === "read" && id === "hello",
+      collections: { posts: documents({ path: "posts/*.md", fields: { title: z.string() }, url: "/blog/:id" }) },
+      logger: false,
+      workspace: await historyWorkspace(),
+    })
+    cleanup.push(() => content.dispose())
+    await content.collection("posts").save("hello", { data: { title: "Hello" } })
+    await content.collection("posts").save("secret", { data: { title: "Secret" } })
+    await content.publish()
+    Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
+    cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const resolve = (path: string) => runOperation(registry, "content.resolve", { path }, { access: { mode: "open", sections: "all" }, surface: "console", user: null })
+    expect(await resolve("/blog/hello")).toEqual({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(await resolve("/blog/secret")).toEqual({ ok: true, value: null })
   })
 
   it.each([
@@ -810,6 +861,7 @@ describe("Content operations", () => {
     })
     cleanup.push(() => content.dispose())
     await content.collection("posts").save("hello", { data: { title } })
+    await content.publish()
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
     const registry = createOperationRegistry([{ operations: contentOperations }])
@@ -834,6 +886,7 @@ describe("Content operations", () => {
     const posts = content.collection("posts")
     await posts.save("hello", { data: { title: "Hello" } })
     await pages.save("about", { data: { title: "About" } })
+    await content.publish()
     Reflect.set(globalThis, Symbol.for("vitehub.console.section-modules"), { content: async () => ({ content }) })
     cleanup.push(() => { Reflect.deleteProperty(globalThis, Symbol.for("vitehub.console.section-modules")) })
     const postList = vi.spyOn(posts, "list")
@@ -850,11 +903,14 @@ describe("Content operations", () => {
     expect([postList.mock.calls.length, pageList.mock.calls.length]).toEqual([1, 1])
     // No collection at all can produce this one.
     expect(await resolve("/blog")).toEqual({ ok: true, value: null })
-    // A save moves the head: the next lookup lists again, and sees the new document.
+    // Draft changes leave the published index intact until publication moves its head.
     await posts.save("second", { data: { title: "Second" } })
+    expect(await resolve("/blog/second")).toEqual({ ok: true, value: null })
+    expect(postList).toHaveBeenCalledTimes(1)
+    await content.publish()
     expect(await resolve("/blog/second")).toEqual({ ok: true, value: { collection: "posts", id: "second" } })
     expect(postList).toHaveBeenCalledTimes(2)
-    expect(postList.mock.calls[0]![0]).toMatchObject({ limit: 1_000, ref: "draft" })
+    expect(postList.mock.calls[0]![0]).toMatchObject({ limit: 1_000, ref: "published" })
   })
 
   it("reads every page of a large collection when it builds the index", async () => {

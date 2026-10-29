@@ -33,7 +33,7 @@ import type {
 } from "./results.ts"
 
 /** The parts of a `defineContent()` runtime that the operations use. */
-type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
+type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule"> & Partial<Pick<ContentDocumentsRuntime, "preview">>
 
 const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
@@ -360,13 +360,12 @@ const resolveDocument = defineOperation({
     const access = guard(content, context)
     const wanted = normalizeUrl(input.path)
     // A collection whose `url` pattern cannot produce the path is not listed at all.
-    const candidates = (await readableCollections(content, access)).filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
-    // Keep draft URLs first, then fall back to the URLs still served by the published site.
-    for (const selectedRef of ["draft", "published"] as const) {
-      for (const collection of candidates) {
-        const id = (await pathIndexOf(content, collection, selectedRef)).get(wanted)
-        if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
-      }
+    const candidates = content.collections().filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
+    // Match the ref serving this request; another ref can assign the same URL to a different document.
+    const selectedRef = content.preview?.active() ? "draft" : "published"
+    for (const collection of candidates) {
+      const id = (await pathIndexOf(content, collection, selectedRef)).get(wanted)
+      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
     }
     return null
   }),
