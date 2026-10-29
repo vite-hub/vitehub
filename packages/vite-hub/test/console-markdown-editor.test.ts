@@ -1,7 +1,8 @@
 // @vitest-environment happy-dom
-import { EditorContent, type Editor } from "@tiptap/vue-3"
+import { EditorContent } from "@tiptap/vue-3"
 import { flushPromises, shallowMount } from "@vue/test-utils"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import type { DefineComponent } from "vue"
 
 import ConsoleMarkdownEditor from "../src/console/runtime/components/console-markdown-editor.vue"
 
@@ -20,7 +21,8 @@ function deferred<T>() {
 }
 
 async function mountEditor() {
-  const wrapper = shallowMount(ConsoleMarkdownEditor, {
+  type EditorComponent = DefineComponent<{ active?: boolean, collection: string, modelValue: string }>
+  const wrapper = shallowMount<typeof ConsoleMarkdownEditor, EditorComponent>(ConsoleMarkdownEditor, {
     props: { active: true, collection: "posts", modelValue: "Original\n" },
     global: {
       stubs: {
@@ -30,7 +32,8 @@ async function mountEditor() {
     },
   })
   await flushPromises()
-  const editor: Editor = wrapper.getComponent(EditorContent).props("editor")
+  const editor = wrapper.getComponent(EditorContent).props("editor")
+  if (!editor) throw new Error("Rich editor did not initialize")
   await vi.waitFor(() => expect(editor.isEditable).toBe(true))
   vi.useFakeTimers()
   return {
