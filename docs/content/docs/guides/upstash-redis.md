@@ -16,6 +16,12 @@ Remote reads and writes can incur provider charges.
 
 ## Select the REST driver
 
+Install the Upstash client required by the KV driver:
+
+```bash [Terminal]
+pnpm add @upstash/redis
+```
+
 Replace the tutorial's ViteHub options with this configuration. Keep the
 other plugins and features your app uses.
 
