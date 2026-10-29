@@ -96,7 +96,7 @@ export function injectOverlay(response: Response, src: string, policyHeaders: He
 interface Nitro2Event {
   web?: { request?: Request }
   node?: {
-    req?: { url?: string, headers?: Record<string, string> }
+    req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
     res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
@@ -104,7 +104,9 @@ interface Nitro2Event {
 /** The Web request of an H3 1 event. Only the path, query, and headers matter for comment mode. */
 function nitro2Request(event: Nitro2Event): Request | undefined {
   const node = event.node?.req
-  return event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
+  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
+  const path = node?.originalUrl || node?.url
+  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
 }
 
 /**
