@@ -1,14 +1,23 @@
 import { connectionEnvAccess } from "@vite-hub/env/internal/connections"
 import * as v from "valibot"
+import { decodeJwt } from "jose"
 
+import { isChatGPTProvider } from "./chatgpt.ts"
+import { chatgptDynamicClientId, chatgptIssuer, chatgptResource, chatgptScopes, verifyChatGPTIdentity } from "./internal/chatgpt-identity.ts"
+import { assertChatGPTCallback, chatgptCallbackClient, chatgptRevocationEndpoint, chatgptTerminalRefreshErrors, chatgptTokenMetadata } from "./internal/chatgpt-flow.ts"
+import { chatgptTransferSchema, registerChatGPTTransfers } from "./internal/chatgpt-transfer.ts"
+import type { ChatGPTTransfer } from "./internal/chatgpt-transfer.ts"
+import { registerChatGPTCredentialUse } from "./internal/agent-credential.ts"
+import type { UseChatGPTCredential } from "./internal/agent-credential.ts"
 import { createRequestScheduler } from "./requests.ts"
 import { providerAccount } from "./account.ts"
 import { createConnectionTransport, isMcpEndpoint } from "./transport.ts"
 import { isApiKeyProvider } from "./api-key.ts"
-import { connectionResult, isConnectionError, isEnvBridgeError } from "./errors.ts"
+import { isConnectionError, isEnvBridgeError } from "./errors.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import { isConnectionDefinition, isConnectionInstances } from "./definition.ts"
 import { isLoginProvider } from "./oauth-login.ts"
+import { codeChallenge, randomToken } from "./internal/oauth-crypto.ts"
 import { createLoginSessions } from "./runtime/login.ts"
 import { CONNECTION_NAME_MAX_LENGTH, isConnectionReadMethod } from "./types.ts"
 import { callerActor, callerInheritedActors, decide, envActor } from "./policy.ts"
@@ -46,6 +55,7 @@ const FALLBACK_GRANT = "fallback"
 const LOGIN_GRANT = "login"
 
 interface StoredToken {
+  chatgpt?: v.InferOutput<typeof chatgptTokenMetadata>
   grantId?: string
   accountId?: string
   accessToken: string
@@ -64,6 +74,8 @@ export interface ConnectionsRuntimeOptions {
   store: ConnectionStore | (() => ConnectionStore | Promise<ConnectionStore>)
   fetch?: typeof fetch
   now?: () => number
+  /** Host adapter override. By default one durable Connections store is one host. */
+  chatgptHostId?: () => Promise<string>
 }
 
 interface CallContext {
@@ -103,6 +115,14 @@ export interface ConnectionRuntimeClient {
   fetch: (input: string | URL, init?: ConnectionFetchInit) => Promise<Response>
 }
 
+export interface ConnectionCallback {
+  actor?: string
+  code?: string
+  error?: string
+  clientId?: string
+  state: string
+}
+
 export interface ConnectionsRuntime {
   activity: (input: { before?: string, name: string }) => Promise<readonly EnvActivity[]>
   approvals: (input?: { before?: string, name?: string, status?: ConnectionApprovalStatus }) => Promise<ConnectionApprovalPage>
@@ -115,7 +135,7 @@ export interface ConnectionsRuntime {
    * Exchange the authorization code and store the token. `state` is single-use. `actor` must be the
    * actor that started the flow with `authorize()`. Both default to `user:local`.
    */
-  complete: (input: { actor?: string, code: string, state: string }) => Promise<ConnectionInspection>
+  complete: (input: ConnectionCallback) => Promise<ConnectionInspection>
   definition: (name: string) => Promise<ConnectionDefinition>
   deny: (input: { actor?: string, id: string }) => Promise<ConnectionApproval>
   inspect: (name: string) => Promise<ConnectionInspection>
@@ -126,6 +146,7 @@ export interface ConnectionsRuntime {
 }
 
 const storedTokenSchema = v.object({
+  chatgpt: v.optional(chatgptTokenMetadata),
   grantId: v.optional(v.string()),
   accountId: v.optional(v.string()),
   accessToken: v.string(),
@@ -135,6 +156,7 @@ const storedTokenSchema = v.object({
   tokenType: v.string(),
 })
 const tokenResponseSchema = v.object({
+  earliest_refresh_at: v.optional(v.pipe(v.number(), v.finite())),
   access_token: v.string(),
   expires_in: v.optional(v.number()),
   id_token: v.optional(v.string()),
@@ -156,18 +178,6 @@ const approvalInputSchema = v.variant("kind", [
 
 async function resolveValue(value: ConnectionValue | undefined): Promise<string | undefined> {
   return v.is(v.string(), value) || value === undefined ? value : await value()
-}
-
-function base64Url(bytes: Uint8Array): string {
-  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")
-}
-
-function randomToken(): string {
-  return base64Url(crypto.getRandomValues(new Uint8Array(32)))
-}
-
-async function codeChallenge(verifier: string): Promise<string> {
-  return base64Url(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))))
 }
 
 function tokenKey(name: string): string {
@@ -230,6 +240,7 @@ function isLoginDefinition(definition: ConnectionDefinition): definition is Conn
 export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): ConnectionsRuntime {
   const request = options.fetch ?? ((input: Parameters<typeof fetch>[0], init?: RequestInit) => fetch(input, init))
   const scheduler = createRequestScheduler()
+  const hostId = options.chatgptHostId ?? (async () => (await import("./internal/chatgpt-host.ts")).chatgptHostId((await getStore()).secrets))
   const now = options.now ?? Date.now
   const refreshing = new Map<string, Promise<StoredToken>>()
   // Provider revocation can invalidate an entire grant. Serialize token
@@ -356,37 +367,57 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     await (await getStore()).access.append(event)
   }
 
-  function oauthProvider(definition: ConnectionDefinition, name: string): ConnectionProvider {
+  function oauthProvider(definition: ConnectionDefinition, name: string, clientId?: string): ConnectionProvider & { chatgpt?: true } {
     const provider = definition.provider
+    if (isChatGPTProvider(provider)) return {
+      id: "chatgpt", chatgpt: true, clientId: clientId ?? chatgptDynamicClientId,
+      authorizationEndpoint: `${chatgptIssuer}/api/accounts/authorize`,
+      tokenEndpoint: `${chatgptIssuer}/api/accounts/oauth/token`,
+      identityScopes: chatgptScopes,
+    }
     if (isApiKeyProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ apiKey: true, connection: name })
     if (isLoginProvider(provider)) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name, login: "connect" })
     return provider
   }
 
-  async function tokenRequest(provider: ConnectionProvider, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void, connectionName?: string): Promise<ConnectionTokenResponse> {
+  async function tokenRequest(provider: ConnectionProvider & { chatgpt?: true }, parameters: Record<string, string>, signal?: AbortSignal, onDispatch?: () => void, onResponse?: () => void, connectionName?: string): Promise<ConnectionTokenResponse> {
     const clientId = await resolveValue(provider.clientId)
     const clientSecret = await resolveValue(provider.clientSecret)
     if (!clientId) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
     const form = new URLSearchParams({ ...parameters, client_id: clientId })
     if (clientSecret) form.set("client_secret", clientSecret)
+    if (provider.chatgpt) {
+      chatgptCallbackClient(clientId)
+      form.set("resource", chatgptResource)
+    }
     onDispatch?.()
     const response = await request(provider.tokenEndpoint, {
       body: form,
       headers: { accept: "application/json", "content-type": "application/x-www-form-urlencoded" },
       method: "POST",
+      redirect: "error",
       signal,
+    }).catch((error: unknown) => {
+      if (provider.chatgpt) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "token-request", provider: "chatgpt" })
+      throw error
     })
     const body: unknown = await response.json().catch(() => undefined)
     const parsedError = v.safeParse(v.object({ error: v.string() }), body)
     const error = parsedError.success ? parsedError.output.error : undefined
     if (!response.ok || error) {
-      onResponse?.()
-      throw error === "invalid_grant"
+      // An infrastructure error may follow rotation. Only named OAuth rejections
+      // prove that a ChatGPT grant was not changed; keep every other failure fenced.
+      if (!provider.chatgpt || (response.status === 400 || response.status === 401)
+        && error !== undefined && (error === "invalid_client" || chatgptTerminalRefreshErrors.has(error))) onResponse?.()
+      throw error === "invalid_grant" || provider.chatgpt && error !== undefined && chatgptTerminalRefreshErrors.has(error)
         ? connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: connectionName ?? provider.id, problem: "rejected" })
-        : connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: error, problem: "token-request", provider: provider.id, status: response.status })
+        : connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ message: provider.chatgpt ? error === "invalid_client" ? "invalid_client" : undefined : error, problem: "token-request", provider: provider.id, status: response.status })
     }
     const token = v.safeParse(tokenResponseSchema, body)
-    if (!token.success) {
+    if (!token.success || provider.chatgpt && (
+      !token.output.access_token || !token.output.refresh_token || !Number.isFinite(token.output.expires_in)
+      || token.output.expires_in! <= 0 || token.output.token_type?.toLowerCase() !== "bearer"
+    )) {
       // A malformed success may have rotated the grant without returning its replacement.
       throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "no-token", provider: provider.id })
     }
@@ -400,6 +431,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     requestedScopes?: readonly string[],
   ): StoredToken {
     return {
+      chatgpt: previous?.chatgpt ? { ...previous.chatgpt, idToken: response.id_token ?? previous.chatgpt.idToken, earliestRefreshAt: response.earliest_refresh_at === undefined ? undefined : response.earliest_refresh_at * 1000 } : undefined,
       accountId: previous?.accountId,
       grantId: previous?.grantId,
       accessToken: response.access_token,
@@ -411,7 +443,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   function expiresSoon(token: StoredToken): boolean {
-    return token.expiresAt !== undefined && token.expiresAt - now() < REFRESH_WINDOW_MS
+    return token.expiresAt !== undefined && token.expiresAt - now() < (token.chatgpt ? 15 * 60_000 : REFRESH_WINDOW_MS)
+      && (token.chatgpt?.earliestRefreshAt === undefined || token.chatgpt.earliestRefreshAt <= now())
   }
 
   async function setStatus(name: string, patch: Partial<ConnectionState>, revision: string | null): Promise<boolean> {
@@ -495,7 +528,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     let dispatched = false
     let responded = false
     try {
-      response = await tokenRequest(oauthProvider(definition, name), { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true }, name)
+      response = await tokenRequest(oauthProvider(definition, name, latest.chatgpt?.clientId), { grant_type: "refresh_token", refresh_token: latest.refreshToken! }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { dispatched = true; onDispatch() }, () => { responded = true }, name)
     }
     catch (error) {
       if (!dispatched) throw error
@@ -505,12 +538,17 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         throw error
       }
       // A failed request can have rotated the provider grant before its response was lost.
-      if (!await setStatus(name, { status: "reauth_required" }, tokenRevision)) return await readCurrentToken(name)
+      if (isChatGPTProvider(definition.provider) && isConnectionError(error, ["CONNECTIONS_NEEDS_RECONNECT"])) {
+        const cleared = await connections.bridge.replace(envContext(connections, name, "replace", "connections"), { expectedRevision: tokenRevision, key, value: JSON.stringify({ reauthRequired: true }) })
+        await setStatus(name, { status: "reauth_required" }, cleared.revision)
+      }
+      else if (!await setStatus(name, { status: "reauth_required" }, tokenRevision)) return await readCurrentToken(name)
       if (isConnectionError(error, ["CONNECTIONS_NEEDS_RECONNECT"])) {
         throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name })
       }
       throw error
     }
+    if (latest.chatgpt && response.id_token) await verifyChatGPTIdentity({ clientId: latest.chatgpt.clientId, idToken: response.id_token, subject: latest.accountId, request, now: now() })
     const next = toStoredToken(response, latest)
     let revision: string
     try {
@@ -524,7 +562,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (!current) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: name })
       return parseToken(current.value, name)
     }
-    if (!await setStatus(name, { refreshedAt: new Date(now()).toISOString(), scopes: next.scopes, status: "connected" }, revision)) return await readCurrentToken(name)
+    if (!await setStatus(name, { ...(next.chatgpt ? { chatgpt: { clientId: next.chatgpt.clientId, expiresAt: next.expiresAt } } : {}), refreshedAt: new Date(now()).toISOString(), scopes: next.scopes, status: "connected" }, revision)) return await readCurrentToken(name)
     return next
   }
 
@@ -601,7 +639,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
   }
 
   /** Reject a failed typed method response. Raw `fetch` returns every response. */
-  async function checkResponse(context: CallContext, providerRequest: ProviderRequest, response: Response): Promise<Response> {
+  async function checkResponse(providerRequest: ProviderRequest, response: Response): Promise<Response> {
     if (response.ok || providerRequest.action === "fetch") return response
     const message = await providerMessage(response)
     throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ action: providerRequest.action, message, status: response.status })
@@ -638,7 +676,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       await record("started")
       let response: Response
       try {
-        response = await checkResponse(context, providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
+        response = await checkResponse(providerRequest, await dispatch(context, providerRequest, init, { accessToken: fallback.key, tokenType: "api-key" }))
       }
       catch (error) {
         await record("failed").catch(() => undefined)
@@ -679,10 +717,12 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
           let response = await call(token)
           // An API key has no refresh token. The admin replaces a rejected key.
           if (response.status === 401 && !isApiKeyProvider(context.definition.provider)) {
+            // Cancellation may never settle; it must not block token refresh.
+            void response.body?.cancel().catch(() => undefined)
             token = await refresh(context.name, context.definition, token.accessToken, true)
             response = await call(token)
           }
-          return await checkResponse(context, providerRequest, response)
+          return await checkResponse(providerRequest, response)
         }
         catch (error) {
           failure = error
@@ -721,7 +761,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
         token = await logins.token(context.name, loaded, token.accessToken)
         response = await dispatch(context, providerRequest, init, token)
       }
-      response = await checkResponse(context, providerRequest, response)
+      response = await checkResponse(providerRequest, response)
       await record("succeeded").catch(() => undefined)
       return response
     }
@@ -829,6 +869,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const actor = callerActor(options)
       const inherited = callerInheritedActors(options)
       const loaded = await definition(name)
+      if (isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
       return { actor, definition: loaded, inherited, name, options, transport: createConnectionTransport(name, loaded, request, scheduler) }
     })())
     return {
@@ -873,7 +914,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (!hasFallback) throw error
     }
     const state = await connections?.state.get(name)
-    const declared = [...(loaded.scopes ?? [])]
+    const declared = isChatGPTProvider(provider) ? [...chatgptScopes] : [...(loaded.scopes ?? [])]
     const granted = state?.scopes ?? []
     // A failing fallback means no key here. The request that uses it reports the error.
     const fallback = hasFallback && state === undefined && await readFallbackKey(name, loaded).catch(() => undefined) !== undefined
@@ -882,7 +923,11 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       account: state?.accountId ? { id: state.accountId, email: state.accountEmail } : undefined,
       actions: connectionActions(loaded),
       connectedAt: state?.connectedAt,
-      credential: apiKeyProvider ? "api-key" : "oauth2",
+      ...(isChatGPTProvider(provider) ? {
+        expiresAt: state?.status === "connected" && state.chatgpt?.expiresAt ? new Date(state.chatgpt.expiresAt).toISOString() : undefined,
+        chatgpt: { clientId: state?.chatgpt?.clientId, hostId: await hostId(), plan: state?.status === "connected" && chatgptScopes.every(scope => granted.includes(scope)) ? "enabled" as const : "disabled" as const },
+      } : {}),
+      credential: apiKeyProvider ? "api-key" : isChatGPTProvider(provider) ? "chatgpt" : "oauth2",
       ...(loaded.provider.mcp ? { mcp: loaded.provider.mcp } : {}),
       ...(keySource ? { keySource } : {}),
       name,
@@ -899,22 +944,27 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
 
   async function authorize(input: { actor?: string, name: string, redirectUri: string }): Promise<{ state: string, url: string }> {
     const loaded = await definition(input.name)
-    const provider = oauthProvider(loaded, input.name)
+    const chatgpt = isChatGPTProvider(loaded.provider)
+    const connections = await getStore()
+    const registration = chatgpt ? await connections.state.get(input.name) : undefined
+    const provider = oauthProvider(loaded, input.name, registration?.chatgpt?.clientId)
     const clientId = await resolveValue(provider.clientId)
     if (!clientId) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_DEFINITION({ problem: "client-id", provider: provider.id })
     const redirect = new URL(input.redirectUri)
-    if (redirect.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)) {
+    if (chatgpt) assertChatGPTCallback(input.redirectUri)
+    else if (redirect.protocol !== "https:" && !["127.0.0.1", "localhost", "[::1]"].includes(redirect.hostname)) {
       throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "redirect-uri" })
     }
     const state = randomToken()
     const verifier = randomToken()
-    await (await getStore()).authorizations.put({
+    const nonce = chatgpt ? randomToken() : undefined
+    const host = chatgpt ? await hostId() : undefined
+    await connections.authorizations.put({
       actor: input.actor ?? "user:local",
       expiresAt: now() + AUTHORIZATION_TTL_MS,
       name: input.name,
-      redirectUri: redirect.toString(),
-      state,
-      verifier,
+      redirectUri: redirect.toString(), state, verifier,
+      ...(nonce ? { chatgpt: { clientId, nonce, subject: registration?.accountId } } : {}),
     })
     const url = new URL(provider.authorizationEndpoint)
     const scopes = [...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])])]
@@ -922,29 +972,43 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     for (const [parameter, value] of Object.entries({
       ...authorizationParams,
       client_id: clientId,
-      code_challenge: await codeChallenge(verifier),
-      code_challenge_method: "S256",
-      redirect_uri: redirect.toString(),
-      response_type: "code",
-      scope: scopes.join(" "),
-      state,
+      code_challenge: await codeChallenge(verifier), code_challenge_method: "S256",
+      redirect_uri: redirect.toString(), response_type: "code", scope: scopes.join(" "), state,
     })) url.searchParams.set(parameter, value)
+    if (isChatGPTProvider(loaded.provider) && nonce && host) {
+      url.searchParams.set("nonce", nonce)
+      url.searchParams.set("ext_agent_host_id", host)
+      url.searchParams.set("resource", chatgptResource)
+      if (clientId === chatgptDynamicClientId) url.searchParams.set("agent_name_hint", loaded.provider.appName)
+      else if (registration?.accountEmail) url.searchParams.set("login_hint", registration.accountEmail)
+      if (registration?.status === "connected" && !registration.scopes.includes("chatgpt.tokens.use.direct")) url.searchParams.set("prompt", "consent")
+    }
     return { state, url: url.toString() }
   }
 
-  async function complete(input: { actor?: string, code: string, state: string }): Promise<ConnectionInspection> {
+  async function complete(input: ConnectionCallback): Promise<ConnectionInspection> {
     const connections = await getStore()
     // Taking the state consumes it, so a rejected callback cannot be replayed.
     const authorization = await connections.authorizations.take(input.state)
     if (!authorization || authorization.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "authorization-expired" })
     if (authorization.actor !== (input.actor ?? "user:local")) throw connectionsErrorDiagnostics.CONNECTIONS_FORBIDDEN({ problem: "authorization-actor" })
+    if (input.error === "access_denied") throw connectionsErrorDiagnostics.CONNECTIONS_AUTHORIZATION_CANCELLED()
+    if (input.error) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ problem: "token-request" })
+    if (!input.code) throw connectionsErrorDiagnostics.CONNECTIONS_INVALID_REQUEST({ problem: "body" })
     const name = authorization.name
     const loaded = await definition(name)
-    const provider = oauthProvider(loaded, name)
+    const chatgpt = isChatGPTProvider(loaded.provider)
+    if (chatgpt && !authorization.chatgpt) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_REGISTRATION()
+    const clientId = authorization.chatgpt ? chatgptCallbackClient(authorization.chatgpt.clientId, input.clientId) : undefined
+    const provider = oauthProvider(loaded, name, clientId)
     const owner = await claimMutationLease(name)
     let releaseLease = true
     let quarantine = false
     try {
+      if (chatgpt) {
+        const currentRegistration = (await connections.state.get(name))?.chatgpt?.clientId
+        if (currentRegistration && currentRegistration !== clientId) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_REGISTRATION()
+      }
       const response = await tokenRequest(provider, {
         code: input.code,
         code_verifier: authorization.verifier,
@@ -957,7 +1021,9 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       quarantine = true
       let account: ConnectionAccount | undefined
       try {
-        account = providerAccount(provider, response)
+        account = chatgpt && authorization.chatgpt && clientId
+          ? await verifyChatGPTIdentity({ clientId, idToken: response.id_token, nonce: authorization.chatgpt.nonce, subject: authorization.chatgpt.subject, request, now: now() })
+          : providerAccount(provider, response)
       }
       catch (error) {
         quarantine = true
@@ -981,9 +1047,13 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       if (accountId && (!account || accountId !== account.id)) {
         throw connectionsErrorDiagnostics.CONNECTIONS_STATE_CONFLICT(account ? { connection: name, problem: "other-account" } : { problem: "unknown-account", provider: provider.id })
       }
-      const token = toStoredToken(response, previous?.success ? previous.output : undefined, [
+      const token = toStoredToken(response, previous?.success ? previous.output : undefined, chatgpt ? [] : [
         ...new Set([...(provider.identityScopes ?? []), ...(loaded.scopes ?? [])]),
       ])
+      if (chatgpt && clientId && response.id_token) token.chatgpt = {
+        clientId, idToken: response.id_token,
+        earliestRefreshAt: response.earliest_refresh_at === undefined ? undefined : response.earliest_refresh_at * 1000,
+      }
       token.accountId = account?.id
       token.grantId = randomToken()
       // Quarantine the Connection if its new grant cannot be saved durably.
@@ -992,6 +1062,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
       const replacement = await connections.bridge.replace(envContext(connections, name, "replace", authorization.actor), { expectedRevision: current?.revision ?? null, key, value: JSON.stringify(token) })
       const timestamp = new Date(now()).toISOString()
       const persisted = await connections.state.putForToken({
+        ...(token.chatgpt ? { chatgpt: { clientId: token.chatgpt.clientId, expiresAt: token.expiresAt } } : {}),
         accountEmail: account?.email,
         accountId: account?.id,
         connectedAt: timestamp,
@@ -1050,7 +1121,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     const key = tokenKey(input.name)
     const actor = input.actor ?? "user:local"
     // ViteHub cannot revoke an API key at the provider. Revocation deletes the stored key.
-    const revocationEndpoint = isApiKeyProvider(loaded.provider) || isLoginProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
+    const revocationEndpoint = isChatGPTProvider(loaded.provider) ? await chatgptRevocationEndpoint(request) : isApiKeyProvider(loaded.provider) || isLoginProvider(loaded.provider) ? undefined : loaded.provider.revocationEndpoint
     const owner = await claimMutationLease(input.name)
     let releaseLease = true
     let providerFailure: Error | undefined
@@ -1075,7 +1146,8 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
             // A lost response can leave a grant-wide revoke running at the provider.
             releaseLease = false
             const response = await request(revocationEndpoint, {
-              body: new URLSearchParams({ token: token.refreshToken ?? token.accessToken }),
+              body: new URLSearchParams({ token: token.refreshToken ?? token.accessToken, ...(token.chatgpt ? { client_id: token.chatgpt.clientId, token_type_hint: "refresh_token" } : {}) }),
+              redirect: "error",
               headers: { "content-type": "application/x-www-form-urlencoded" },
               method: "POST",
               signal: AbortSignal.timeout(REFRESH_WAIT_MS),
@@ -1304,7 +1376,132 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     return approval
   }
 
-  return {
+  async function exportChatGPT(input: { actor: string, name: string }): Promise<ChatGPTTransfer> {
+    const loaded = await definition(input.name)
+    if (!isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
+    const connections = await getStore()
+    const owner = await claimMutationLease(input.name)
+    try {
+      await requireConnected(input.name)
+      const current = await connections.secrets.read(tokenKey(input.name))
+      if (!current) throw connectionsErrorDiagnostics.CONNECTIONS_NOT_CONNECTED({ connection: input.name })
+      const token = parseToken(current.value, input.name)
+      if (!token.chatgpt || !token.refreshToken || !token.accountId || !token.expiresAt) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: input.name })
+      const state = await connections.state.get(input.name)
+      const credential: ChatGPTTransfer = {
+        version: 1, issuer: chatgptIssuer, client_id: token.chatgpt.clientId, subject: token.accountId,
+        email: state?.accountEmail, access_token: token.accessToken, refresh_token: token.refreshToken,
+        id_token: token.chatgpt.idToken, token_type: "Bearer", scopes: token.scopes,
+        expires_at: token.expiresAt, ext_agent_host_id: await hostId(),
+      }
+      if (new TextEncoder().encode(JSON.stringify(credential)).byteLength > 60 * 1024) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
+      // Move refresh ownership before the protected file leaves this host.
+      const cleared = await connections.bridge.replace(envContext(connections, input.name, "replace", input.actor), {
+        key: tokenKey(input.name), expectedRevision: current.revision ?? null, value: JSON.stringify({ transferred: true }),
+      })
+      if (!await setStatus(input.name, { status: "reauth_required" }, cleared.revision)) throw connectionsErrorDiagnostics.CONNECTIONS_STATE_CONFLICT({ problem: "authorization" })
+      return credential
+    }
+    finally { await connections.refreshLeases.release(input.name, owner).catch(() => undefined) }
+  }
+
+  async function importChatGPT(input: { actor: string, name: string, credential: unknown }): Promise<ConnectionInspection> {
+    const loaded = await definition(input.name)
+    if (!isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
+    const parsed = v.safeParse(chatgptTransferSchema, input.credential)
+    if (!parsed.success) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
+    const credential = parsed.output
+    // Imported identity can be expired. Verify its signature at its signed issue time, then renew the session.
+    let issuedAt: number
+    try {
+      const claims = decodeJwt(credential.id_token)
+      if (typeof claims.iat !== "number" || !Number.isFinite(claims.iat) || claims.iat * 1000 > now() + 5000) throw new Error("Invalid issue time")
+      issuedAt = claims.iat * 1000
+    }
+    catch { throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_IDENTITY() }
+    const account = await verifyChatGPTIdentity({ clientId: credential.client_id, idToken: credential.id_token, subject: credential.subject, request, now: issuedAt })
+    await hostId()
+    const connections = await getStore()
+    const owner = await claimMutationLease(input.name)
+    let releaseLease = true
+    try {
+      const state = await connections.state.get(input.name)
+      if (state?.status === "connected" || state?.chatgpt && (state.chatgpt.clientId !== credential.client_id || state.accountId !== account.id)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_TRANSFER()
+      const current = await connections.secrets.inspect(tokenKey(input.name))
+      const response = await tokenRequest(oauthProvider(loaded, input.name, credential.client_id), {
+        grant_type: "refresh_token", refresh_token: credential.refresh_token,
+      }, AbortSignal.timeout(REFRESH_WAIT_MS), () => { releaseLease = false }, () => { releaseLease = true }, input.name)
+      releaseLease = false
+      if (response.id_token) await verifyChatGPTIdentity({ clientId: credential.client_id, idToken: response.id_token, subject: account.id, request, now: now() })
+      const token = toStoredToken(response, {
+        accountId: account.id, grantId: randomToken(), accessToken: credential.access_token,
+        refreshToken: credential.refresh_token, scopes: credential.scopes, tokenType: "Bearer",
+        chatgpt: { clientId: credential.client_id, idToken: credential.id_token },
+      })
+      const replacement = await connections.bridge.replace(envContext(connections, input.name, "replace", input.actor), {
+        key: tokenKey(input.name), expectedRevision: current?.revision ?? null, value: JSON.stringify(token),
+      })
+      const timestamp = new Date(now()).toISOString()
+      if (!await connections.state.putForToken({ name: input.name, accountId: account.id, accountEmail: account.email,
+        chatgpt: { clientId: credential.client_id, expiresAt: token.expiresAt }, scopes: token.scopes,
+        connectedAt: timestamp, refreshedAt: timestamp, updatedAt: timestamp, status: "connected",
+      }, replacement.revision)) throw connectionsErrorDiagnostics.CONNECTIONS_STATE_CONFLICT({ problem: "authorization" })
+      releaseLease = true
+      return await inspect(input.name)
+    }
+    finally { if (releaseLease) await connections.refreshLeases.release(input.name, owner).catch(() => undefined) }
+  }
+
+  async function chatgptModels(input: { actor: string, name: string }): Promise<Array<{ id: string, name: string }>> {
+    const loaded = await definition(input.name)
+    if (!isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
+    const api = loaded.provider.api
+    await requireConnected(input.name)
+    const connections = await getStore()
+    return await connections.bridge.use(envContext(connections, input.name, "use", input.actor), tokenKey(input.name), "models", async (secret) => {
+      let token = parseToken(secret.unseal(), input.name)
+      if (expiresSoon(token)) token = await refresh(input.name, loaded, token.accessToken, false)
+      if (!chatgptScopes.every(scope => token.scopes.includes(scope))) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_PERMISSION()
+      const response = await request(`${api}/models`, { headers: { authorization: `Bearer ${token.accessToken}` }, redirect: "error", signal: AbortSignal.timeout(30_000) })
+      const catalog = v.safeParse(v.object({ models: v.array(v.object({ slug: v.string(), display_name: v.string(), visibility: v.string() })) }), await response.json().catch(() => undefined))
+      if (!response.ok || !catalog.success) throw connectionsErrorDiagnostics.CONNECTIONS_PROVIDER_FAILED({ action: "models", status: response.status })
+      return catalog.output.models.filter(model => model.visibility === "list").map(model => ({ id: model.slug, name: model.display_name }))
+    })
+  }
+
+  const useChatGPT: UseChatGPTCredential = async (name, input, use) => {
+    input.signal?.throwIfAborted()
+    const actor = callerActor({ access: input.access })
+    const inherited = callerInheritedActors({ access: input.access })
+    const loaded = await definition(name)
+    if (!isChatGPTProvider(loaded.provider)) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_CLIENT()
+    if (decide({ action: "inference", actor, definition: loaded, inherited, highRisk: false, write: false }) !== "allow") {
+      await recordDenied(name, actor, "inference", input).catch(() => undefined)
+      throw connectionsErrorDiagnostics.CONNECTIONS_DENIED({ connection: name, actor, action: "inference" })
+    }
+    const connections = await getStore()
+    await requireConnected(name)
+    const provider = loaded.provider
+    let failure: unknown
+    try {
+      return await connections.bridge.use(envContext(connections, name, "use", actor, input), tokenKey(name), "inference", async (secret) => {
+        try {
+          let token = parseToken(secret.unseal(), name)
+          if (!token.chatgpt) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name })
+          if (expiresSoon(token)) token = await refresh(name, loaded, token.accessToken, false)
+          if (!chatgptScopes.every(scope => token.scopes.includes(scope))) throw connectionsErrorDiagnostics.CONNECTIONS_CHATGPT_PERMISSION()
+          if (!token.expiresAt || token.expiresAt <= now()) throw connectionsErrorDiagnostics.CONNECTIONS_NEEDS_RECONNECT({ connection: name })
+          input.signal?.throwIfAborted()
+          return await use({ accessToken: token.accessToken, expiresAt: token.expiresAt, api: provider.api,
+            clientInfo: { name: provider.appName, title: provider.appName, version: provider.appVersion } })
+        }
+        catch (error) { failure = error; throw error }
+      })
+    }
+    catch (error) { throw failure ?? error }
+  }
+
+  const runtime: ConnectionsRuntime = {
     activity,
     approvals,
     approve,
@@ -1318,4 +1515,7 @@ export function createConnectionsRuntime(options: ConnectionsRuntimeOptions): Co
     revoke,
     setKey,
   }
+  registerChatGPTCredentialUse(runtime, useChatGPT)
+  registerChatGPTTransfers(runtime, { export: exportChatGPT, import: importChatGPT, models: chatgptModels })
+  return runtime
 }

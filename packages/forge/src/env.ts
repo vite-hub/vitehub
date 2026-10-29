@@ -49,7 +49,8 @@ export const forgeEnv: ForgeEnv = {
  */
 export function readForgeEnv(field: ForgeEnvField, env: Record<string, unknown> | ((name: string) => unknown) = globalThis.process?.env ?? {}): string | undefined {
   for (const name of field.names) {
-    const value: unknown = env instanceof Function ? env(name) : env[name]
+    // doctor-disable-next-line typescript/strict/no-runtime-typeof -- Env readers can be functions created in another realm.
+    const value: unknown = typeof env === "function" ? env(name) : env[name]
     if (!isString(value)) continue
     const trimmed = value.trim()
     if (trimmed) return trimmed

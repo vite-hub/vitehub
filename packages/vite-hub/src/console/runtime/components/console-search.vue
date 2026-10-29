@@ -769,6 +769,7 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- Results use the 16px icons of the rail and section lists, so section icons and action icons match. -->
   <UDashboardSearch
     v-model:open="open"
     v-model:search-term="searchTerm"
@@ -779,7 +780,7 @@ onBeforeUnmount(() => {
     placeholder="Search the Console…"
     preserve-group-order
     title="Search console"
-    :ui="{ root: 'flex-1', content: 'flex-1', footer: 'px-3 py-2' }"
+    :ui="{ root: 'flex-1', content: 'flex-1', footer: 'px-3 py-2', itemLeadingIcon: 'size-4' }"
   >
     <template #empty="{ searchTerm: value }">
       <div class="grid justify-items-center gap-2 px-6 py-10 text-center">

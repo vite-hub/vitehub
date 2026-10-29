@@ -1,5 +1,10 @@
 # vite-hub
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `vite-hub` is the ViteHub application distribution. It registers enabled integrations through one `vitehub()` call and exposes application APIs on explicit `vite-hub/*` feature imports.
 
 Use it for a Vite or Nuxt application that needs Server Primitives, Agents, or both. Install an `@vite-hub/*` owner package directly when you are building a library, another framework integration, or a custom package composition.
@@ -125,7 +130,7 @@ Start `vite dev`, then run the task from another terminal. The task runs in the 
 
 ```sh
 pnpm vitehub task list
-pnpm vitehub task run db:seed --title "First note"
+pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
 ```
 
 `vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
@@ -201,7 +206,9 @@ Retention defaults to 30 days and 10,000 terminal records. To change a limit, pa
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
-Every Console sets `console.auth` in every environment. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `console: true` is rejected with an error that names `auth: false` and `auth: "app"`. `auth: false` also works in production, but the build and the production server log a warning.
+`console: true` reuses the app Auth Definition and its server access policy, with built-in social provider sign-in. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `auth: false` also works in production, but the build and the production server log a warning.
+
+App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console with any `auth` choice. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request`, plus the signed-in `user` with `auth: "app"` or a Console Auth session. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console route and RPC operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections. Every Console data route calls the configured check itself, so it does not depend only on middleware.
 
@@ -227,6 +234,17 @@ The Console accepts up to ten PNG, JPEG, WebP, or GIF images per message, within
 
 Console image uploads require invocation to be enabled. The Console fixes the Agent, route, and invoker profile when submission starts, so switching Agents during an upload cannot redirect the input. Uploads without a usable Blob serving URL are removed before the request fails.
 
+## Logs
+
+`vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
+
+Enable the Console page with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { evlog: { redact: true }, maxEntries: 256 }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there. Local Logs activates the shared Evlog producer even when `observability.evlog.enabled` is false, preserving Observability's other Evlog settings and one request-error logger.
+
+For production, use `logs: { source: './server/logs.ts' }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. This form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
+
+Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
+
+With the Cloudflare preset and Logs enabled, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
 
 ## ViteHub MCP
 

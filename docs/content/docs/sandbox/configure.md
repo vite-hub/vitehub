@@ -43,7 +43,7 @@ Package entrypoints are ESM projects. Keep `"type": "module"` and use explicit r
 Outside `server/sandbox-tasks`, name a file `<path>.sandbox-task.ts` (or `.mts`, `.cts`, `.js`, `.mjs`, `.cjs`) and default-export `defineSandboxTask()`. A free-form Definition uses its nearest `package.json`, so several files can share one package project.
 
 ```ts [server/tools/resize.sandbox-task.ts]
-import { defineSandboxTask } from '@vite-hub/sandbox-task'
+import { defineSandboxTask } from '@vite-hub/sandbox/task'
 
 export default defineSandboxTask({
   timeout: 60000,
@@ -65,7 +65,7 @@ Each timeout must be a positive integer no greater than `2_147_483_647`. `define
 
 ## Package entry point
 
-The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result. The entrypoint does not import `@vite-hub/sandbox-task`.
+The package `index.ts` default-exports an ordinary async function. ViteHub calls it with the invocation payload and context, then returns its awaited result. The entrypoint does not import `@vite-hub/sandbox/task`.
 
 ```ts [server/sandbox-tasks/image/index.ts]
 export default async function optimize(

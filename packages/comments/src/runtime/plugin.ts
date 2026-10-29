@@ -1,13 +1,14 @@
 import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
 import { installComments } from "../index.ts"
-import { commentsHintCookie, commentsHintQuery } from "../page.ts"
+import { commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRoute } from "../page.ts"
 import { commentsMcpTools } from "./mcp.ts"
 
 import type { Comments } from "../index.ts"
 import type { CommentsDatabase } from "../store.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
-export interface CommentsPluginOptions {
+export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
@@ -25,9 +26,11 @@ export function installedComments(): Comments | undefined {
 }
 
 /** Whether a request asks for comment mode: the `?comments` query or the hint cookie that the session route sets. */
-export function wantsCommentMode(request: Request): boolean {
+export function wantsCommentMode(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  if (url.pathname.startsWith("/_vitehub") || url.pathname.startsWith("/api/")) return false
+  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
+  const path = url.pathname.slice(base.length)
+  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
   if (url.searchParams.has(commentsHintQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
@@ -51,10 +54,10 @@ export function scriptNonce(headers: Headers): string | undefined {
 }
 
 /** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
-export function injectOverlay(response: Response, src: string): Response {
+export function injectOverlay(response: Response, src: string, policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src, scriptNonce(response.headers))
+  const tag = scriptTag(src, scriptNonce(policyHeaders))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -109,13 +112,14 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
  * of requests in comment mode. Pages without the hint are returned unchanged.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
+  const base = commentsApiRoute(new URL(options.overlay, "http://localhost").href).slice(0, -commentsRoute.length)
   return (nitroApp) => {
     const database = options.database()
     if (database) installComments(options.comments, { database })
     else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
+    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
 
     if (nitroApp === null || typeof nitroApp !== "object") return
     // Nitro 3: the Web fetch entry that every preset calls.
@@ -123,7 +127,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     if (fetch instanceof Function) {
       Reflect.set(nitroApp, "fetch", async (request: Request, ...rest: unknown[]) => {
         const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-        return response instanceof Response && request instanceof Request && wantsCommentMode(request) ? injectOverlay(response, options.overlay) : response
+        return response instanceof Response && request instanceof Request && wantsCommentMode(request, base) ? injectOverlay(response, options.overlay) : response
       })
       return
     }
@@ -134,7 +138,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     if (!(hook instanceof Function)) return
     Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
       const request = nitro2Request(context.event)
-      if (!request || !wantsCommentMode(request)) return
+      if (!request || !wantsCommentMode(request, base)) return
       const res = context.event.node?.res
       const policy = res?.getHeader?.("content-security-policy")
       html.bodyAppend.push(scriptTag(options.overlay, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
@@ -144,7 +148,13 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
     Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
       if (!(response.body instanceof Response)) return
       const request = nitro2Request(event)
-      if (request && wantsCommentMode(request)) response.body = injectOverlay(response.body, options.overlay)
+      if (request && wantsCommentMode(request, base)) {
+        // H3 preserves Node response headers unless the returned Response replaces them.
+        const headers = new Headers(response.body.headers)
+        const policy = event.node?.res?.getHeader?.("content-security-policy")
+        if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+        response.body = injectOverlay(response.body, options.overlay, headers)
+      }
     }])
   }
 }

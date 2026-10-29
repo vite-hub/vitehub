@@ -6,7 +6,7 @@ import { publishedDeliveryArtifactsFromUnknown } from "./delivery-artifacts.ts"
 import { isAsyncIterable } from "./internal/stream-result.ts"
 import { finalChannelOutputSelectedSymbol } from "./internal/final-channel-output.ts"
 import { synthesizedAgentOutputSymbol } from "./internal/synthesized-agent-output.ts"
-import { materializeAgentUsageCost } from "./internal/usage-pricing.ts"
+import { decimalStringFromNumber, materializeAgentUsageCost } from "./internal/usage-pricing.ts"
 
 import type { AgentActivity, AgentMessagePhase, StreamEvent } from "./messages.ts"
 import type { AgentRunMetadata, AgentRunResult, AgentToolDefinition, AgentUsage, AgentUsageRecord } from "./types.ts"
@@ -502,16 +502,6 @@ function providerCostFromResult(result: unknown): AgentUsageRecord["cost"] | und
       })
     }
   }
-}
-
-function decimalStringFromNumber(value: number): string {
-  const [coefficient, rawExponent] = value.toString().split("e")
-  if (rawExponent === undefined) return coefficient
-  const digits = coefficient.replace(".", "")
-  const decimalIndex = (coefficient.indexOf(".") === -1 ? coefficient.length : coefficient.indexOf(".")) + Number(rawExponent)
-  if (decimalIndex <= 0) return `0.${"0".repeat(-decimalIndex)}${digits}`
-  if (decimalIndex >= digits.length) return `${digits}${"0".repeat(decimalIndex - digits.length)}`
-  return `${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`
 }
 
 function usageRecordFromUsage(

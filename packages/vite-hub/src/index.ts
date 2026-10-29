@@ -1,3 +1,4 @@
+import { commentsOverlayAssets } from "./comments-overlay/assets.ts"
 import { consoleD1Binding, consoleDatabaseUrl, withConnectionsDatabase, withDataDir } from "./storage-config.ts"
 import { applyCacheStorage, resolveCacheStorage, type CacheOptions } from "./cache.ts"
 import { existsSync, readFileSync } from "node:fs"
@@ -14,7 +15,8 @@ import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubComments } from "@vite-hub/comments/vite"
-import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
+import type { HubCommentsOptions } from "@vite-hub/comments/vite"
+import { contributeContentRealtime, hubContent, usesCmsPreset } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
 import { hubEmail, hubEmailOptionalPeerResolver } from "@vite-hub/email/vite"
@@ -23,7 +25,7 @@ import { hubKv, hubKvOptionalPeerResolver, resolveKVViteConfig } from "@vite-hub
 import { hubQueue } from "@vite-hub/queue/vite"
 import { hubRateLimit } from "@vite-hub/rate-limit/vite"
 import { hubRealtime } from "@vite-hub/realtime/vite"
-import { hubSandboxTask } from "@vite-hub/sandbox-task/vite"
+import { hubSandboxTask } from "@vite-hub/sandbox/task/vite"
 import { hubSchedule } from "@vite-hub/schedule/vite"
 import { hubSource } from "@vite-hub/source/vite"
 import { hubWorkflow } from "@vite-hub/workflow/vite"
@@ -33,6 +35,7 @@ import { composeNitroCloudflareProviderOutput, contributeCloudflareProviderOutpu
 import { describeDeploymentPlanOutput, finalizeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
 import { finalizeDenoDeploymentOutput } from "@vite-hub/internal/build/deno-runtime-packages"
 import { nitroCacheBypass } from "@vite-hub/internal/build/nitro-cache-bypass"
+import { nitroWorkerdDependencies } from "@vite-hub/internal/build/nitro-workerd-dependencies"
 import { createNoExternalAddition, isServerEnvironment, resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_SERVER_DIRS, type ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import { assertDeploymentService, deploymentPresetFromNitro, normalizeNitroPreset, resolveDeploymentPlan } from "@vite-hub/internal/deployment"
 
@@ -44,9 +47,12 @@ import { agentInvocationsVitePlugin } from "./agent-invocations-vite.ts"
 import { errorLogVitePlugin } from "./error-log-vite.ts"
 import { standardContextVitePlugin } from "./standard-context-vite.ts"
 import { databaseDisabledPlugin } from "./database-disabled.ts"
+import { operationsCheckPlugin } from "./operations-check.ts"
 import { consoleAuthConfig, consoleInvocationRootPlugin, consoleVitePlugin, resolveConsoleOptions, type ConsoleOptions } from "./console/vite.ts"
 import { includedNitro } from "./nitro-plugin.ts"
+import { nitroOrderPlugins } from "./nitro-order.ts"
 import { viteHubTaskPlugin } from "./task/vite.ts"
+import { logsVitePlugin, type LogsOptions } from "./logs-vite.ts"
 import { observabilityVitePlugin, type ObservabilityOptions } from "./observability-vite.ts"
 import { resolveConsoleSectionIds } from "./console/runtime/sections.ts"
 
@@ -66,7 +72,7 @@ import { resolveViteHubBundleDefines, type ViteAlias } from "@vite-hub/internal/
 import type { DeploymentPlan, DeploymentService } from "@vite-hub/internal/deployment"
 import type { RateLimitModuleOptions } from "@vite-hub/rate-limit"
 import type { RealtimeModuleOptions } from "@vite-hub/realtime"
-import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox-task/vite"
+import type { SandboxTaskPublicOptions } from "@vite-hub/sandbox/task/vite"
 import type { ScheduleVitePluginOptions } from "@vite-hub/schedule/vite"
 import type { WorkflowModuleOptions } from "@vite-hub/workflow"
 import type { WorkspaceModuleOptions } from "@vite-hub/workspace"
@@ -77,6 +83,7 @@ import { viteHubErrorDiagnostics } from "./error-diagnostics.ts"
 
 export type { CacheOptions } from "./cache.ts"
 export type { ConsoleOptions } from "./console/vite.ts"
+export type { LogsOptions, LogsEvlogOptions } from "./logs-vite.ts"
 export type { ObservabilityEvlogOptions, ObservabilityOptions } from "./observability-vite.ts"
 export type { AgentInvocationsDefault } from "./_internal/agent/invocations.ts"
 
@@ -112,6 +119,7 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/database": true,
   "@vite-hub/email": true,
   "@vite-hub/env": true,
+  "@vite-hub/gateways": true,
   "@vite-hub/kv": true,
   "@vite-hub/markdown-template": true,
   "@vite-hub/presets": true,
@@ -119,7 +127,6 @@ const generatedOwnerPackageAccess = {
   "@vite-hub/rate-limit": true,
   "@vite-hub/realtime": true,
   "@vite-hub/runtime": true,
-  "@vite-hub/sandbox-task": true,
   "@vite-hub/schedule": true,
   "@vite-hub/shell": true,
   "@vite-hub/source": true,
@@ -182,8 +189,8 @@ function frameworkWorkspaceDependencyRuntimeImports(sandboxTask: boolean) {
   return {
     ...(sandboxTask
       ? {
-          sandboxTask: "vite-hub/sandbox-task",
-          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox-task/runtime/state`,
+          sandboxTask: "vite-hub/sandbox/task",
+          sandboxTaskRuntimeState: `${generatedImportBase}/sandbox/task/runtime/state`,
         }
       : {}),
     shellWorkspace: "vite-hub/shell/workspace",
@@ -351,16 +358,20 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
-  /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
-  console?: false | ConsoleOptions
+  /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
   env?: false | EnvIntegrationOptions
   kv?: boolean | KVModuleOptions
+  /** Read an existing log source, or inspect a bounded Evlog buffer during development. */
+  logs?: boolean | LogsOptions
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /** Database, SQL dialect, and page overlay for the default-export Comments operations. */
+  comments?: Pick<HubCommentsOptions, "database" | "dialect" | "overlay">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -676,6 +687,7 @@ function deploymentPlugins(
           const cloudflare = cloneRecord(nitro.cloudflare)
           const wrangler = cloneRecord(cloudflare.wrangler)
           if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+          if (options.logs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
           if (options.realtime) {
             const durableObjects = cloneRecord(wrangler.durable_objects)
             const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
@@ -922,6 +934,7 @@ function doctorPlugin(): Plugin {
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
+  const configuredConsole = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(options.preset)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
   // option as the host-native D1 driver so implicit databases (for example,
@@ -1013,36 +1026,44 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   plugins.push(frameworkDependencyResolver(options, envPlugin, providerImportAliases, blobEnabled, presetKVOptions || undefined))
 
+  const logsOwnsEvlog = options.logs === true || (options.logs && !("source" in options.logs) && options.logs.evlog?.enabled !== false)
   if (options.observability) {
     if (options.observability.posthog && !envPlugin) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: "[vitehub] observability.posthog reads its API key from Server Env. Remove env: false." })
     }
-    if (options.observability.papercuts && !(options.console && options.agent)) {
+    if (options.observability.papercuts && !(configuredConsole && options.agent)) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
     }
     // Before Env, so Env reads the PostHog key declaration.
-    plugins.push(observabilityVitePlugin(options.observability, { agent: options.agent, hosting: plan.nitroPreset }))
+    const observability = logsOwnsEvlog && options.observability.evlog?.enabled === false
+      ? { ...options.observability, evlog: { ...options.observability.evlog, enabled: true } }
+      : options.observability
+    plugins.push(observabilityVitePlugin(observability, { agent: options.agent, hosting: plan.nitroPreset }))
   }
-  // evlog records request errors only when it is enabled. Keep the fallback logger
-  // when observability is configured with evlog explicitly disabled.
-  if (!options.observability || options.observability.evlog?.enabled === false) plugins.push(errorLogVitePlugin())
+  if (options.logs) plugins.push(logsVitePlugin(options.logs))
+  const evlogRecordsErrors = logsOwnsEvlog || (options.observability && options.observability.evlog?.enabled !== false)
+  if (!evlogRecordsErrors) plugins.push(errorLogVitePlugin())
   if (envPlugin) plugins.push(envPlugin)
 
   const runtimeCapabilityImports = {
     blob: blobEnabled ? `${generatedImportBase}/blob` : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
-    console: options.console ? "vite-hub/console/server" : false,
+    console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     email: "vite-hub/email/server",
     kv: `${generatedImportBase}/kv`,
   } satisfies Record<string, false | string>
 
-  if (options.console) {
+  plugins.push(operationsCheckPlugin())
+  // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
+  const devOperationsOnly = configuredConsole === undefined
+  if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
-    plugins.push(consoleVitePlugin({
+    const consolePlugin = consoleVitePlugin({
       contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
-      console: options.console,
+      console: configuredConsole || undefined,
+      rpcOnly: devOperationsOnly,
       connections: options.connections,
       runtimeCapabilityImports,
       resolveD1Binding: (root, serverDirs) => consoleD1Binding(plan.preset, options.database, { implicitDefault: true, root, serverDirs }),
@@ -1082,12 +1103,15 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
       scheduleDiscoveryRoot: options.schedule && options.schedule !== true ? options.schedule.projectRoot : undefined,
       workspaceDiscoveryRoot: options.workspace && options.workspace !== true ? options.workspace.projectRoot : undefined,
       invocationRootState,
-      sections: consoleSections,
-    }))
-    if (options.agent) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
+      // The dev-only RPC lists no sections, so it starts no Agent journal or other Console state.
+      sections: devOperationsOnly ? [] : consoleSections,
+    })
+    if (devOperationsOnly) consolePlugin.apply = "serve"
+    plugins.push(consolePlugin)
+    if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || consoleAuthConfig(options.console)) {
+  if (options.auth || consoleAuthConfig(configuredConsole)) {
     plugins.push(hubAuth(
       options.auth === true ? {} : options.auth || false,
       {
@@ -1100,7 +1124,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     plugins.push(hubSandboxTask({
       ...(sandboxTaskPolicy.supported ? { provider: sandboxTaskPolicy.adapter } : {}),
       providerImportAliases,
-      providerImportSpecifier: "vite-hub/sandbox-task",
+      providerImportSpecifier: "vite-hub/sandbox/task",
     } as SandboxTaskPublicOptions))
   }
   if (options.agent) {
@@ -1128,14 +1152,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
-    if (options.connections !== true && options.connections.management && !options.console) {
+    if (options.connections !== true && options.connections.management && !configuredConsole) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
     const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
       ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
       : { ...options.connections, database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
-    if (!connectionsOptions.actor && options.console && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
+    if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(hubConnections(connectionsOptions))
   }
   else plugins.push(hubConnectionsTypesCleanup())
@@ -1174,7 +1198,17 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   }
   // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
   // rooms where Realtime has an authority. Inert without the file.
+  const overlayAssets = options.console === false || options.comments?.overlay === false ? undefined : commentsOverlayAssets()
   const commentsPlugin = hubComments({
+    ...options.comments,
+    ...(overlayAssets ? { overlayAssets, overlayDevOnly: devOperationsOnly, overlayEdit: usesCmsPreset } : {}),
+    operationsImports: {
+      auth: "vite-hub/auth/server",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      databaseSchema: "vite-hub/comments/database",
+      runtime: "vite-hub/comments/server",
+    },
     auth: Boolean(options.auth),
     // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
@@ -1199,7 +1233,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...context,
             contentImport: "vite-hub/content/realtime",
             realtimeImport: "vite-hub/realtime/server",
-            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+            ...(configuredConsole ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
           }),
           commentsPlugin.api.contributeRealtime(context),
         ])
@@ -1255,9 +1289,8 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   })
   plugins.push(sourcePlugin)
   // Reads the Content cms preset and contributes its Workspace, Database tables, and, when the app has none, the
-  // default Database. Inert without the preset. It also adds the `vitehub content` commands and their dev endpoint.
+  // default Database. Inert without the preset. It also adds the `vitehub content` commands and the Content operations.
   plugins.push(hubContent({
-    importBase: `${generatedImportBase}/content`,
     imports: {
       blob: "vite-hub/blob",
       blobDatabase: "vite-hub/workspace/blob-database",
@@ -1272,11 +1305,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   plugins.push(viteHubTaskPlugin())
   // Lets request-scoped checks, such as Content preview, keep a request out of Nitro's cache.
   plugins.push(nitroCacheBypass())
+  // Lets CommonJS dependencies run in the workerd dev server of the Cloudflare presets.
+  plugins.push(nitroWorkerdDependencies())
   plugins.push(viteHubTypesPlugin({
     additionalProjectRoots: options.connections && options.connections !== true && options.connections.projectRoot ? [options.connections.projectRoot] : [],
     prepareSources: sourcePlugin.api.prepareSources,
   }))
   // Nitro is the host output. Its plugins step aside when the app adds `nitro()` itself.
+  plugins.push(...nitroOrderPlugins())
   plugins.push(includedNitro())
   // SAFETY: Each branch above contributes Vite-compatible plugins or nested plugin options.
   return plugins as PluginOption[]

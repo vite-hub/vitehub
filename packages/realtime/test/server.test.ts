@@ -8,8 +8,10 @@ import { runInNewContext } from "node:vm"
 import * as decoding from "lib0/decoding"
 import * as awarenessProtocol from "y-protocols/awareness"
 import * as Y from "yjs"
+import { ViteHubError } from "@vite-hub/runtime"
 
 import { applyRealtimeAwarenessUpdate, applyRealtimeSyncMessage, assertRealtimeRoomStateQuota, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness, containsRealtimeState, createRealtimeHandler, createRealtimeYDoc, diffRealtimeYDoc, encodeAwarenessState, encodeSyncStep1, encodeSyncUpdate, readRealtimeRequestState, readRealtimeWorkspaceDocument, readRealtimeYDoc, realtimeRoomKey, restoreRealtimeDocument, workspaceDocument } from "../src/server.ts"
+import { workspaceDocument as packagedWorkspaceDocument } from "../dist/server.js"
 import { realtimeMarkdownEditor } from "../src/editor.ts"
 import { resolveRealtimeApplicationPath } from "../src/application-path.ts"
 import { decodeWorkspaceChange, encodeWorkspaceChange, messageAwareness, readAwarenessClientIds } from "../src/protocol.ts"
@@ -1233,6 +1235,35 @@ describe("tiptap-markdown documents", () => {
         preservePath: true,
       }],
     ])
+  })
+
+  it.each([
+    ["source", workspaceDocument],
+    ["packaged", packagedWorkspaceDocument],
+  ] as const)("preserves non-document save errors through the %s Workspace adapter", async (_entry, createAdapter) => {
+    const errors = [
+      new ViteHubError("WORKSPACE_NOT_FOUND", "[vitehub] This Workspace has been deleted. Use a new workspace identity.", { details: { workspace: "docs" } }),
+      new ViteHubError("WORKSPACE_NOT_FOUND", '[vitehub] Workspace "docs" is not registered.', { details: { name: "docs" } }),
+      new ViteHubError("WORKSPACE_NOT_FOUND", "[vitehub] Workspace revision does not exist: revision-1."),
+      new ViteHubError("WORKSPACE_FAILED", "[vitehub] Workspace storage is unavailable."),
+    ]
+    for (const operation of ["stat", "writeFile"] as const) {
+      for (const error of errors) {
+        const fs = {
+          stat: vi.fn().mockResolvedValue({ digest: "baseline", type: "file" }),
+          writeFile: vi.fn(),
+        }
+        fs[operation].mockRejectedValue(error)
+        serverMocks.useWorkspace.mockReturnValue(workspaceFacade(fs))
+
+        await expect(createAdapter("docs").save(
+          { authority: "memory", definition: "docs", documentId: "docs/page.md" },
+          { body: "# Edited" },
+          { editors: [], ifDigest: "baseline", reason: "idle" },
+        )).rejects.toBe(error)
+        if (operation === "stat") expect(fs.writeFile).not.toHaveBeenCalled()
+      }
+    }
   })
 
   it("merges a normalized stored form without losing concurrent edits", async () => {

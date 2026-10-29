@@ -1881,6 +1881,64 @@ describe("@vite-hub/runtime", () => {
     ])
   })
 
+  it("derives shuffled runs in first-seen order without changing caller events", () => {
+    const events: TraceEventLogEntry[] = [
+      { name: "run.finish", sequence: 4, timestamp: "2026-01-01T00:00:00.040Z", trace: { id: "run-b" }, type: "run" },
+      { name: "run.finish", sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-a" }, type: "run" },
+      { attributes: { "step.id": "step-b" }, name: "tool.finish", sequence: 3, timestamp: "2026-01-01T00:00:00.030Z", trace: { id: "run-b" }, type: "capability" },
+      { name: "run.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-b" }, type: "run" },
+      { attributes: { "step.id": "step-b" }, name: "tool.start", sequence: 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-b" }, type: "capability" },
+      { name: "run.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-a" }, type: "run" },
+    ]
+    const original = structuredClone(events)
+    for (const event of events) {
+      Object.freeze(event.attributes)
+      Object.freeze(event.trace)
+      Object.freeze(event)
+    }
+    Object.freeze(events)
+
+    const runs = deriveTraceRuns(events)
+
+    expect(runs.map(run => ({ durationMs: run.durationMs, id: run.id, status: run.status }))).toEqual([
+      { durationMs: 40, id: "run-b", status: "completed" },
+      { durationMs: 10, id: "run-a", status: "completed" },
+    ])
+    expect(runs.map(run => run.events)).toEqual([
+      [events[3], events[4], events[2], events[0]],
+      [events[5], events[1]],
+    ])
+    expect(runs[0]!.steps[0]).toMatchObject({ durationMs: 10, id: "step-b", status: "completed" })
+    expect(runs[0]!.steps[0]!.events[0]).toBe(events[4])
+    expect(runs[0]!.steps[0]!.events[1]).toBe(events[2])
+    for (const run of runs) {
+      for (const event of run.events) expect(events.some(originalEvent => originalEvent === event)).toBe(true)
+    }
+    expect(events).toEqual(original)
+    runs[0]!.events.reverse()
+    expect(events).toEqual(original)
+    expect(deriveTraceRuns(events)[0]!.events[0]).toBe(events[3])
+  })
+
+  it.each([
+    ["agent.invocation.finish", "agent.invocation.cancelled", "cancelled"],
+    ["agent.invocation.cancelled", "agent.invocation.finish", "completed"],
+  ])("preserves tied sequence order from %s to %s", (firstTerminal, lastTerminal, status) => {
+    const events: TraceEventLogEntry[] = [
+      { name: firstTerminal, sequence: 2, timestamp: "2026-01-01T00:00:00.010Z", trace: { id: "run-1" }, type: "run" },
+      { name: "agent.invocation.start", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "run" },
+      { name: lastTerminal, sequence: 2, timestamp: "2026-01-01T00:00:00.020Z", trace: { id: "run-1" }, type: "run" },
+    ]
+
+    const runs = deriveTraceRuns(events.values())
+
+    expect(runs).toHaveLength(1)
+    expect(runs[0]).toMatchObject({ durationMs: 20, endTime: events[2]!.timestamp, status })
+    expect(runs[0]!.events[0]).toBe(events[1])
+    expect(runs[0]!.events[1]).toBe(events[0])
+    expect(runs[0]!.events[2]).toBe(events[2])
+  })
+
   it("keeps run errors failed after a later finish", async () => {
     const events = [
       { name: "run.error", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z", trace: { id: "run-1" }, type: "error" as const },

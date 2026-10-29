@@ -114,6 +114,8 @@ export interface ConsoleDocumentListQuery {
 
 export interface ConsoleDocumentPublished {
   documents: Array<{ change: "add" | "update" | "delete", collection: string, id: string }>
+  /** Set when the project publishes through a pull request: the documents go live when it merges. */
+  pullRequest?: { number: number, url: string }
   revision: string | null
 }
 
@@ -455,6 +457,35 @@ export function consoleDocumentStateColor(state: ConsoleDocumentState): "error" 
  * as `Person` for People. Without it, `Posts` → `Post` and `Stories` → `Story`, and labels that are not a plain one-word
  * plural become `Document`.
  */
+/** A folder where a new document of a collection can go, and the start of the id that puts it there. */
+export interface ConsoleDocumentFolder {
+  /** The folder before the first wildcard of a glob, such as `docs/pages/`. "" is the Workspace root. */
+  folder: string
+  /** What the id starts with so that the path lands in `folder`. */
+  prefix: string
+}
+
+/**
+ * One folder for each glob of a collection. Ids are the path below the folder that all globs share, so a collection with
+ * one glob has one folder and an empty prefix.
+ */
+export function consoleDocumentFolders(collection: Pick<ConsoleDocumentCollection, "path" | "paths">): ConsoleDocumentFolder[] {
+  const globs = collection.paths?.length ? collection.paths : [collection.path]
+  const bases = globs.map((glob) => {
+    const segments = glob.replace(/^\.?\/+/, "").split("/")
+    const wildcard = segments.findIndex(segment => /[*?]/.test(segment))
+    return segments.slice(0, wildcard < 0 ? segments.length - 1 : wildcard).map(segment => `${segment}/`).join("")
+  })
+  const split = bases.map(base => base.split("/").filter(Boolean))
+  const shared: string[] = []
+  for (const [index, segment] of (split[0] ?? []).entries()) {
+    if (!split.every(parts => parts[index] === segment)) break
+    shared.push(segment)
+  }
+  const common = shared.map(segment => `${segment}/`).join("")
+  return [...new Set(bases)].map(folder => ({ folder, prefix: folder.slice(common.length) }))
+}
+
 export function consoleSingularLabel(collection: Pick<ConsoleDocumentCollection, "label" | "singularLabel">): string {
   if (collection.singularLabel?.trim()) return collection.singularLabel.trim()
   const word = collection.label.trim()

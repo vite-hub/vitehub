@@ -67,6 +67,7 @@ function syncFake() {
 }
 
 beforeEach(() => {
+  vi.resetModules()
   requests.length = 0
   fake = createFakeGitHub()
   fake.respond(request => request.path === malformedResponsePath ? jsonResponse(malformedResponse) : undefined)
@@ -1453,16 +1454,11 @@ describe("GitHub workspace store", () => {
   it("requires repository and token configuration", async () => {
     const { createGitHubWorkspaceStore } = await import("../src/providers/github/store.ts");
 
-    expect(() =>
-      createGitHubWorkspaceStore(
-        {
-          provider: "github",
-          repository: "onmax/repo",
-          token: "",
-        },
-        "docs",
-      ),
-    ).toThrow("requires a token");
+    // The Store is created without them, and the first request fails with a coded error.
+    const withoutToken = createGitHubWorkspaceStore({ provider: "github", repository: "onmax/repo", token: "" }, "docs");
+    await expect(withoutToken.list()).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a token") });
+    const withoutRepository = createGitHubWorkspaceStore({ provider: "github", token: "token" }, "docs");
+    await expect(withoutRepository.list()).rejects.toMatchObject({ code: "WORKSPACE_R0072", message: expect.stringContaining("requires a repository") });
     expect(() =>
       createGitHubWorkspaceStore(
         {

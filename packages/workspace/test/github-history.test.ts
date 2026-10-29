@@ -2,6 +2,7 @@ import { Buffer } from "node:buffer"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { createGitHubWorkspaceStore } from "../src/providers/github/store.ts"
+import { gitBlobSha, textSha } from "./fake-github.ts"
 
 const root = ".vitehub/workspaces/docs"
 const requests: string[] = []
@@ -44,24 +45,24 @@ const commits = {
 
 const trees = {
   t1: [
-    { path: `${root}/guide.md`, type: "blob", sha: "b-guide-1", size: 6 },
-    { path: `${root}/image.bin`, type: "blob", sha: "b-image", size: 2 },
-    { path: `${root}/.git/config`, type: "blob", sha: "b-private", size: 1 },
+    { path: `${root}/guide.md`, type: "blob", sha: textSha("hello\n"), size: 6 },
+    { path: `${root}/image.bin`, type: "blob", sha: gitBlobSha(new Uint8Array([0, 255])), size: 2 },
+    { path: `${root}/.git/config`, type: "blob", sha: textSha("x"), size: 1 },
   ],
   t2: [
-    { path: `${root}/guide.md`, type: "blob", sha: "b-guide-2", size: 10 },
-    { path: `${root}/image.bin`, type: "blob", sha: "b-image", size: 2 },
+    { path: `${root}/guide.md`, type: "blob", sha: textSha("updated\n\n"), size: 10 },
+    { path: `${root}/image.bin`, type: "blob", sha: gitBlobSha(new Uint8Array([0, 255])), size: 2 },
   ],
   t3: [
-    { path: `${root}/draft.md`, type: "blob", sha: "b-draft", size: 6 },
+    { path: `${root}/draft.md`, type: "blob", sha: textSha("draft\n"), size: 6 },
   ],
 } as const
 
 const blobBodies = new Map<string, Uint8Array>([
-  ["b-guide-1", new TextEncoder().encode("hello\n")],
-  ["b-image", new Uint8Array([0, 255])],
-  ["b-guide-2", new TextEncoder().encode("updated\n\n")],
-  ["b-draft", new TextEncoder().encode("draft\n")],
+  [textSha("hello\n"), new TextEncoder().encode("hello\n")],
+  [gitBlobSha(new Uint8Array([0, 255])), new Uint8Array([0, 255])],
+  [textSha("updated\n\n"), new TextEncoder().encode("updated\n\n")],
+  [textSha("draft\n"), new TextEncoder().encode("draft\n")],
 ])
 
 const bodies = new Map([
@@ -136,6 +137,7 @@ beforeEach(() => {
         ? json([commits.c2], { link: '<https://api.github.com/repos/onmax/repo/commits?page=2>; rel="next"' })
         : page === 2 ? json([commits.c1]) : json([])
       if (ref === "feature/draft") return json(page === 1 ? [commits.c3, commits.c1] : [])
+      if (ref === "c2") return json(page === 1 ? [commits.c2, commits.c1] : [])
       return new Response("missing", { status: 404 })
     }
     const commitId = url.pathname.split("/commits/")[1]
@@ -179,7 +181,7 @@ describe("GitHub Workspace history", () => {
     const first = await history.list({ ref: "main", limit: 1 })
     expect(first.revisions).toHaveLength(1)
     expect(first.revisions[0]).toMatchObject({ id: "c2", parentId: "c1" })
-    expect(first.cursor).toBe("main:2")
+    expect(first.cursor).toBe("main:after:c2")
     await expect(history.list({ ref: "feature/draft", cursor: first.cursor, limit: 1 })).rejects.toMatchObject({ code: "WORKSPACE_R0070" })
     await expect(history.list({ ref: "main", cursor: first.cursor, limit: 1 })).resolves.toMatchObject({ revisions: [{ id: "c1" }] })
 
@@ -191,7 +193,7 @@ describe("GitHub Workspace history", () => {
       expect.objectContaining({ path: "image.bin", type: "file", size: 2, mediaType: "application/octet-stream" }),
     ])
     await expect(view.stat("guide.md")).resolves.toMatchObject({ revision: "c2", size: 10 })
-    expect(requests.some(path => path.includes("api.github.com/repos/onmax/repo/git/blobs/b-guide-2"))).toBe(true)
+    expect(requests.some(path => path.includes(`api.github.com/repos/onmax/repo/git/blobs/${textSha("updated\n\n")}`))).toBe(true)
   })
 
   it("reports empty history for a repository without branches", async () => {

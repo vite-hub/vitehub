@@ -192,23 +192,24 @@ function isShadowedByLexicalDeclaration(
   return false
 }
 
-function isProviderFactoryCall(
+function isProviderCall(
   node: PositionedNode,
-  factoryBindings: Set<string>,
+  bindings: Set<string>,
   namespaces: Set<string>,
   ancestors: Map<PositionedNode, PositionedNode[]>,
+  memberNames: Set<string>,
 ): boolean {
   if (node.type !== "CallExpression" || !isPositionedNode(node.callee)) return false
   if (node.callee.type === "Identifier") {
     const name = identifierName(node.callee) ?? ""
-    return factoryBindings.has(name)
+    return bindings.has(name)
       && !isShadowedByFunctionBinding(node, name, ancestors)
       && !isShadowedByLexicalDeclaration(node, name, ancestors)
   }
   if (node.callee.type !== "MemberExpression" || node.callee.computed === true) return false
   const namespace = identifierName(node.callee.object) ?? ""
   return namespaces.has(namespace)
-    && providerFactoryNames.has(identifierName(node.callee.property) ?? "")
+    && memberNames.has(identifierName(node.callee.property) ?? "")
     && !isShadowedByFunctionBinding(node, namespace, ancestors)
     && !isShadowedByLexicalDeclaration(node, namespace, ancestors)
 }
@@ -236,27 +237,6 @@ function objectProperty(node: PositionedNode, name: string): PositionedNode | un
   return isPositionedNode(property) && isPositionedNode(property.value) ? property.value : undefined
 }
 
-function isProviderCapabilityCall(
-  node: PositionedNode,
-  capabilityBindings: Set<string>,
-  namespaces: Set<string>,
-  ancestors: Map<PositionedNode, PositionedNode[]>,
-): boolean {
-  if (node.type !== "CallExpression" || !isPositionedNode(node.callee)) return false
-  if (node.callee.type === "Identifier") {
-    const name = identifierName(node.callee) ?? ""
-    return capabilityBindings.has(name)
-      && !isShadowedByFunctionBinding(node, name, ancestors)
-      && !isShadowedByLexicalDeclaration(node, name, ancestors)
-  }
-  if (node.callee.type !== "MemberExpression" || node.callee.computed === true) return false
-  const namespace = identifierName(node.callee.object) ?? ""
-  return namespaces.has(namespace)
-    && providerCapabilityNames.has(identifierName(node.callee.property) ?? "")
-    && !isShadowedByFunctionBinding(node, namespace, ancestors)
-    && !isShadowedByLexicalDeclaration(node, namespace, ancestors)
-}
-
 function hasProviderCapabilityDriver(
   node: PositionedNode,
   capabilityBindings: Set<string>,
@@ -265,7 +245,7 @@ function hasProviderCapabilityDriver(
 ): boolean {
   let found = false
   visitNodes(node, (descendant) => {
-    if (found || !isProviderCapabilityCall(descendant, capabilityBindings, namespaces, ancestors)) return
+    if (found || !isProviderCall(descendant, capabilityBindings, namespaces, ancestors, providerCapabilityNames)) return
     const options = Array.isArray(descendant.arguments) && isPositionedNode(descendant.arguments[0])
       ? unwrapTypeScriptExpression(descendant.arguments[0])
       : undefined
@@ -363,7 +343,7 @@ export function usesProviderAgentDriver(source: string, parse: (source: string) 
   let found = false
   visitNodes(program, (node) => {
     if (found) return
-    found = isProviderFactoryCall(node, factoryBindings, namespaces, ancestors)
+    found = isProviderCall(node, factoryBindings, namespaces, ancestors, providerFactoryNames)
       || hasProviderDriverDefinition(node, defineAgentBindings, namespaces, capabilityBindings, capabilityNamespaces, ancestors)
   })
   return found
