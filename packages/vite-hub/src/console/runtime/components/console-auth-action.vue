@@ -6,7 +6,7 @@ import type {
   AuthConsoleValue,
 } from "@vite-hub/auth/console";
 import { computed, ref, watch } from "vue";
-import { changeAuthConsole } from "../client/auth-management";
+import { authDuration, changeAuthConsole } from "../client/auth-management";
 const props = defineProps<{
   base: string;
   action?: AuthConsoleAction;
@@ -15,6 +15,8 @@ const props = defineProps<{
   field?: AuthConsoleField;
   value?: AuthConsoleValue;
   name?: string;
+  /** Seconds that an impersonation session lasts. */
+  duration?: number;
 }>();
 const emit = defineEmits<{ close: []; changed: [action: AuthConsoleAction] }>();
 const text = ref("");
@@ -126,9 +128,26 @@ async function submit() {
         <p v-if="action === 'remove'" class="text-sm text-muted">
           This permanently removes the user and their Auth data.
         </p>
-        <p v-else-if="action === 'impersonate'" class="text-sm text-muted">
-          This browser will use the user's session. The app will open after the change.
-        </p>
+        <ul v-else-if="action === 'impersonate'" class="space-y-3 text-sm text-muted">
+          <li class="flex gap-3">
+            <UIcon name="i-lucide-log-in" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span class="text-pretty"
+              >This browser signs in to the app as {{ name ?? "this user" }}, and the app opens.
+              Your own session comes back when you stop.</span
+            >
+          </li>
+          <li class="flex gap-3">
+            <UIcon name="i-lucide-timer" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span class="text-pretty"
+              >The session ends after {{ authDuration(duration ?? 3600) }}. To stop sooner, open
+              Auth in the Console.</span
+            >
+          </li>
+          <li class="flex gap-3">
+            <UIcon name="i-lucide-history" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span class="text-pretty">Auth Activity records when you start and when you stop.</span>
+          </li>
+        </ul>
         <p
           v-else-if="action === 'revokeSession' || action === 'revokeSessions'"
           class="text-sm text-muted"
