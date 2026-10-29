@@ -53,9 +53,19 @@ describe("mergeContentDocument", () => {
     expect(mergeContentDocument(base, ours, theirs, "markdown")).toEqual({ conflicts: [{ body: true }] })
   })
 
+  it.each([false, true])("conflicts on a deletion against a replacement split around repeated whitespace (reversed: %s)", (reversed) => {
+    const ours = reversed ? " y b a" : " b a"
+    const theirs = reversed ? " b a" : " y b a"
+    expect(mergeContentDocument("a b a", ours, theirs, "markdown")).toEqual({ conflicts: [{ body: true }] })
+  })
+
   it("takes the same change made on both sides once", () => {
     const both = base.replace("18:00", "19:00")
     expect(mergeContentDocument(base, both, both, "markdown")).toEqual({ text: both })
+  })
+
+  it("takes a shared word replacement alongside independent replacements", () => {
+    expect(mergeContentDocument("a b c", "x y c", "x b z", "markdown")).toEqual({ text: "x y z" })
   })
 
   it("merges fields one by one and names a field that both changed", () => {
@@ -80,6 +90,13 @@ describe("mergeContentDocument", () => {
     const json = (value: object) => `${JSON.stringify(value, null, 2)}\n`
     expect(mergeContentDocument(json({ a: 1, b: 1 }), json({ a: 2, b: 1 }), json({ a: 1, b: 2 }), "json")).toEqual({ text: json({ a: 2, b: 2 }) })
     expect(mergeContentDocument(json({ a: 1 }), json({ a: 2 }), json({ a: 3 }), "json")).toEqual({ conflicts: [{ field: "a" }] })
+  })
+
+  it.each(["json", "yaml"] as const)("preserves an own __proto__ field in a %s merge", (format) => {
+    const document = (value: number, other: number) => format === "json"
+      ? `${JSON.stringify({ ["__proto__"]: value, other }, null, 2)}\n`
+      : `__proto__: ${value}\nother: ${other}\n`
+    expect(mergeContentDocument(document(1, 1), document(2, 1), document(1, 2), format)).toEqual({ text: document(2, 2) })
   })
 
   it("conflicts on a file that does not parse", () => {

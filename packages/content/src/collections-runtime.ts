@@ -1031,7 +1031,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           onConflict: async (conflicts, { read }) => {
             const left: string[] = []
             const merged: Record<string, string> = {}
-            for (const { path, base, ours, theirs } of conflicts) {
+            for (const { path, ours, theirs } of conflicts) {
               const format = documentFormat(path)
               if (format === undefined || !Object.hasOwn(carried, path)) continue
               if (await draftHeld(path, theirs, draftHead)) {
@@ -1040,6 +1040,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
               }
               // Edits to different fields or words merge. The result stays in the draft, so a person sees it before
               // it is published; it now builds on the published version.
+              // Git's base advances even when an earlier sync kept a conflict. Use the unresolved Content base.
+              const base = carried[path] ?? null
               if (base !== null && ours !== null && theirs !== null) {
                 const [baseText, oursText, theirsText] = await Promise.all([base, ours, theirs].map(async digest => new TextDecoder().decode(await read(digest))))
                 const result = mergeContentDocument(baseText!, oursText!, theirsText!, format)

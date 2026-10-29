@@ -47,7 +47,20 @@ function hunks(base: string[], side: string[]): Hunk[] {
     }
   }
   if (open) found.push(open)
-  return found
+  // Repeated whitespace can split a replacement into a deletion and an insertion. Keep that pair atomic, without
+  // joining independent replacements (one of which the other side may have made identically).
+  const atomic: Hunk[] = []
+  for (const hunk of found) {
+    const previous = atomic.at(-1)
+    if (previous && base.slice(previous.end, hunk.start).every(token => !/\S/.test(token))
+      && ((previous.sideStart === previous.sideEnd && hunk.start === hunk.end)
+        || (previous.start === previous.end && hunk.sideStart === hunk.sideEnd))) {
+      previous.end = hunk.end
+      previous.sideEnd = hunk.sideEnd
+    }
+    else atomic.push(hunk)
+  }
+  return atomic
 }
 
 /** The tokens of `side` for base tokens `[start, end)`, given the side's hunks inside that range. */
@@ -106,11 +119,11 @@ function same(left: unknown, right: unknown): boolean {
 
 /** Merge fields one by one. A field that both sides set to different values is a conflict. */
 function mergeFields(base: Record<string, unknown>, ours: Record<string, unknown>, theirs: Record<string, unknown>): { fields: Record<string, unknown>, conflicts: string[] } {
-  const fields: Record<string, unknown> = {}
+  const fields: Record<string, unknown> = Object.create(null)
   const conflicts: string[] = []
   // The draft's field order first, then fields that only the other side added.
   for (const key of new Set([...Object.keys(ours), ...Object.keys(theirs), ...Object.keys(base)])) {
-    const [b, o, t] = [base[key], ours[key], theirs[key]]
+    const [b, o, t] = [base, ours, theirs].map(fields => Object.hasOwn(fields, key) ? fields[key] : undefined)
     if (!same(o, t) && !same(t, b) && !same(o, b)) {
       conflicts.push(key)
       continue

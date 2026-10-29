@@ -274,6 +274,29 @@ describe("Content on the GitHub store", () => {
       await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { ref: "published", documents: [{ id: "a", expected: textSha(merged) }] } })
     })
 
+    it("keeps an unresolved field conflict across later syncs of the same JSON document", async () => {
+      const path = "content/posts/a.json"
+      const base = '{"title":"A","count":1}'
+      const { posts, content } = await setup({ path: ["content/posts/**/*.json"], files: { [path]: base } })
+      const draft = { title: "Draft", count: 1 }
+      await posts.save("a", { data: draft })
+      onMain({ [path]: '{"title":"Main","count":1}' })
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "a", expected: textSha(base) }] } })
+
+      // Git now uses the first sync as its base; Content must still use the unresolved document base.
+      onMain({ [path]: '{"title":"Main","count":2}' })
+      const main = fake.head("main")
+      await expect(content.publish()).rejects.toMatchObject({ code: "WORKSPACE_CONFLICT", details: { documents: [{ id: "a", expected: textSha(base) }] } })
+      expect(fake.head("main")).toBe(main)
+      expect(JSON.parse((await posts.raw("a", { ref: "draft" }))!.text)).toEqual({ title: "Draft", count: 1 })
+
+      // Reviewing the published version explicitly still resolves the conflict.
+      const published = (await posts.raw("a", { ref: "published" }))!
+      const reviewed = { title: "Reviewed", count: 2 }
+      await posts.save("a", { data: reviewed }, { ifPublishedDigest: published.digest })
+      await expect(content.publish()).resolves.toMatchObject({ documents: [{ id: "a", change: "update" }] })
+    })
+
     it("acknowledges published drafts across later main edits and partial publishes", async () => {
       const { posts, content } = await setup()
       await posts.save("a", { data: { title: "A draft" }, body: "" })
