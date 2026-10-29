@@ -157,3 +157,29 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
 export function installComments(comments: Comments, runtime: { database: CommentsDatabase }): void {
   runtimes.set(comments, createCommentsStore(runtime.database))
 }
+
+export { commentsErrorDiagnostics } from "./client-errors.ts"
+export type {
+  CommentUser,
+  CommentActor,
+  CommentStatus,
+  CommentSubject,
+  PageAnchor,
+  ElementAnchor,
+  TextAnchor,
+  AreaAnchor,
+  ImageAnchor,
+  CommentAnchor as ClientCommentAnchor,
+  CommentMessage,
+  CommentThread as ClientCommentThread,
+  CommentListQuery,
+  CommentGetInput,
+  CommentCreateInput,
+  CommentReplyInput,
+  CommentEditInput,
+  CommentDeleteInput,
+  CommentStatusInput,
+  CommentUsersInput,
+  CommentEvent,
+  CommentsTransport,
+} from "./client-types.ts"
