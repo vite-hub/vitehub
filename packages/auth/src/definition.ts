@@ -130,13 +130,13 @@ function validateAuthAccess(value: AuthAccessConfiguration | undefined): void {
   validateAuthSignIn(access.signIn)
 }
 
-export function defineAuth<const TOptions extends AuthBetterAuthOptions>(
-  options: AuthDefinitionOptions<TOptions>,
-): AuthDefinition<AuthDefinitionOptions<TOptions>>
-
 export function defineAuth<const TOptions extends AuthResolvedDefinitionOptions>(
   options: AuthDefinitionResolver<TOptions>,
 ): AuthDefinition<AuthDefinitionResolver<TOptions>>
+
+export function defineAuth<const TOptions extends AuthBetterAuthOptions>(
+  options: AuthDefinitionOptions<TOptions>,
+): AuthDefinition<AuthDefinitionOptions<TOptions>>
 
 export function defineAuth(
   options: AuthDefinitionOptions | AuthDefinitionResolver,
