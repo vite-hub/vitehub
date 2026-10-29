@@ -63,6 +63,18 @@
       "require": "./dist/config.js",
       "default": "./dist/config.js"
     },
+    "./connect": {
+      "types": "./dist/connect.d.ts",
+      "import": "./dist/connect.js",
+      "require": "./dist/connect.js",
+      "default": "./dist/connect.js"
+    },
+    "./connect/node": {
+      "types": "./dist/connect/node.d.ts",
+      "import": "./dist/connect/node.js",
+      "require": "./dist/connect/node.js",
+      "default": "./dist/connect/node.js"
+    },
     "./drizzle": {
       "types": "./dist/drizzle.d.ts",
       "import": "./dist/drizzle.js",
