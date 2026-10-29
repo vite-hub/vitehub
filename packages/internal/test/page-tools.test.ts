@@ -1,3 +1,5 @@
+import { brotliCompressSync, gzipSync } from "node:zlib"
+
 import { H3 } from "h3"
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -81,6 +83,35 @@ describe("injectPageToolsLoader", () => {
     expect(await response.text()).toBe(`<html><body><h1>Hi</h1>${loaderTag}</body></html>`)
     expect(response.headers.get("content-length")).toBeNull()
     expect(response.headers.get("cache-control")).toBe("private, no-store")
+  })
+
+  it.each([
+    { encoding: "gzip", compress: gzipSync },
+    { encoding: "br", compress: brotliCompressSync },
+  ])("leaves $encoding HTML and its headers unchanged", async ({ encoding, compress }) => {
+    const bytes = new Uint8Array(compress("<html><body>Page</body></html>"))
+    const response = new Response(bytes, { headers: {
+      "content-type": "text/html",
+      "content-encoding": encoding,
+      "content-length": String(bytes.length),
+      "cache-control": "public, max-age=3600",
+    } })
+    const headers = [...response.headers]
+    const injected = injectPageToolsLoader(response)
+    expect(injected).toBe(response)
+    expect([...injected.headers]).toEqual(headers)
+    expect(new Uint8Array(await injected.arrayBuffer())).toEqual(bytes)
+  })
+
+  it("still injects HTML with identity content encoding", async () => {
+    const response = streamed(["<body>Page</body>"])
+    response.headers.set("content-encoding", "identity")
+    expect(await injectPageToolsLoader(response).text()).toBe(`<body>Page${loaderTag}</body>`)
+  })
+
+  it("preserves astral characters at the retained tail boundary", async () => {
+    const response = injectPageToolsLoader(streamed(["<body>😀1234567", "</body>"]))
+    expect(await response.text()).toBe(`<body>😀1234567${loaderTag}</body>`)
   })
 
   it("gives the loader the nonce of the page's Content Security Policy, which 'strict-dynamic' needs", async () => {
