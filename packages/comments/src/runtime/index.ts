@@ -1,6 +1,6 @@
 export { createCommentsHandler } from "./handler.ts"
 export type { CommentsContent, CommentsContentField, CommentsHandlerOptions } from "./handler.ts"
-export { defineCommentsPlugin, injectOverlay, installedComments, scriptNonce, wantsCommentMode } from "./plugin.ts"
+export { defineCommentsPlugin, installedComments, wantsCommentMode } from "./plugin.ts"
 export type { CommentsPluginOptions } from "./plugin.ts"
 export { commentsConsoleSession } from "./console-session.ts"
 export type { CommentsConsoleAccess } from "./console-session.ts"
