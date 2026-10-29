@@ -14,6 +14,12 @@
       "require": "./dist/abort.js",
       "default": "./dist/abort.js"
     },
+    "./channel-archive": {
+      "types": "./dist/channel-archive.d.ts",
+      "import": "./dist/channel-archive.js",
+      "require": "./dist/channel-archive.js",
+      "default": "./dist/channel-archive.js"
+    },
     "./cli": {
       "types": "./dist/cli.d.ts",
       "import": "./dist/cli.js",
@@ -188,6 +194,12 @@
       "require": "./dist/runtime/cache-bypass.js",
       "default": "./dist/runtime/cache-bypass.js"
     },
+    "./runtime/mcp-tools": {
+      "types": "./dist/runtime/mcp-tools.d.ts",
+      "import": "./dist/runtime/mcp-tools.js",
+      "require": "./dist/runtime/mcp-tools.js",
+      "default": "./dist/runtime/mcp-tools.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -343,6 +355,18 @@
       "import": "./dist/dispatch.js",
       "require": "./dist/dispatch.js",
       "default": "./dist/dispatch.js"
+    },
+    "./operations-vite": {
+      "types": "./dist/operations-vite.d.ts",
+      "import": "./dist/operations-vite.js",
+      "require": "./dist/operations-vite.js",
+      "default": "./dist/operations-vite.js"
+    },
+    "./operations-dev": {
+      "types": "./dist/operations-dev.d.ts",
+      "import": "./dist/operations-dev.js",
+      "require": "./dist/operations-dev.js",
+      "default": "./dist/operations-dev.js"
     }
   },
   "scripts": {

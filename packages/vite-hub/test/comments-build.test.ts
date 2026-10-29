@@ -15,7 +15,7 @@ import type { CommentThread } from "@vite-hub/comments/client"
 describe("Comments in a built Nitro 3 app", () => {
   it("creates the contributed tables with the CLI and serves create, reply, list, and resolve from the built server", async () => {
     const root = await createProject({
-      "index.html": "<main>ok</main>\n",
+      "index.html": "<!doctype html><html><head><title>Fixture</title></head><body><main>ok</main></body></html>\n",
       "package.json": JSON.stringify({ name: "comments-build", private: true, type: "module" }),
       // Only the policy and the stores of vitehub() are the app's: the Database, its tables, and the plugin are contributed.
       "server/comments.ts": [
@@ -24,6 +24,8 @@ describe("Comments in a built Nitro 3 app", () => {
         "export default defineComments({ authorize: () => true })",
         "",
       ].join("\n"),
+      // A server-rendered page, which Vite's index.html transform does not see.
+      "server/routes/ssr.ts": "export default () => new Response('<html><body><h1>Rendered</h1></body></html>', { headers: { 'content-type': 'text/html; charset=utf-8' } })\n",
       // Fixture-only sign-in lets the production build exercise writes as a verified Console user.
       "server/plugins/test-user.ts": [
         "import { definePlugin } from 'nitro'",
@@ -83,6 +85,24 @@ describe("Comments in a built Nitro 3 app", () => {
       }
       const subject = { id: "/pricing", kind: "page" }
 
+      // The overlay: the loader tag is in the SPA page and in a server-rendered page, once, and the files are served for good.
+      const tag = /<script type="module" src="(\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=(overlay\.[\w-]+\.js))"><\/script>/
+      const home = await (await server.fetch("/")).text()
+      const found = tag.exec(home)
+      expect(found, home).not.toBeNull()
+      expect(home.match(/comments\/loader\./g)).toHaveLength(1)
+      const rendered = await (await server.fetch("/ssr")).text()
+      expect(rendered).toMatch(/<h1>Rendered<\/h1><script type="module" src="\/_vitehub\/comments\/loader\.[\w-]+\.js\?f=overlay\.[\w-]+\.js"><\/script><\/body>/)
+      expect(await call("comments.session", { subject })).toEqual({ canRead: true, canWrite: true, user: { id: "ana", name: "Ana" } })
+      for (const file of [found![1]!.split("?")[0]!, `/_vitehub/comments/${found![2]!}`]) {
+        const asset = await server.fetch(file)
+        expect(asset.status, file).toBe(200)
+        expect(asset.headers.get("content-type")).toContain("javascript")
+        expect(asset.headers.get("cache-control")).toMatch(/max-age=31536000/)
+      }
+      // The Console page is HTML too, and gets no overlay.
+      expect(await (await server.fetch("/_vitehub")).text()).not.toContain("comments/loader.")
+
       const created = await call<CommentThread>("comments.create", { anchor: { kind: "page" }, body: "Too small.", subject })
       expect(created).toMatchObject({ author: { id: "ana", name: "Ana" }, n: 1, status: "open", subject })
       const replied = await call<CommentThread>("comments.reply", { body: "Agreed.", threadId: created.id })
@@ -97,6 +117,33 @@ describe("Comments in a built Nitro 3 app", () => {
     finally {
       server.close()
     }
+  }, 240_000)
+
+  it.each([undefined, false] as const)("omits the production overlay when console is %s", async (console) => {
+    const root = await createProject({
+      "index.html": "<!doctype html><html><body><main>ok</main></body></html>",
+      "package.json": JSON.stringify({ name: "comments-no-rpc", private: true, type: "module" }),
+      "server/comments.ts": "import { defineComments } from 'vite-hub/comments'\nexport default defineComments({ authorize: () => true })\n",
+      "server/routes/ssr.ts": "export default () => new Response('<html><body>Rendered</body></html>', { headers: { 'content-type': 'text/html' } })\n",
+    })
+    process.chdir(root)
+    const { nitro } = await import("nitro/vite")
+    const builder = await createBuilder({
+      cacheDir: `${root}.vite-cache`, logLevel: "silent", root,
+      plugins: [vitehub({ console, preset: "node" }), nitro()],
+    })
+    await builder.buildApp()
+    const server = await startBuiltServer(root, {})
+    try {
+      for (const path of ["/", "/ssr"]) {
+        const response = await server.fetch(path)
+        expect(response.status).toBe(200)
+        expect(await response.text()).not.toContain("/_vitehub/comments/loader.")
+      }
+      const entries = await readdir(join(root, ".output/public/_vitehub/comments")).catch(() => [])
+      expect(entries).toEqual([])
+    }
+    finally { server.close() }
   }, 240_000)
 
   it("fails the build with COMMENTS_B0001 when the app sets database: false, and leaves apps without comments alone", async () => {

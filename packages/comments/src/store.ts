@@ -3,9 +3,9 @@ import { and, desc, eq, exists, inArray, sql } from "drizzle-orm"
 import { commentsSchema } from "./database.ts"
 
 import type { RuntimeDrizzleDatabase } from "@vite-hub/database"
-import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentThread, CommentThreadStatus } from "./types.ts"
+import type { Comment, CommentAnchor, CommentAuthor, CommentContext, CommentMention, CommentMetadata, CommentThread, CommentThreadStatus, ReplyOptions } from "./types.ts"
 
-const { vitehubCommentThreads: threads, vitehubComments: comments } = commentsSchema
+const { vitehubCommentThreads: threads, vitehubComments: comments, vitehubCommentScopeCounters: counters } = commentsSchema
 
 export type CommentsDatabase = RuntimeDrizzleDatabase<Record<string, unknown>>
 
@@ -13,17 +13,21 @@ type ThreadRow = typeof threads.$inferSelect
 type CommentRow = typeof comments.$inferSelect
 
 export interface CommentsStore {
-  list(query: { page?: string, status?: CommentThreadStatus, limit: number }): Promise<CommentThread[]>
+  list(query: { scope?: string, page?: string, status?: CommentThreadStatus, limit: number }): Promise<CommentThread[]>
   get(id: string): Promise<CommentThread | undefined>
+  getByNumber(scope: string, number: number): Promise<CommentThread | undefined>
   /** The thread that holds a comment. */
   threadOf(commentId: string): Promise<string | undefined>
-  create(input: { page: string, anchor: CommentAnchor, context?: CommentContext, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
-  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<{ comment: Comment } | { error: "not-found" | "resolved" }>
+  create(input: { scope: string, page: string, anchor?: CommentAnchor, context?: CommentContext, metadata?: CommentMetadata, body: string, author: CommentAuthor, mentions: CommentMention[] }): Promise<CommentThread>
+  edit(commentId: string, input: { body: string, mentions: CommentMention[] }): Promise<Comment | undefined>
+  reply(threadId: string, input: { body: string, author: CommentAuthor, mentions: CommentMention[] }, options?: ReplyOptions): Promise<{ comment: Comment, thread: CommentThread } | { error: "not-found" | "resolved" }>
   setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
   removeComment(commentId: string): Promise<void>
-  /** Distinct authors, newest first, for `@` suggestions. */
-  authors(limit: number): Promise<CommentAuthor[]>
+  /** Deletes every thread of a scope with its comments. Returns how many threads it deleted. */
+  removeScope(scope: string): Promise<number>
+  /** Distinct authors of one scope, newest first, for `@` suggestions. */
+  authors(scope: string, limit: number): Promise<CommentAuthor[]>
 }
 
 function json<T>(value: string | null): T | null {
@@ -50,8 +54,11 @@ function toComment(row: CommentRow): Comment {
 function toThread(row: ThreadRow, rows: readonly CommentRow[]): CommentThread {
   return {
     id: row.id,
+    scope: row.scope,
+    number: row.number,
     page: row.page,
-    anchor: json<CommentAnchor>(row.anchor)!,
+    anchor: json<CommentAnchor>(row.anchor),
+    metadata: json<CommentMetadata>(row.metadata),
     context: json<CommentContext>(row.context),
     status: row.status,
     createdBy: json<CommentAuthor>(row.createdBy)!,
@@ -80,25 +87,36 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
   }
 
   return {
-    async list({ page, status, limit }) {
-      const where = and(page === undefined ? undefined : eq(threads.page, page), status === undefined ? undefined : eq(threads.status, status))
+    async list({ scope, page, status, limit }) {
+      const where = and(
+        scope === undefined ? undefined : eq(threads.scope, scope),
+        page === undefined ? undefined : eq(threads.page, page),
+        status === undefined ? undefined : eq(threads.status, status),
+      )
       return await withComments(await database.select().from(threads).where(where).orderBy(desc(threads.updatedAt)).limit(limit))
     },
     async get(id) {
       const [thread] = await withComments(await database.select().from(threads).where(eq(threads.id, id)).limit(1))
       return thread
     },
+    async getByNumber(scope, number) {
+      const [thread] = await withComments(await database.select().from(threads).where(and(eq(threads.scope, scope), eq(threads.number, number))).limit(1))
+      return thread
+    },
     async threadOf(commentId) {
       const [row] = await database.select({ threadId: comments.threadId }).from(comments).where(eq(comments.id, commentId)).limit(1)
       return row?.threadId
     },
-    async create({ page, anchor, context, body, author, mentions }) {
+    async create({ scope, page, anchor, context, metadata, body, author, mentions }) {
       const now = Date.now()
       const thread: ThreadRow = {
         id: crypto.randomUUID(),
+        scope,
+        number: 0,
         page,
-        anchor: JSON.stringify(anchor),
+        anchor: JSON.stringify(anchor ?? null),
         context: context ? JSON.stringify(context) : null,
+        metadata: metadata ? JSON.stringify(metadata) : null,
         status: "open",
         createdBy: JSON.stringify(author),
         resolvedBy: null,
@@ -107,13 +125,19 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
         updatedAt: now,
       }
       const comment: CommentRow = { id: crypto.randomUUID(), threadId: thread.id, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      await database.batch([database.insert(threads).values(thread), database.insert(comments).values(comment)])
-      return toThread(thread, [comment])
+      // Allocation and creation share one transaction. Deleting threads never deletes allocation history.
+      const next = sql<number>`(SELECT ${counters.lastNumber} FROM ${counters} WHERE ${counters.scope} = ${scope})`
+      const [, saved] = await database.batch([
+        database.insert(counters).values({ scope, lastNumber: 1 }).onConflictDoUpdate({ target: counters.scope, set: { lastNumber: sql`${counters.lastNumber} + 1` } }),
+        database.insert(threads).values({ ...thread, number: next }).returning(),
+        database.insert(comments).values(comment),
+      ])
+      return toThread(saved[0]!, [comment])
     },
-    async reply(threadId, { body, author, mentions }) {
+    async reply(threadId, { body, author, mentions }, { allowResolved = false } = {}) {
       const now = Date.now()
       const comment: CommentRow = { id: crypto.randomUUID(), threadId, body, mentions: JSON.stringify(mentions), author: JSON.stringify(author), createdAt: now, editedAt: null }
-      const [inserted, , parents] = await database.batch([
+      const [inserted, , parents, rows] = await database.batch([
         // Read the parent in the insert statement, inside the same atomic batch as its activity update.
         database.insert(comments).select(database.select({
           id: sql<string>`${comment.id}`.as("id"),
@@ -123,14 +147,25 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
           author: sql<string>`${comment.author}`.as("author"),
           createdAt: sql<number>`${now}`.as("created_at"),
           editedAt: sql<null>`null`.as("edited_at"),
-        }).from(threads).where(and(eq(threads.id, threadId), eq(threads.status, "open")))).returning(),
+        }).from(threads).where(and(eq(threads.id, threadId), allowResolved ? undefined : eq(threads.status, "open")))).returning(),
         database.update(threads).set({ updatedAt: now }).where(and(eq(threads.id, threadId), exists(
           database.select({ id: comments.id }).from(comments).where(eq(comments.id, comment.id)),
         ))),
-        database.select({ status: threads.status }).from(threads).where(eq(threads.id, threadId)),
+        database.select().from(threads).where(eq(threads.id, threadId)),
+        database.select().from(comments).where(eq(comments.threadId, threadId)).orderBy(comments.createdAt),
       ])
-      if (inserted[0]) return { comment: toComment(inserted[0]) }
+      if (inserted[0] && parents[0]) return { comment: toComment(inserted[0]), thread: toThread(parents[0], rows) }
       return { error: parents[0]?.status === "resolved" ? "resolved" : "not-found" }
+    },
+    async edit(commentId, { body, mentions }) {
+      const now = Date.now()
+      const [updated] = await database.batch([
+        database.update(comments).set({ body, mentions: JSON.stringify(mentions), editedAt: now }).where(eq(comments.id, commentId)).returning(),
+        database.update(threads).set({ updatedAt: now }).where(inArray(threads.id,
+          database.select({ threadId: comments.threadId }).from(comments).where(eq(comments.id, commentId)),
+        )),
+      ])
+      return updated[0] ? toComment(updated[0]) : undefined
     },
     async setStatus(threadId, status, by) {
       const now = Date.now()
@@ -152,8 +187,19 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
     async removeComment(commentId) {
       await database.delete(comments).where(eq(comments.id, commentId))
     },
-    async authors(limit) {
-      const rows = await database.select({ author: comments.author }).from(comments).orderBy(desc(comments.createdAt)).limit(limit * 10)
+    async removeScope(scope) {
+      const inScope = database.select({ id: threads.id }).from(threads).where(eq(threads.scope, scope))
+      const [, removed] = await database.batch([
+        database.delete(comments).where(inArray(comments.threadId, inScope)),
+        database.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id }),
+      ])
+      return removed.length
+    },
+    async authors(scope, limit) {
+      const rows = await database.select({ author: comments.author }).from(comments)
+        .innerJoin(threads, eq(threads.id, comments.threadId))
+        .where(eq(threads.scope, scope))
+        .orderBy(desc(comments.createdAt)).limit(limit * 10)
       const seen = new Map<string, CommentAuthor>()
       for (const row of rows) {
         const author = json<CommentAuthor>(row.author)

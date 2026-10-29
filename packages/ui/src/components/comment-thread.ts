@@ -161,6 +161,8 @@ export const CommentThread = defineComponent({
     user: { type: Object as PropType<CommentUser> },
     /** A read-only card for hovering a pin. */
     preview: { default: false, type: Boolean },
+    /** Keep the full thread readable without reply, edit, delete, or status controls. */
+    readOnly: { default: false, type: Boolean },
     /** Show a reply as being sent, on top of the thread's own tracking. */
     busy: { default: false, type: Boolean },
     /** An error to show, on top of the ones from the handlers. */
@@ -262,7 +264,7 @@ export const CommentThread = defineComponent({
           h("header", { "data-slot": "comment-thread-header" }, [
             h("span", { "data-slot": "comment-thread-title" }, `Comment ${thread.n}`),
             h("span", { "data-slot": "comment-thread-spacer" }),
-            h(UButton, {
+            props.readOnly ? null : h(UButton, {
               "aria-label": resolved ? "Reopen" : "Resolve",
               color: "neutral",
               icon: resolved ? "i-ph-arrow-counter-clockwise" : "i-ph-check",
@@ -280,7 +282,7 @@ export const CommentThread = defineComponent({
             ...thread.messages.map((message, index) =>
               h(CommentReply, {
                 confirmDelete: index === 0,
-                editable: message.author.id === props.user?.id,
+                editable: !props.readOnly && message.author.id === props.user?.id,
                 key: message.id,
                 message,
                 onDelete: props.onDelete,
@@ -295,7 +297,7 @@ export const CommentThread = defineComponent({
                 )
               : null,
           ]),
-          h(CommentComposer, {
+          props.readOnly ? null : h(CommentComposer, {
             autofocus: false,
             busy: props.busy || sending.value,
             error: failure.value ?? props.error,

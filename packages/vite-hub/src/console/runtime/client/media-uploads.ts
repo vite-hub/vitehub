@@ -67,7 +67,7 @@ export function useConsoleMediaUploads(client: () => ConsoleMediaClient, onUploa
     await slot()
     patch(entry.id, { error: undefined, progress: 0, state: "uploading" })
     try {
-      const result = await client().upload(entry.file, { folder: entry.folder, onProgress: progress => patch(entry.id, { progress }) })
+      const result = await client().upload(entry.file, { confirmReplace: pathname => confirmReplacement(pathname), folder: entry.folder, onProgress: progress => patch(entry.id, { progress }) })
       patch(entry.id, { progress: 1, result, state: "done" })
       onUploaded?.(result)
       return result
@@ -103,4 +103,10 @@ export function useConsoleMediaUploads(client: () => ConsoleMediaClient, onUploa
       return await run(entry)
     },
   }
+}
+
+/** Asks the person in the browser. Without a window, nobody can answer, so the upload does not replace. */
+function confirmReplacement(pathname: string): boolean {
+  const ask = Reflect.get(globalThis, "confirm")
+  return ask instanceof Function ? ask(`${pathname} already exists. Replace it?`) === true : false
 }

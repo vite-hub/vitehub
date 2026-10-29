@@ -351,6 +351,8 @@ interface ContentCollectionInfo {
   readonly schema: Record<string, unknown>
   /** Whether documents have a public URL from the definition's `url`. Their reads carry `url`. */
   readonly routable: boolean
+  /** The `url` pattern, such as `/blog/:id`, when the definition gives one as a string. A `url()` function leaves it out. */
+  readonly urlPattern?: string
   /** The name of the `seo()` field, when the collection has one. */
   readonly seo?: string
   /** How sessions edit documents together. `lease: false` comes from `editing: { lease: false }` in the definition. */
@@ -1552,6 +1554,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       ...(titleField ? { titleField } : {}),
       format,
       routable: definition.url !== undefined,
+      ...(typeof definition.url === "string" ? { urlPattern: definition.url } : {}),
       ...(seoField ? { seo: seoField } : {}),
       fields: Object.freeze([...fieldNames]),
       schema,

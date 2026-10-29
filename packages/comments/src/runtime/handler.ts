@@ -5,13 +5,15 @@ import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
-import { commentsHintCookie, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { resolveCommentsUser } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -42,15 +44,8 @@ export interface CommentsContent {
   collections(): readonly ContentCollectionLike[]
 }
 
-export interface CommentsHandlerOptions {
+export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
-  /** Reads the ViteHub Auth user only when no custom `identify` is configured. */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
-  /**
-   * Checks Console section access for the action before custom `identify` or Comments policies. `false` or a failed
-   * check denies access; otherwise this is the user when no custom `identify` is configured.
-   */
-  consoleSession?: (event: H3Event, action?: CommentsAction) => Promise<CommentsUser | null | undefined | false>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -163,11 +158,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
-    const consoleUser = await options.consoleSession?.(event, action).catch(() => false as const)
-    if (consoleUser === false) return false
-    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
-    if (options.consoleSession) return consoleUser ?? null
-    return await options.session?.(event).catch(() => null) ?? null
+    return resolveCommentsUser(comments, event, options, action)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
@@ -271,8 +262,11 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     return error ? failure(error) : json({ data: await permissions(event, user, thread) })
   }
 
+  /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
   async function thread(id: string): Promise<Result<CommentThread, "COMMENTS_NOT_FOUND" | "COMMENTS_NOT_INSTALLED">> {
-    return await comments.get(id)
+    const [error, found] = await comments.get(id)
+    if (error) return [error, undefined]
+    return found.scope === commentsPageScope ? [undefined, found] : [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
   }
 
   async function fieldTarget(event: H3Event, address: string): Promise<Result<{ collection: ContentCollectionLike, id: string, path: string[], document: ContentDocumentLike, author: CommentAuthor, user: CommentsUser | null }, "COMMENTS_CONTENT_MISSING" | "COMMENTS_FIELD_INVALID" | "COMMENTS_FIELD_FORBIDDEN" | "COMMENTS_FORBIDDEN">> {
@@ -362,6 +356,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         const page = url.searchParams.get("page")
         const state = url.searchParams.get("status")
         const [error, threads] = await comments.list({
+          scope: commentsPageScope,
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
         })

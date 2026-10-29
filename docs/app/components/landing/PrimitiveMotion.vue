@@ -74,6 +74,13 @@ const id = useId();
       <circle cx="52" cy="20" r="2" class="token a ui-token" />
     </template>
 
+    <template v-else-if="name === 'logs'">
+      <rect x="6" y="7" width="46" height="27" rx="2" class="line" />
+      <path d="M35 7v27" class="line" />
+      <path d="M11 14h4m4 0h11M11 20h4m4 0h11M11 26h4m4 0h11" class="line" />
+      <rect x="9" y="17" width="24" height="6" rx="1" class="soft" />
+      <path d="M39 13h8m-8 5h6m-6 5h8m-8 5h5" class="line" />
+    </template>
     <template v-else-if="name === 'env'">
       <rect x="6" y="10.5" width="10" height="3" rx="1" class="soft" />
       <rect x="6" y="18.5" width="10" height="3" rx="1" class="soft" />

@@ -37,6 +37,8 @@ export const PromptInput = defineComponent({
     multiple: { default: true, type: Boolean },
     placeholder: { type: String },
     status: { default: "ready", type: String as PropType<ChatStatus> },
+    /** The name of the submit button while the status is `ready`. Default `Send prompt`. */
+    submitLabel: { type: String },
   },
   emits: ["error", "reload", "submit", "stop", "update:files", "update:modelValue"],
   setup(props, { attrs, emit, slots }) {
@@ -168,7 +170,7 @@ export const PromptInput = defineComponent({
             h("span", { "data-slot": "prompt-input-spacer" }),
             slots.submit?.({ canSubmit: canSubmit.value, preparingFiles: preparingFiles.value, status: props.status }) ??
               h(UButton, {
-                "aria-label": submitLabels[props.status],
+                "aria-label": props.status === "ready" && props.submitLabel ? props.submitLabel : submitLabels[props.status],
                 class: "rounded-full",
                 color: "neutral",
                 disabled: props.status === "ready" && !canSubmit.value,

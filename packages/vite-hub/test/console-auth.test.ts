@@ -583,6 +583,8 @@ describe("independent Console Auth", () => {
       const options = definition.options({ env: {}, requestOrigin: "http://internal.example.com", request })
       if (!(options.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
       database = options.database
+      // Inline Console Auth needs a file. Without fsync, its migrations take milliseconds instead of seconds on a busy disk.
+      database.exec("PRAGMA synchronous = OFF")
       await prepareConsoleAuth(input, definition, request)
       const response = await requireAuthAccessRoutes(request, [0], definition, [0])
       expect(response?.status).toBe(302)

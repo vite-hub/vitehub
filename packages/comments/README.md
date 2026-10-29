@@ -16,7 +16,9 @@ export const comments = defineComments({
 })
 ```
 
-ViteHub then adds the `vitehub_comment_threads` and `vitehub_comments` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+ViteHub then adds the `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters` tables to the default Database (or the only one, or `defineComments({ database: "name" })`), serves `/api/_vitehub/comments/**`, and adds a Comments section to the Console. Apply the tables with `vitehub db generate` and `vitehub db migrate`.
+
+Existing databases must follow [Upgrade existing Comments](https://vitehub.dev/docs/comments/configure#upgrade-existing-comments) before applying the scoped schema. Backfill thread numbers before creating the unique index, then initialize the durable scope counters.
 
 Open any page with `?comments`. The server adds the overlay script to that page, and the session route sets the `vitehub-comments` cookie so later pages open in comment mode too. The cookie is a hint, never a credential: every route checks `authorize` again. A request without the hint gets the page unchanged.
 
@@ -72,10 +74,12 @@ await comments.resolve(threadId, { by: { id: "agent", name: "Docs Agent" } })
 | `@vite-hub/comments/anchor` | DOM anchoring: `createAnchor()`, `placeAnchor()`, `selectorOf()`, `labelOf()`. |
 | `@vite-hub/comments/database` | `commentsSchema`, the Drizzle tables. |
 | `@vite-hub/comments/realtime` | `commentsRealtime()`, the presence room Realtime Definition. |
-| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup. |
+| `@vite-hub/comments/runtime` | `createCommentsHandler()` and `defineCommentsPlugin()` for a manual Nitro setup; `commentsMcpTools()` for an app's own MCP server. |
 | `@vite-hub/comments/vite` | `hubComments()` discovery and generated server wiring. |
 
 Generated files under `.vitehub/nitro/comments` are inspectable build output, not application imports.
+
+`commentsMcpTools(comments)` returns tools with `call(input, { user })`, where your server authenticates `user` or passes `null` for an anonymous caller. With an H3 request `event`, a configured Comments `identify` or session reader takes precedence over `user`. See [Fix comments with an Agent](https://vitehub.dev/docs/comments/configure#fix-comments-with-an-agent).
 
 ## Learn more
 

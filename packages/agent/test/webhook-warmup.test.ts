@@ -163,7 +163,7 @@ describe("generated readiness route", () => {
   it("warms every webhook handler and answers from the warm-up state", async () => {
     const { read } = await generate({})
     const route = await read("chat-webhook-route.ts")
-    expect(route).toContain('import { createAgentWebhookWarmup } from "@vite-hub/agent/server/internal"')
+    expect(route).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
     expect(route).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
     expect(route).toContain("export const warmWebhookRoutes = () => webhookWarmup.warm()")
     const ready = await read("ready-route.ts")

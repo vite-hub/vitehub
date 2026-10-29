@@ -114,15 +114,6 @@ const agentsInvoke = defineConsoleOperation({
   section: "agents",
 })
 
-const blobList = defineConsoleOperation({
-  description: "List the objects of a Blob store.",
-  input: v.strictObject({ cursor: optionalText, folded: v.optional(v.boolean()), limit: optionalCount, prefix: optionalText, showVitehub: v.optional(v.boolean()), store: optionalText }),
-  kind: "read",
-  name: "blob.list",
-  run: async (input, context) => (await import("./blob.get.ts")).default(legacyEvent("blob", "GET", { query: input }, context)),
-  section: "blob",
-})
-
 const databasesBrowse = defineConsoleOperation({
   cli: { namespace: "db", command: "rows", positional: ["table"] },
   description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
@@ -270,25 +261,6 @@ const logsList = defineConsoleOperation({
   section: "logs",
 })
 
-const kvList = defineConsoleOperation({
-  description: "List the keys of a KV store.",
-  input: v.strictObject({ cursor: optionalText, limit: optionalCount, prefix: optionalText, store: optionalText }),
-  kind: "read",
-  name: "kv.list",
-  run: async (input, context) => (await import("./kv.get.ts")).default(legacyEvent("kv", "GET", { query: input }, context)),
-  section: "kv",
-})
-
-const kvGet = defineConsoleOperation({
-  cli: { positional: ["key"] },
-  description: "Read the value of one KV key.",
-  input: v.strictObject({ key: text, store: optionalText }),
-  kind: "read",
-  name: "kv.get",
-  run: async (input, context) => (await import("./kv.get.ts")).default(legacyEvent("kv", "POST", { body: input }, context)),
-  section: "kv",
-})
-
 const mediaAction = defineConsoleOperation({
   description: "Run one media library action of a Console section.",
   input: v.strictObject({ action: text, body: v.optional(v.unknown()), section: text }),
@@ -367,7 +339,6 @@ async function searchError(response: Response): Promise<Error> {
 export const consoleOperations: readonly AnyOperation[] = [
   agentsInvoke,
   agentsList,
-  blobList,
   databasesBrowse,
   databasesTables,
   definitionsList,
@@ -379,8 +350,6 @@ export const consoleOperations: readonly AnyOperation[] = [
   invocationsGet,
   invocationsList,
   invocationsWorkspace,
-  kvGet,
-  kvList,
   logsList,
   mediaAction,
   searchQuery,
