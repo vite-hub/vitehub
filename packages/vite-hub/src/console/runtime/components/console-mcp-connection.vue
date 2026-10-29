@@ -153,7 +153,7 @@ async function disconnect(): Promise<void> {
     </ConsolePageHeader>
 
     <section class="shrink-0 border-b border-default" aria-label="Connection">
-      <div class="mx-auto grid w-full max-w-6xl gap-4 px-4 py-4 sm:px-6">
+      <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 px-4 py-4 sm:px-6">
         <div class="flex min-w-0 items-center gap-3">
           <UAvatar :src="connection.identity?.picture" :alt="account.primary" :text="consoleMcpInitials(account.primary)" size="lg" />
           <div class="min-w-0 flex-1">
@@ -203,7 +203,7 @@ async function disconnect(): Promise<void> {
       @failed="emit('changed')"
     />
     <div v-else class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto grid w-full max-w-6xl gap-6 px-4 py-5 sm:px-6 [&>*]:max-w-3xl">
+      <div class="mx-auto grid w-full max-w-6xl grid-cols-1 gap-6 px-4 py-5 sm:px-6 [&>*]:max-w-3xl">
         <section v-if="connection.server?.instructions" class="grid gap-2" aria-labelledby="vitehub-mcp-instructions">
           <h3 id="vitehub-mcp-instructions" class="text-xs font-medium text-muted">Instructions</h3>
           <p class="vitehub-mcp-text max-w-[75ch]">{{ connection.server.instructions }}</p>
