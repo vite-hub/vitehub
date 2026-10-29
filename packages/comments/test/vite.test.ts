@@ -215,8 +215,9 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
     expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
     expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
-    const transform = plugin.transformIndexHtml
-    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const hook = plugin.transformIndexHtml
+    const transform = typeof hook === "function" ? hook : hook?.handler
+    if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
     expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
   })
