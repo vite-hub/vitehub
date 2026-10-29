@@ -523,7 +523,11 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
         "/_vitehub/page/session",
       ])
-      expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" }), expect.objectContaining({ baseURL: "/_vitehub/page/assets" })])
+      expect(config.nitro.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: "/_vitehub/assets" }),
+        expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: "/_vitehub/page/assets" }),
+      ])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
@@ -667,7 +671,11 @@ describe("Agent invocation console", () => {
         "/portal/_vitehub/mcp",
         "/portal/_vitehub/page/session",
       ])
-      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }), expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" })])
+      expect(config.nitro?.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
+      ])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -708,6 +716,7 @@ describe("Agent invocation console", () => {
       ])
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
         expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
       ])

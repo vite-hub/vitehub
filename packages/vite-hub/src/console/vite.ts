@@ -16,7 +16,7 @@ import { insertConsoleSection, isConsoleConnectionsEnabled, type ConsoleSectionI
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
-import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
+import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
@@ -62,6 +62,11 @@ export interface ConsoleOptions {
    */
   authorize?: string
   databaseUrl?: string
+  /**
+   * Let Console administrators open the app as one of its users. Off by default. It needs app Auth with Better Auth's
+   * `admin` plugin and `events.store`, so that every start and stop is recorded.
+   */
+  impersonation?: boolean
   /** Let the Console start Agent Invocations and run manual Schedules. Defaults to `true` in development and `false` in production builds. */
   invoke?: boolean
   observations?: AgentInvocationsOptions["observations"]
@@ -107,7 +112,11 @@ export function resolveConsoleOptions(value: unknown): ConsoleOptions | undefine
       throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.signInPage must be a path on the app's origin, such as /sign-in." })
     }
   }
-  // SAFETY: `auth` and `signInPage` are checked above. The other fields keep their documented types and are checked where they are read.
+  const impersonation: unknown = Reflect.get(value, "impersonation")
+  if (impersonation !== undefined && impersonation !== true && impersonation !== false) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0004({ message: "[vitehub] console.impersonation must be true or false." })
+  }
+  // SAFETY: `auth`, `signInPage`, and `impersonation` are checked above. The other fields keep their documented types and are checked where they are read.
   return value as ConsoleOptions
 }
 
@@ -299,7 +308,7 @@ function configureConsoleNitroRoutes(
   const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
   // The page tools contribute their loader asset to the kit.
   const userPublicAssets = (kit.config.publicAssets as ConsoleNitroConfig["publicAssets"] ?? [])
-    .filter(asset => asset?.dir !== consolePublicRoot)
+    .filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
   const publicAssets = [...rpcOnly
     ? []
     : [{
@@ -308,6 +317,11 @@ function configureConsoleNitroRoutes(
         fallthrough: false,
         // Every Console asset name contains a content hash.
         maxAge: 60 * 60 * 24 * 365,
+      }, {
+        // Static files, so the skills CLI reads them without a Console sign-in. They are the public ViteHub skill.
+        baseURL: consoleMountPath(baseURL, "/_vitehub/.well-known/skills"),
+        dir: consoleSkillsRoot,
+        fallthrough: false,
       }], ...userPublicAssets]
   return { kit, publicAssets }
 }
@@ -364,20 +378,24 @@ export function resolveConsoleAccessBuild(
   options: { appAuth?: ResolvedAuthViteConfig, base?: string, handlers?: Pick<ConsoleAuthHandlers, "auth" | "middleware">, root: string, sections?: readonly ConsoleSectionId[] },
 ): ConsoleAccessBuild {
   const authorize = resolveConsoleAuthorizeFile(options.root, configured.authorize)
-  const withAuthorize = (access: ConsoleAccessBuild): ConsoleAccessBuild => authorize ? { ...access, authorize } : access
+  const withAccessOptions = (access: ConsoleAccessBuild): ConsoleAccessBuild => ({
+    ...access,
+    ...(authorize ? { authorize } : {}),
+    ...(configured.impersonation === true ? { impersonation: true as const } : {}),
+  })
   // Where a signed-out visit goes: the app's sign-in page, or the one of Console Auth.
   const withSignInPage = (access: ConsoleAccessBuild, signInPage = consoleSignInPageOption(configured)): ConsoleAccessBuild => signInPage ? { ...access, signInPage } : access
   if ("local" in configured && configured.local === true) return { mode: "local" }
-  if (configured.auth === false || configured.auth === undefined) return withSignInPage(withAuthorize({ mode: "open" }))
+  if (configured.auth === false || configured.auth === undefined) return withSignInPage(withAccessOptions({ mode: "open" }))
   if (configured.auth === "app") {
-    return withSignInPage(withAuthorize(options.appAuth
+    return withSignInPage(withAccessOptions(options.appAuth
       ? { mode: "auth", check: { appRoutes: consoleAppAuthRouteIndexes(options.appAuth, options.base, options.sections) } }
       : { mode: "auth" }))
   }
-  if (!options.handlers) return withAuthorize({ mode: "open" })
+  if (!options.handlers) return withAccessOptions({ mode: "open" })
   return options.handlers.auth === true
-    ? withSignInPage(withAuthorize({ mode: "auth", check: { module: options.handlers.middleware } }), "/_vitehub/sign-in")
-    : withAuthorize({ mode: "cloudflare-access", check: { module: options.handlers.middleware } })
+    ? withSignInPage(withAccessOptions({ mode: "auth", check: { module: options.handlers.middleware } }), "/_vitehub/sign-in")
+    : withAccessOptions({ mode: "cloudflare-access", check: { module: options.handlers.middleware } })
 }
 
 /**
@@ -393,6 +411,9 @@ export function assertConsoleAccess(
     sections?: readonly ConsoleSectionId[]
   },
 ): void {
+  if (configured.impersonation === true && !options.auth) {
+    throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: "[vitehub] console.impersonation needs app Auth. Set auth: true and add server/auth.ts with Better Auth's admin plugin, or remove console.impersonation." })
+  }
   if (configured.auth !== "app") return
   if (!options.auth) {
     throw viteHubErrorDiagnostics.VITE_HUB_B0005({ message: '[vitehub] console: { auth: "app" } requires a discovered ViteHub Auth Definition. Set auth: true and add server/auth.ts, or use console: { auth: false }.' })

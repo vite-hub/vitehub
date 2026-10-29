@@ -5,11 +5,11 @@ import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { H3 } from "h3"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { componentNames, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
+import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
-import type { UserConfig } from "vite"
+import type { ConfigEnv, Plugin, UserConfig } from "vite"
 import type { H3Event } from "h3"
 import type { RealtimeDefinition } from "@vite-hub/realtime"
 import type { createCommentsHandler } from "../src/runtime/handler.ts"
@@ -26,10 +26,10 @@ async function project(files: Record<string, string>): Promise<string> {
   return root
 }
 
-async function configure(plugin: ReturnType<typeof hubComments>, root: string, extra: UserConfig & Record<string, unknown> = {}) {
+async function configure(plugin: Plugin, root: string, command: ConfigEnv["command"] = "build", extra: UserConfig & Record<string, unknown> = {}) {
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
-  const hook = plugin.config as { handler: (config: UserConfig) => Promise<void> }
-  await hook.handler(config)
+  const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
+  await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
   return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
 }
 
@@ -39,10 +39,24 @@ async function readComponentsModule(root: string): Promise<Record<string, string
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
 describe("hubComments", () => {
+  it.each([
+    "git@ghe.example.com:acme/app.git",
+    "https://ghe.example.com/acme/app.git",
+    "ssh://git@ghe.example.com:2222/acme/app.git",
+    "git@github.com:acme/app.git",
+    "https://github.com/acme/app/",
+  ])("discovers a repository from a GitHub or Enterprise remote: %s", async (remote) => {
+    expect(githubRepository(remote)).toBe("acme/app")
+    const root = await project({})
+    expect(await readCommentsBuild(root, { COMMIT_REF: "abc", BRANCH: "feat", REPOSITORY_URL: remote, PULL_REQUEST: "true", REVIEW_ID: "7" }))
+      .toEqual({ commit: "abc", branch: "feat", repository: "acme/app", pullRequest: 7 })
+  })
+
   it("does nothing without server/comments.ts", async () => {
     const root = await project({ "server/content.ts": "export const content = {}" })
     const plugin = hubComments()
@@ -69,6 +83,17 @@ describe("hubComments", () => {
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession")
+  })
+
+  it("carries the preview's pull request into the generated live handler", async () => {
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
+    vi.stubEnv("VERCEL_GIT_PULL_REQUEST_ID", "7")
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ forge: { provider: 'github' } })" })
+    await configure(hubComments(), root)
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain('"repository":"acme/app"')
+    expect(handler).toContain('"pullRequest":7')
   })
 
   it("names a Vue file the way production builds and Nuxt name its component", () => {
@@ -223,7 +248,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
   ])("mounts Comments below the application base: %j", async (config) => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
     const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
-    const nitro = await configure(plugin, root, config)
+    const nitro = await configure(plugin, root, "build", config)
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
     expect(nitro?.publicAssets).toEqual(expect.arrayContaining([expect.objectContaining({ baseURL: "/portal/api/_vitehub/comments/assets" })]))
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
@@ -267,8 +292,99 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const directory = join(root, ".vitehub/nitro/realtime")
     const contribution = await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
     expect(contribution).toEqual({ definitions: [{ handler: join(directory, "comments.mjs"), name: "comments" }] })
-    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: undefined })")
+    // Without Auth or the Console, the people of the rooms are the people signed in with GitHub.
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: githubLogin.user })")
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
+  })
+})
+
+describe("comments() without vite-hub", () => {
+  const standalone = () => comments()[0] as Plugin
+
+  it.each(["standalone", "vitehub"])("uses the build repository for the %s MCP session's GitHub fallback", async (setup) => {
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
+    const root = await project(setup === "standalone" ? {} : { "server/comments.ts": "export const comments = defineComments()" })
+    await configure(setup === "standalone" ? standalone() : hubComments(), root, "serve")
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(plugin).toContain('const githubLogin = createCommentsGitHubLogin({"repository":"acme/app"})')
+    expect(plugin).toContain('session: githubLogin.user, githubLogin,')
+    expect(handler).toContain('githubLogin: createCommentsGitHubLogin({"repository":"acme/app"})')
+  })
+
+  it.each(["build", "serve"] as const)("mounts standalone Comments, its overlay and GitHub sign-in below the app base for %s", async (command) => {
+    const root = await project({ "package.json": "{}" })
+    const plugin = standalone()
+    const nitro = await configure(plugin, root, command, { base: "/portal/" })
+    expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(generated).toContain("/portal/api/_vitehub/comments/assets/overlay.js")
+    expect(generated).toContain(`development: ${command === "serve"}`)
+    expect(generated).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
+  })
+
+  it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
+    const root = await project({ "package.json": "{}" })
+    const nitro = await configure(standalone(), root, "serve")
+    expect(nitro?.handlers).toEqual([
+      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") },
+      { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
+    ])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(plugin).toContain(`openCommentsSqlite(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)})`)
+    expect(plugin).not.toContain("@vite-hub/database")
+    expect(await readFile(join(root, ".vitehub/data/.gitignore"), "utf8")).toBe("*\n")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("githubLogin: createCommentsGitHubLogin(")
+  })
+
+  it("needs the database option in a production build, and says so in the server log", async () => {
+    const root = await project({ "package.json": "{}" })
+    await configure(standalone(), root)
+    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(plugin).toContain("const database = () => undefined")
+    expect(plugin).toContain("comments({ database: \\\"file:./data/comments.sqlite\\\" })")
+    const configured = comments({ database: "file:./data/comments.sqlite" })[0] as Plugin
+    await configure(configured, root)
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("openCommentsSqlite(\"file:./data/comments.sqlite\")")
+  })
+
+  it("keeps the app's server/comments.ts, and adds no tables to a ViteHub Database", async () => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ authorize: () => true })" })
+    const plugin = standalone() as ReturnType<typeof hubComments>
+    await configure(plugin, root, "serve")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain(pathToFileURL(join(root, "server/comments.ts")).href)
+    expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
+  })
+
+  it("steps aside, with its Nitro, when vitehub() runs Comments", () => {
+    const [plugin, ...nitro] = comments() as Plugin[]
+    const config: UserConfig = { plugins: [[{ name: "@vite-hub/comments/vite" }]] }
+    const env: ConfigEnv = { command: "serve", mode: "development" }
+    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)(config, env)).toBe(false)
+    expect(nitro.length).toBeGreaterThan(0)
+    for (const part of nitro) expect(typeof part.apply === "function" ? part.apply(config, env) : true).toBe(false)
+    expect((plugin!.apply as (config: UserConfig, env: ConfigEnv) => boolean)({ plugins: [] }, env)).toBe(true)
+  })
+})
+
+describe("generated guest access policy", () => {
+  it.each(["standalone", "vitehub"])("records Vite's command for %s, including builds in development mode", async (setup) => {
+    const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
+    const plugin = setup === "standalone" ? comments()[0] as Plugin : hubComments()
+    const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root }
+    const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
+    const cases: Array<{ env: ConfigEnv, development: boolean }> = [
+      { env: { command: "serve", mode: "development" }, development: true },
+      { env: { command: "build", mode: "development" }, development: false },
+      { env: { command: "serve", mode: "development", isPreview: true }, development: false },
+    ]
+    for (const { env, development } of cases) {
+      await hook.handler(config, env)
+      const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+      expect(generated).toContain(`development: ${development}`)
+    }
   })
 })

@@ -16,11 +16,10 @@ import type { WorkspaceSession } from "@vite-hub/workspace"
 import type { JSONSchema7 } from "json-schema"
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import { isRuntimeString } from "../internal/runtime-value.ts"
-import { forgeGitEnvironment } from "../internal/forge-access.ts"
+import { forgeGitEnvironment, forgeGitScope } from "../internal/forge-access.ts"
 import {
   preparePullRequestCheckout,
   pullRequestCheckoutPlan,
-  pullRequestRepositories,
   shellQuote,
 } from "../internal/pull-request-checkout.ts"
 
@@ -520,8 +519,7 @@ export function git(options: GitCapabilityOptions = {}): AgentCapabilityDefiniti
       policy: options.policy,
       timeout,
     }, getSessionResolver(context), defaultGitCwd(context), async () => {
-      const scope = pullRequestCheckoutPlan(context.context) ?? pullRequestRepositories(context.context)
-      return await forgeGitEnvironment(context, context.runtimeContext, scope)
+      return await forgeGitEnvironment(context, context.runtimeContext, forgeGitScope(context.context, context.workspaceDefinition))
     }),
     close: closeSession,
   })

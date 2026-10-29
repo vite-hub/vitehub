@@ -14,7 +14,13 @@ import type {
 } from "@vite-hub/auth/console";
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
-import { authDate, authFieldValue, readAuthConsole } from "../client/auth-management";
+import {
+  authDate,
+  authFieldValue,
+  changeAuthConsole,
+  readAuthConsole,
+} from "../client/auth-management";
+import { consoleMountBase, consoleMountPath } from "../console-route";
 import { rememberConsoleSection } from "../sections";
 import ConsoleAuthAction from "./console-auth-action.vue";
 import ConsoleAuthDetail from "./console-auth-detail.vue";
@@ -72,6 +78,27 @@ const icons: Record<AuthConsolePage, string> = {
   organizations: "i-lucide-building-2",
   agents: "i-lucide-bot",
 };
+// With Console Auth, the app session of this browser can be an impersonation session while the Console stays open.
+const impersonating = computed(() => description.value?.impersonation?.active ?? undefined);
+const appRoot = computed(() =>
+  impersonating.value ? consoleMountPath(consoleMountBase(window.location.pathname), "/") : "/",
+);
+const stopping = ref(false);
+const stopError = ref("");
+async function stopImpersonating() {
+  const target = impersonating.value?.user.id;
+  stopping.value = true;
+  stopError.value = "";
+  try {
+    await changeAuthConsole(props.managementBase, { action: "stopImpersonating" });
+    if (target) selectedUser.value = target;
+    await refresh();
+  } catch (cause) {
+    stopError.value = cause instanceof Error ? cause.message : "Could not stop impersonating.";
+  } finally {
+    stopping.value = false;
+  }
+}
 let controller: AbortController | undefined;
 let orgController: AbortController | undefined;
 function closeOrganization() {
@@ -222,6 +249,40 @@ onBeforeUnmount(() => {
           >
           </div>
         </nav>
+        <div v-if="impersonating" class="border-b border-warning/25 bg-warning/10">
+          <div
+            class="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2 sm:px-6"
+          >
+            <div class="flex min-w-0 flex-[1_1_16rem] items-start gap-2">
+              <UIcon
+                name="i-lucide-venetian-mask"
+                class="mt-0.5 size-4 shrink-0 text-warning"
+                aria-hidden="true"
+              />
+              <div class="min-w-0 text-sm text-pretty">
+                <p role="status" class="text-highlighted">
+                  This browser uses the app as
+                  <span class="font-medium">{{
+                    impersonating.user.name || impersonating.user.email
+                  }}</span>
+                  until {{ authDate(impersonating.expiresAt) }}.
+                </p>
+                <p v-if="stopError" role="alert" class="text-error">{{ stopError }}</p>
+              </div>
+            </div>
+            <div class="flex shrink-0 gap-2">
+              <UButton :to="appRoot" external size="xs" color="neutral" variant="ghost"
+                >Open app</UButton
+              ><UButton
+                size="xs"
+                color="neutral"
+                :loading="stopping"
+                @click="stopImpersonating"
+                >Stop impersonating</UButton
+              >
+            </div>
+          </div>
+        </div>
         <ConsolePageToolbar v-if="page === 'users'" width="6xl">
           <UInput
             v-model="search"

@@ -7,3 +7,5 @@ export type { CommentsConsoleAccess } from "./console-session.ts"
 export { commentsMcpTools } from "./mcp.ts"
 // The route `GET /_vitehub/page/session` of the page tools. The Vite plugin serves it from this module.
 export { viteHubPageSessionHandler } from "@vite-hub/internal/runtime/page-tools"
+export { createCommentsGitHubLogin, githubLoginEnv } from "./github-login.ts"
+export type { CommentsGitHubLogin } from "./github-login.ts"

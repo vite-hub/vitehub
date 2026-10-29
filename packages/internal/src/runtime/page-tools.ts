@@ -153,11 +153,14 @@ export function scriptNonce(headers: Headers): string | undefined {
 /**
  * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. The page then
  * varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other responses return
- * unchanged. `policyHeaders` supplies the effective CSP when the host keeps it outside the Response.
+ * unchanged, including compressed HTML. `policyHeaders` supplies the effective CSP when the host keeps it outside
+ * the Response.
  */
 export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers, base = ""): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
+  const encoding = response.headers.get("content-encoding")
+  if (encoding && encoding.toLowerCase() !== "identity") return response
   const tag = loaderTag(scriptNonce(policyHeaders), base)
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
@@ -178,7 +181,10 @@ export function injectPageToolsLoader(response: Response, policyHeaders: Headers
         return
       }
       // Keep the end, so a `</body>` split across chunks is still found.
-      const keep = Math.max(0, text.length - 8)
+      let keep = Math.max(0, text.length - 8)
+      // Encode a surrogate pair together when the retained tail starts inside an astral character.
+      const last = text.charCodeAt(keep - 1)
+      if (last >= 0xD800 && last <= 0xDBFF) keep--
       controller.enqueue(encoder.encode(text.slice(0, keep)))
       tail = text.slice(keep)
     },

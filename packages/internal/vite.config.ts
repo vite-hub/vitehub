@@ -5,7 +5,8 @@ export default defineConfig({
     deps: {
       // The scanner uses the oxc parser that the consumer's Vite ships. Packages that bundle
       // `@vite-hub/internal/valibot` depend on the converter, so apps share one copy.
-      neverBundle: ["vite", "@valibot/to-json-schema"],
+      // Nitro must resolve its own dependencies from its installed package.
+      neverBundle: ["vite", /^nitro(?:\/|$)/, "@valibot/to-json-schema"],
     },
     dts: true,
     entry: [
@@ -45,6 +46,7 @@ export default defineConfig({
       "src/build/deployment-plan-output.ts",
       "src/build/deno-runtime-packages.ts",
       "src/build/esbuild.ts",
+      "src/build/included-nitro.ts",
       "src/build/mode.ts",
       "src/build/nitro-cache-bypass.ts",
       "src/build/nitro-workerd-dependencies.ts",

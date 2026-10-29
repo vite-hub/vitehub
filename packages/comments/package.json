@@ -95,6 +95,12 @@
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./runtime/sqlite": {
+      "types": "./dist/runtime/sqlite.d.ts",
+      "import": "./dist/runtime/sqlite.js",
+      "require": "./dist/runtime/sqlite.js",
+      "default": "./dist/runtime/sqlite.js"
+    },
     "./server": {
       "types": "./dist/server.d.ts",
       "import": "./dist/server.js",
@@ -127,15 +133,18 @@
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime",
     "@vite-hub/auth": "workspace:*",
+    "@vite-hub/forge": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs"
+    "h3": "catalog:unjs",
+    "nitro": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
+    "marked": "catalog:realtime",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite-plus": "catalog:tooling",

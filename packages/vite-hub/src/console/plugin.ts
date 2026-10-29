@@ -30,6 +30,8 @@ function resolveConsoleRuntimeRoot(): string {
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
+/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
+export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 function readConsoleOutput(root: string): string {
   if (!existsSync(root)) return ""
   const files: string[] = []
@@ -90,6 +92,8 @@ export interface ConsoleAccessBuild {
   mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+  /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
+  impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
 }
@@ -149,12 +153,13 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     )
     fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     setup.push("const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)")
-    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })`)
+    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined)${access.impersonation ? ", impersonation: true" : ""} })`)
   }
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
   }
+  if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   return {
     imports,

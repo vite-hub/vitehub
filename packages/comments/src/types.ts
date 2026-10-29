@@ -77,8 +77,18 @@ export interface CommentContext {
     colorScheme?: "light" | "dark"
     timeZone?: string
   }
-  /** The commit and branch of the build that served the page, when the build could read them. */
-  build?: { commit?: string, branch?: string }
+  /** The build that served the page, when the build could read it. */
+  build?: CommentBuild
+}
+
+/** The build that served a page: what the CI or host told the build, else Git. */
+export interface CommentBuild {
+  commit?: string
+  branch?: string
+  /** The GitHub repository, as `owner/name`. */
+  repository?: string
+  /** The pull request that the build previews, when the host names it. */
+  pullRequest?: number
 }
 
 export interface Comment {
@@ -125,6 +135,58 @@ export interface CommentThread {
   updatedAt: string
   /** Oldest first. The first comment opened the thread. */
   comments: Comment[]
+  /** The pull request comment of the thread, when `defineComments({ forge })` syncs it. */
+  forge?: CommentForgeLink | null
+}
+
+/**
+ * Where a thread sits on its pull request.
+ * - `posted`: on the pull request.
+ * - `pending`: being posted.
+ * - `failed`: the forge refused it; the next change, or `comments.sync()`, tries again.
+ */
+export interface CommentForgeLink {
+  repository: string
+  pullRequest: number
+  state: "posted" | "pending" | "failed"
+  /** The comment that holds the thread's first comment. */
+  url?: string
+  /** Why the forge refused it. */
+  error?: string
+  /** `author` when it posted with the person's own GitHub token, `app` when the GitHub App posted it for them. */
+  postedAs?: "author" | "app"
+}
+
+export interface CommentsForgeTarget {
+  repository: string
+  pullRequest: number
+}
+
+/**
+ * Posts each thread to the pull request of the build that served its page: one comment per comment, and one summary
+ * comment that lists every thread. Credentials come from Server Env: a GitHub App (`VITEHUB_GITHUB_APP_ID` with
+ * `VITEHUB_GITHUB_PRIVATE_KEY`), else `VITEHUB_GITHUB_TOKEN`.
+ */
+export interface CommentsForgeOptions {
+  /** Only GitHub for now. */
+  provider: "github"
+  /** `owner/name`. Default: the repository of the build that served the thread's page. */
+  repository?: string
+  /**
+   * The pull request of a thread. Default: the one the build names, else the open pull request whose head is the
+   * build's branch. Return `undefined` to keep the thread off GitHub.
+   */
+  pullRequest?: (thread: CommentThread) => number | undefined | Promise<number | undefined>
+  /**
+   * The GitHub token of the person who wrote a comment, such as the user token of their GitHub sign-in, so the
+   * comment posts as them. Without one, the GitHub App posts it with their name.
+   */
+  token?: (author: CommentAuthor) => string | undefined | Promise<string | undefined>
+  /** The heading of the summary comment. Default `"Preview comments"`. */
+  title?: string
+  /** GitHub Enterprise API base. Default `https://api.github.com`. */
+  apiUrl?: string
+  fetch?: typeof fetch
 }
 
 /**
@@ -135,7 +197,17 @@ export interface CommentThread {
 export type CommentsAction = "read" | "comment" | "resolve"
 
 /** The user that `identify` or the ViteHub Auth session resolved. `null` for an anonymous request. */
-export type CommentsUser = Record<string, unknown> & { id: string }
+export type CommentsUser = Record<string, unknown> & { id: string, github?: CommentsGitHubAccess }
+
+/** What GitHub says about a person who signed in to Comments with GitHub. */
+export interface CommentsGitHubAccess {
+  /** Their GitHub username. */
+  login: string
+  /** The repository of the build, `owner/name`, when Comments knows it. */
+  repository?: string
+  /** Whether they can push to `repository`. False when Comments does not know the repository. */
+  write: boolean
+}
 
 export interface CommentsAuthorizeContext {
   user: CommentsUser | null
@@ -165,8 +237,10 @@ export interface CommentCreatedEvent {
 
 export interface DefineCommentsOptions {
   /**
-   * Who may read, comment, and resolve. Return `false` to deny. Without it, any signed-in user may do everything and
-   * anonymous requests may do nothing. Return `true` for `user: null` to let guests comment under a name they choose.
+   * Who may read, comment, and resolve. Return `false` to deny. Return `true` for `user: null` to let guests comment
+   * under a name they choose. Without it: a person signed in with GitHub may do everything when they can push to the
+   * repository of the build; any other signed-in user may do everything; anonymous people may comment as guests on the
+   * development server only.
    */
   authorize?: (context: CommentsAuthorizeContext) => boolean | void | Promise<boolean | void>
   /** Resolves the user of a request. Without it, Comments reads the ViteHub Auth session. Return `null` for anonymous. */
@@ -177,6 +251,8 @@ export interface DefineCommentsOptions {
   people?: (context: CommentsPeopleContext) => CommentMention[] | Promise<CommentMention[]>
   /** Runs after a comment saves, such as to notify mentioned people by Email. Errors are logged, not returned. */
   onComment?: (event: CommentCreatedEvent) => void | Promise<void>
+  /** Posts threads to the pull request that the page previews. Needs `vitehub db generate` for its table. */
+  forge?: CommentsForgeOptions
 }
 
 export interface ListCommentThreadsOptions {

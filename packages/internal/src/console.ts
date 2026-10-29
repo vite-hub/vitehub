@@ -396,6 +396,17 @@ export interface ViteHubConsoleDocumentSummary {
   schedule?: ViteHubConsoleDocumentSchedule
   /** How many field issues the draft has. Absent when it validates. Publish refuses the document until they are fixed. */
   issues?: number
+  /**
+   * Set when the published version also changed after the draft started from it, for example with a Git commit.
+   * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
+   */
+  conflict?: ViteHubConsoleDocumentConflict
+}
+
+/** A document that changed on the published side and in the draft. */
+export interface ViteHubConsoleDocumentConflict {
+  /** Digest of the published version, or null when it was deleted there. Send it as `ifPublishedDigest`. */
+  published: string | null
 }
 
 /** One unpublished change of a collection, with the draft digest the editor showed. */
@@ -461,6 +472,11 @@ export interface ViteHubConsoleDocument {
    * working; `publish` and `schedule` refuse the document with `CONTENT_INVALID` until the list is empty.
    */
   issues?: Array<{ field?: string, path: Array<string | number>, message: string }>
+  /**
+   * Set when the published version also changed after the draft started from it, for example with a Git commit.
+   * `publish` refuses the document until a `save` with `ifPublishedDigest` records which published version it builds on.
+   */
+  conflict?: ViteHubConsoleDocumentConflict
 }
 
 /** One stored file as written, without parsing or validation, so any version can be shown and compared. */
@@ -694,15 +710,16 @@ export interface ViteHubConsoleDocumentActions {
    */
   setup?(context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentSetup>
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
-  /** Reads the draft. Returns null when the draft has no such document. */
-  get(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
+  get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
    * `ifDigest: null` creates a document that must not exist yet. `session` is the tab token: while another tab holds
-   * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`.
+   * the edit lease, the save fails with `409 CONTENT_LEASE_HELD` and `details.holder`. `ifPublishedDigest` resolves a
+   * `conflict`: it names the published version that the person saw, which the draft then builds on.
    */
-  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, session?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
+  save(input: { collection: string, id: string, data: Record<string, unknown>, body: string, ifDigest: string | null, ifPublishedDigest?: string | null, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument>
   /** `live: true` when the tab edits in the live room of the document, which holds the lease for everyone in it. */
   remove(input: { collection: string, id: string, ifDigest: string, session?: string, live?: boolean }, context: ViteHubConsoleDocumentActionContext): MaybePromise<void>
   /**

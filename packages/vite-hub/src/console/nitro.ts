@@ -26,9 +26,10 @@ type NitroHandler = { handler: string; method?: string | string[]; middleware?: 
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 
 /**
- * Serves the standalone Console: its HTML page at `/_vitehub/**` and its hashed script, style, and font assets at
- * `/_vitehub/assets`. The page loads its own Vue app, Nuxt UI theme, and styles, so a host app that renders around it,
- * such as Nuxt, cannot change how the Console looks. Nitro adds the application base to these routes.
+ * Serves the standalone Console: its HTML page at `/_vitehub/**`, its hashed script, style, and font assets at
+ * `/_vitehub/assets`, and the ViteHub skill at `/_vitehub/.well-known/skills`. The page loads its own Vue app, Nuxt UI
+ * theme, and styles, so a host app that renders around it, such as Nuxt, cannot change how the Console looks. Nitro
+ * adds the application base to these routes.
  */
 export function addConsolePageHandlers(
   nitro: { handlers?: NitroHandler[], publicAssets?: NitroPublicAsset[] },
@@ -39,6 +40,7 @@ export function addConsolePageHandlers(
   const page = join(consoleRuntimeRoot, "server/page.get.js")
   const signIn = join(consoleRuntimeRoot, "server/sign-in.js")
   const assets = join(consoleRuntimeRoot, "public/console")
+  const skills = join(consoleRuntimeRoot, "public/skills")
   const handlers = (nitro.handlers ??= []).filter(candidate => candidate.handler !== page && candidate.handler !== signIn)
   if (signInPage) {
     // Run before primary app Auth can reject an HTML page visit, including after Nitro config replay.
@@ -51,7 +53,9 @@ export function addConsolePageHandlers(
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
     { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
-    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets),
+    // The ViteHub skill for `npx skills add <app>/_vitehub`. Static files need no Console sign-in.
+    { baseURL: mountPath(base, "/_vitehub/.well-known/skills"), dir: skills, fallthrough: false },
+    ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets && asset.dir !== skills),
   ]
   addConsolePageToolRoutes(nitro, consoleRuntimeRoot, base)
 }
