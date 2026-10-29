@@ -4,9 +4,11 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { github } from "@vite-hub/workspace"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { forgeAccessKey, forgeGitEnvironment } from "../src/internal/forge-access.ts"
+import { forgeAccessKey, forgeGitEnvironment, forgeGitScope } from "../src/internal/forge-access.ts"
 import { preparePullRequestCheckout, pullRequestCheckoutPlan, pullRequestRepositories } from "../src/internal/pull-request-checkout.ts"
 import type { AgentCallbackContext } from "../src/types.ts"
 
@@ -136,6 +138,40 @@ describe("pull request checkout", () => {
     expect(await header("https://github.com/contributor/vitehub.git/git-receive-pack")).toBe(basic("fork-token"))
     expect(await header("https://github.com/other/vitehub.git/info/refs")).toBe("")
     expect(await header("https://example.com/vite-hub/vitehub.git/info/refs")).toBe("")
+  })
+
+  it("gives a run without a pull request credentials for the Agent's GitHub Sources", async () => {
+    const fixture = await githubFixture()
+    const access = vi.fn(async (_context: AgentCallbackContext, scope: { repository: string }) => {
+      if (scope.repository === "other/private") throw new Error("GitHub App is not installed for other/private.")
+      return { token: `${scope.repository.split("/")[1]}-token` }
+    })
+    const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
+    const workspace = {
+      sources: {
+        portal: github({ repo: "quiverdk/portal" }),
+        dbt: github({ repo: "quiverdk/ingestion", root: "dbt" }),
+        private: github({ repo: "other/private" }),
+      },
+    } as unknown as WorkspaceDefinition
+    const scope = forgeGitScope({ get: () => undefined }, workspace)
+    expect([...scope?.repositories || []].sort()).toEqual(["other/private", "quiverdk/ingestion", "quiverdk/portal"])
+
+    const env = cleanEnv(await forgeGitEnvironment(context, { [forgeAccessKey]: access }, scope))
+    expect(["portal-token", "ingestion-token"]).toContain(env.GH_TOKEN)
+    const header = async (url: string) => await git(fixture.workspace, ["config", "--get-urlmatch", "http.extraheader", url], env).catch(() => "")
+    const basic = (token: string) => `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${token}`).toString("base64")}`
+    expect(await header("https://github.com/quiverdk/portal.git/info/refs")).toBe(basic("portal-token"))
+    expect(await header("https://github.com/quiverdk/ingestion.git/info/refs")).toBe(basic("ingestion-token"))
+    expect(await header("https://github.com/other/private.git/info/refs")).toBe("")
+    expect(await header("https://github.com/quiverdk/k8s.git/info/refs")).toBe("")
+  })
+
+  it("keeps a pull request run scoped to its pull request when the Agent has Sources", () => {
+    const workspace = { sources: { portal: github({ repo: "quiverdk/portal" }) } } as unknown as WorkspaceDefinition
+    const context = { get: (key: string) => key === "pullRequestRepository" ? "vite-hub/vitehub" : undefined }
+    expect(forgeGitScope(context, workspace)).toEqual({ repository: "vite-hub/vitehub" })
+    expect(forgeGitScope({ get: () => undefined }, { sources: {} } as unknown as WorkspaceDefinition)).toBeUndefined()
   })
 
   it("has no Git credentials without forge access or a repository", async () => {

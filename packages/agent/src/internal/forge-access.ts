@@ -7,12 +7,15 @@ import {
   withSignal,
 } from "@vite-hub/forge"
 import type { ForgeKind } from "@vite-hub/forge"
+import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import { normalizeWorkspaceSourcesMetadata } from "@vite-hub/workspace/source-metadata"
 import * as v from "valibot"
 
 import { agentDiagnostics } from "../agent-diagnostics.ts"
 import type { AgentCallbackContext } from "../types.ts"
 import { readBuiltInEnv } from "./builtin-env.ts"
-import { hasRuntimeType } from "./runtime-type.ts"
+import { pullRequestCheckoutPlan, pullRequestRepositories } from "./pull-request-checkout.ts"
+import { hasRuntimeType, isRuntimeRecord } from "./runtime-type.ts"
 
 /** Scope of one forge access request. */
 export interface ForgeAccessScope {
@@ -123,11 +126,51 @@ export async function forgeConnection(
   return { forge: kind, baseUrl: resolvedBaseUrl, token }
 }
 
-/** Repositories of one pull request run. */
+/** Repositories that one run's `git` and `gh` can reach. */
 export interface ForgeGitScope {
-  repository: string
+  /** Base repository of a pull request run. */
+  repository?: string
   /** Head repository when it differs from `repository`, such as a fork. */
   headRepository?: string
+  /** Repositories a run without a pull request can reach: the Agent's GitHub Sources. */
+  repositories?: readonly string[]
+}
+
+/** `owner/name` of each GitHub Source in the Workspace, once per repository. */
+export function workspaceGitHubRepositories(definition: WorkspaceDefinition | undefined): string[] {
+  if (!definition?.sources) return []
+  let sources
+  try {
+    sources = normalizeWorkspaceSourcesMetadata(definition.sources)
+  }
+  catch {
+    return []
+  }
+  const repositories: string[] = []
+  for (const { source } of sources) {
+    const fingerprint = source.fingerprint
+    if (!isRuntimeRecord(fingerprint)) continue
+    const resolved = isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint
+    const options = resolved.inferredSource === "github" && isRuntimeRecord(resolved.options) ? resolved.options : resolved
+    const repo = options.repo
+    if (!hasRuntimeType(repo, "string") || !/^[\w.-]+\/[\w.-]+$/.test(repo)) continue
+    if (!repositories.some(known => known.toLowerCase() === repo.toLowerCase())) repositories.push(repo)
+  }
+  return repositories
+}
+
+/**
+ * Git scope of one run: its pull request's repositories, or else the Agent's GitHub Sources,
+ * so a Teams or chat run can clone the repositories its Workspace already names.
+ */
+export function forgeGitScope(
+  context: { get(key: string): unknown } | undefined,
+  workspace: WorkspaceDefinition | undefined,
+): ForgeGitScope | undefined {
+  const pullRequest = pullRequestCheckoutPlan(context) ?? pullRequestRepositories(context)
+  if (pullRequest) return pullRequest
+  const repositories = workspaceGitHubRepositories(workspace)
+  return repositories.length ? { repositories } : undefined
 }
 
 /** `GIT_CONFIG_*` entries that send the token only to this repository, with and without the `.git` suffix. */
@@ -139,29 +182,48 @@ function gitAuthEntries(repository: string, token: string, baseUrl?: string): { 
 }
 
 /**
- * Environment for `git` and `gh` in a GitHub pull request run. It uses the forge access of the
- * Agent's github() Channel. Git credentials go in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`,
- * scoped to the base and head repositories, so the token is not in process arguments.
+ * Environment for `git` and `gh` in a GitHub run. It uses the forge access of the Agent's
+ * github() Channel. Git credentials go in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`,
+ * scoped to the pull request's base and head repositories, or else to `scope.repositories`,
+ * so the token is not in process arguments. A Source repository the forge access cannot
+ * reach is left out, and `git` reports it as unauthenticated.
  * Empty without forge access or without a repository.
  */
 export async function forgeGitEnvironment(
   context: AgentCallbackContext,
   runtimeContext: object | undefined,
-  scope: { repository?: string, headRepository?: string } | undefined,
+  scope: ForgeGitScope | undefined,
   signal?: AbortSignal,
 ): Promise<Record<string, string>> {
   const access = readForgeAccess(runtimeContext)
-  const repository = scope?.repository
-  if (!access || !repository) return {}
-  const result = await access(context, signal ? { repository, signal } : { repository })
-  if (!result) return {}
-  const { token, baseUrl } = result
-  const entries = gitAuthEntries(repository, token, baseUrl)
-  const headRepository = scope.headRepository
-  if (headRepository && headRepository.toLowerCase() !== repository.toLowerCase()) {
-    const headToken = await access(context, signal ? { repository: headRepository, signal } : { repository: headRepository })
-    if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
+  if (!access || !scope) return {}
+  const request = (repository: string) => access(context, signal ? { repository, signal } : { repository })
+  const entries: { key: string, value: string }[] = []
+  let primary: ForgeAccessResult | undefined
+  if (scope.repository) {
+    primary = await request(scope.repository)
+    if (!primary) return {}
+    entries.push(...gitAuthEntries(scope.repository, primary.token, primary.baseUrl))
+    const headRepository = scope.headRepository
+    if (headRepository && headRepository.toLowerCase() !== scope.repository.toLowerCase()) {
+      const headToken = await request(headRepository)
+      if (headToken) entries.push(...gitAuthEntries(headRepository, headToken.token, headToken.baseUrl))
+    }
   }
+  else {
+    for (const repository of scope.repositories || []) {
+      // One Source outside the App installation must not fail the run.
+      const result = await request(repository).catch((error: unknown) => {
+        if (signal?.aborted) throw error
+        return undefined
+      })
+      if (!result) continue
+      primary ??= result
+      entries.push(...gitAuthEntries(repository, result.token, result.baseUrl))
+    }
+    if (!primary) return {}
+  }
+  const { token, baseUrl } = primary
   const publicGitHub = isGitHubDotCom(baseUrl)
   const env: Record<string, string> = {
     GH_HOST: publicGitHub ? "github.com" : new URL(baseUrl!).hostname,
