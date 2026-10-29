@@ -375,6 +375,43 @@ describe("createCommentsClient", () => {
 })
 
 describe("query reconciliation", () => {
+  it.each(["mine", "mentions"] as const)("preserves listed %s membership when mutation reconciliation fails", async filter => {
+    const store = createMemoryTransport({ user: ana })
+    const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query: { [filter]: true } })
+    await client.refresh()
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+
+    const failure = new Error("offline")
+    for (const mutate of [client.resolve, client.reopen]) {
+      const pending = deferred<CommentThread[]>()
+      store.list = () => pending.promise.then(() => { throw failure })
+      const updated = await mutate({ threadId: thread.id })
+      const whilePending = [...client.threads]
+      pending.resolve([])
+      await vi.waitFor(() => expect(client.status).toBe("error"))
+      expect(client.error).toBe(failure)
+      expect(whilePending).toEqual([updated])
+      expect(client.threads).toEqual([updated])
+    }
+  })
+
+  it("removes listed mention membership after successful mutation reconciliation", async () => {
+    const store = createMemoryTransport({ user: ana })
+    const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query: { mentions: true } })
+    await client.refresh()
+    const list = store.list
+    const pending = deferred<CommentThread[]>()
+    store.list = () => pending.promise
+
+    const edited = await client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body: "Here", mentions: [] })
+    expect(client.threads).toEqual([edited])
+    pending.resolve(await list(client.query))
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    expect(client.threads).toEqual([])
+  })
+
   it.each([{ mine: true }, { mentions: true }])("uses transport membership for %j without a client user", async query => {
     const store = createMemoryTransport({ user: ana })
     const matching = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })

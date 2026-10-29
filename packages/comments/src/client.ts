@@ -66,7 +66,7 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
   const { transport } = options
   const listeners = new Set<() => void>()
   const byId = new Map<string, CommentThread>()
-  // Without a user identity, membership in user filters comes only from the transport's list.
+  // Without a user identity, keep user-filter membership from the last successful transport list.
   let listed = new Set<string>()
   // What changed while a list was on its way. The list answers for the time it was asked, so it must not undo these.
   let changed = new Set<string>()
@@ -103,7 +103,6 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     if (removed.has(thread.id) || (stored && stored.updatedAt > thread.updatedAt)) return stored ?? thread
     byId.set(thread.id, thread)
     changed.add(thread.id)
-    if (transportOwnsMembership()) listed.delete(thread.id)
     publish()
     if (transportOwnsMembership()) refreshQuietly()
     return thread
