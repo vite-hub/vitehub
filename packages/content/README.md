@@ -51,6 +51,10 @@ configured on the content runtime.
 
 Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
 
+Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
+Server reads, Console editing, draft preview, and configured SEO routes remain available.
+`defineContentHandler(content)` also returns 404 when this option is false.
+
 ## Document collections
 
 `collections` stores Markdown documents in a Workspace with retained history, such as the Blob + Database Store. Import `documents()` and `optional()` from `@vite-hub/content/collections` and install `@vite-hub/workspace`; `@vite-hub/content` alone does not install Workspace or Database. `fields` is a record of Standard Schema validators, one per frontmatter field, so validators from different libraries mix. Wrap a validator without `.optional()` in `optional()`. `@vite-hub/content` exports every field helper: `image()` and `file()` from Blob, `seo()`, and `optional()`.
