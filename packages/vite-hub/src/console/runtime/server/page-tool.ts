@@ -27,7 +27,7 @@ export function installConsolePageTool(nitroApp: unknown, options: ViteHubPageTo
   })
   registerViteHubPageTool(nitroApp, {
     id: "content", label: "Content", icon: "i-lucide-file-pen", script, lazy: true,
-    allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content"),
+    allowed: async ({ event }) => getConsoleSections().includes("content") && await consoleAllowsRequest(event, "content", "write"),
   })
   installViteHubPageTools(nitroApp, options)
 }

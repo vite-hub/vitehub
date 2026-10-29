@@ -439,13 +439,13 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
 
 /**
  * Whether the installed access policy lets this request open the Console, for at least one section. The `console` page
- * tool uses it, so a page shows the Console link only to people that the Console accepts.
+ * tool uses it, so a page shows the Console link only to people that the Console accepts. Editing tools request `write`.
  */
-export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId): Promise<boolean> {
+export async function consoleAllowsRequest(event: unknown, section?: ConsoleSectionId, kind: "read" | "write" = "read"): Promise<boolean> {
   if (!(event instanceof Object)) return false
   // SAFETY: the page tools session passes the H3 event of its Nitro route, which has the members the check reads.
   const access = await checkConsoleAccess(event as ConsoleRequestEvent)
-  return !isRuntimeResponse(access) && (section === undefined || consoleAccessAllows(access, section))
+  return !isRuntimeResponse(access) && (section === undefined || (kind === "write" ? consoleAccessWrites(access, section) : consoleAccessAllows(access, section)))
 }
 
 /**

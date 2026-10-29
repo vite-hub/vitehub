@@ -342,6 +342,8 @@ if (window.parent !== window) {
     const data = event.data;
     if (data?.type === "vitehub:navigate" && typeof data.path === "string" && data.path.startsWith("/") && !data.path.startsWith("//") && !data.path.includes("\\")) void router.push(data.path);
   });
-  router.afterEach((to) => window.parent.postMessage({ type: "vitehub:route", path: to.fullPath }, location.origin));
+  router.afterEach((to, _from, failure) => {
+    if (!failure) window.parent.postMessage({ type: "vitehub:route", path: to.fullPath }, location.origin);
+  });
   void router.isReady().then(() => window.parent.postMessage({ type: "vitehub:ready" }, location.origin));
 }

@@ -644,13 +644,13 @@ The panel reads the selected Invocation's snapshots. It does not run MCP discove
 
 After opening the Console, return to any application page. The ViteHub pill stays available while its hint cookie is present. You can also open a page with `?vitehub`. The server checks each tool's access; the cookie grants no permissions. Ordinary signed-out visitors do not get the editor.
 
-Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include it. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
+Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include the full `content` grant. A `content:read` grant keeps Content available through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
 
 Expand or minimize the window without losing the selected document or unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
 
 The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
 
-Comments uses the same expandable window for the current page's thread list and replies. When Content access is available, Comments' **Edit** action opens the document editor. Without that access, its existing plain-text field editing remains available according to the Comments and Content policies.
+Comments uses the same expandable window for the current page's thread list and replies. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
 
 ## Inspect logs
 
