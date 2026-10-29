@@ -12,7 +12,7 @@ icon: i-lucide-users
 | Part | `comments()` alone | In a ViteHub app |
 | --- | --- | --- |
 | Threads, replies, resolve, pins | Yes | Yes |
-| Where threads go | A SQLite file | A ViteHub [Database](/docs/database): SQLite, libSQL, or D1 |
+| Where threads go | A database you point it to: a SQLite file, Turso, or Cloudflare D1 | A ViteHub [Database](/docs/database): SQLite, libSQL, or D1 |
 | Tables | Created when the server starts | Generated and applied with `vitehub db` |
 | Who can comment | Sign in with GitHub, or guests on the dev server | Sign in with GitHub, [ViteHub Auth](/docs/auth), the [Console](/docs/development/console), or your own login |
 | Avatars and cursors of the people on a page | No | Yes, with [Realtime](/docs/realtime) |

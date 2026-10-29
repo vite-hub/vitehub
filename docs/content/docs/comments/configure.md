@@ -69,12 +69,12 @@ An app without its own sign-in signs people in with a GitHub App. It is on when 
 
 A person who may not read sees **Sign in with GitHub** in the overlay. GitHub sends them back to the same page, in comment mode. Signed in, they see their picture in the toolbar. Selecting it signs them out.
 
-[Get started](/docs/comments/get-started#let-your-team-sign-in-with-github) shows how to create the GitHub App. In short:
+[Get started](/docs/comments/get-started#let-your-team-sign-in-with-github) shows how to create the GitHub App. One App can do both jobs: when an App already [posts to pull requests](#post-comments-to-the-pull-request), add the callback URL to it, and copy its Client ID and a client secret. Its App ID and private key keep posting. In short:
 
 | GitHub App setting | Value |
 | --- | --- |
 | Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one for each site. A GitHub App takes up to 10. |
-| Expire user authorization tokens | Off. Comments keeps the token in the session cookie and cannot store a renewed one. |
+| Expire user authorization tokens | Off. When it is on, GitHub's token lasts 8 hours, and Comments cannot store a renewed one in the cookie, so people sign in again. |
 | Webhook | Off |
 | Permissions | None more than the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
 | Installed on | The app's repository |
@@ -207,11 +207,58 @@ export default defineEventHandler(async (event) => {
 
 ## Choose the Database
 
-Where the threads go depends on the setup.
+`comments()` keeps threads in a database that you point it to, and creates its tables there on first use. There is no migration to run, and no Database to define. The tables start with `vitehub_comment`, so they sit next to your app's own tables. A [ViteHub app](/docs/comments/with-vite-hub) keeps threads in a ViteHub Database instead.
 
-### A SQLite file, with `comments()`
+Give `database` a string that says where the database is. The string names a variable or a binding, so the URL and its token stay out of the build:
 
-The `comments()` plugin keeps threads in a SQLite file. It opens the file with Node's built-in `node:sqlite` and creates its tables when the server starts, so you install no driver and run no migration.
+| `database` | Where threads go |
+| --- | --- |
+| Not set | The first one the server finds when it runs: `DATABASE_URL`, `TURSO_DATABASE_URL`, then the Cloudflare D1 binding `DB`. A Postgres `DATABASE_URL` is skipped. |
+| `'d1:COMMENTS'` | The Cloudflare D1 binding `COMMENTS`. Comments adds the binding to the build. |
+| `'env:COMMENTS_DATABASE_URL'` | The libSQL URL in that variable, such as a Turso database. Its token is in the URL, or in `COMMENTS_AUTH_TOKEN`. |
+| `'file:./data/comments.sqlite'` | A SQLite file on Node, relative to the directory that the server starts in. |
+| `'libsql://…'` | That libSQL URL. A token in it ends up in the build, so use `env:` for one with a token. |
+
+On Node, the runtime variables can also contain a `file:` location. Comments chooses the connector for the server's runtime, so the file path stays out of the build. Workers support D1 and remote libSQL databases. A static `file:` or `:memory:` location fails the Worker build with `DATABASE_UNSUPPORTED_URL`.
+
+On `vite dev`, threads go to `.vitehub/data/comments.sqlite` in the project, with a `.gitignore` next to it. That keeps the threads you write on your computer out of your app's database. Two strings change it: a `file:` path is used as it is, and an `env:` variable is used when it is set.
+
+When the server finds no database, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. A string that Comments cannot use, such as a Postgres URL, fails the build with [`DATABASE_UNSUPPORTED_URL`](/docs/database/limits-and-errors#database_unsupported_url). Postgres comes in a later version.
+
+### Turso and other libSQL databases
+
+Set the URL and token on the server. Comments finds them without an option:
+
+```bash [.env]
+TURSO_DATABASE_URL=libsql://comments-acme.turso.io
+TURSO_AUTH_TOKEN=...
+```
+
+When your app uses `DATABASE_URL` or `TURSO_DATABASE_URL` for another database, give Comments its own variable: `comments({ database: 'env:COMMENTS_DATABASE_URL' })`.
+
+### Cloudflare D1
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [comments({ database: 'd1:COMMENTS' })],
+})
+```
+
+Build for Workers and deploy:
+
+```bash [commands/deploy]
+pnpm add -D wrangler
+NITRO_PRESET=cloudflare_module pnpm vite build
+pnpm wrangler deploy
+```
+
+Comments adds the `COMMENTS` binding to the Wrangler config of the build, without a database id, and `wrangler deploy` creates the D1 database. When `wrangler.jsonc` already has a binding with that name, Comments uses yours, with its id. Name a binding `DB` and you can leave out `database`.
+
+To try the Worker on your computer, run `pnpm wrangler dev` after the build. Wrangler keeps a local D1 database in `.wrangler/state`. Set the Nitro preset with `NITRO_PRESET` when you build, not in `vite.config.ts`: with the Cloudflare preset, `vite dev` runs the server in `workerd`, where Comments does not start yet.
+
+Add the variables of [Sign in with GitHub](#sign-in-with-github) as Worker secrets, such as `pnpm wrangler secret put VITEHUB_GITHUB_CLIENT_ID`.
+
+### A SQLite file
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -219,13 +266,7 @@ export default defineConfig({
 })
 ```
 
-| `database` | Where threads go |
-| --- | --- |
-| Not set, `vite dev` | `.vitehub/data/comments.sqlite` in the project. The plugin adds a `.gitignore` next to it. |
-| Not set, production build | Nowhere. The server log says `Comments has no database in this build`, and the API answers [`COMMENTS_NOT_INSTALLED`](/docs/comments/limits-and-errors#comments_not_installed). |
-| `'file:./data/comments.sqlite'`, or a plain path | That file, relative to the directory that the server starts in. The directory is created. |
-
-Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it. Hosts without such a disk, such as Vercel, Netlify, and Cloudflare Workers, need a ViteHub Database.
+Comments opens the file with Node's built-in `node:sqlite`, so there is no driver to install. Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it.
 
 ### A ViteHub Database
 
@@ -467,7 +508,7 @@ Guests always post through the App. When a token fails, the App posts the commen
 
 A change answers before GitHub does. Each thread has `forge` with `state`: `posted`, `pending`, or `failed` with the `error`, and the `url` of its comment. The next change of the thread tries again, and so does `comments.sync(threadId)`.
 
-Comments keeps the GitHub ids in the `vitehub_comment_forge` table, so run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+Comments keeps the GitHub ids in the `vitehub_comment_forge` table. The `comments()` plugin creates it with the other tables. With `vitehub()`, run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
 
 App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
 

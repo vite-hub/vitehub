@@ -5,6 +5,7 @@ import { join, resolve } from "node:path"
 
 import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
+import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
 
 import type { AgentRetentionPolicy, AgentInvocationsOptions } from "@vite-hub/agent/server"
 import type { AuthModuleOptions, ResolvedAuthViteConfig } from "@vite-hub/auth"
@@ -537,6 +538,16 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   const plugin: Plugin & { devtools: ConsoleViteDevTools, vitehub: NonNullable<ViteHubCliContributingPlugin["vitehub"]> & NonNullable<OperationContributingPlugin["vitehub"]> } = {
     name: "vite-hub/console",
     devtools: consoleViteDevTools,
+    // Vite serves SPA HTML without passing it through the Nitro page-tools wrapper.
+    transformIndexHtml() {
+      if (options.rpcOnly) return
+      return [{
+        tag: "script",
+        attrs: { type: "module" },
+        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(consoleMountPath(baseURL, viteHubPageToolsLoader))})`,
+        injectTo: "body",
+      }]
+    },
     async config(config, environment) {
       development = environment.command === "serve"
       if (options.connections !== undefined && !isConsoleConnectionsEnabled(options, environment.command === "serve")) {
