@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import { createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
 import { readConsoleLocalDraft, writeConsoleLocalDraft } from "../src/console/runtime/client/preview"
 import { ConsoleRequestError } from "../src/console/runtime/client/request"
+import { useConsoleToast } from "../src/console/runtime/client/toast"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
 import ConsoleDocumentDiff from "../src/console/runtime/components/console-document-diff.vue"
 
@@ -433,5 +434,48 @@ describe("Apply local edits while the person keeps typing", () => {
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
     expect(wrapper.text()).not.toContain("Local edits · not saved")
     expect(valueOf(wrapper.get("textarea").element)).toBe(applied.data.title)
+  })
+})
+
+describe("Local only edits on the third review", () => {
+  it("keeps the local edits of a singleton when its shared draft is gone", async () => {
+    const settings: ConsoleDocumentCollection = { ...collection, kind: "singleton", label: "Settings", name: "settings", path: "settings.json" }
+    writeConsoleLocalDraft(sessionStorage, "settings", "settings", { base: "shared-1", start: { body: "", data: { title: "Shared" } }, version: { body: "", data: privateEdit } })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => null),
+      list: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
+      save: vi.fn(async () => saved),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: settings, documentId: "settings" }, global: { stubs } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.getComponent({ name: "ConsoleSchemaForm" }).props("modelValue")).toEqual(privateEdit)
+    expect(wrapper.text()).toContain("Local edits · not saved")
+    expect(readConsoleLocalDraft(sessionStorage, "settings", "settings")?.version.data).toEqual(privateEdit)
+    expect(client.save).not.toHaveBeenCalled()
+  })
+
+  it("says a pull request opened, not published, when Publish shared draft opens one", async () => {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "", data: { title: "Shared" } }, version: { body: "", data: privateEdit } })
+    const shared: ConsoleDocument = { ...draft, conflict: undefined, data: { title: "Shared" }, digest: "shared-1" }
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async (_collection: string, _id: string, ref?: "draft" | "published") => structuredClone(ref === "published" ? site : shared)),
+      publish: vi.fn(async () => ({ documents: [{ id: "hello" }], pending: true, pullRequest: { number: 12, url: "https://github.com/acme/site/pull/12" } })),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "hello" }, global: { stubs } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.publish).toHaveBeenCalledWith("posts", [{ digest: "shared-1", id: "hello" }])
+    const toast = useConsoleToast().toasts.value.at(-1)
+    expect(toast?.title).toContain("Pull request #12 opened")
+    expect(toast?.title).not.toContain("published")
+    expect(toast?.action?.label).toBe("Open pull request")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
   })
 })

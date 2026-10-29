@@ -555,7 +555,8 @@ async function load(): Promise<void> {
     if (document) accept(document);
     else {
       base.value = null;
-      if (single.value) draft.value = { body: "", data: consoleSchemaDefaults(props.collection.schema) };
+      // Local-only edits stay on screen and in storage when the shared draft is gone, such as a deleted singleton.
+      if (single.value && !local.value) draft.value = { body: "", data: consoleSchemaDefaults(props.collection.schema) };
       // A document removed from the draft is still listed as deleted while it stays published.
       const listed = await props.client.list(props.collection.name, { filter: { id: props.documentId! }, limit: 1, state: "deleted" });
       state.value = listed.items[0]?.state;
@@ -964,11 +965,13 @@ async function startLocal(): Promise<void> {
     await save();
     if (dirty.value || conflict.value || saveError.value) return;
   }
-  // The live room holds the body, so the body on screen is the one the room just saved.
+  // The local edits start from the body the room saved. Typing after the room took its save stays on screen as a
+  // local edit, so the body is read from the room editor before it closes.
   const start: Version = { body: inRoom ? base.value.body : draft.value.body, data: clone(draft.value.data) };
+  const onScreen = inRoom ? await bodyEditor.value?.markdown() : undefined;
   localBase.value = base.value.digest;
   localStart.value = clone(start);
-  draft.value = start;
+  draft.value = { body: onScreen ?? start.body, data: clone(draft.value.data) };
   editing.value = "local";
   keepLocal();
   // Local edits need no lease: report as a viewer, so other people keep editing the shared draft.
@@ -1124,9 +1127,12 @@ async function publishShared(): Promise<void> {
   }
   publishing.value = true;
   try {
-    await props.client.publish(props.collection.name, [{ digest: reviewed.draft.digest, id: props.documentId }]);
+    const result = await props.client.publish(props.collection.name, [{ digest: reviewed.draft.digest, id: props.documentId }]);
     sharedPublishOpen.value = false;
-    toast.show({ title: "Shared draft published. Your local edits are still here." });
+    // With `publish: "pr"` the store opens a pull request: nothing is live until it merges.
+    const pullRequest = result.pullRequest;
+    if (pullRequest) toast.show({ action: { label: "Open pull request", onClick: () => void window.open(pullRequest.url, "_blank", "noopener") }, title: `Pull request #${pullRequest.number} opened. The shared draft goes live when it merges. Your local edits are still here.` });
+    else toast.show({ title: "Shared draft published. Your local edits are still here." });
     notifyChanged();
     previewReloads.value++;
     await load();
