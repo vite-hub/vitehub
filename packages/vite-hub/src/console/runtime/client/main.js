@@ -12,6 +12,7 @@ const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
+const ConsoleOperationView = () => import("../components/console-operation-view.vue");
 const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
@@ -239,6 +240,16 @@ function addContributedRoutes(navigation) {
           props,
         });
       }
+      continue;
+    }
+    if (details.view.kind === "operation-view") {
+      router.addRoute({
+        component: ConsoleOperationView,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: consolePath("/api/_vitehub/console/definitions"), details, sectionsBase },
+      });
       continue;
     }
     router.addRoute({

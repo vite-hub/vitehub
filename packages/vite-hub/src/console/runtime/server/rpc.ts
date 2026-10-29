@@ -4,7 +4,7 @@ import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
 import { consoleRpcHeader } from "../rpc.ts"
-import { consoleAccessAllows, consoleAccessWrites, readConsoleAccessUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
 import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
 import { isConsoleDevelopmentBuild } from "./development.ts"
@@ -228,7 +228,7 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   }
   assertOperationConfirmation(request, classification)
   // Navigation and other reads that do not need a person skip the session lookup.
-  const user = operation.user === false ? undefined : await readConsoleAccessUser(context.access)
+  const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
   const operationContext: OperationContext = {
     access: context.access,
     development: isConsoleDevelopmentBuild(),

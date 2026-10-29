@@ -1769,6 +1769,29 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("turns the Database on for comments and installs the comments Nitro plugin", async () => {
+    const entry = "/tmp/vitehub-nuxt/custom-server/comments.ts"
+    await mkdir(resolve(entry, ".."), { recursive: true })
+    await writeFile(entry, `import { defineComments } from "vite-hub/comments"\nexport default defineComments({ authorize: () => true })\n`)
+    try {
+      mocks.vitehub.mockReturnValue([hubComments()])
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ preset: "node" }, nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: true })
+      const config = nitroOptions(nuxt)
+      await runNitroConfigHook(config)
+      expect(nitroPlugins(nuxt)).toContain("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs")
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("installComments(")
+
+      // An explicit `database: false` is never overridden.
+      await viteHubNuxtModule({ database: false, preset: "node" }, createNuxt().nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: false })
+    }
+    finally {
+      await rm(entry, { force: true })
+    }
+  })
+
   it("installs only discovered Queue metadata for a Queue-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/queues/email.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })

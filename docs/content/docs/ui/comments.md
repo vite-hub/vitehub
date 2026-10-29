@@ -8,7 +8,7 @@ icon: i-ph-chat-circle-light
 
 `CommentLayer` puts Figma-style comments on a page. Press `C`, click a spot, write, and press `Enter`. A numbered pin with your avatar stays there, and the team replies in its thread.
 
-The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and you supply a transport for your backend. The built-in server overlay uses a separate thread and anchor format.
+The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started). The built-in live-site overlay uses a separate thread and anchor format.
 
 ## Installation
 

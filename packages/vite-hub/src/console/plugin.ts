@@ -205,8 +205,8 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections, applicationBase)
-  const runtimeReaders = describeConsoleRuntimeReaders(sections)
+  const contributedSections = describeConsoleContributedSections(sections, applicationBase).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined
   const fixtureSource = fixtureSnapshot ? `JSON.parse(${JSON.stringify(JSON.stringify(fixtureSnapshot))})` : undefined

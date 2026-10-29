@@ -282,9 +282,22 @@ export async function requestConsole(
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
   const call = consoleOperationCall(path, { body: options.body, method: options.method ?? "GET", query })
+  return requestConsoleOperation(path, call.operation, call.input, options)
+}
+
+/**
+ * Call one named operation over the Console RPC. `path` is any Console API path of the app, such as the definitions
+ * route, and only locates the application mount.
+ */
+export async function requestConsoleOperation(
+  path: string,
+  operation: string,
+  input: Record<string, unknown>,
+  options: { keepalive?: boolean, signal?: AbortSignal } = {},
+): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
   // The operation comes first so the server can find large calls within the first bytes.
-  const requestBody = JSON.stringify({ operation: call.operation, input: call.input })
+  const requestBody = JSON.stringify({ operation, input })
   let response: Response
   try {
     response = await fetch(consoleRpcCallURL(path), {

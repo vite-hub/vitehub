@@ -14,6 +14,7 @@ import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubComments } from "@vite-hub/comments/vite"
+import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -368,6 +369,8 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /** Database and SQL dialect for the default-export Comments operations. */
+  comments?: Pick<HubCommentsOptions, "database" | "dialect">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -1225,6 +1228,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
   // rooms where Realtime has an authority. Inert without the file.
   const commentsPlugin = hubComments({
+    ...options.comments,
+    operationsImports: {
+      auth: "vite-hub/auth/server",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      databaseSchema: "vite-hub/comments/database",
+      runtime: "vite-hub/comments/server",
+    },
     auth: Boolean(options.auth),
     // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),

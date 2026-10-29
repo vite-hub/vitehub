@@ -83,6 +83,22 @@ describe("commentsRealtime", () => {
     expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "write", user: null })).toBe(false)
   })
 
+  it("lets read-only Console users join presence with their policy fields", async () => {
+    const session = commentsConsoleSession({
+      authorize: async ({ kind }) => kind !== "write",
+      user: async () => ({ id: "ada", name: "Ada", role: "editor" }),
+      identify: async () => null,
+    })
+    const definition = commentsRealtime(defineComments({ authorize: ({ user }) => user?.role === "editor" }), { consoleSession: session })
+    const request = event()
+    const context = { definition: "comments", event: request, request: new Request("http://site.test") }
+    const user = await definition.identify!(context)
+    expect(user).toEqual({ id: "ada", name: "Ada" })
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "read", user: user ?? null })).toBe(true)
+    expect(await definition.authorize!({ ...context, documentId: "pages/x", mode: "write", user: user ?? null })).toBe(false)
+    await expect(session(request, "comment")).resolves.toBe(false)
+  })
+
   it("binds verified Cloudflare guest-prefixed emails and authorizes with that identity", async () => {
     const person = { id: "guest-reviewer@example.com", email: "guest-reviewer@example.com", name: "guest-reviewer@example.com" }
     const session = commentsConsoleSession({

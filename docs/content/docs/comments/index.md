@@ -99,3 +99,7 @@ icon: i-lucide-message-square-text
   The Comments section lists every thread with its page and status, and links back to the pin.
   :::
 ::
+
+## Comments through Operations
+
+To store numbered threads on custom subjects and authorize each CLI, MCP, Console, or browser operation, use a [default-export Comments Definition](/docs/comments/operations/get-started). The named `comments` export described above keeps the live-site overlay API. Use one entry form per application; they install different Database schemas.

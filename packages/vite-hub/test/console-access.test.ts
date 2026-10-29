@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleAuthDefinition, defineConsoleAuth, defineConsoleAuthorize, prepareConsoleAuth } from "../src/console/auth.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { createConnectionsHandler } from "@vite-hub/connections/http"
 import { createConnectionsRuntime } from "@vite-hub/connections/server"
 
@@ -54,6 +55,7 @@ async function rejection(result: unknown): Promise<{ code: string, docs: string,
 }
 
 afterEach(() => {
+  installConsoleDevelopment("/test/app", false)
   vi.unstubAllGlobals()
   vi.unstubAllEnvs()
   Reflect.deleteProperty(globalThis, policyKey)
@@ -155,12 +157,12 @@ describe("Console access policies", () => {
   })
 
   it("keeps the local development Console open and fails closed in production", async () => {
-    vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
+    installConsoleDevelopment("/test/app", true)
     const allowed = await run({ mode: "local" })
     expect(allowed.result).toEqual({ mode: "local", sections: "all" })
     expect(Object.isFrozen(allowed.result)).toBe(true)
 
-    vi.stubGlobal("process", { env: { NODE_ENV: "production" } })
+    installConsoleDevelopment("/test/app", false)
     const denied = await run({ mode: "local" })
     expect(denied.handler).not.toHaveBeenCalled()
     await expect(rejection(denied.result)).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", fix: expect.stringContaining("For production"), message: expect.stringContaining("development-only"), status: 403 })
@@ -355,7 +357,7 @@ describe("Connections manager from Console access", () => {
     { name: "local", policy: { mode: "local" }, actor: "user:local" },
     { name: "auth with a session", policy: { mode: "auth", check: async () => undefined }, session: "user:ada", actor: "user:ada" },
   ] satisfies Array<{ name: string, policy: ConsoleAccessPolicy, session?: string, actor: string }>)("names the manager from the Console policy: $name", async ({ policy, session, actor }) => {
-    if (policy.mode === "local") vi.stubGlobal("process", { env: { NODE_ENV: "development" } })
+    if (policy.mode === "local") installConsoleDevelopment("/test/app", true)
     installConsoleAccess(policy)
     await expect(consoleConnectionsActor(connectionsEvent(), session ? async () => session : undefined)).resolves.toBe(actor)
   })
@@ -384,7 +386,7 @@ describe("Connections manager from Console access", () => {
   })
 
   it("denies the local Console policy in production and without an installed policy", async () => {
-    vi.stubEnv("NODE_ENV", "production")
+    installConsoleDevelopment("/test/app", false)
     installConsoleAccess({ mode: "local" })
     await expect(rejection(await consoleConnectionsActor(connectionsEvent()))).resolves.toMatchObject({ code: "CONSOLE_DEVELOPMENT_ONLY", status: 403 })
     Reflect.deleteProperty(globalThis, policyKey)
@@ -594,6 +596,20 @@ describe("generated Console access", () => {
 })
 
 describe("Realtime rooms from Console access", () => {
+  it.each(["comments:read", "comments"] as const)("keeps read and write section grants distinct: %s", async (section) => {
+    installConsoleAccess({
+      mode: "auth",
+      check: async () => undefined,
+      user: async () => ({ id: "ana", name: "Ana", role: "editor" }),
+      authorize: () => ({ sections: [section] }),
+    })
+    const access = consoleRealtimeAccess("comments")
+    const request = event()
+    await expect(access.authorize({ event: request })).resolves.toBe(true)
+    await expect(access.authorize({ event: request, kind: "write" })).resolves.toBe(section === "comments")
+    await expect(access.user({ event: request })).resolves.toMatchObject({ id: "ana", role: "editor" })
+  })
+
   it("names the signed-in Console user and gates rooms by section access", async () => {
     installConsoleAccess({
       mode: "auth",

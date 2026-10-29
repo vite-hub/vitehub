@@ -348,7 +348,9 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    return `${url.pathname}${url.search}${url.hash}`;
+    // URL normalization can produce a pathname that reparses as a protocol-relative link.
+    const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
+    return `${pathname}${url.search}${url.hash}`;
   }
 
   let deepLinked = false;
@@ -429,7 +431,6 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       schedule();
     });
     const observeOptions = {
-      attributeFilter: ["class", "style", "hidden"],
       attributes: true,
       characterData: true,
       childList: true,
