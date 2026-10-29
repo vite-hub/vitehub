@@ -76,7 +76,7 @@ When `model` is set, it is the source of truth. Do not also use `paths` or `opti
 ## Accessibility
 
 - The inner tree has `role="tree"` and the accessible name **Files**. Pass `aria-label` for a more specific name, for example **Changed files**.
-- With `search: true`, the search input has the accessible name **Search files**.
+- With `search: true`, the search input has the accessible name **Search files**. Pass `search-label` to localize it or describe the tree's context, for example `search-label="Search workspace files"`. The label updates when the prop changes and persists across search updates and model replacement.
 - Pierre handles keyboard navigation inside the tree.
 
 ## API Reference
@@ -92,6 +92,7 @@ Renders a Pierre file tree from paths or from a model.
 | `paths`   | `readonly string[]`              | `[]`    | Paths for the owned model.                         |
 | `options` | `Omit<FileTreeOptions, 'paths'>` |         | Pierre configuration for the owned model.          |
 | `model`   | `FileTreeModel`                  |         | An application-owned model. Replaces `paths` and `options`. |
+| `searchLabel` | `string`                     | `"Search files"` | Accessible name for the search input. |
 
 Other attributes go to the tree element. The component exposes `getModel()` through a template ref.
 
