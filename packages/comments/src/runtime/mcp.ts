@@ -166,6 +166,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         spend(grant, "comment", thread.id)
         const [error, comment] = await comments.reply(thread.id, { body: text(input.body) ?? "", author })
         if (error) return failure(error.why)
+        await comments.flush()
         return { text: `Replied to thread ${thread.id}.`, structured: { comment: { ...comment } } }
       },
     },
@@ -189,6 +190,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         const author = user ? authorOf(user) : guestFor(context) ?? { id: "anonymous", name: "Someone" }
         const [error, updated] = input.resolved === false ? await comments.reopen(thread.id) : await comments.resolve(thread.id, { by: author })
         if (error) return failure(error.why)
+        await comments.flush()
         return { text: `Thread ${updated.id} is ${updated.status}.`, structured: { thread: summary(updated) } }
       },
     },

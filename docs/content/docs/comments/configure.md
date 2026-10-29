@@ -313,6 +313,62 @@ In edit mode, the overlay marks the fields you edited with **Draft**. After a re
 
 A pin on an element with a Content field, or inside one, stores the field address. The pin stays with that text when the layout changes.
 
+## Post comments to the pull request
+
+On a preview deployment, `forge` posts each thread to the pull request that the preview builds. The people who review the code see what the people who tried the preview said, and an Agent that works on the pull request reads it there.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+
+export const comments = defineComments({
+  forge: { provider: 'github' },
+})
+```
+
+| On the page | On the pull request |
+| --- | --- |
+| The first thread | A summary comment with every thread: number, first sentence, page, author, and state. Comments edits it when a thread changes. |
+| A thread | A comment with the text, the page with the thread open, the element, and what the person saw: route, components, source files, viewport, browser, and build. |
+| A reply | A comment of its own. |
+| An edit | Edits that comment. |
+| Resolve, reopen | Hides the thread's comment as resolved, or shows it again. |
+| Delete | Deletes the comments. The summary goes with the last thread. |
+
+Comments finds the pull request from the build that served the page, as `context.build` keeps it:
+
+- The repository is `GITHUB_REPOSITORY`, the Vercel Git variables, Netlify's `REPOSITORY_URL`, else the GitHub `origin` remote of the checkout.
+- The pull request is the one the host names (Vercel, Netlify, GitHub Actions), else the open pull request whose head is the build's branch.
+
+Threads without a pull request, such as on production, stay off GitHub. To choose yourself, return the number from `pullRequest(thread)`, and set `repository`.
+
+It posts with a GitHub App installation: set `VITEHUB_GITHUB_APP_ID` and `VITEHUB_GITHUB_PRIVATE_KEY`, and give the App write access to pull requests or issues. `VITEHUB_GITHUB_TOKEN` works too, and posts as that token's user. These are the names that the [Forge capability](/docs/agents/capabilities/forge) reads.
+
+### Post as each person
+
+The App posts a comment with its author's name: "**Ada** commented on the preview:". To post as the person, return their GitHub token from `token(author)`, such as the user token of their GitHub sign-in with [Auth](/docs/auth). GitHub then shows their account, with the App's badge when it is an App user token.
+
+```ts [server/comments.ts]
+import { defineComments } from 'vite-hub/comments'
+import { githubToken } from './utils/github'
+
+export const comments = defineComments({
+  forge: {
+    provider: 'github',
+    token: author => githubToken(author.id),
+  },
+})
+```
+
+Guests always post through the App. When a token fails, the App posts the comment instead.
+
+### When GitHub refuses
+
+A change answers before GitHub does. Each thread has `forge` with `state`: `posted`, `pending`, or `failed` with the `error`, and the `url` of its comment. The next change of the thread tries again, and so does `comments.sync(threadId)`.
+
+Comments keeps the GitHub ids in the `vitehub_comment_forge` table, so run `vitehub db generate` and `vitehub db migrate` after you add `forge`. On Cloudflare, the API routes keep the Worker running until GitHub answers. When server code changes threads, pass `comments.flush()` to `waitUntil`.
+
+App mentions and thread numbers stay plain text on GitHub: `@ada` does not notify a GitHub user, and `#3` does not link issue 3.
+
 ## Triage in the Console
 
 The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
