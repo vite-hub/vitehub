@@ -85,7 +85,7 @@ Comments also needs to know the repository. It reads it from the `origin` remote
 ::tutorial-step{title="Deploy on Node"}
 ## Deploy on Node
 
-A production build needs to know where the threads go, because only you know which disk keeps its files. Give `comments()` a SQLite file:
+A production build keeps threads in a database that you point it to. With a Turso database or Cloudflare D1, set its variable or binding and you are done: see [Choose the Database](/docs/comments/configure#choose-the-database). On Node, the simplest is a SQLite file:
 
 ```ts [vite.config.ts]
 export default defineConfig({
@@ -109,7 +109,7 @@ Open `http://localhost:3000/?comments`.
 
 The session is an encrypted cookie that lasts 7 days, so the server stores no users and no sessions. Comments asks GitHub again every 5 minutes whether each person can still push.
 
-On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. Hosts without such a disk, such as Vercel, Netlify, and Cloudflare Workers, need a [ViteHub Database](/docs/comments/with-vite-hub) instead. See [Hosts](/docs/comments/hosts).
+On a server, keep `data/comments.sqlite` on a disk that survives deploys, such as a Docker volume. Hosts without such a disk, such as Cloudflare Workers, Vercel, and Netlify, keep threads in [D1 or a Turso database](/docs/comments/configure#choose-the-database) instead. See [Hosts](/docs/comments/hosts).
 
 ::
 

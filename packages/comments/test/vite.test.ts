@@ -1,15 +1,17 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
+import { createNitro } from "nitro/builder"
 import { H3 } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { comments, componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { ConfigEnv, Plugin, UserConfig } from "vite"
+import type { NitroConfig } from "nitro/types"
 import type { H3Event } from "h3"
 import type { RealtimeDefinition } from "@vite-hub/realtime"
 import type { createCommentsHandler } from "../src/runtime/handler.ts"
@@ -30,7 +32,7 @@ async function configure(plugin: Plugin, root: string, command: ConfigEnv["comma
   const config: UserConfig & Record<PropertyKey, unknown> = { root, [VITEHUB_PROJECT_ROOT]: root, ...extra }
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, { command, mode: command === "serve" ? "development" : "production" })
-  return Reflect.get(config, "nitro") as { handlers?: Array<{ route: string, handler: string }>, plugins?: string[], publicAssets?: Array<{ baseURL: string }> } | undefined
+  return Reflect.get(config, "nitro") as NitroConfig | undefined
 }
 
 async function readComponentsModule(root: string): Promise<Record<string, string[]>> {
@@ -303,17 +305,25 @@ describe("comments() without vite-hub", () => {
     expect(handler).toContain('githubLogin: createCommentsGitHubLogin({"repository":"acme/app"})')
   })
 
-  it.each(["build", "serve"] as const)("mounts standalone Comments, its overlay and GitHub sign-in below the app base for %s", async (command) => {
+  it.each([
+    { command: "build", preset: "node-server" },
+    { command: "build", preset: "cloudflare-module" },
+    { command: "serve", preset: undefined },
+  ] as const)("mounts standalone Comments, its overlay and GitHub sign-in below the app base for $command ($preset)", async ({ command, preset }) => {
     const root = await project({ "package.json": "{}" })
     const plugin = standalone()
     const nitro = await configure(plugin, root, command, { base: "/portal/" })
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    if (preset) {
+      const app = await createNitro({ ...nitro, rootDir: root, dev: false, preset, compatibilityDate: "2026-10-27" })
+      await app.close()
+    }
     const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(generated).toContain("/portal/api/_vitehub/comments/assets/overlay.js")
     expect(generated).toContain(`development: ${command === "serve"}`)
     expect(generated).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
-  })
+  }, 30_000)
 
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
     const root = await project({ "package.json": "{}" })
@@ -321,21 +331,123 @@ describe("comments() without vite-hub", () => {
     expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
     expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(plugin).toContain(`openCommentsSqlite(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)})`)
-    expect(plugin).not.toContain("@vite-hub/database")
+    expect(plugin).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
+    expect(plugin).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}, { name: "comments", setup: commentsTables })`)
     expect(await readFile(join(root, ".vitehub/data/.gitignore"), "utf8")).toBe("*\n")
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("githubLogin: createCommentsGitHubLogin(")
   })
 
-  it("needs the database option in a production build, and says so in the server log", async () => {
+  it("connects a production build to the database it finds at runtime, or to the location it gets", async () => {
     const root = await project({ "package.json": "{}" })
+    const plugin = () => readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     await configure(standalone(), root)
-    const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(plugin).toContain("const database = () => undefined")
-    expect(plugin).toContain("comments({ database: \\\"file:./data/comments.sqlite\\\" })")
-    const configured = comments({ database: "file:./data/comments.sqlite" })[0] as Plugin
-    await configure(configured, root)
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("openCommentsSqlite(\"file:./data/comments.sqlite\")")
+    expect(await plugin()).toContain("connectDatabase(undefined, { name: \"comments\", setup: commentsTables })")
+    // A Worker cannot load node:sqlite.
+    expect(await plugin()).toContain("from \"@vite-hub/comments/runtime/connect\"")
+    await configure(comments({ database: "file:./data/comments.sqlite" })[0] as Plugin, root)
+    expect(await plugin()).toContain("connectDatabase(\"file:./data/comments.sqlite\"")
+    expect(await plugin()).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
+    await configure(comments({ database: "env:COMMENTS_DATABASE_URL" })[0] as Plugin, root, "serve")
+    expect(await plugin()).toContain(`connectDatabase("env:COMMENTS_DATABASE_URL", { name: "comments", setup: commentsTables, fallback: ${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)} })`)
+  })
+
+  it.each([undefined, "env:COMMENTS_DATABASE_URL", ":memory:"])("opens runtime-selected files in generated Node output (%s)", async (database) => {
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
+    const root = await project({ "package.json": "{\"type\":\"module\"}" })
+    await mkdir(join(root, "node_modules/@vite-hub"), { recursive: true })
+    await symlink(join(import.meta.dirname, ".."), join(root, "node_modules/@vite-hub/comments"), "dir")
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    const nitro = await createNitro({ ...config, rootDir: root, dev: false, preset: "node-server", compatibilityDate: "2026-10-27" })
+    await nitro.close()
+    // Supply the file only after generation: neither its path nor its token belongs in the build.
+    const file = `file:${join(root, "data/comments.sqlite")}`
+    vi.stubEnv("DATABASE_URL", database === undefined ? file : "")
+    vi.stubEnv("COMMENTS_DATABASE_URL", file)
+    const generated = join(root, ".vitehub/nitro/comments/plugin.mjs")
+    const source = await readFile(generated, "utf8")
+    expect(source).not.toContain(file)
+    expect(source).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
+    const { default: install } = await import(pathToFileURL(generated).href)
+    install(null)
+    const { comments: definition } = await import(pathToFileURL(join(root, ".vitehub/nitro/comments/definition.mjs")).href)
+    const [error, threads] = await definition.list({ page: "/" })
+    expect(error).toBeUndefined()
+    expect(threads).toEqual([])
+    vi.stubEnv("NODE_ENV", "development")
+    expect(await definition.can({ user: null, action: "read" })).toBe(false)
+    expect(source).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
+  }, 30_000)
+
+  it.each([undefined, "env:COMMENTS_DATABASE_URL", "d1:COMMENTS"])("keeps the Node connector out of generated Worker output (%s)", async (database) => {
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
+    const root = await project({ "package.json": "{}" })
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    const nitro = await createNitro({ ...config, rootDir: root, dev: false, preset: "cloudflare-module", compatibilityDate: "2026-10-27" })
+    expect(nitro.options.node).toBe(false)
+    await nitro.close()
+    const source = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(source).toContain("from \"@vite-hub/comments/runtime/connect\"")
+    expect(source).not.toContain("runtime/connect/node")
+    expect(source).not.toContain("node:sqlite")
+    expect(source).toContain("development: false")
+    expect(source).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
+  }, 30_000)
+
+  it.each(["file:./data/comments.sqlite", ":memory:"])("rejects static SQLite locations on Workers (%s)", async (database) => {
+    const root = await project({ "package.json": "{}" })
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    await expect(createNitro({ ...config, rootDir: root, dev: false, preset: "cloudflare-module", compatibilityDate: "2026-10-27" })).rejects.toMatchObject({ code: "DATABASE_UNSUPPORTED_URL" })
+  }, 30_000)
+
+  it.each(["file:./data/comments.sqlite", ":memory:"])("keeps static SQLite locations buildable on Node (%s)", async (database) => {
+    const root = await project({ "package.json": "{}" })
+    const config = await configure(comments({ database })[0] as Plugin, root)
+    const nitro = await createNitro({ ...config, rootDir: root, dev: false, preset: "node-server", compatibilityDate: "2026-10-27" })
+    await nitro.close()
+    const source = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(source).toContain('from "@vite-hub/comments/runtime/connect/node"')
+    expect(source).toContain(`connectDatabase(${JSON.stringify(database)}`)
+  }, 30_000)
+
+  it("adds the D1 binding to the Wrangler config, unless the app's wrangler.jsonc has it", async () => {
+    const root = await project({ "package.json": "{}" })
+    const d1 = () => comments({ database: "d1:COMMENTS" })[0] as Plugin
+    const nitro = await configure(d1(), root)
+    expect(nitro?.cloudflare?.wrangler?.d1_databases).toEqual([{ binding: "COMMENTS", database_name: "comments" }])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("connectDatabase(\"d1:COMMENTS\"")
+    await writeFile(join(root, "wrangler.jsonc"), `{ "d1_databases": [{ "binding": "COMMENTS", "database_id": "abc" }] }`)
+    expect((await configure(d1(), root))?.cloudflare).toBeUndefined()
+    // The development server has no binding, so it keeps the threads in the local file.
+    await configure(d1(), root, "serve")
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
+  })
+
+  it.each([
+    ["wrangler.jsonc", '// { "binding": "COMMENTS" }\n{ "d1_databases": [] }'],
+    ["wrangler.jsonc", '{ /* "binding": "COMMENTS" */ "d1_databases": [], }'],
+    ["wrangler.json", '{ "kv_namespaces": [{ "binding": "COMMENTS" }] }'],
+    ["wrangler.jsonc", '{ "env": { "production": { "d1_databases": [{ "binding": "COMMENTS" }] } } }'],
+    ["wrangler.toml", '# binding = "COMMENTS"\nname = "app"'],
+    ["wrangler.toml", '[[kv_namespaces]]\nbinding = "COMMENTS"'],
+    ["wrangler.toml", '[[env.production.d1_databases]]\nbinding = "COMMENTS"'],
+  ])("adds D1 when %s mentions the binding outside its active D1 entries (%s)", async (file, source) => {
+    const root = await project({ "package.json": "{}", [file]: source })
+    const nitro = await configure(comments({ database: "d1:COMMENTS" })[0] as Plugin, root)
+    expect(nitro?.cloudflare?.wrangler?.d1_databases).toEqual([{ binding: "COMMENTS", database_name: "comments" }])
+  })
+
+  it.each([
+    ["wrangler.jsonc", '{ /* existing */ "d1_databases": [{ "binding": "COMMENTS", "database_id": "abc" },], }'],
+    ["wrangler.toml", '[[d1_databases]]\nbinding = "COMMENTS"\ndatabase_id = "abc"'],
+  ])("preserves an active D1 binding in %s", async (file, source) => {
+    const root = await project({ "package.json": "{}", [file]: source })
+    expect((await configure(comments({ database: "d1:COMMENTS" })[0] as Plugin, root))?.cloudflare).toBeUndefined()
+  })
+
+  it("fails the build on a location that Comments cannot use", async () => {
+    const root = await project({ "package.json": "{}" })
+    await expect(configure(comments({ database: "postgres://db.test/app" })[0] as Plugin, root)).rejects.toThrow("cannot connect to a Postgres URL")
+    await expect(configure(comments({ database: "./data.sqlite" })[0] as Plugin, root)).rejects.toMatchObject({ code: "DATABASE_UNSUPPORTED_URL" })
   })
 
   it("keeps the app's server/comments.ts, and adds no tables to a ViteHub Database", async () => {
