@@ -26,7 +26,14 @@ export interface ConsoleDocumentScheduled extends ConsoleDocumentSchedule {
   documents: ConsoleDocumentPublishExpectation[]
 }
 
+/** The draft and the site both changed this document. `published` is the site digest, or null when the site deleted it. */
+export interface ConsoleDocumentConflict {
+  published: string | null
+}
+
 export interface ConsoleDocumentSummary {
+  /** The site changed after the draft started from it. Publishing refuses it until the person compares. */
+  conflict?: ConsoleDocumentConflict
   data: Record<string, unknown>
   /** Draft digest, or null for a document deleted on the draft. */
   digest: string | null
@@ -67,6 +74,8 @@ export interface ConsoleDocumentPage {
 export interface ConsoleDocument {
   body: string
   collection: string
+  /** The site changed after the draft started from it. Publishing refuses it until the person compares. */
+  conflict?: ConsoleDocumentConflict
   data: Record<string, unknown>
   digest: string
   id: string
@@ -233,7 +242,8 @@ interface ConsoleDocumentActionResults {
 
 /** The owner document actions of one document editor section, called through the Console RPC transport. */
 export interface ConsoleDocumentsClient {
-  get(collection: string, id: string): Promise<ConsoleDocument | null>
+  /** Reads the draft, or the version on the site with `ref: "published"`. */
+  get(collection: string, id: string, ref?: "draft" | "published"): Promise<ConsoleDocument | null>
   list(collection: string, query?: ConsoleDocumentListQuery): Promise<ConsoleDocumentPage>
   /** Counts, unpublished changes, and recent activity of every readable collection, in one request. */
   overview(options?: { activity?: number }): Promise<ConsoleDocumentOverview>
@@ -248,7 +258,8 @@ export interface ConsoleDocumentsClient {
   restore(collection: string, id: string, revision: string, ifDigest: string | null, session?: string, live?: boolean): Promise<ConsoleDocument>
   revisions(collection: string, id: string, cursor?: string): Promise<{ cursor?: string, revisions: ConsoleDocumentRevision[] }>
   /** `session` is this tab's token, so its own edit lease does not block the save. */
-  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }): Promise<ConsoleDocument>
+  /** `ifPublishedDigest` names the version on the site that the person compared, which resolves a `conflict`. */
+  save(collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }): Promise<ConsoleDocument>
   /** Publishes exactly these drafts at `at`, an ISO timestamp. A draft saved after scheduling makes the schedule fail. */
   schedule(collection: string, at: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentScheduled>
   /** Cancels a pending schedule, or dismisses a failed one. */
@@ -274,9 +285,9 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     overview: (options: { activity?: number } = {}) => call("overview", { ...options }),
     search: async (query: string, options: { limit?: number, signal?: AbortSignal } = {}) =>
       (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
-    get: (collection: string, id: string) => call("get", { collection, id }),
+    get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
-    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, session?: string }) =>
+    save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }) =>
       call("save", { collection, id, ...input }),
     remove: (collection: string, id: string, ifDigest: string, session?: string, live?: boolean) => call("remove", { collection, id, ifDigest, ...(session ? { session } : {}), ...(live ? { live } : {}) }),
     publish: (collection: string, expect: readonly ConsoleDocumentPublishExpectation[]) =>
@@ -349,9 +360,22 @@ export interface ConsolePublishMismatch {
   id: string
 }
 
-/** Returns the documents that changed after review, from a publish conflict, or undefined for another error. */
+/** Returns the drafts that changed after review, from a publish conflict, or undefined for another error. */
 export function consolePublishMismatches(error: unknown): ConsolePublishMismatch[] | undefined {
-  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError)) return
+  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError) || error.details?.ref === "published") return
+  return publishConflictDocuments(error)
+}
+
+/**
+ * Returns the documents that also changed on the site after their draft started, from a publish conflict, or undefined
+ * for another error. Publishing them would erase that change, so the person compares and chooses first.
+ */
+export function consolePublishedConflicts(error: unknown): ConsolePublishMismatch[] | undefined {
+  if (!isConsoleConflict(error) || !(error instanceof ConsoleRequestError) || error.details?.ref !== "published") return
+  return publishConflictDocuments(error)
+}
+
+function publishConflictDocuments(error: ConsoleRequestError): ConsolePublishMismatch[] | undefined {
   const documents = error.details?.documents
   if (!Array.isArray(documents)) return
   return documents.flatMap((entry) => {
