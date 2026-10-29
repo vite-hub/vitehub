@@ -1,27 +1,23 @@
 import { readFile } from "node:fs/promises"
-import { relative, resolve } from "node:path"
+import { resolve } from "node:path"
+import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
-import {
-  discoverViteHubDevServer,
-  fetchViteHubDevEndpoint,
-  readViteHubDevTargetOption,
-  resolveViteHubDevServerUrl,
-} from "@vite-hub/internal/cli"
+import { readViteHubDevTargetOption } from "@vite-hub/internal/cli"
+import { callOperationFromCli } from "@vite-hub/internal/operations"
 
-import { emailDevHeader, emailDevHeaderValue, emailDevRoute } from "./dev.ts"
 import { emailErrorDiagnostics } from "./error-diagnostics.ts"
-import { renderEmailMarkdown } from "./markdown.ts"
-import { discoverEmailTemplates } from "./templates.ts"
+import { previewEmailTemplate } from "./preview.ts"
 
 import type { ViteHubCliContext, ViteHubCliContributor, ViteHubCliStreams } from "@vite-hub/internal/cli"
-import type { EmailDevOperation, EmailDevRequestBody } from "./dev.ts"
 import type { EmailOutboxDelivery, EmailOutboxList, EmailOutboxMessage } from "./runtime/console.ts"
 
-export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "rootDir"> & ViteHubCliStreams
+export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface EmailCliOptions {
+  /** Asks whether `outbox clear` may remove every message. Defaults to a prompt on a terminal, and refuses without one. */
+  confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
   /** Directories that hold Email templates. The Vite plugin passes its `server/emails` roots. */
   templateRoots?: () => readonly string[]
@@ -35,7 +31,8 @@ interface ParsedOutboxArgs {
   id?: string
   json: boolean
   timeout?: number
-  url: string
+  url?: string
+  yes: boolean
 }
 
 interface OutboxCommand {
@@ -43,39 +40,7 @@ interface OutboxCommand {
   formats?: boolean
   id?: boolean
   name: "clear" | "list" | "show"
-  operation: EmailDevOperation
-}
-
-interface EmailDevDiscovery {
-  message?: unknown
-  root?: unknown
-  runtime?: unknown
-}
-
-const emailDevDiscoverySchema = v.object({
-  message: v.optional(v.string()),
-  root: v.optional(v.string()),
-  runtime: v.optional(v.string()),
-})
-
-function parseEmailDevDiscovery(value: unknown): EmailDevDiscovery {
-  const parsed = v.safeParse(emailDevDiscoverySchema, value)
-  if (parsed.success) return parsed.output
-  if (!v.is(v.record(v.string(), v.unknown()), value)) return {}
-  const record = value
-  const output: EmailDevDiscovery = {}
-  if ("root" in record) output.root = record.root
-  for (const key of ["message", "runtime"] as const) {
-    const field = v.safeParse(v.string(), record[key])
-    if (field.success) output[key] = field.output
-  }
-  return output
-}
-
-const emailDevEndpoint = {
-  header: emailDevHeader,
-  headerValue: emailDevHeaderValue,
-  route: emailDevRoute,
+  operation: "outbox-clear" | "outbox-list" | "outbox-show"
 }
 
 const usageError = (message: string) => emailErrorDiagnostics.EMAIL_CLI_USAGE({ problem: message })
@@ -86,20 +51,17 @@ const emailDevTargetErrors = {
   missingValue: usageError,
 }
 
-// Nuxt mounts Vite under `/_nuxt/`, so the Email dev endpoint is not reachable there.
-const emailDevServerHint = "`vitehub email outbox` needs a running Vite + Nitro Development Server with `email` enabled. Nuxt and plain Vite are not supported."
-
 const outboxCommands: readonly OutboxCommand[] = [
-  { description: "List captured messages, newest first.", name: "list", operation: "list" },
-  { description: "Show one captured message.", formats: true, id: true, name: "show", operation: "get" },
-  { description: "Remove every captured message.", name: "clear", operation: "clear" },
+  { description: "List captured messages, newest first.", name: "list", operation: "outbox-list" },
+  { description: "Show one captured message.", formats: true, id: true, name: "show", operation: "outbox-show" },
+  { description: "Remove every captured message.", name: "clear", operation: "outbox-clear" },
 ]
 
-const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--url <url>]"
+const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
 const previewUsage = "vitehub email preview <template> [--data <json|@file>] [--html|--text|--json]"
 
 function outboxCommandUsage(command: OutboxCommand): string {
-  return `vitehub email outbox ${command.name}${command.id ? " <id>" : ""}${command.formats ? " [--html|--text|--json]" : " [--json]"} [--url <url>]`
+  return `vitehub email outbox ${command.name}${command.id ? " <id>" : ""}${command.formats ? " [--html|--text|--json]" : " [--json]"}${command.name === "clear" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeOutboxUsage(command: OutboxCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -107,7 +69,7 @@ function writeOutboxUsage(command: OutboxCommand, stream: ViteHubCliStreams["std
     `Usage: ${outboxCommandUsage(command)}`,
     "",
     command.description,
-    "The command reads the development outbox of a running Vite + Nitro Development Server.",
+    "The command runs the email operation of the app: on the dev server of this project, or on a deployed app with --url.",
     "",
     "Options:",
     ...(command.formats
@@ -117,8 +79,9 @@ function writeOutboxUsage(command: OutboxCommand, stream: ViteHubCliStreams["std
         ]
       : []),
     "  --json            Print JSON.",
-    "  --url <url>       Compatible Vite Development Server URL. Defaults to http://localhost:5173.",
+    "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
+    ...(command.name === "clear" ? ["  -y, --yes         Clear the outbox without asking for confirmation."] : []),
     "  -h, --help        Show this help.",
     "",
   ].join("\n"))
@@ -139,8 +102,8 @@ function setFormat(parsed: ParsedOutboxArgs, format: OutboxBodyFormat): void {
   parsed.format = format
 }
 
-function parseOutboxArgs(command: OutboxCommand, args: readonly string[], env: NodeJS.ProcessEnv): ParsedOutboxArgs {
-  const parsed: ParsedOutboxArgs = { help: false, json: false, url: resolveViteHubDevServerUrl(env) }
+function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): ParsedOutboxArgs {
+  const parsed: ParsedOutboxArgs = { help: false, json: false, yes: false }
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
     if (arg === "-h" || arg === "--help") {
@@ -150,6 +113,10 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[], env: N
     if (arg === "--json") {
       parsed.json = true
       if (command.formats) setFormat(parsed, "json")
+      continue
+    }
+    if (command.name === "clear" && (arg === "--yes" || arg === "-y")) {
+      parsed.yes = true
       continue
     }
     if (command.formats && (arg === "--html" || arg === "--text")) {
@@ -262,63 +229,56 @@ const resultSchemas = {
 }
 
 type OutboxResult =
-  | { operation: "list", value: EmailOutboxList }
-  | { operation: "get", value: { message: EmailOutboxMessage } }
-  | { operation: "clear", value: { cleared: number } }
+  | { operation: "outbox-list", value: EmailOutboxList }
+  | { operation: "outbox-show", value: { message: EmailOutboxMessage } }
+  | { operation: "outbox-clear", value: { cleared: number } }
 
-function parseOutboxResult(operation: EmailDevOperation, value: unknown): OutboxResult | undefined {
+function parseOutboxResult(operation: OutboxCommand["operation"], value: unknown): OutboxResult | undefined {
   switch (operation) {
-    case "list": { const parsed = v.safeParse(resultSchemas.list, value); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "get": { const parsed = v.safeParse(resultSchemas.get, value); return parsed.success ? { operation, value: parsed.output } : undefined }
-    case "clear": { const parsed = v.safeParse(resultSchemas.clear, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "outbox-list": { const parsed = v.safeParse(resultSchemas.list, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "outbox-show": { const parsed = v.safeParse(resultSchemas.get, value); return parsed.success ? { operation, value: parsed.output } : undefined }
+    case "outbox-clear": { const parsed = v.safeParse(resultSchemas.clear, value); return parsed.success ? { operation, value: parsed.output } : undefined }
   }
 }
 
-async function readFailure(response: Response): Promise<{ code?: string, message: string }> {
-  const text = await response.text()
-  try {
-    const body: unknown = JSON.parse(text)
-    const parsed = v.safeParse(v.object({ error: v.object({ code: v.optional(v.string()), message: v.string() }) }), body)
-    if (parsed.success) return parsed.output.error
-  }
-  catch {
-    // Guard rejections use plain text.
-  }
-  return { message: text || `Email Dev request failed with HTTP ${response.status}.` }
-}
-
-function writeFailure(json: boolean, context: EmailCliContext, failure: { code?: string, message: string }): number {
+function writeFailure(json: boolean, context: EmailCliContext, failure: { code?: string, fix?: string, message: string }): number {
   if (json) context.stdout.write(`${JSON.stringify({ error: failure }, null, 2)}\n`)
-  else context.stderr.write(`${failure.message}\n`)
+  else context.stderr.write(`${failure.message}${failure.fix ? `\n${failure.fix}` : ""}\n`)
   return 1
 }
 
-function withTimeout(timeout: number | undefined): Pick<RequestInit, "signal"> {
-  return timeout ? { signal: AbortSignal.timeout(timeout) } : {}
-}
-
 function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): string {
-  if (parsed.json) return `${JSON.stringify(result.operation === "get" ? result.value.message : result.value, null, 2)}\n`
+  if (parsed.json) return `${JSON.stringify(result.operation === "outbox-show" ? result.value.message : result.value, null, 2)}\n`
   switch (result.operation) {
-    case "list":
+    case "outbox-list":
       return formatOutboxList(result.value)
-    case "get": {
+    case "outbox-show": {
       const message = result.value.message
       if (parsed.format === "html") return message.html === undefined ? "" : `${message.html}\n`
       if (parsed.format === "text") return message.text === undefined ? "" : `${message.text}\n`
       return formatMessage(message)
     }
-    case "clear": {
+    case "outbox-clear": {
       const cleared = result.value.cleared
       return `Removed ${cleared} message${cleared === 1 ? "" : "s"} from the outbox.\n`
     }
   }
 }
 
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
 async function runOutboxCommand(command: OutboxCommand, args: string[], context: EmailCliContext, options: EmailCliOptions): Promise<number> {
   let parsed: ParsedOutboxArgs
   try {
-    parsed = parseOutboxArgs(command, args, context.env)
+    parsed = parseOutboxArgs(command, args)
   }
   catch (error) {
     const terminator = args.indexOf("--")
@@ -331,54 +291,29 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
     writeOutboxUsage(command, context.stdout)
     return 0
   }
-  const fetchImpl = options.fetch ?? globalThis.fetch
-  let discoveryError = ""
-  const server = await discoverViteHubDevServer<EmailDevDiscovery>({
-    endpoint: emailDevEndpoint,
-    fetch: fetchImpl,
+  if (command.name === "clear" && !parsed.yes) {
+    const question = `Remove every captured message from the Email outbox at ${parsed.url ?? context.rootDir}? [y/N] `
+    const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+    if (!confirmed) return writeFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
+  }
+  const called = await callOperationFromCli({
+    ...(command.name === "clear" ? { confirmed: true } : {}),
+    env: context.env,
+    fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,
-    parseDiscovery: parseEmailDevDiscovery,
-    serverUrl: parsed.url,
-    signal: withTimeout(parsed.timeout).signal ?? undefined,
-    stderr: parsed.json ? { write: (chunk) => { discoveryError += chunk; return true } } : context.stderr,
-  })
-  if (!server) {
-    if (parsed.json) return writeFailure(true, context, { message: `${discoveryError.trim()} ${emailDevServerHint}` })
-    context.stderr.write(`${emailDevServerHint}\n`)
-    return 1
-  }
-  if (server.discovery.runtime !== "nitro") {
-    return writeFailure(parsed.json, context, {
-      code: "EMAIL_DEV_RUNTIME_UNAVAILABLE",
-      message: v.is(v.string(), server.discovery.message)
-        ? server.discovery.message
-        : "This Vite Development Server cannot reach the Email outbox.",
-    })
-  }
-  const body: EmailDevRequestBody = parsed.id === undefined
-    ? { operation: command.operation }
-    : { id: parsed.id, operation: command.operation }
-  let response: Response
-  try {
-    response = await fetchViteHubDevEndpoint(fetchImpl, server.url, emailDevEndpoint, {
-      body: JSON.stringify(body),
-      headers: { accept: "application/json", "content-type": "application/json" },
-      method: "POST",
-      ...withTimeout(parsed.timeout),
-    })
-  }
-  catch (error) {
-    return writeFailure(parsed.json, context, { message: `Email Dev request failed: ${error instanceof Error ? error.message : String(error)}` })
-  }
-  if (!response.ok) return writeFailure(parsed.json, context, await readFailure(response))
-  const result = parseOutboxResult(command.operation, await response.json().catch(() => undefined))
-  if (!result) return writeFailure(parsed.json, context, { message: "The Email Dev response is invalid." })
+    ...(parsed.timeout ? { timeout: parsed.timeout } : {}),
+    ...(parsed.url ? { url: parsed.url } : {}),
+  }, `email.${command.operation}`, parsed.id === undefined ? {} : { id: parsed.id })
+  if (!called.ok) return writeFailure(parsed.json, context, { code: called.code, message: called.message, ...(called.fix ? { fix: called.fix } : {}) })
+  const result = parseOutboxResult(command.operation, called.value)
+  if (!result) return writeFailure(parsed.json, context, { message: "The email operation answered with an invalid result." })
   context.stdout.write(formatOutboxResult(parsed, result))
   return 0
 }
 
 /**
- * Runs one `vitehub email outbox` command against a running Vite + Nitro Development Server.
+ * Runs one `vitehub email outbox` command through the `email.outbox-*` operations, on the dev server of this project or
+ * on a deployed app with `--url`.
  * `args[0]` is the command name: `list`, `show`, or `clear`.
  */
 export async function runEmailOutboxCli(args: string[], context: EmailCliContext, options: EmailCliOptions = {}): Promise<number> {
@@ -492,26 +427,16 @@ export async function runEmailPreviewCli(args: string[], context: EmailCliContex
   const json = parsed.format === "json"
   const roots = options.templateRoots?.() ?? [resolve(context.rootDir, "server", "emails")]
   try {
-    const templates = await discoverEmailTemplates([...roots])
-    const template = templates.find(entry => entry.name === parsed.template)
-    if (!template) {
-      const available = templates.map(entry => entry.name)
-      return writeFailure(json, context, {
-        code: "EMAIL_TEMPLATE_NOT_FOUND",
-        message: `Email template ${JSON.stringify(parsed.template)} was not found in ${roots.map(root => relative(context.rootDir, root) || ".").join(", ")}. ${available.length ? `Templates: ${available.join(", ")}.` : "No templates were found."}`,
-      })
-    }
-    const data = await readPreviewData(parsed.data, context.cwd)
-    const rendered = await renderEmailMarkdown(await readFile(template.file, "utf8"), { data })
-    const file = relative(context.rootDir, template.file)
+    const rendered = await previewEmailTemplate(roots, context.rootDir, parsed.template!, await readPreviewData(parsed.data, context.cwd))
     if (parsed.format === "html") context.stdout.write(`${rendered.html}\n`)
     else if (parsed.format === "text") context.stdout.write(`${rendered.text}\n`)
-    else if (json) context.stdout.write(`${JSON.stringify({ file, html: rendered.html, template: template.name, text: rendered.text }, null, 2)}\n`)
-    else context.stdout.write([`Template: ${template.name}`, `File: ${file}`, "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
+    else if (json) context.stdout.write(`${JSON.stringify(rendered, null, 2)}\n`)
+    else context.stdout.write([`Template: ${rendered.template}`, `File: ${rendered.file}`, "", "Text:", rendered.text, "", "HTML:", rendered.html, ""].join("\n"))
     return 0
   }
   catch (error) {
-    return writeFailure(json, context, { message: error instanceof Error ? error.message : String(error) })
+    const code = error instanceof Error && "code" in error && typeof error.code === "string" ? error.code : undefined
+    return writeFailure(json, context, { ...(code ? { code } : {}), message: error instanceof Error ? error.message : String(error) })
   }
 }
 

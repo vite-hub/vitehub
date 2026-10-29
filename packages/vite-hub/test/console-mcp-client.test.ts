@@ -240,7 +240,7 @@ describe("MCP client section", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-mcp-client-"))
     try {
       const generated = async (sections: string[]) => {
-        await writeConsoleNitroPlugin(join(root, "plugin.mjs"), root, sections, [], { agents: [], content: {} }, [], [])
+        await writeConsoleNitroPlugin(join(root, "plugin.mjs"), root, sections, [], { agents: [], content: {} }, [])
         return readFile(join(root, "plugin.mjs"), "utf8")
       }
       const withMcp = await generated(["mcp-client"])

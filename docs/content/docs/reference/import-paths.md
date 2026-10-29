@@ -54,7 +54,6 @@ composition and explicit feature subpaths for application APIs.
 | `vite-hub/console/documents` | Content document editor registration for framework server integrations. |
 | `vite-hub/console/definitions` | Read-only Definition inspection registration for framework server integrations. |
 | `vite-hub/console/env` | Server Env declaration inventory registration for framework server integrations. |
-| `vite-hub/console/kv` | Read-only KV inspection registration for framework server integrations. |
 | `vite-hub/console/mcp-client` | MCP client operations of the Console. The generated Console plugin installs them when `console.mcpClient` is on. |
 | `vite-hub/console/sections` | Console section manifest registration for framework server integrations. |
 | `vite-hub/console/server` | Local console invocation journal for server integrations. |

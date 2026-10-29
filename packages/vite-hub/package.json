@@ -129,11 +129,11 @@
       "require": "./dist/_internal/blob.js",
       "default": "./dist/_internal/blob.js"
     },
-    "./_internal/blob/runtime/dev": {
-      "types": "./dist/_internal/blob/runtime/dev.d.ts",
-      "import": "./dist/_internal/blob/runtime/dev.js",
-      "require": "./dist/_internal/blob/runtime/dev.js",
-      "default": "./dist/_internal/blob/runtime/dev.js"
+    "./_internal/blob/operations": {
+      "types": "./dist/_internal/blob/operations.d.ts",
+      "import": "./dist/_internal/blob/operations.js",
+      "require": "./dist/_internal/blob/operations.js",
+      "default": "./dist/_internal/blob/operations.js"
     },
     "./_internal/blob/runtime/state": {
       "types": "./dist/_internal/blob/runtime/state.d.ts",
@@ -171,6 +171,12 @@
       "require": "./dist/_internal/database/runtime/state.js",
       "default": "./dist/_internal/database/runtime/state.js"
     },
+    "./_internal/email/operations": {
+      "types": "./dist/_internal/email/operations.d.ts",
+      "import": "./dist/_internal/email/operations.js",
+      "require": "./dist/_internal/email/operations.js",
+      "default": "./dist/_internal/email/operations.js"
+    },
     "./_internal/email/runtime/console": {
       "types": "./dist/_internal/email/runtime/console.d.ts",
       "import": "./dist/_internal/email/runtime/console.js",
@@ -183,11 +189,11 @@
       "require": "./dist/_internal/kv.js",
       "default": "./dist/_internal/kv.js"
     },
-    "./_internal/kv/runtime/dev": {
-      "types": "./dist/_internal/kv/runtime/dev.d.ts",
-      "import": "./dist/_internal/kv/runtime/dev.js",
-      "require": "./dist/_internal/kv/runtime/dev.js",
-      "default": "./dist/_internal/kv/runtime/dev.js"
+    "./_internal/kv/operations": {
+      "types": "./dist/_internal/kv/operations.d.ts",
+      "import": "./dist/_internal/kv/operations.js",
+      "require": "./dist/_internal/kv/operations.js",
+      "default": "./dist/_internal/kv/operations.js"
     },
     "./_internal/kv/runtime/disabled-upstash": {
       "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
@@ -213,11 +219,11 @@
       "require": "./dist/_internal/rate-limit/runtime.js",
       "default": "./dist/_internal/rate-limit/runtime.js"
     },
-    "./_internal/rate-limit/runtime/console": {
-      "types": "./dist/_internal/rate-limit/runtime/console.d.ts",
-      "import": "./dist/_internal/rate-limit/runtime/console.js",
-      "require": "./dist/_internal/rate-limit/runtime/console.js",
-      "default": "./dist/_internal/rate-limit/runtime/console.js"
+    "./_internal/rate-limit/operations": {
+      "types": "./dist/_internal/rate-limit/operations.d.ts",
+      "import": "./dist/_internal/rate-limit/operations.js",
+      "require": "./dist/_internal/rate-limit/operations.js",
+      "default": "./dist/_internal/rate-limit/operations.js"
     },
     "./_internal/sandbox/task/runtime/state": {
       "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
@@ -1252,12 +1258,6 @@
       "require": "./dist/console/runtime/server/env.js",
       "default": "./dist/console/runtime/server/env.js"
     },
-    "./console/kv": {
-      "types": "./dist/console/runtime/server/kv.d.ts",
-      "import": "./dist/console/runtime/server/kv.js",
-      "require": "./dist/console/runtime/server/kv.js",
-      "default": "./dist/console/runtime/server/kv.js"
-    },
     "./console/mcp-client": {
       "types": "./dist/console/runtime/server/mcp-client-operations.d.ts",
       "import": "./dist/console/runtime/server/mcp-client-operations.js",
@@ -1378,7 +1378,7 @@
   "scripts": {
     "build": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
     "dev": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
-    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.console.json",
+    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {

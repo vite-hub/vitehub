@@ -44,6 +44,15 @@ export const contextSchema = v.object({
   build: v.optional(v.object({ commit: v.optional(short(64)), branch: v.optional(short(256)) })),
 })
 
+const metadataValue = v.union([v.pipe(v.string(), v.maxLength(4000)), v.number(), v.boolean(), v.null()])
+
+export const metadataSchema = v.pipe(
+  v.record(v.pipe(v.string(), v.minLength(1), v.maxLength(64)), metadataValue),
+  v.check(value => Object.keys(value).length <= 50, "Keep at most 50 metadata fields."),
+)
+
+export const scopeSchema = v.pipe(v.string(), v.minLength(1), v.maxLength(256))
+
 export const bodySchema = v.pipe(v.string(), v.trim(), v.minLength(1, "The comment is empty."), v.maxLength(4000, "Keep a comment under 4,000 characters."))
 
 export const mentionsSchema = v.pipe(
@@ -61,13 +70,17 @@ export const authorSchema = v.object({
 export const pageSchema = v.pipe(v.string(), v.startsWith("/", "A page starts with `/`."), v.maxLength(1024))
 
 export const createThreadSchema = v.object({
+  scope: v.optional(scopeSchema, "pages"),
   page: pageSchema,
-  anchor: anchorSchema,
+  anchor: v.optional(anchorSchema),
+  metadata: v.optional(metadataSchema),
   context: v.optional(contextSchema),
   body: bodySchema,
   author: authorSchema,
   mentions: mentionsSchema,
 })
+
+export const editSchema = v.object({ body: bodySchema, mentions: mentionsSchema })
 
 export const replySchema = v.object({ body: bodySchema, author: authorSchema, mentions: mentionsSchema })
 

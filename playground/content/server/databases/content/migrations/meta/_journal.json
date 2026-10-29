@@ -29,6 +29,20 @@
       "when": 1793001600000,
       "tag": "0003_comments_context",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1793088000000,
+      "tag": "0004_comments_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1793131200000,
+      "tag": "0005_comments_scope_counters",
+      "breakpoints": true
     }
   ]
 }
