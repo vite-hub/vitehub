@@ -24,8 +24,8 @@ export interface CommentsStore {
   setStatus(threadId: string, status: CommentThreadStatus, by: CommentAuthor | null): Promise<CommentThread | undefined>
   removeThread(threadId: string): Promise<void>
   removeComment(commentId: string): Promise<void>
-  /** Deletes every thread of a scope with its comments. Returns how many threads it deleted. */
-  removeScope(scope: string): Promise<number>
+  /** Deletes every thread of a scope with its comments. Returns their IDs for forge cleanup. */
+  removeScope(scope: string): Promise<string[]>
   /** Distinct authors of one scope, newest first, for `@` suggestions. */
   authors(scope: string, limit: number): Promise<CommentAuthor[]>
 }
@@ -193,7 +193,7 @@ export function createCommentsStore(database: CommentsDatabase): CommentsStore {
         database.delete(comments).where(inArray(comments.threadId, inScope)),
         database.delete(threads).where(eq(threads.scope, scope)).returning({ id: threads.id }),
       ])
-      return removed.length
+      return removed.map(row => row.id)
     },
     async authors(scope, limit) {
       const rows = await database.select({ author: comments.author }).from(comments)

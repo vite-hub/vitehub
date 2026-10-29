@@ -5,9 +5,9 @@ import { pathToFileURL } from "node:url"
 
 import { VITEHUB_PROJECT_ROOT } from "@vite-hub/internal/build/vite"
 import { H3 } from "h3"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { componentNames, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
+import { componentNames, githubRepository, hubComments, readCommentsBuild, readCommentsComponents, readCommentsDatabase } from "../src/vite.ts"
 
 import type { UserConfig } from "vite"
 import type { H3Event } from "h3"
@@ -39,10 +39,24 @@ async function readComponentsModule(root: string): Promise<Record<string, string
 }
 
 afterEach(async () => {
+  vi.unstubAllEnvs()
   await Promise.all(roots.splice(0).map(root => rm(root, { force: true, recursive: true })))
 })
 
 describe("hubComments", () => {
+  it.each([
+    "git@ghe.example.com:acme/app.git",
+    "https://ghe.example.com/acme/app.git",
+    "ssh://git@ghe.example.com:2222/acme/app.git",
+    "git@github.com:acme/app.git",
+    "https://github.com/acme/app/",
+  ])("discovers a repository from a GitHub or Enterprise remote: %s", async (remote) => {
+    expect(githubRepository(remote)).toBe("acme/app")
+    const root = await project({})
+    expect(await readCommentsBuild(root, { COMMIT_REF: "abc", BRANCH: "feat", REPOSITORY_URL: remote, PULL_REQUEST: "true", REVIEW_ID: "7" }))
+      .toEqual({ commit: "abc", branch: "feat", repository: "acme/app", pullRequest: 7 })
+  })
+
   it("does nothing without server/comments.ts", async () => {
     const root = await project({ "server/content.ts": "export const content = {}" })
     const plugin = hubComments()
@@ -60,6 +74,16 @@ describe("hubComments", () => {
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
     expect(handler).toContain("realtime: false")
+  })
+
+  it("carries the preview's pull request into the generated live handler", async () => {
+    vi.stubEnv("GITHUB_REPOSITORY", "acme/app")
+    vi.stubEnv("VERCEL_GIT_PULL_REQUEST_ID", "7")
+    const root = await project({ "server/comments.ts": "export const comments = defineComments({ forge: { provider: 'github' } })" })
+    await configure(hubComments(), root)
+    const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
+    expect(handler).toContain('"repository":"acme/app"')
+    expect(handler).toContain('"pullRequest":7')
   })
 
   it("names a Vue file the way production builds and Nuxt name its component", () => {

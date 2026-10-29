@@ -227,6 +227,16 @@ export interface ContentDocumentStatus {
   schedule?: ContentDocumentSchedule
   /** The open pull request that publishes this document. The document reaches `published` when it merges. */
   pullRequest?: ContentPullRequest
+  /**
+   * Set when the draft and the published version both changed this document since the draft took it from published,
+   * as when a Git commit edits a page that a CMS draft also edits. `publish()` refuses the document until a save with
+   * `ifPublishedDigest` set to `published` records which version the draft builds on. Only Stores whose draft is a
+   * branch of its own, such as the GitHub store, report it.
+   */
+  conflict?: {
+    /** Digest of the version that the draft started from, or null when the draft added the document. */
+    base: string | null
+  }
 }
 
 /** One document `publish({ expect })` must find on the draft before it publishes it. */
@@ -1534,6 +1544,19 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         const parsed = await parseEntry(draft.opened!, entry)
         if (parsed.issues?.length) issueCounts.set(documentId, parsed.issues.length)
       })
+      // Documents that publish() refuses because both sides changed them, by the rule that publish() applies.
+      const conflicts = new Map<string, string | null>()
+      if (bases && draft.revision) {
+        const ids = id === undefined ? new Set([...draftEntries.keys(), ...publishedEntries.keys()]) : new Set([id])
+        await mapLimit([...ids], 8, async (documentId) => {
+          const path = pathFor(documentId)
+          const publishedDigest = publishedEntries.get(documentId)?.digest
+          if (!Object.hasOwn(bases, path) || (draftEntries.get(documentId)?.digest ?? null) === (publishedDigest ?? null)) return
+          if ((publishedDigest ?? null) === bases[path]) return
+          if (await draftHeld(path, publishedDigest, draft.revision!)) return
+          conflicts.set(documentId, bases[path] ?? null)
+        })
+      }
       const statusOf = (documentId: string): ContentDocumentStatus | null => {
         const draftDigest = draftEntries.get(documentId)?.digest ?? null
         const publishedDigest = publishedEntries.get(documentId)?.digest ?? null
@@ -1552,6 +1575,7 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
         if (schedule) status.schedule = schedule
         const pullRequest = pending.get(pathFor(documentId))
         if (pullRequest) status.pullRequest = pullRequest
+        if (conflicts.has(documentId)) status.conflict = { base: conflicts.get(documentId) ?? null }
         return status
       }
       if (id !== undefined) return statusOf(id)

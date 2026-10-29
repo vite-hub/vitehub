@@ -70,7 +70,7 @@ The Capability reuses its Workspace Sessions within one invocation and closes th
 
 ### Pull request checkouts
 
-In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the forge access of the Agent's github() Channel App. The token goes in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` and reaches only the pull request base and head repositories. Without a github() Channel App, they run without credentials. See [GitHub Channel](/docs/agents/channels).
+In a GitHub pull request Invocation, the first command prepares the pull request mount as a Git checkout of the exact head SHA. The checkout and `fetch` use the forge access of the Agent's github() Channel App. The token goes in `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>` and reaches only the pull request base and head repositories. In an Invocation without a pull request, Git commands get credentials for the repositories of the Agent's GitHub Workspace Sources. Without a github() Channel App, they run without credentials. See [GitHub Channel](/docs/agents/channels).
 
 ## Requirements
 
