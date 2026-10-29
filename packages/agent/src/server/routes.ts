@@ -8125,12 +8125,14 @@ async function channelHistoryMessage(
   return objectWithoutUndefined({
     attachments,
     author: message.author,
+    deleted: isRecord(message) && message.deleted === true ? true : undefined,
     formatted: message.formatted,
     id: message.id,
     isMention: message.isMention,
     links: message.links,
     metadata: objectWithoutUndefined({
       dateSent: message.metadata.dateSent.toISOString(),
+      deleted: isRecord(message.metadata) && message.metadata.deleted === true ? true : undefined,
       edited: message.metadata.edited,
       editedAt: isoDate(message.metadata.editedAt),
     }),

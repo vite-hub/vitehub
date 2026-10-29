@@ -291,7 +291,7 @@ function operation<Name extends keyof Operations>(name: Name, overrides: Partial
 const parseArchive = (text: string) => JSON.parse(text) as ReturnType<typeof channelConversationArchive>
 
 const conversation = (thread = "telegram:456", overrides: Partial<OperationContext> = {}) => operation("channels.conversation", overrides)({ agent: "support", channel: "telegram", thread })
-const lines = (messages: Array<{ role: string, text: string }>) => messages.map(message => `${message.role}: ${message.text}`)
+const lines = (messages: ReadonlyArray<{ role: string, text: string }>) => messages.map(message => `${message.role}: ${message.text}`)
 
 describe("Channel conversation operations", () => {
   it("belongs to the channels section, with a name per surface", () => {
@@ -371,6 +371,24 @@ describe("Channel conversation operations", () => {
     expect(read.messages[4].author).toMatchObject({ name: "Maxi" })
     const times = read.messages.map(message => message.at)
     expect([...times].sort()).toEqual(times)
+  })
+
+  it.each(["deleted", "metadata.deleted"] as const)("honors provider %s markers before exporting retained transcripts", async (marker) => {
+    const chat = await fixture({ cache: false, state: "cloudflare" })
+    await chat.say(1, "deleted question")
+    const original = chat.adapter.messages[0]!
+    const tombstone = Object.assign(new Message({
+      ...original,
+      metadata: { ...original.metadata },
+      text: "",
+    }), marker === "deleted" ? { deleted: true } : { metadata: { ...original.metadata, deleted: true } })
+    chat.adapter.fetchMessages.mockResolvedValue({ messages: [...chat.adapter.messages, tombstone] })
+
+    const read = await conversation()
+    expect(lines(read.messages)).toEqual(["assistant: reply 1"])
+    const exported = await operation("conversations.export")({ agent: "support", channel: "telegram", thread: "telegram:456", format: "json" })
+    const archive = parseArchive(exported.text)
+    expect(lines(archive.messages)).toEqual(["assistant: reply 1"])
   })
 
   it.each([undefined, "edit", "failed-edit"] as const)("retains restart notices after provider history expires (%s)", async (delivery) => {

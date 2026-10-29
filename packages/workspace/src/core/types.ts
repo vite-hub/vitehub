@@ -395,7 +395,66 @@ export interface WorkspaceRevisionView {
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
 }
 
+/** An open pull request on a forge, for a Store whose refs are branches. */
+export interface WorkspacePullRequest {
+  number: number
+  url: string
+  title: string
+  /** The ref of the branch that the pull request merges. */
+  head: string
+  /** The ref that it merges into. */
+  base: string
+  /** Common ancestor of the head and base, for comparing all changes in the pull request. */
+  mergeBase?: string
+}
+
+export interface WorkspaceOpenPullRequestOptions {
+  /** The ref to merge. */
+  head: string
+  /** The ref to merge into. */
+  base: string
+  title: string
+  body?: string
+  draft?: boolean
+  /** Delete the head ref after GitHub definitively rejects the pull request. Unknown outcomes keep it for recovery. */
+  deleteHeadOnFailure?: boolean
+  /** Exclude overlapping open PRs across Store instances. Ambiguous requests retain their reservations until reconciled. */
+  reservation?: { headPrefix: string, paths: string[] }
+}
+
+/** A file that both refs changed in different ways. Digests are the Store's (`history.digest`); null means deleted. */
+export interface WorkspaceMergeConflict {
+  /** The Workspace path. */
+  path: string
+  /** The digest on the ref that receives the merge. */
+  ours: string | null
+  /** The digest on the ref that is merged in. */
+  theirs: string | null
+}
+
+export interface WorkspaceMergeOptions {
+  /**
+   * Called when the Store's own merge conflicts. With it, the Store merges everything else, keeps the receiving ref's
+   * version of each conflicting file, and calls this with those files. It returns metadata for the merge commit, which
+   * is added to `metadata`. Without it, a conflict throws `WORKSPACE_CONFLICT`.
+   */
+  onConflict?(conflicts: WorkspaceMergeConflict[]): Record<string, unknown> | Promise<Record<string, unknown>>
+  /** The ref to bring in. */
+  from: string
+  /** The ref that receives the merge. */
+  into: string
+  /** The message of the merge commit. */
+  message?: string
+  /** Revision metadata, kept like the metadata of a commit. */
+  metadata?: Record<string, unknown>
+}
+
 export interface WorkspaceHistoryReader {
+  /**
+   * The open pull requests whose head ref starts with `headPrefix`, newest first, for a Store that has them. The GitHub
+   * Store finds the branches with that prefix first, so it requires `headPrefix`.
+   */
+  pullRequests?(options?: { headPrefix?: string }): Promise<WorkspacePullRequest[]>
   /**
    * The digest of file bytes, as `WorkspaceEntry.digest` reports it for this Store: SHA-256 by default, the Git blob sha
    * for the GitHub Store. Compare digests only with this function.
@@ -415,11 +474,26 @@ export interface WorkspaceHistoryReader {
   usage(): Promise<{ bytes: number, objects: number }>
 }
 
-export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader {
+/** Writes that only some Stores have. A Store without them leaves the members out. */
+export interface WorkspaceHistoryExtensions {
+  /** Merge `from` into `into` with a merge commit. Returns null when `into` already has everything in `from`. A merge that conflicts throws `WORKSPACE_CONFLICT`. */
+  merge?(options: WorkspaceMergeOptions): Promise<WorkspaceRevision | null>
+  /** Open a pull request from one ref into another. */
+  openPullRequest?(options: WorkspaceOpenPullRequestOptions): Promise<WorkspacePullRequest>
+}
+
+export interface WorkspaceRetainedHistory extends WorkspaceHistoryReader, WorkspaceHistoryExtensions {
   commit(options: WorkspaceHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 
-export interface WorkspaceStoreHistory extends WorkspaceHistoryReader {
+/** Run the Workspace commit policy on a prepared merge before the Store advances its destination ref. */
+export type WorkspaceMergeCommit = (
+  options: WorkspaceStoreHistoryCommitOptions,
+  apply: (checked: WorkspaceStoreHistoryCommitOptions) => Promise<WorkspaceRevision>,
+) => Promise<WorkspaceRevision>
+
+export interface WorkspaceStoreHistory extends WorkspaceHistoryReader, Omit<WorkspaceHistoryExtensions, "merge"> {
+  merge?(options: WorkspaceMergeOptions, commit?: WorkspaceMergeCommit): Promise<WorkspaceRevision | null>
   commit(options: WorkspaceStoreHistoryCommitOptions): Promise<WorkspaceRevision>
 }
 

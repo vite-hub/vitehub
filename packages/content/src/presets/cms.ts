@@ -29,7 +29,7 @@ export interface CmsPresetOptions {
    * root, where a collection path such as `content/posts/**\/*.md` starts at the root.
    */
   root?: string
-  /** GitHub store: how a publish reaches the branch. Only `"commit"` is available; `"pr"` comes later. */
+  /** GitHub store: how a publish reaches `branch`. `"commit"` (default) commits to it. `"pr"` opens a pull request. */
   publish?: "commit" | "pr"
 }
 
@@ -65,7 +65,7 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
     const set = { ...options, blob: options.store === "github" && options.blob === "default" ? undefined : options.blob }
     const problem = cmsOptionsProblem(set)
     if (problem) throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
-    return { workspace: options.workspace }
+    return { workspace: options.workspace, ...(options.store === "github" && options.publish === "pr" ? { publish: "pr" as const } : {}) }
   },
 })
 

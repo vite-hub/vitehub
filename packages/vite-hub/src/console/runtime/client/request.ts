@@ -155,6 +155,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "sections": { operation: "sections.list" },
   "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
   "status": { operation: "status.get", strings: ["agent"] },
+  "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
 }
 

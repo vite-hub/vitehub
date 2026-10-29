@@ -1295,6 +1295,30 @@
       "import": "./dist/auth/console-runtime.js",
       "require": "./dist/auth/console-runtime.js",
       "default": "./dist/auth/console-runtime.js"
+    },
+    "./logs": {
+      "types": "./dist/logs.d.ts",
+      "import": "./dist/logs.js",
+      "require": "./dist/logs.js",
+      "default": "./dist/logs.js"
+    },
+    "./logs/source": {
+      "types": "./dist/logs/source.d.ts",
+      "import": "./dist/logs/source.js",
+      "require": "./dist/logs/source.js",
+      "default": "./dist/logs/source.js"
+    },
+    "./logs/memory": {
+      "types": "./dist/logs/memory.d.ts",
+      "import": "./dist/logs/memory.js",
+      "require": "./dist/logs/memory.js",
+      "default": "./dist/logs/memory.js"
+    },
+    "./logs/host": {
+      "types": "./dist/logs/host.d.ts",
+      "import": "./dist/logs/host.js",
+      "require": "./dist/logs/host.js",
+      "default": "./dist/logs/host.js"
     }
   },
   "scripts": {
@@ -1343,6 +1367,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
+    "confbox": "^0.2.4",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
@@ -1352,6 +1377,7 @@
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
+    "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",
