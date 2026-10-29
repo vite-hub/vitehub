@@ -155,6 +155,8 @@ vitehub content status [collection] [id]
 vitehub content diff <collection> [id]
 vitehub content revisions <collection> [id] [--ref published]
 vitehub content edit <collection> [id] [--file <path>|-] [--if-digest <digest>] [--override-lease]
+vitehub content rm <collection> [id] [--yes] [--override-lease]
+vitehub content restore <collection> [id] --revision <id> [--override-lease]
 vitehub content publish [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 vitehub content schedule --at <time> [--collection <name>] [--id <id>...] [--dry-run] [--yes]
 vitehub content scheduled [collection] [id] [--status pending|overdue|failed]
@@ -162,4 +164,4 @@ vitehub content unschedule <schedule>
 vitehub content sitemap [--site <url>] [--xml]
 ```
 
-Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation from `@vite-hub/content/operations` through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.
+Omit the id for a singleton. `edit` saves drafts with field issues and prints them; it honours edit leases unless `--override-lease`. `rm` deletes a draft after confirmation, and `restore` saves an earlier version as the draft; both pin the draft that they read and honour edit leases. `publish` and `schedule` pin the draft digests they list and refuse drafts with field issues. Every command accepts `--json`. Each command runs a `content.*` operation from `@vite-hub/content/operations` through the app's `/_vitehub/rpc/__call` route. Without `--url` it calls the dev server; with `--url` it calls a deployed app that enables the Console, with the credentials from `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`. The operations call `content.can()` with the signed-in Console user.

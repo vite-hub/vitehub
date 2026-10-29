@@ -56,9 +56,10 @@ async function historyWorkspace(): Promise<string> {
   return workspace
 }
 
-function contentOn(workspace: string, title: z.ZodType = z.string().min(1)) {
+function contentOn(workspace: string, title: z.ZodType = z.string().min(1), authorize?: () => boolean) {
   const content = defineContent({
     workspace,
+    ...(authorize ? { authorize } : {}),
     collections: {
       posts: documents({ path: "posts/**/*.md", fields: { title, tags: z.array(z.string()).default([]) } }),
       pages: documents({ path: "pages/*.md", fields: { title: z.string() } }),
@@ -69,9 +70,9 @@ function contentOn(workspace: string, title: z.ZodType = z.string().min(1)) {
   return content
 }
 
-async function setup() {
+async function setup(authorize?: () => boolean) {
   const workspace = await historyWorkspace()
-  const content = contentOn(workspace)
+  const content = contentOn(workspace, undefined, authorize)
   return { content, pages: content.collection("pages"), posts: content.collection("posts"), workspace }
 }
 
@@ -497,7 +498,7 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
     const held = await run("edit", "posts", "hello", "--file", file)
     expect(held.code).toBe(1)
-    expect(held.stderr).toMatch(/^Nothing was saved\. Ana holds the edit lease since \S+ on posts\/hello\.\nWait until they finish, or pass --override-lease to save anyway\.\n$/)
+    expect(held.stderr).toMatch(/^Nothing was saved\. Ana holds the edit lease since \S+ on posts\/hello\.\nWait until they finish, or pass --override-lease to write anyway\.\n$/)
     expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
     expect(JSON.parse((await run("edit", "posts", "hello", "--file", file, "--json")).stdout)).toMatchObject({
       error: { code: "CONTENT_LEASE_HELD", details: { collection: "posts", id: "hello", holder: { kind: "edit", user: { id: "ana", name: "Ana" } } } },
@@ -505,6 +506,86 @@ describe("vitehub content", { timeout: 30_000 }, () => {
 
     expect((await run("edit", "posts", "hello", "--file", file, "--override-lease")).code).toBe(0)
     expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "From the CLI" } })
+  })
+
+  it("deletes a draft only after confirmation, and the next publish deletes it from the site", async () => {
+    const { content, posts } = await setup()
+    const saved = await posts.save("hello", hello)
+    await content.publish({ expect: [{ collection: "posts", id: "hello", digest: saved.digest }] })
+
+    const unconfirmed = await cli(content).run("rm", "posts", "hello", "--json")
+    expect(JSON.parse(unconfirmed.stdout)).toMatchObject({ error: { code: "CONTENT_DELETE_UNCONFIRMED" } })
+    const declined = await cli(content, { confirm: async () => false }).run("rm", "posts", "hello")
+    expect(declined).toMatchObject({ code: 1, stderr: "Delete posts/hello from the draft. The next publish deletes it from the site.\nDelete cancelled.\n" })
+    expect(await posts.get("hello", { ref: "draft" })).not.toBeNull()
+
+    const confirm = vi.fn(async () => true)
+    const deleted = await cli(content, { confirm }).run("rm", "posts", "hello")
+    expect(confirm).toHaveBeenCalledWith("Delete? [y/N] ")
+    expect(deleted).toMatchObject({ code: 0, stdout: "Deleted posts/hello from the draft. Publish to delete it from the site.\n" })
+    expect(await posts.get("hello", { ref: "draft" })).toBeNull()
+    expect(await posts.get("hello", { ref: "published" })).toMatchObject({ data: { title: "Hello" } })
+    expect(await posts.status("hello")).toMatchObject({ state: "deleted" })
+    expect((await cli(content).run("rm", "posts", "hello", "--yes")).stderr).toContain("exists on neither draft")
+  })
+
+  it("restores a document from an earlier revision as a draft", async () => {
+    const { content, posts } = await setup()
+    await posts.save("hello", hello)
+    const [first] = (await content.revisions("posts", "hello")).revisions
+    await posts.save("hello", { ...hello, data: { ...hello.data, title: "Second" } })
+    const { run } = cli(content)
+
+    expect((await run("restore", "posts", "hello")).stderr).toContain("Missing --revision.")
+    const restored = await run("restore", "posts", "hello", "--revision", first!.id)
+    expect(restored.code).toBe(0)
+    expect(restored.stdout).toMatch(new RegExp(`^Restored posts/hello from revision ${first!.id} to the draft as [0-9a-f]{12}\\. Publish to put it on the site\\.\\n$`))
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+    expect(await posts.get("hello", { ref: "published" })).toBeNull()
+
+    // A deleted draft restores too.
+    await posts.remove("hello", {})
+    expect((await run("restore", "posts", "hello", "--revision", first!.id)).code).toBe(0)
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+  })
+
+  it.each(["agent", "mcp"] as const)("never lets the %s surface take over a person's edit lease", async (surface) => {
+    const { content, posts } = await setup(() => true)
+    const saved = await posts.save("hello", hello)
+    const [first] = (await content.revisions("posts", "hello")).revisions
+    await content.sessions.acquire("posts", "hello", { session: "tab-ana-0001", user: { id: "ana", name: "Ana" } })
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open" as const, sections: "all" as const }, surface, user: null }
+    const text = "---\ntitle: From a model\ntags: []\n---\n"
+
+    for (const [operation, input] of [
+      ["content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest, lease: "override" }],
+      ["content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest, lease: "override" }],
+      ["content.restore", { collection: "posts", id: "hello", revision: first!.id, lease: "override" }],
+    ] as const) {
+      expect(await runOperation(registry, operation, input, context)).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN", status: 403 })
+    }
+    // Without the override, the error names the person and does not tell the model how to override.
+    const held = await runOperation(registry, "content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest }, context)
+    expect(held).toMatchObject({ ok: false, code: "CONTENT_LEASE_HELD", status: 409, message: "Ana is editing Content document \"posts/hello\". Nothing was saved.", details: { holder: { user: { name: "Ana" } } } })
+    expect(JSON.stringify(held)).not.toContain("override")
+    expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
+
+    // The developer may allow it.
+    expect(await runOperation(registry, "content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest, lease: "override" }, { ...context, overrideLeases: true })).toMatchObject({ ok: true })
+  })
+
+  it("deletes through the operation only with the draft digest that the caller read", async () => {
+    const { content, posts } = await setup(() => true)
+    const saved = await posts.save("hello", hello)
+    devServer(content)
+    const registry = createOperationRegistry([{ operations: contentOperations }])
+    const context = { access: { mode: "open" as const, sections: "all" as const }, surface: "mcp" as const, user: null }
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello" }, context)).toMatchObject({ ok: false, status: 400 })
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello", ifDigest: "stale" }, context)).toMatchObject({ ok: false, code: "WORKSPACE_CONFLICT", status: 409 })
+    expect(await runOperation(registry, "content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest }, context)).toMatchObject({ ok: true, value: { collection: "posts", id: "hello" } })
+    expect(await posts.get("hello", { ref: "draft" })).toBeNull()
   })
 
   it("works with singletons", async () => {
@@ -650,10 +731,10 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     expect(help.code).toBe(0)
     expect(help.stdout).toContain("Usage: vitehub content publish [--collection <name>] [--id <id>...] [--message <text>] [--dry-run] [--yes] [--json] [--url <url>]")
     expect(help.stdout).toContain("With --url it calls a deployed app")
-    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, publish, schedule, scheduled, unschedule, sitemap\n")
+    expect((await run("nope")).stderr).toBe("Unknown content command: nope\nCommands: collections, list, show, status, diff, revisions, edit, rm, restore, publish, schedule, scheduled, unschedule, sitemap\n")
     const [namespace] = createContentCliContributor().namespaces
     expect(namespace?.name).toBe("content")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["collections", "list", "show", "status", "diff", "revisions", "edit", "rm", "restore", "publish", "schedule", "scheduled", "unschedule", "sitemap"])
   })
 })
 
