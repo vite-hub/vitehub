@@ -33,7 +33,7 @@ import type {
 } from "./results.ts"
 
 /** The parts of a `defineContent()` runtime that the operations use. */
-type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
+type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule"> & Partial<Pick<ContentDocumentsRuntime, "preview">>
 
 const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
@@ -295,6 +295,79 @@ const list = defineOperation({
     }
     if (page.nextCursor) result.cursor = page.nextCursor
     return result
+  }),
+  section: "content",
+})
+
+/** `/blog/hello/` and `/blog/hello` are the same page. */
+function normalizeUrl(value: string): string {
+  const path = value.split(/[?#]/, 1)[0] ?? value
+  return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path
+}
+
+/**
+ * A conservative prefilter over normalized paths. Tokens may be empty or contain slashes, so only the literal prefix
+ * before the first token is safe to require; the generated URL index decides the match. Functions can produce any path.
+ */
+function routePattern(collection: AnyContentCollection): RegExp | null {
+  if (collection.urlPattern === undefined) return null
+  const pattern = normalizeUrl(collection.urlPattern)
+  const token = /:[A-Za-z_$][\w$]*/.exec(pattern)
+  const prefix = token ? normalizeUrl(pattern.slice(0, token.index)) : pattern
+  const source = prefix.replaceAll(/[$()*+.?[\\\]^{|}]/g, "\\$&")
+  return new RegExp(`^${source}${token ? "" : "$"}`)
+}
+
+/** Paths of the documents of one collection and ref. Rebuilt only when that ref's head moves. */
+interface PathIndex {
+  byPath: Map<string, string>
+  head: string
+}
+
+const pathIndexes = new WeakMap<object, Map<string, PathIndex>>()
+
+/** Every document of the collection with a URL, from full pages of summaries (no bodies). One list per head. */
+async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection, selectedRef: "draft" | "published"): Promise<Map<string, string>> {
+  // A stand-in runtime without head() builds the index each time.
+  const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.(selectedRef) ?? null
+  if (selectedRef === "published" && head === null && typeof content.head === "function") return new Map()
+  const key = `${selectedRef}:${collection.name}`
+  const cached = pathIndexes.get(content)?.get(key)
+  if (head !== null && cached?.head === head) return cached.byPath
+  const byPath = new Map<string, string>()
+  let cursor: string | undefined
+  do {
+    const page = await collection.list({ limit: 1_000, ref: selectedRef, ...(cursor === undefined ? {} : { cursor }) })
+    for (const item of page.items) if (item.url !== undefined && item.url !== null) byPath.set(normalizeUrl(item.url), item.id)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
+  if (head !== null) {
+    const indexes = pathIndexes.get(content) ?? new Map<string, PathIndex>()
+    indexes.set(key, { byPath, head })
+    pathIndexes.set(content, indexes)
+  }
+  return byPath
+}
+
+const resolveDocument = defineOperation({
+  cli: { command: "resolve", positional: ["path"] },
+  description: "Find the document whose public URL is a path, for the Edit button of the comments overlay. Null when no readable document has it.",
+  input: v.strictObject({ path: v.pipe(v.string(), v.minLength(1), v.maxLength(2_000)) }),
+  kind: "read",
+  name: "content.resolve",
+  run: async (input, context): Promise<{ collection: string, id: string } | null> => attempt(async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const wanted = normalizeUrl(input.path)
+    // A collection whose `url` pattern cannot produce the path is not listed at all.
+    const candidates = content.collections().filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
+    // Match the ref serving this request; another ref can assign the same URL to a different document.
+    const selectedRef = content.preview?.active() ? "draft" : "published"
+    for (const collection of candidates) {
+      const id = (await pathIndexOf(content, collection, selectedRef)).get(wanted)
+      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
+    }
+    return null
   }),
   section: "content",
 })
@@ -600,4 +673,4 @@ const sitemap = defineOperation({
 })
 
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]

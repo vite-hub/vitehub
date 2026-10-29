@@ -70,6 +70,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: "src/error-diagnostics.ts", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      { from: ".vitehub/comments-overlay", to: "dist" },
       {
         from: "src/console/runtime/components/console-wrap.ts",
         to: "dist/console/runtime/components",
@@ -374,6 +375,7 @@ export default defineConfig({
       "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/logs.get.ts",
       "src/console/runtime/server/kv.get.ts",
+      "src/console/runtime/server/mcp.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/schedule-run.ts",
       "src/console/runtime/server/search.get.ts",
@@ -440,6 +442,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/logs.get"];
         delete exports["./console/runtime/server/kv.get"];
         delete exports["./console/runtime/server/kv"];
+        delete exports["./console/runtime/server/mcp"];
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];

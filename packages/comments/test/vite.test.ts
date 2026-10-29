@@ -157,6 +157,9 @@ describe("hubComments", () => {
     expect(handler).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
     expect(handler).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")),")
     expect(handler).not.toContain("commentsAuthSession")
+    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(mcpPlugin).toContain("import { consoleRealtimeAccess } from \"vite-hub/console/sections\"")
+    expect(mcpPlugin).toContain("consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\"))")
     const directory = join(root, ".vitehub/nitro/realtime")
     await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
     expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("commentsRealtime(comments, { consoleSession: commentsConsoleSession(consoleRealtimeAccess(\"comments\")) })")
@@ -210,13 +213,16 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     { base: "/_nuxt/", __vitehubAppBaseURL: "/portal/" },
   ])("mounts Comments below the application base: %j", async (config) => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()" })
-    const plugin = hubComments()
+    const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
     const nitro = await configure(plugin, root, config)
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
     expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
-    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
-    const transform = plugin.transformIndexHtml
-    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
+    expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
+    expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
+    const hook = plugin.transformIndexHtml
+    const transform = typeof hook === "function" ? hook : hook?.handler
+    if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
     expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
   })
