@@ -56,12 +56,14 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
     }
   })
 
-  it.each<{ name: string, pluginConfig: NitroConfig, viteNitro?: NitroConfig, envRunner?: string, workerd: boolean }>([
+  it.each<{ name: string, pluginConfig: NitroConfig, viteNitro?: NitroConfig, envRunner?: string, moduleRunner?: "miniflare" | "node-worker", workerd: boolean }>([
     { name: "the public Cloudflare plugin options", pluginConfig: { preset: "cloudflare_module" }, workerd: true },
     { name: "an explicit Node runner", pluginConfig: { devServer: { runner: "node-worker" } }, viteNitro: { preset: "cloudflare_module" }, workerd: false },
     { name: "the runner environment fallback", pluginConfig: { preset: "nitro-dev" }, envRunner: "miniflare", workerd: true },
     { name: "the preset runner before the environment fallback", pluginConfig: { preset: "cloudflare_module" }, envRunner: "node-worker", workerd: true },
-  ])("uses the effective runner with $name", async ({ pluginConfig, viteNitro, envRunner, workerd }) => {
+    { name: "a preceding plugin module selecting Miniflare", pluginConfig: { preset: "node-server" }, moduleRunner: "miniflare", workerd: true },
+    { name: "a preceding plugin module selecting Node", pluginConfig: { preset: "cloudflare_module" }, moduleRunner: "node-worker", workerd: false },
+  ])("uses the effective runner with $name", async ({ pluginConfig, viteNitro, envRunner, moduleRunner, workerd }) => {
     vi.stubEnv("NITRO_DEV_RUNNER", envRunner)
     const root = await mkdtemp(join(tmpdir(), "vitehub-comments-nitro-"))
     const configured = new Error("Nitro configuration inspected")
@@ -74,7 +76,15 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
         logLevel: "silent",
         root,
         nitro: viteNitro,
-        plugins: [comments(), nitro({
+        plugins: [moduleRunner && {
+          name: "configure-nitro-runner",
+          nitro: {
+            async setup(nitro) {
+              await expect(readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).rejects.toMatchObject({ code: "ENOENT" })
+              nitro.options.devServer.runner = moduleRunner
+            },
+          },
+        }, comments(), nitro({
           ...pluginConfig,
           hooks: {
             "build:before": (nitro) => {
@@ -96,6 +106,7 @@ describe("Comments storage in Nitro's Vite configuration lifecycle", () => {
       else {
         expect(plugin).toContain('import { connectDatabase } from "@vite-hub/comments/runtime/connect/node"\n')
         expect(plugin).toContain(`connectDatabase(${JSON.stringify(`file:${join(root, ".vitehub/data/comments.sqlite")}`)}`)
+        expect(instance!.options.cloudflare?.wrangler?.d1_databases).toBeUndefined()
       }
     }
     finally {

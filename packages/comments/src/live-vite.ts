@@ -616,7 +616,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         // Nuxt forwards Nitro config without loading Vite's plugin.nitro convention.
         if (integration.nitro) {
           const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
-          if (!modules.includes(integration.nitro)) modules.push(integration.nitro)
+          if (!modules.includes(configNitroModule)) modules.push(configNitroModule)
           nitro.modules = modules
         }
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
@@ -638,6 +638,16 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         children: `if(new URLSearchParams(location.search).has(${JSON.stringify(commentsHintQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${commentsHintCookie}=1`)}))import(${JSON.stringify(src)})`,
         injectTo: "body",
       }]
+    },
+  }
+  const configNitroModule: NitroModule = {
+    setup(nitro) {
+      const setup = integration.nitro?.setup
+      if (!setup) return
+      // Nitro's Vite plugin appends this module in plugin order. Let it run there, after preceding plugin modules.
+      // Nitro copies module objects during config resolution and identifies them by their setup function.
+      const discovered = nitro.options.modules?.some(module => typeof module === "object" && "setup" in module && module.setup === setup)
+      if (!discovered) return setup(nitro)
     },
   }
   return integration
