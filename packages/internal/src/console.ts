@@ -145,6 +145,13 @@ export interface ViteHubConsoleSectionPage {
   requires?: readonly string[]
 }
 
+/** One entry of a record's activity, such as a comment in a thread. `at` is an ISO 8601 timestamp. */
+export interface ViteHubConsoleRecordActivity {
+  author: string
+  at: string
+  text: string
+}
+
 /** One serializable record row. Values are display strings. Do not put credentials in records. */
 export interface ViteHubConsoleRecord {
   cells: Readonly<Record<string, string>>
@@ -152,6 +159,13 @@ export interface ViteHubConsoleRecord {
   id: string
   /** The Console can run this record when it represents a runnable Schedule Definition. */
   runnable?: boolean
+  /**
+   * Where the record lives in the app, such as the page of a comment thread. `href` is an app path that starts with one
+   * `/`, or an `https:` URL. The Console opens it in a new tab.
+   */
+  link?: { href: string, label: string }
+  /** Entries in time order, such as the comments of a thread. The Console shows them as a conversation. */
+  activity?: readonly ViteHubConsoleRecordActivity[]
 }
 
 /** Serializable description of a Console section. The Console UI in `vite-hub` renders the view. */
