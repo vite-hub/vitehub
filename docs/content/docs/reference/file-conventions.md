@@ -16,7 +16,7 @@ File conventions produce Discovered Definitions. Discovery Identity comes from t
 | Auth | `server/auth.ts` | `server.auth.ts` | `default`. Only one Auth Definition is allowed. An application Definition replaces a Nuxt layer Definition. |
 | Browser | `server/browsers/<path>.ts` | `<path>.browser.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
 | Channel | `server/channels/<path>.ts` | `<path>.channel.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |
-| Comments | `server/comments.ts` | None | `comments`. The file exports `comments`, the result of `defineComments()`, as a named export. |
+| Comments | `server/comments.ts` | None | `comments`. A named `comments` export selects the live-site API; a default export selects [Comment operations](/docs/comments/operations/get-started). Both use `defineComments()`. |
 | Connection | `server/connections/<path>.ts` | None | Normalized relative path. |
 | Database | `server/databases/config.ts` for one default database, or `server/databases/<name>/config.ts` for named databases | `src/database.ts` for the default database, or `<path>.database.ts` for a named database | `default` or the normalized relative path. Default and named modes cannot be mixed. Nuxt layer Definitions with the same name merge their tables. |
 | Queue | `server/queues/<path>.ts` | `<path>.queue.ts` | Normalized relative path. A leading `src/` is removed from suffix identities. |

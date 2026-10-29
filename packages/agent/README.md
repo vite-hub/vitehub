@@ -135,6 +135,8 @@ Tools can declare `title`, a short past-tense label such as `Searched meals`, an
 
 ## Coding provider drivers
 
+To run Codex on a user's ChatGPT plan, set `driver: { kind: "codex", gateway: chatgpt() }` with `chatgpt` from `@vite-hub/gateways`. Define a ChatGPT Connection and sign in through `vitehub connections connect chatgpt`. Connections owns refresh. A runtime-owned loopback relay keeps the ChatGPT token in memory and adds it to upstream requests; Codex receives only an Invocation-scoped relay key. This is separate from first-party `codex login` and `auth.json`. See [ChatGPT plan usage](../../docs/content/docs/connections/chatgpt.md) for setup, eligibility, VM transfer and expiry recovery. ChatGPT Invocations use a fresh Codex Home and replay conversation history on follow-up turns; they do not retain native provider sessions or inherit MCP servers, hooks or project configuration. Codex's internal helpers use the host search path; command tools separately retain caller search paths and managed Chromium settings with the relay key cleared. AI SDK model Drivers on this grant remain a follow-up.
+
 Use `driver: "codex"` or `driver: "claude-code"` for the defaults, including approval-required provider actions. A tagged Driver config exposes shared model, environment, instruction, permission, output, and capacity options, plus Codex credential and reasoning options.
 
 Set `driver.gateway` to route Codex or Claude Code model requests through an [AI gateway](../../docs/content/docs/agents/ai-gateways.md) from `@vite-hub/gateways`, such as `cliproxy()`, `litellm()`, `openrouter()`, or `vercel()`. Each preset reads its URL and key from optional Server Env, such as `CLIPROXY_URL` and `CLIPROXY_API_KEY`. ViteHub writes the Codex model provider configuration or the Claude Code `ANTHROPIC_*` variables, and passes the key and headers in the provider environment. Ambient variables such as `CLIPROXY_API_KEY` or `OPENAI_API_KEY` are not forwarded. See [Agent Drivers](../../docs/content/docs/agents/agent-drivers.md#route-model-requests-through-a-gateway).
@@ -686,7 +688,7 @@ reviews. The operation never approves, merges directly, or deletes a branch.
 If automatic repository branch deletion could affect open child PRs, it blocks.
 API failures propagate without a direct-merge fallback.
 
-`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials and login, and it gives its Agent forge access.
+`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
 A provider `env` resolver can call `host.environment()` inside
 `withPullRequestCheckout()`. The environment binds to that callback's checkout,
 including concurrent callbacks. Await the entire agent run before returning.

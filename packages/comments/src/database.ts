@@ -94,3 +94,5 @@ const comments = sqliteTable("vitehub_comments", {
  */
 // The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
 export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments }
+
+export { commentThreads, commentMessages, commentCounters, commentsSchema as commentsOperationsSchema } from "./operations-core/database.ts"

@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { existsSync } from "node:fs"
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdir, rm, writeFile } from "node:fs/promises"
 import { dirname, relative, resolve, normalize } from "node:path"
 
 import { contributeProviderDeploymentOutput, createProviderDeploymentOutputGenerationState, finalizeProviderDeploymentOutputs, shouldSkipViteProviderBuild, useProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
@@ -9,7 +8,6 @@ import { removeProviderOutputArtifactDir, retainProviderOutputAliases, retainPro
 import { getViteMode } from "@vite-hub/internal/build/mode"
 import { createRuntimeRegistryContents } from "@vite-hub/internal/definition-catalog"
 import { collectViteHubProviderImportAliases, createNoExternalMerger, hasNitroConfigContext, isServerEnvironment, prepareViteHubProviderSources, resolveViteHubProjectRoot, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { renderViteHubNitroDevHandler } from "@vite-hub/internal/dev-endpoint"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 
 import { collectScheduleContributions } from "./contributions.ts"
@@ -18,15 +16,13 @@ import { inspectScheduleDefinitions } from "./inspect.ts"
 import { getVercelSchedulePath } from "./integrations/vercel.ts"
 import { generateProviderOutputsWithinLock, readDefinitionCrons, readRuntimeDefinitionCrons, schedulePackageName } from "./internal/provider-output.ts"
 import { renderScheduleRegistryModule } from "./internal/registry-module.ts"
-import { scheduleDevRuntimeRoute } from "./dev.ts"
-import { registerScheduleDevEndpoint } from "./vite-dev.ts"
 
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ScheduleWorkflowRuntime } from "./internal/provider-output.ts"
 import type { ViteHubProviderImportContributor } from "@vite-hub/internal/build/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { CollectedScheduleContribution } from "./contributions.ts"
 import type { DiscoveredScheduleDefinition } from "./types.ts"
 import { scheduleErrorDiagnostics } from "./error-diagnostics.ts"
@@ -55,7 +51,6 @@ const generatedNitroSchedulePlugin = ".vitehub/nitro/schedule/plugin.ts"
 const generatedNitroProviderRegistry = ".vitehub/nitro/schedule/provider-registry.js"
 const generatedNitroStaticRegistry = ".vitehub/nitro/schedule/static-registry.js"
 const generatedNitroCloudflareModule = "./.vitehub/nitro/schedule/module.mjs"
-const generatedNitroDevHandlerDirectory = ".vitehub/nitro/schedule/dev-handlers"
 const mergeNoExternal = createNoExternalMerger(schedulePackageName)
 
 // The Nitro dev handler imports the registry in Nitro's own environment graph, so invalidate it there too.
@@ -110,7 +105,7 @@ interface InternalScheduleVitePluginOptions extends ScheduleVitePluginOptions {
 export interface ScheduleVitePlugin {
   name: string
   [hook: string]: unknown
-  vitehub?: ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
+  vitehub?: ViteHubInspectionPluginMetadata & { operations?: readonly OperationContributionEntry[] }
 }
 
 type NitroConfig = Record<string, unknown> & {
@@ -246,19 +241,6 @@ function mergeNitroScheduleConfig(value: unknown, options: { crons: string[], mo
     crons: [...new Set([...existingCrons, ...options.crons])],
   }
   return configured
-}
-
-async function addNitroScheduleDevHandler(value: unknown, roots: ReturnType<typeof resolveSchedulePluginRoots>, serverId: string, importBase?: string): Promise<NitroConfig> {
-  const handler = resolve(roots.projectRoot, generatedNitroDevHandlerDirectory, `${serverId}.ts`)
-  await mkdir(dirname(handler), { recursive: true })
-  // The Static Schedule registry is a Vite virtual module, so the Nitro dev environment loads it with the app code.
-  const contents = renderViteHubNitroDevHandler({ context: { rootDir: roots.viteRoot, serverId }, contextModules: { registry: SCHEDULE_REGISTRY_ID }, export: "handleScheduleDevRequest", module: `${importBase ?? schedulePackageName}/runtime/dev` })
-  if (!existsSync(handler) || await readFile(handler, "utf8") !== contents) await writeFile(handler, contents, "utf8")
-  const nitro = cloneNitroConfig(value)
-  if (Array.isArray(nitro.handlers) && nitro.handlers.some(entry => isRecord(entry) && entry.route === scheduleDevRuntimeRoute)) return nitro
-  const kit = createNitroServerKit(nitro)
-  kit.addHandler({ handler, route: scheduleDevRuntimeRoute })
-  return kit.config as NitroConfig
 }
 
 function mergeNitroVercelCrons(
@@ -552,8 +534,6 @@ export async function createScheduleNitroConfig(options: ScheduleNitroConfigOpti
 
 export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVitePlugin {
   const internalOptions = options as InternalScheduleVitePluginOptions
-  const devServerId = globalThis.crypto.randomUUID()
-  let closeDevEndpoint: (() => Promise<void>) | undefined
   let resolved: ResolvedConfig | undefined
   let emitStandaloneProviderOutput = true
   let projectRoot: string | undefined
@@ -610,21 +590,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         serverDirs,
       }
       const nitro = await createScheduleNitroConfig(nitroOptions)
-      if (env.command === "serve") {
-        ;(config as ViteConfigWithNitro).nitro = await addNitroScheduleDevHandler(nitro ?? (config as { nitro?: unknown }).nitro, roots, devServerId, internalOptions.importBase)
-        return
-      }
       if (!nitro) return null
       ;(config as ViteConfigWithNitro).nitro = nitro
-    },
-    async configureServer(server) {
-      closeDevEndpoint = await registerScheduleDevEndpoint(server, {
-        serverId: devServerId,
-        nitroBaseURL: () => {
-          const baseURL = (resolved as (ResolvedConfig & { nitro?: { baseURL?: unknown } }) | undefined)?.nitro?.baseURL
-          return typeof baseURL === "string" ? baseURL : process.env.NITRO_APP_BASE_URL
-        },
-      })
     },
     async configResolved(config) {
       resolved = config
@@ -650,9 +617,7 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         if (nitro) {
           // SAFETY: Nitro integrations attach their generated config to the resolved Vite config at runtime.
           const configWithNitro = config as Omit<ResolvedConfig, "nitro"> & { nitro?: NitroConfig }
-          configWithNitro.nitro = config.command === "serve"
-            ? await addNitroScheduleDevHandler(nitro, roots, devServerId, internalOptions.importBase)
-            : nitro
+          configWithNitro.nitro = nitro
         }
       }
     },
@@ -778,8 +743,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
       order: "post",
       sequential: true,
       async handler() {
-        await closeDevEndpoint?.()
-        closeDevEndpoint = undefined
         if (!resolved || shouldSkipViteProviderBuild(resolved.command, getViteMode())) return
         await finalizeProviderDeploymentOutputs(providerOutput)
       },
@@ -789,10 +752,8 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
   // SAFETY: The implementation above supplies Vite's plugin hooks plus ViteHub's intentionally loose public hook index.
   const inspectable = plugin as ScheduleVitePlugin
   inspectable.vitehub = {
-    cli: async () => {
-      const { createScheduleCliContributor } = await import(/* @vite-ignore */ "./cli.js")
-      return createScheduleCliContributor()
-    },
+    // The Console, `vitehub schedule`, and agents run these. The app imports them through `vite-hub`.
+    operations: [{ export: "scheduleOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).scheduleOperations, module: "@vite-hub/schedule/operations" }],
     inspect: () => ({
       definitions: [{
         kind: "schedule",
@@ -803,6 +764,6 @@ export function hubSchedule(options: ScheduleVitePluginOptions = {}): ScheduleVi
         },
       }],
     }),
-  } satisfies ViteHubInspectionPluginMetadata & ViteHubCliPluginMetadata
+  } satisfies ViteHubInspectionPluginMetadata & { operations: readonly OperationContributionEntry[] }
   return inspectable
 }

@@ -1,3 +1,4 @@
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
@@ -1827,7 +1828,7 @@ export interface AgentProviderDriverOptions<
    * ViteHub writes the provider configuration and passes the key and headers in the provider environment.
    * A gateway replaces Codex `credentials`.
    */
-  gateway?: AiGateway
+  gateway?: AiGateway | ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string

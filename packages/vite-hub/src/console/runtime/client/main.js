@@ -12,8 +12,10 @@ const ConsoleBlob = () => import("../components/console-blob.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
+const ConsoleOperationView = () => import("../components/console-operation-view.vue");
 const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
+const ConsoleLogs = () => import("../components/console-logs.vue");
 const ConsoleKv = () => import("../components/console-kv.vue");
 import {
   consoleDatabasesSchemaPath,
@@ -35,6 +37,7 @@ const capabilitiesBase = consolePath("/api/_vitehub/console/invocation-capabilit
 const router = createRouter({
   history: createWebHistory(consolePath("/_vitehub/")),
   routes: [
+    { component: ConsoleLogs, name: "vitehub-console-logs", path: "/logs", meta: { consoleSection: "logs", title: "Logs · ViteHub Console" }, props: { logsBase: consolePath("/api/_vitehub/console/logs"), sectionsBase } },
     { component: ConsoleEnv, name: "vitehub-console-env", path: "/env", meta: { consoleSection: "env", title: "Env · ViteHub Console" }, props: { agentsBase: consolePath("/api/_vitehub/console/agents"), definitionsBase: consolePath("/api/_vitehub/console/definitions"), kvBase: consolePath("/api/_vitehub/console/kv"), envBase: consolePath("/api/_vitehub/console/env"), managementBase: consolePath("/_vitehub/env/manage"), searchBase: consolePath("/api/_vitehub/console/search"), sectionsBase } },
     {
       component: ConsoleConnections,
@@ -239,6 +242,16 @@ function addContributedRoutes(navigation) {
       }
       continue;
     }
+    if (details.view.kind === "operation-view") {
+      router.addRoute({
+        component: ConsoleOperationView,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: consolePath("/api/_vitehub/console/definitions"), details, sectionsBase },
+      });
+      continue;
+    }
     router.addRoute({
       component: ConsoleDefinitions,
       name,
@@ -249,6 +262,7 @@ function addContributedRoutes(navigation) {
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         details,
         ...(section === "schedules" ? { scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run") } : {}),
+        ...(section === "workflows" ? { workflowBase: consolePath("/api/_vitehub/console/workflow") } : {}),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
         sectionsBase,
