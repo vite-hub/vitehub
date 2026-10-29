@@ -259,6 +259,15 @@ describe("MCP client section", () => {
     expect(overview.value).toEqual({ connections: [], servers: [{ authorizationServer: origin, label: "Test Finance", url: `${origin}/mcp` }], sharedSession: false })
   })
 
+  it("says when the Console shares its session with the app's own sign-in", async () => {
+    install()
+    // With app Auth, signing in as someone else at an authorization server on this origin would switch the Console too.
+    installConsoleAccess({ authBasePath: async () => "/api/auth", check: async () => undefined, mode: "auth", user: async () => ({ id: "admin-1" }) })
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.sharedSession).toBe(true)
+    installConsoleAccess({ check: async () => undefined, mode: "auth", user: async () => ({ id: "admin-1" }) })
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.sharedSession).toBe(false)
+  })
+
   it("signs in with OAuth as two people at once, each with their own token and MCP session", async () => {
     install()
     const registrations = seen.registrations
