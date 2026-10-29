@@ -119,6 +119,11 @@ async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Respons
         })
       }
       catch (error) {
+        // A Console request error, such as a bad limit or an unknown store, tells the Agent what to change.
+        const status = Number(Reflect.get(Object(error), "statusCode"))
+        if (status >= 400 && status < 500 && error instanceof Error) {
+          return reply(id, { content: [{ type: "text", text: text(Reflect.get(error, "statusMessage")) ?? error.message }], isError: true })
+        }
         console.error(`[vitehub] ViteHub MCP tool ${tool.name} failed:`, error)
         return reply(id, { content: [{ type: "text", text: `${tool.name} failed on the server.` }], isError: true })
       }
