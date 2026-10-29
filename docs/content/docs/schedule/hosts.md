@@ -32,7 +32,7 @@ Provider Wake output requires a static five-field UTC cron string compatible wit
 
 ## Run and inspect Schedules during development
 
-`hubSchedule()` contributes the `vitehub schedule` CLI namespace. Start the Vite Development Server, then run a manual Definition or list recorded runs from another terminal.
+`vitehub()` contributes the `vitehub schedule` commands, because they call the [Console RPC](/docs/development/operations). An app that adds `hubSchedule()` without `vitehub()` has no such commands. Start the Vite Development Server, then run a manual Definition or list recorded runs from another terminal.
 
 ```bash [Terminal]
 pnpm vitehub schedule run daily-report
@@ -48,11 +48,11 @@ Both surfaces redact credentials in URLs, bearer tokens, and secret assignments 
 
 | Host | `vitehub schedule` | Console Schedules page |
 | --- | --- | --- |
-| Vite + Nitro | Supported. The endpoint forwards each operation into the Nitro dev environment. | Definitions. |
-| Nuxt with Nitro 3 | Supported. Nitro runs in the Vite process, so the endpoint works as on Vite + Nitro. Use `--url http://localhost:3000`, or `--server` for `schedule run`. | Definitions. |
+| Vite + Nitro | Supported. The commands call the Console RPC of the dev server, which runs in the Nitro dev environment. | Definitions and a run action. |
+| Nuxt with Nitro 3 | Supported. Nitro runs in the Vite process, so the commands work as on Vite + Nitro. Use `--url http://localhost:3000` when the dev server file is not found. | Definitions and a run action. |
 | Nuxt with Nitro 2 | Not supported. Nitro does not run in the Vite process. | Definitions. |
-| Plain Vite without Nitro | Not supported. The endpoint returns status 501. | Not available. |
-| Deployed runtime | Not exposed. The endpoint exists only on the Development Server. `vitehub schedule run --url` uses the Console. | Definitions, when the Console is enabled. |
+| Plain Vite without Nitro | Not supported. There is no Console RPC to call. | Not available. |
+| Deployed runtime | `vitehub schedule runs` and `attempts` call the Console with `--url` and Console credentials. `schedule run --url` needs `console.invoke`, and signs with `VITEHUB_DISPATCH_KEY` when it is set. | Definitions, when the Console is enabled. |
 
 Memory stores lose runs when the runtime restarts. Configure a KV store to keep them.
 

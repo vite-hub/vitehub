@@ -716,7 +716,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(development.nuxt.options.devServerHandlers).toEqual([{ handler: existingConsoleHandler, route: "/api/_vitehub/console" }])
     expect(development.nuxt.options.vite.plugins).toContainEqual(expect.objectContaining({ name: "vite-hub/console-invocation-root" }))
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleSections("/tmp/vitehub-nuxt", ["env","agents","usage","blob","kv","workflows"])`,
+      `installConsoleSections("/tmp/vitehub-nuxt", ["env","agents","usage","channels","blob","kv","workflows"])`,
     )
     expect(development.nuxt.options.vite.plugins).toContainEqual(
       expect.objectContaining({ name: "vite-hub/console-cli" }),
@@ -1770,6 +1770,29 @@ describe("ViteHub Nuxt integration", () => {
     }
   })
 
+  it("turns the Database on for comments and installs the comments Nitro plugin", async () => {
+    const entry = "/tmp/vitehub-nuxt/custom-server/comments.ts"
+    await mkdir(resolve(entry, ".."), { recursive: true })
+    await writeFile(entry, `import { defineComments } from "vite-hub/comments"\nexport default defineComments({ authorize: () => true })\n`)
+    try {
+      mocks.vitehub.mockReturnValue([hubComments()])
+      const { nuxt, runNitroConfigHook } = createNuxt()
+      await viteHubNuxtModule({ preset: "node" }, nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: true })
+      const config = nitroOptions(nuxt)
+      await runNitroConfigHook(config)
+      expect(nitroPlugins(nuxt)).toContain("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs")
+      await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/comments/plugin.mjs", "utf8")).resolves.toContain("installComments(")
+
+      // An explicit `database: false` is never overridden.
+      await viteHubNuxtModule({ database: false, preset: "node" }, createNuxt().nuxt)
+      expect(mocks.vitehub.mock.calls.at(-1)?.[0]).toMatchObject({ database: false })
+    }
+    finally {
+      await rm(entry, { force: true })
+    }
+  })
+
   it("installs only discovered Queue metadata for a Queue-only Console", async () => {
     const definition = "/tmp/vitehub-nuxt/custom-server/queues/email.ts"
     await mkdir(resolve(definition, ".."), { recursive: true })
@@ -2022,11 +2045,11 @@ describe("ViteHub Nuxt integration", () => {
     }, development.nuxt)).rejects.toThrow("console.retention maxRecords must be a positive safe integer or false")
   })
 
-  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("rejects bare Console enablement with dataDir %s", async (dataDir) => {
+  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("requires app Auth for bare Console enablement with dataDir %s", async (dataDir) => {
     const production = createNuxt(false)
 
     await expect(viteHubNuxtModule({ console: JSON.parse("true"), preset: "node", dataDir }, production.nuxt))
-      .rejects.toThrow('console: { auth: false } for no sign-in, or console: { auth: "app" }')
+      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
     await expect(viteHubNuxtModule({ console: JSON.parse("{}"), preset: "node", dataDir }, createNuxt(true).nuxt))
       .rejects.toThrow("console.auth is required")
   })
@@ -2061,7 +2084,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await expect(viteHubNuxtModule({
         auth: true,
-        console: { auth: "app" },
+        console: true,
         preset: "node",
       }, production.nuxt)).resolves.toBeUndefined()
 

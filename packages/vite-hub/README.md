@@ -130,7 +130,7 @@ Start `vite dev`, then run the task from another terminal. The task runs in the 
 
 ```sh
 pnpm vitehub task list
-pnpm vitehub task run db:seed --title "First note"
+pnpm vitehub task run db:seed --payload '{"title":"First note"}' --yes
 ```
 
 `vitehub inspect definitions --kind task` lists the task files without a running server. Read the [CLI guide](https://vitehub.dev/docs/development/cli#run-app-tasks) for payload options and limits.
@@ -206,7 +206,9 @@ Retention defaults to 30 days and 10,000 terminal records. To change a limit, pa
 
 The Console **Usage** page provides session history with date, Agent, status, and search filters. Open a row to inspect that session in the existing Agents view. History keeps completed, failed, and cancelled Agent Invocations visible even when token or cost evidence is unavailable. Totals use the same filters as the history table. See [Session history and usage](https://vitehub.dev/docs/development/console#inspect-usage) for the identity, coverage, and pagination contract.
 
-Every Console sets `console.auth` in every environment. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `console: true` is rejected with an error that names `auth: false` and `auth: "app"`. `auth: false` also works in production, but the build and the production server log a warning.
+`console: true` reuses the app Auth Definition and its server access policy, with built-in social provider sign-in. Enable app Auth and authorize the Console routes in that Definition. A `console` object requires an explicit `auth` choice. Use `console: { auth: false }` for no sign-in, `console: { auth: "app" }` to reuse the Primary Auth Definition, `console: { auth: { ... } }` for an independent Console session, or `console: { auth: { provider: "cloudflare-access" } }` to verify a Cloudflare Access token on each Console request. `auth: false` also works in production, but the build and the production server log a warning.
+
+App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
 
 Add `authorize: "./server/console-authorize.ts"` to decide who may use the Console with any `auth` choice. The file default-exports `defineConsoleAuthorize()` from `vite-hub/console/auth`. It receives the `Request`, plus the signed-in `user` with `auth: "app"` or a Console Auth session. It returns `true`, `false`, a `Response`, or `{ sections: ["content"] }` to allow only some Console sections. Every Console route and RPC operation declares its section, and the server returns `403` outside the allowed sections. The navigation hides the other sections. Every Console data route calls the configured check itself, so it does not depend only on middleware.
 
@@ -234,7 +236,7 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 
 ## Logs
 
-`vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
+`vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs guide](https://vitehub.dev/docs/logs) and [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
 
 Enable the Console page with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { evlog: { redact: true }, maxEntries: 256 }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there. Local Logs activates the shared Evlog producer even when `observability.evlog.enabled` is false, preserving Observability's other Evlog settings and one request-error logger.
 

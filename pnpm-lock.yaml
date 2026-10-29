@@ -1333,6 +1333,12 @@ importers:
 
   packages/comments:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
@@ -1394,6 +1400,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      jose:
+        specifier: catalog:auth
+        version: 6.2.12
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
@@ -2428,6 +2437,9 @@ importers:
       nostics:
         specifier: catalog:runtime
         version: 1.3.0
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -2763,12 +2775,12 @@ importers:
       '@vite-hub/cli':
         specifier: workspace:*
         version: link:../cli
-      '@vite-hub/connections':
-        specifier: workspace:*
-        version: link:../connections
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
+      '@vite-hub/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content
@@ -3055,6 +3067,9 @@ importers:
       pathe:
         specifier: catalog:unjs
         version: 2.0.3
+      valibot:
+        specifier: catalog:runtime
+        version: 1.5.0(typescript@6.0.3)
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
@@ -3295,6 +3310,28 @@ importers:
       vite:
         specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
         version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@26.6.4)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(unrun@0.2.36)(yaml@2.9.1)'
+
+  playground/logs:
+    dependencies:
+      evlog:
+        specifier: ^2.28.1
+        version: 2.29.0(b304bc24d654959d9c3bd04186006b35)
+      nostics:
+        specifier: catalog:runtime
+        version: 1.3.0
+      nitro:
+        specifier: catalog:unjs
+        version: 3.0.260903-beta
+      vite-hub:
+        specifier: workspace:*
+        version: link:../../packages/vite-hub
+    devDependencies:
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
 
 packages:
 

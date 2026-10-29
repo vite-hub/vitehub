@@ -1,0 +1,9 @@
+{
+  "name": "vitehub-chatgpt-playground",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "vitehub": "node ../../packages/vite-hub/dist/bin.js"
+  }
+}

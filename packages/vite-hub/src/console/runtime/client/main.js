@@ -3,15 +3,17 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
-import { createApp, defineAsyncComponent } from "vue";
+import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
 const ConsoleAuth = () => import("../components/console-auth.vue");
 const ConsoleBlob = () => import("../components/console-blob.vue");
+const ConsoleChannels = () => import("../components/console-channels.vue");
 const ConsoleConnections = () => import("../components/console-connections.vue");
 const ConsoleDatabase = () => import("../components/console-database.vue");
 const ConsoleDefinitions = () => import("../components/console-definitions.vue");
+const ConsoleOperationView = () => import("../components/console-operation-view.vue");
 const ConsoleEnv = () => import("../components/console-env.vue");
 const ConsoleHome = () => import("../components/console-home.vue");
 const ConsoleLogs = () => import("../components/console-logs.vue");
@@ -131,6 +133,20 @@ const router = createRouter({
       },
     },
     {
+      component: ConsoleChannels,
+      name: "vitehub-console-channels",
+      path: "/channels",
+      meta: { consoleSection: "channels", title: "Channels · ViteHub Console" },
+      props: {
+        agentsBase: consolePath("/api/_vitehub/console/agents"),
+        channelsBase: consolePath("/api/_vitehub/console/channels"),
+        definitionsBase: consolePath("/api/_vitehub/console/definitions"),
+        kvBase: consolePath("/api/_vitehub/console/kv"),
+        searchBase: consolePath("/api/_vitehub/console/search"),
+        sectionsBase,
+      },
+    },
+    {
       component: ConsoleKv,
       name: "vitehub-console-kv",
       path: "/kv",
@@ -196,7 +212,7 @@ const router = createRouter({
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
 // The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
-const ConsoleDocuments = defineAsyncComponent(() => import("../components/console-documents.vue"));
+const ConsoleDocuments = () => import("../components/console-documents.vue");
 
 /** Adds one route for each installed section that an owner package contributes. */
 function addContributedRoutes(navigation) {
@@ -241,6 +257,16 @@ function addContributedRoutes(navigation) {
       }
       continue;
     }
+    if (details.view.kind === "operation-view") {
+      router.addRoute({
+        component: ConsoleOperationView,
+        name,
+        path: `/${section}`,
+        meta: { consoleSection: section, title: `${details.label} · ViteHub Console` },
+        props: { definitionsBase: consolePath("/api/_vitehub/console/definitions"), details, sectionsBase },
+      });
+      continue;
+    }
     router.addRoute({
       component: ConsoleDefinitions,
       name,
@@ -251,6 +277,7 @@ function addContributedRoutes(navigation) {
         definitionsBase: consolePath("/api/_vitehub/console/definitions"),
         details,
         ...(section === "schedules" ? { scheduleRunBase: consolePath("/api/_vitehub/console/schedule-run") } : {}),
+        ...(section === "workflows" ? { workflowBase: consolePath("/api/_vitehub/console/workflow") } : {}),
         kvBase: consolePath("/api/_vitehub/console/kv"),
         searchBase: consolePath("/api/_vitehub/console/search"),
         sectionsBase,

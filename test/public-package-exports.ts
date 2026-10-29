@@ -38,6 +38,7 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["@vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium", { "playwright-core": "declaration" }],
   ["@vite-hub/browser/internal/chromium.workerd", { "playwright-core": "declaration" }],
+  ["@vite-hub/comments/vite", { "vite": "both" }],
   ["@vite-hub/connections/agent", { "drizzle-orm": "both" }],
   ["@vite-hub/content/database", { "drizzle-orm": "both" }],
   // Content owns its parser and Tiptap dependencies; only optional ViteHub integrations remain peers.

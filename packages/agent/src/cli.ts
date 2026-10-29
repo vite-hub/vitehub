@@ -17,6 +17,7 @@ import { runAgentInvocationsCli } from "./internal/agent-invocations-cli.ts"
 import { runAgentCodexHomeCli } from "./internal/agent-codex-home-cli.ts"
 import { runAgentChannelSyncCli } from "./internal/channel-sync-cli.ts"
 import { runAgentChannelHistoryCli } from "./internal/channel-history-cli.ts"
+import { conversationsExportUsage, runConversationsExportCli } from "./internal/conversations-cli.ts"
 import { runAgentChannelReplayCli } from "./internal/channel-replay-cli.ts"
 import { enrichAgentUsageCost, modelsDevPricing, type AgentUsagePricing } from "./internal/usage-pricing.ts"
 import { resolveAgentEvalOptions, writeAgentEvaliteConfig, type ResolvedAgentEvalOptions } from "./internal/evalite-config.ts"
@@ -1324,7 +1325,13 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
         description: "External Channel registration workflows.",
         features: [
           {
-            description: "Download one deployed Channel conversation and its attachments.",
+            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
+            name: "export",
+            run: async (args, context) => await runConversationsExportCli(args, context),
+            usage: conversationsExportUsage.replace("vitehub conversations export", "vitehub channels export"),
+          },
+          {
+            description: "Download one deployed Channel conversation and its attachments. `channels export --format json --output <directory>` writes the same archive.",
             name: "history",
             run: async (args, context) => await runAgentChannelHistoryCli(args, context, {
               rootDir: options?.rootDir,
@@ -1347,6 +1354,18 @@ export function createAgentCliContributor(options?: false | AgentCliContributorO
           },
         ],
         name: "channels",
+      },
+      {
+        description: "Export Channel conversations.",
+        features: [
+          {
+            description: "Export one Channel conversation as Markdown or JSON, with its attachments.",
+            name: "export",
+            run: async (args, context) => await runConversationsExportCli(args, context),
+            usage: conversationsExportUsage,
+          },
+        ],
+        name: "conversations",
       },
     ],
   }

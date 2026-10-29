@@ -1,3 +1,4 @@
+import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
 import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
@@ -2192,9 +2193,10 @@ function agentRequiresWritableWorkspace(options: {
 /** Check Agent Sandbox combinations that cannot run the provider inside the Sandbox. */
 function validateAgentSandbox(
   sandbox: unknown,
-  driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly launch?: unknown, readonly toolchain?: unknown },
+  driver: { readonly credentialProfile?: unknown, readonly credentials?: unknown, readonly kind: string, readonly gateway?: unknown, readonly launch?: unknown, readonly toolchain?: unknown },
   options: { hasWorkspace: boolean },
 ) {
+  if (isChatGPTGateway(driver.gateway)) throw agentDiagnostics.AGENT_R1015()
   if (!hasRuntimeType(sandbox, "object") || sandbox === null || !("runtime" in sandbox) || sandbox.runtime === undefined) {
     throw agentDiagnostics.AGENT_R0954({ message: "[vitehub] defineAgent({ sandbox }) requires a Sandbox definition with a runtime." })
   }

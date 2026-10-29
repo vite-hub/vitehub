@@ -29,7 +29,7 @@ it("loads colocated Skills into the production Console definition", async () => 
     const execute = new Function("installConsoleSections", "installConsoleOperations", "installConsoleProjectName", "installConsoleBuild", "installConsoleDevelopment", "installConsoleAgentDefinitions", "agentWithColocatedSkills", "vitehubConsoleAgent0", generated.replace(/^import .+$/gm, "").replace("export default function", "function"))
     const installOperations = vi.fn()
     execute(() => {}, installOperations, () => {}, () => {}, () => {}, install, agentWithColocatedSkills, { default: definition })
-    expect(installOperations).toHaveBeenCalledWith([])
+    expect(installOperations).toHaveBeenCalledWith([], { invoke: true })
     const installed = install.mock.calls[0]?.[0]?.[0]?.definition
     expect(installed?.[Symbol.for("vitehub.agent.colocatedSkills")]).toMatchObject({
       "__vitehubAgentSkill:.agents/skills/review/SKILL.md": { content: new TextEncoder().encode("# Review\n"), materialize: "startup", workspacePath: ".agents/skills/review/SKILL.md" },

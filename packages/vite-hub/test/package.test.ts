@@ -100,6 +100,7 @@ const consolidatedOwnerExports = new Set([
 ]);
 
 const lowLevelOwnerExports = new Set([
+  "@vite-hub/comments/testing",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
@@ -126,9 +127,11 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
@@ -151,19 +154,21 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/kv/runtime/cloudflare-kv",
   "@vite-hub/kv/runtime/dev",
   "@vite-hub/kv/runtime/upstash-driver",
+  "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
   "@vite-hub/rate-limit/runtime/console",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
-  "@vite-hub/schedule/runtime/dev",
+  "@vite-hub/schedule/operations",
   "@vite-hub/schedule/runtime/state",
   "@vite-hub/schedule/runtime/static",
+  "@vite-hub/workflow/operations",
+  "@vite-hub/workspace/operations",
   "@vite-hub/workflow/runtime/cloudflare-runner",
   "@vite-hub/workflow/runtime/cloudflare-shared",
   "@vite-hub/workflow/runtime/cloudflare-vite",
-  "@vite-hub/workflow/runtime/dev",
   "@vite-hub/workflow/runtime/execute",
   "@vite-hub/workflow/runtime/openworkflow",
   "@vite-hub/workflow/runtime/openworkflow-worker",
@@ -298,7 +303,7 @@ describe("framework package contract", () => {
       "./_internal/agent/invocations",
       "./_internal/database/runtime/state",
       "./_internal/kv/runtime/disabled-upstash",
-      "./_internal/task/runtime/dev",
+      "./_internal/task/operations",
       "./agent",
       "./agent/capabilities",
       "./agent/invocations/database",
@@ -750,16 +755,24 @@ describe("framework package contract", () => {
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
-    expect(consoleClient).toContain("prefers-color-scheme: dark");
-    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // Shared appearance and route code may move out of the entry when route chunks change.
+    const consoleClientModules = [
+      consoleClient,
+      ...globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot })
+        .map(file => readFileSync(`${packageRoot}/${file}`, "utf8")),
+    ];
+    const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
+    expect(consoleAppearance).toContain("prefers-color-scheme: dark");
+    expect(consoleAppearance).toMatch(/classList\.toggle\(["`]dark["`]/);
     // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
-    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleAppearance).not.toContain("vueuse-color-scheme");
     expect(consoleClient).not.toContain("vueuse-color-scheme");
-    expect(consoleClient).toContain("ViteHub");
-    expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
-    expect(consoleClient).toContain("/blob");
-    expect(consoleClient).toContain("/databases");
-    expect(consoleClient).toContain("/kv");
+    const consoleClientCode = consoleClientModules.join("\n");
+    expect(consoleClientCode).toContain("ViteHub");
+    expect(consoleClientCode).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClientCode).toContain("/blob");
+    expect(consoleClientCode).toContain("/databases");
+    expect(consoleClientCode).toContain("/kv");
     // Owner-contributed sections get their routes from the navigation response at runtime.
     expect(consoleClient).toContain(".addRoute(");
     expect(consoleClient).toContain(".hasRoute(");

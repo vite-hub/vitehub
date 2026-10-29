@@ -14,6 +14,7 @@ import { hubBlob, resolveBlobViteConfig } from "@vite-hub/blob/vite"
 import { hubBrowser } from "@vite-hub/browser/vite"
 import { hubChannels } from "@vite-hub/channels/vite"
 import { hubComments } from "@vite-hub/comments/vite"
+import type { HubCommentsOptions } from "@vite-hub/comments/vite"
 import { contributeContentRealtime, hubContent } from "@vite-hub/content/vite"
 import { hubConnections, hubConnectionsTypesCleanup } from "@vite-hub/connections/vite"
 import { hubDb } from "@vite-hub/database/vite"
@@ -356,8 +357,8 @@ export interface ViteHubOptions {
   channels?: boolean | ChannelsVitePluginOptions
   /** App-owned OAuth and API key Connections in `server/connections/`. They store grants in the default Database and enable `database` when it is unset. */
   connections?: boolean | ConnectionsVitePluginOptions
-  /** The ViteHub Console at `/_vitehub`. Off by default. `auth` is required: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
-  console?: false | ConsoleOptions
+  /** The ViteHub Console at `/_vitehub`. Off by default. `true` reuses app Auth and its server access policy. Explicit options: `{ auth: false }`, `{ auth: "app" }`, or a Console Auth config. */
+  console?: boolean | ConsoleOptions
   /** Drizzle Databases in `server/databases/`. Without a Database Definition, an enabled database is one empty default Database. */
   database?: boolean | DBModulePublicOptions
   email?: true | EmailVitePluginOptions
@@ -368,6 +369,8 @@ export interface ViteHubOptions {
   /** Agent telemetry, request logs, and papercut reports through evlog. Read it at runtime with `useObservability()`. */
   observability?: ObservabilityOptions
   queue?: boolean
+  /** Database and SQL dialect for the default-export Comments operations. */
+  comments?: Pick<HubCommentsOptions, "database" | "dialect">
   rateLimit?: boolean | RateLimitModuleOptions
   realtime?: boolean | RealtimeModuleOptions
   /** Sandbox Tasks in `server/sandbox-tasks/` and `*.sandbox-task.ts` files. Each run starts an isolated Cloudflare or Vercel Sandbox. */
@@ -930,6 +933,7 @@ function doctorPlugin(): Plugin {
 function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (!options || typeof options !== "object") throw viteHubErrorDiagnostics.VITE_HUB_R0085({ message: "vitehub() requires a built-in deployment preset." })
   options = withConnectionsDatabase(withDataDir({ ...options, console: resolveConsoleOptions(options.console) }))
+  const configuredConsole = resolveConsoleOptions(options.console)
   const plan = resolveDeploymentPlan(options.preset)
   // Cloudflare has no durable local filesystem. Treat the shorthand database
   // option as the host-native D1 driver so implicit databases (for example,
@@ -1026,7 +1030,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.observability.posthog && !envPlugin) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: "[vitehub] observability.posthog reads its API key from Server Env. Remove env: false." })
     }
-    if (options.observability.papercuts && !(options.console && options.agent)) {
+    if (options.observability.papercuts && !(configuredConsole && options.agent)) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0127({ message: "[vitehub] observability.papercuts stores reports in the Console invocation journal. Enable agent and console." })
     }
     // Before Env, so Env reads the PostHog key declaration.
@@ -1043,7 +1047,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   const runtimeCapabilityImports = {
     blob: blobEnabled ? `${generatedImportBase}/blob` : false,
     connections: options.connections ? "vite-hub/connections/agent" : false,
-    console: options.console ? "vite-hub/console/server" : false,
+    console: configuredConsole ? "vite-hub/console/server" : false,
     db: options.database ? "vite-hub/database/drizzle" : false,
     email: "vite-hub/email/server",
     kv: `${generatedImportBase}/kv`,
@@ -1051,13 +1055,13 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
 
   plugins.push(operationsCheckPlugin())
   // Without a `console` option, `vite dev` still serves the operation RPC (no page, no assets), so `vitehub <command>` works.
-  const devOperationsOnly = options.console === undefined
-  if (options.console || devOperationsOnly) {
+  const devOperationsOnly = configuredConsole === undefined
+  if (configuredConsole || devOperationsOnly) {
     const invocationRootState = {}
     const consolePlugin = consoleVitePlugin({
       contentImportBase: options.contentImportBase ?? "vite-hub/content",
       blobStores: consoleBlobStores,
-      console: options.console || undefined,
+      console: configuredConsole || undefined,
       rpcOnly: devOperationsOnly,
       connections: options.connections,
       runtimeCapabilityImports,
@@ -1106,7 +1110,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
     if (options.agent && !devOperationsOnly) plugins.push(consoleInvocationRootPlugin(undefined, undefined, invocationRootState))
   }
 
-  if (options.auth || consoleAuthConfig(options.console)) {
+  if (options.auth || consoleAuthConfig(configuredConsole)) {
     plugins.push(hubAuth(
       options.auth === true ? {} : options.auth || false,
       {
@@ -1147,14 +1151,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   if (options.browser) plugins.push(hubBrowser(options.browser === true ? undefined : options.browser))
   if (options.channels) plugins.push(hubChannels(options.channels === true ? undefined : options.channels))
   if (options.connections) {
-    if (options.connections !== true && options.connections.management && !options.console) {
+    if (options.connections !== true && options.connections.management && !configuredConsole) {
       throw viteHubErrorDiagnostics.VITE_HUB_R0126({ message: '[vitehub] connections.management requires the Console. Set console: { auth: "app" }, console: { auth: { ... } }, or console: { auth: false }.' })
     }
     const connectionsOptions: ConnectionsVitePluginOptions = options.connections === true
       ? { database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
       : { ...options.connections, database: "vite-hub/database/drizzle", importBase: "vite-hub/connections" }
     // The Console actor module checks the Console or app Auth session in every management route.
-    if (!connectionsOptions.actor && options.console && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
+    if (!connectionsOptions.actor && configuredConsole && consoleSections.includes("connections")) connectionsOptions.actor = consoleConnectionsActorId
     plugins.push(hubConnections(connectionsOptions))
   }
   else plugins.push(hubConnectionsTypesCleanup())
@@ -1194,6 +1198,14 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
   // Comments in `server/comments.ts`: threads in the Database, the overlay on pages in comment mode, and page presence
   // rooms where Realtime has an authority. Inert without the file.
   const commentsPlugin = hubComments({
+    ...options.comments,
+    operationsImports: {
+      auth: "vite-hub/auth/server",
+      database: "vite-hub/database/drizzle",
+      databaseDefinition: "vite-hub/database",
+      databaseSchema: "vite-hub/comments/database",
+      runtime: "vite-hub/comments/server",
+    },
     auth: Boolean(options.auth),
     // With the Console, its people are the people of Comments, and opening the Console turns comment mode on.
     ...(options.console ? { console: { module: "vite-hub/console/sections" } } : {}),
@@ -1218,7 +1230,7 @@ function createViteHubPlugins(options: ViteHubOptions): PluginOption[] {
             ...context,
             contentImport: "vite-hub/content/realtime",
             realtimeImport: "vite-hub/realtime/server",
-            ...(options.console ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
+            ...(configuredConsole ? { console: { module: "vite-hub/console/sections", section: "content" } } : {}),
           }),
           commentsPlugin.api.contributeRealtime(context),
         ])

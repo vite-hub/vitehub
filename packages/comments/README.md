@@ -22,6 +22,8 @@ Open any page with `?comments`. The server adds the overlay script to that page,
 
 When the app has the Console, its Comments section controls access, and opening the Console enables the toolbar on the app's pages. Custom `identify` runs after that access check. Without the Console, custom `identify` takes precedence over ViteHub Auth, and Comments reads the Auth session only when `identify` is absent.
 
+Console `comments:read` access allows reading threads and joining presence. Writes also require full `comments` access and the Comments policy.
+
 Press `C` and click the page to start a thread. Press `E` to edit text that `contentField()` marks:
 
 ```vue
@@ -81,6 +83,10 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 - [Content](https://vitehub.dev/docs/content) covers collections, drafts, and publishing.
 - [Realtime](https://vitehub.dev/docs/realtime) covers room authorities.
 
+## Comments through Operations
+
+A default export from `server/comments.ts` selects numbered, policy-checked Comments Operations instead of the live-site API. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). The browser client, RPC transport, and memory transport are available from `/client`, `/rpc`, and `/testing`. The operations schema is exported as `commentsOperationsSchema` from `/database` (or `commentsPostgresSchema` from `/database/postgres`).
+
 ## Browser client
 
 Figma-style comments for your own running app. A signed-in team member drops a pin on any spot of a page, and the team replies in the thread.
@@ -91,7 +97,7 @@ This package holds what the server and the UI share:
 - `@vite-hub/comments/client` has no framework. It makes anchors, finds them again, and calls the comment operations through a transport.
 - `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and docs examples.
 
-The Vue parts are in `@vite-hub/ui/comments`. Supply a transport for your backend. The built-in server and overlay use the server types from `@vite-hub/comments` and the anchoring API from `@vite-hub/comments/anchor`; the browser client has its own thread and anchor format. At the root entry, its two overlapping types are available as `ClientCommentThread` and `ClientCommentAnchor`.
+The Vue parts are in `@vite-hub/ui/comments`. Use `createRpcTransport()` from `@vite-hub/comments/rpc` with Comments Operations, or supply a transport for your backend. The live-site server and overlay use the server types from `@vite-hub/comments` and the anchoring API from `@vite-hub/comments/anchor`; the browser client has its own thread and anchor format. At the root entry, its two overlapping types are available as `ClientCommentThread` and `ClientCommentAnchor`.
 
 ## Anchors
 
@@ -148,6 +154,8 @@ client.onChange(() => render(client.threads));
 ```
 
 `start()` listens to the transport's `subscribe`, such as Realtime. Without `subscribe` it refreshes when the window gets focus. A list that comes back late never undoes a thread that was created, changed, or deleted while it was on its way, and an event that is older than the stored thread is ignored. A transport that lost its connection sends `{ type: "reconnected" }` when it has it again, and the client lists the threads once more.
+
+Without an explicit query `limit`, refresh loads every page. Multi-page refreshes require two matching scans before replacing the cache. If three scans cannot agree because the list keeps changing, refresh raises `COMMENTS_R0015` and preserves the previous cache; refresh again to retry. An explicit `limit` makes one request.
 
 ### Transport
 

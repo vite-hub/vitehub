@@ -115,6 +115,14 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-operation-view.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
+        from: "src/console/runtime/components/console-workflow-actions.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-frame.vue",
         to: "dist/console/runtime/components",
       },
@@ -247,6 +255,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
@@ -337,12 +346,14 @@ export default defineConfig({
       "src/console/runtime/client/media-uploads.ts",
       "src/console/runtime/client/presence.ts",
       "src/console/runtime/client/publish.ts",
+      "src/console/runtime/client/operation-view.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/schema-form.ts",
       "src/console/runtime/client/sign-in.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
+      "src/console/runtime/client/workflow.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
@@ -391,6 +402,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/format"];
         delete exports["./console/runtime/client/live"];
+        delete exports["./console/runtime/client/operation-view"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/media-library"];
         delete exports["./console/runtime/client/media-uploads"];
@@ -402,6 +414,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/sign-in"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
+        delete exports["./console/runtime/client/workflow"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];

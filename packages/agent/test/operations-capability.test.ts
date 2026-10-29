@@ -49,7 +49,15 @@ const lease = defineOperation({
   run: (_input, context) => ({ overrideLeases: context.overrideLeases ?? false, sections: context.access.sections, surface: context.surface }),
   section: "demo",
 })
-const registry = createOperationRegistry([{ operations: [whoami, rename, remove, other, lease] }])
+const exportOperation = defineOperation({
+  description: "Export a conversation.",
+  input: v.strictObject({}),
+  kind: "read",
+  name: "conversations.export",
+  run: (_input, context) => ({ conversations: context.conversations ?? null }),
+  section: "conv",
+})
+const registry = createOperationRegistry([{ operations: [whoami, rename, remove, other, lease, exportOperation] }])
 
 afterEach(() => installOperationSectionResolver(undefined))
 
@@ -88,6 +96,28 @@ describe("operations capability", () => {
     expect(await decide(operations({ approve: "destructive", include: ["demo.*"], registry }), "demo_remove")).toBe("require-approval")
     expect(await decide(operations({ approve: "never", include: ["demo.*"], registry }), "demo_remove")).toBe("allow")
     expect(await decide(operations({ approve: ["demo.rename"], include: ["demo.*"], registry }), "demo_rename")).toBe("require-approval")
+  })
+
+  it("passes the conversations setting to the operations, and checks it", async () => {
+    const read = async (options: { conversations?: "all" | "participant" }) => (await (await tools(operations({ include: ["conversations.export"], registry, ...options }))).conversations_export!.execute!({} as never, {}))
+    expect(await read({})).toEqual({ conversations: null })
+    expect(await read({ conversations: "participant" })).toEqual({ conversations: "participant" })
+    expect(await read({ conversations: "all" })).toEqual({ conversations: "all" })
+    // SAFETY: The test passes a value that the types do not allow.
+    expect(() => operations({ conversations: "everyone" as never, include: ["conversations.export"], registry })).toThrow()
+  })
+
+  it("always asks for approval of a conversation export, unless approve is never", async () => {
+    const decide = async (approve: "all" | "destructive" | "never" | "write" | undefined) => {
+      const policy = (await tools(operations({ conversations: "all", include: ["conversations.export"], registry, ...(approve ? { approve } : {}) }))).conversations_export!.policy
+      return policy instanceof Function ? await policy({ input: {}, name: "conversations_export" }) : policy
+    }
+    // The export is a read, and a read needs no approval. Copying a conversation out of the app does.
+    expect(await decide(undefined)).toBe("require-approval")
+    expect(await decide("destructive")).toBe("require-approval")
+    expect(await decide("write")).toBe("require-approval")
+    expect(await decide("all")).toBe("require-approval")
+    expect(await decide("never")).toBe("allow")
   })
 
   it("runs a dry run without approval, since the operation says that it only reads", async () => {
