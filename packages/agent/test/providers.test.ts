@@ -17203,6 +17203,7 @@ describe("server helpers", () => {
         return [{ id, status: async () => ({ status: "queued" }) }]
       })
       const errorFallbackText = vi.fn(() => "Could not process message.")
+      let transcriptIdentity = "account:original"
       const agent = defineAgent({
         channels: {
           telegram: testTelegram(telegram, {
@@ -17212,7 +17213,7 @@ describe("server helpers", () => {
               // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this resolver fixture.
               return adapter as never
             },
-            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
+            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, identity: () => transcriptIdentity, state },
           }),
         },
         driver: { run: () => "unused" },
@@ -17247,6 +17248,7 @@ describe("server helpers", () => {
         expect(ownershipKey).toBeDefined()
         await state.forceReleaseLock(ownershipKey!)
 
+        transcriptIdentity = "account:current"
         await expect(handler(request(91_147, "beta"), "telegram", reclaimerRuntime)).resolves.toMatchObject({ status: 200 })
         expect(createBatch.mock.calls.length).toBeGreaterThan(1)
         const queue = `${ownershipKey}:queue`
@@ -17305,6 +17307,22 @@ describe("server helpers", () => {
         )
         expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
         expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+        // Read after the provider window expires, with the identity resolver changed since the first delivery.
+        adapter.fetchMessages.mockResolvedValue({ messages: [] })
+        const conversation = await handler.conversation(request(91_147, "beta"), { channel: "telegram", threadId: "telegram:456" }, reclaimerRuntime)
+        const fallbacks = conversation.messages.filter(message => message.role === "assistant")
+        expect(fallbacks).toHaveLength(2)
+        expect(fallbacks.every(message => message.source === "transcript" && message.text === "Could not process message.")).toBe(true)
+        const chat = adapter._chatInstance()
+        if (!(chat instanceof Chat)) throw new Error("Expected the conversation's Chat client")
+        for (const userKey of ["account:original", "account:current"]) {
+          const entries = await chat.history.user.list({ threadId: "telegram:456", userKey })
+          expect(entries.filter(entry => entry.role === "assistant")).toEqual([
+            expect.objectContaining({ text: "Could not process message." }),
+          ])
+        }
+        const { channelConversationArchive } = await import("../src/internal/channel-conversation.ts")
+        expect(channelConversationArchive(conversation).messages.filter(message => message.role === "assistant")).toEqual(fallbacks)
         expect(remainingFallbackProgressFailures).toBe(0)
         expect(queueReplaceHead).toHaveBeenCalledWith(
           expect.any(String),

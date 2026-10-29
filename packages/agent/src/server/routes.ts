@@ -3501,7 +3501,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                     context as ViteAgentRouteRuntimeContext,
                     registration,
-                    resolved.state,
+                    { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
                     delivery,
                     failure,
                     Date.now(),
@@ -3769,7 +3769,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                 // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                 context as ViteAgentRouteRuntimeContext,
                 registration,
-                resolved.state,
+                { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
                 delivery,
                 failure,
                 Date.now(),
@@ -3923,7 +3923,7 @@ export function installAgentChannelDeliveryWorkflowResolver(): void {
                   // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
                   context as ViteAgentRouteRuntimeContext,
                   registration,
-                  resolved.state,
+                  { state: resolved.state, keyPrefix: resolved.titleKeyPrefix },
                   delivery,
                   failure,
                   Date.now(),
@@ -4088,6 +4088,8 @@ interface DurableSteerErrorDelivery {
     id?: string
     text: string
     threadId: string
+    /** Retain the identity resolved at admission; recovery must not resolve it again. */
+    userKey?: string | null
   }
   requestUrl?: string
   run?: AgentRunMetadata
@@ -4173,7 +4175,7 @@ async function postDurableSteerErrorFallback(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   context: ViteAgentRouteRuntimeContext,
   registration: AgentWebhookRegistrationDefinition,
-  state: StateAdapter,
+  state: { state: StateAdapter; keyPrefix: string },
   delivery: DurableSteerErrorDelivery,
   error: unknown,
   maximumInvocationDeadline: number,
@@ -4194,13 +4196,18 @@ async function postDurableSteerErrorFallback(
   if (!adapterName || !adapter) {
     throw agentDiagnostics.AGENT_R0805({ message: "[vitehub] Durable steered Channel error delivery could not resolve its configured Chat adapter." })
   }
-  const chat = new Chat(createChatSdkConfig(adapterName, adapter, state, options))
+  const chat = await createChannelChat(agent, deliveryContext, registration, adapterName, adapter, options, {}, undefined, {
+    state: state.state,
+    titleKeyPrefix: state.keyPrefix,
+  })
+  const recorder = transcriptRecorders.get(chat)
+  const thread = chat.thread(delivery.message.threadId)
   // Fence the external effect itself. An earlier heartbeat or verification can
   // become stale while the adapter and Chat client are being resolved.
   await verifyOwnership?.()
   const delivered = await postChatErrorFallback(
     error,
-    chat.thread(delivery.message.threadId),
+    recorder ? recordTranscriptsOfThread(thread, recorder, delivery.message.userKey ?? null) : thread,
     // SAFETY: The owning Agent runtime boundary creates this value with the asserted route contract.
     delivery.message as ChatSdkMessage,
     options,
@@ -6657,6 +6664,7 @@ async function handleChatSdkMessage(
           ...(message.id ? { id: message.id } : {}),
           text: message.text,
           threadId: message.threadId,
+          userKey: message.userKey ?? null,
         },
         requestUrl: workflowRequestUrl,
         ...(run ? { run } : {}),
@@ -7086,7 +7094,7 @@ async function handleChatSdkMessage(
                       agent,
                       context,
                       registration,
-                      state.state,
+                      state,
                       delivery,
                       failure,
                       maximumInvocationDeadline ?? Date.now(),
