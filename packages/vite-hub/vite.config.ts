@@ -376,6 +376,7 @@ export default defineConfig({
       "src/console/runtime/server/auth-manage.ts",
       "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/logs.get.ts",
+      "src/console/runtime/server/mcp.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/schedule-run.ts",
       "src/console/runtime/server/search.get.ts",
@@ -441,6 +442,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/env-manage"];
         delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/logs.get"];
+        delete exports["./console/runtime/server/mcp"];
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];

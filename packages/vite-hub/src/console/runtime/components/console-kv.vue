@@ -171,6 +171,7 @@ function editedValue(): unknown {
 
 async function saveEdit(): Promise<void> {
   const key = selectedKey.value;
+  const store = selectedStore.value;
   if (key === undefined || saving.value) return;
   saving.value = true;
   editError.value = undefined;
@@ -181,10 +182,12 @@ async function saveEdit(): Promise<void> {
       editError.value = "Expires in must be a positive number of seconds, or empty for no expiry.";
       return;
     }
-    await requestConsole(props.kvBase, { body: { action: "set", key, store: selectedStore.value, ...(ttl === undefined ? {} : { ttl }), value }, method: "POST" });
-    editing.value = false;
+    await requestConsole(props.kvBase, { body: { action: "set", key, store, ...(ttl === undefined ? {} : { ttl }), value }, method: "POST" });
     toast.show({ title: "Value saved" });
-    await loadValue(key);
+    if (selectedKey.value === key && selectedStore.value === store) {
+      editing.value = false;
+      await loadValue(key);
+    }
   } catch (error) {
     editError.value = errorMessage(error) ?? "The Console could not save this value.";
   } finally {

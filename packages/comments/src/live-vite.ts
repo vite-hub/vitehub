@@ -272,11 +272,13 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, imports: CommentsImports, base?: string }): string {
+export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, base?: string }): string {
+  const session = sessionLines(input.session ?? {}, input.imports)
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+    ...session.imports,
     "",
     "// The Database that `defineComments({ database })` names, else `default`, else the only one.",
     "function database() {",
@@ -291,7 +293,7 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
+    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, overlay: ${JSON.stringify(`${mountedCommentsRoute(input.base)}/assets/overlay.js?v=${version}`)} })`,
     "",
   ].join("\n")
 }
@@ -401,7 +403,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         await Promise.all([
           writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
           writeComponents(),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), imports, base })),
+          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), session: options, imports, base })),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${route}/**` })
