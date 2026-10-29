@@ -60,6 +60,10 @@ export const commentsErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       why: "Attachments are not supported yet: no operation uploads a file for a comment.",
       fix: "Send the comment without attachments. They arrive with the upload operation.",
     },
+    COMMENTS_R0015: {
+      why: "The comment list kept changing while its pages were loading.",
+      fix: "Refresh again. The previous cache is kept until two complete scans agree.",
+    },
     COMMENTS_B0001: {
       why: ({ file }: { file: string }) => `${file} needs a Database, but the Database is off for this app.`,
       fix: "Remove `database: false` from vitehub(), or set `database: true`. vitehub() turns the Database on for comments when the option is unset.",

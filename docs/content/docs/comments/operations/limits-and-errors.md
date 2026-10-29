@@ -41,6 +41,7 @@ A thread and its first message are written together: with `batch()` on libSQL an
 | `COMMENTS_R0012` | 401 | Writing needs a signed-in user. |
 | `COMMENTS_R0013` | 0 | The browser transport got no answer. |
 | `COMMENTS_R0014` | 400 | The comment has attachments, which are not supported yet. |
+| `COMMENTS_R0015` | client | The paged list kept changing. Refresh again; the previous cache is preserved. |
 | `COMMENTS_B0001` | build | The app has `server/comments.ts` and sets `database: false`. |
 | `COMMENTS_B0002` | build | `server/comments.ts` does not default-export `defineComments()`. |
 

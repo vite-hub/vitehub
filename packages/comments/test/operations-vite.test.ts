@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 
+import { readDatabaseDefinitionDialect } from "@vite-hub/database/config"
+import { collectDatabaseContributions, resolveDatabaseContributionTargets } from "@vite-hub/database/vite"
 import { getTableColumns, getTableName } from "drizzle-orm"
 import { afterEach, describe, expect, it } from "vitest"
 
@@ -104,7 +106,7 @@ describe("hubComments", () => {
     const file = join(root, ".vitehub/comments/database.ts")
     expect(definition).toMatchObject({ definition: file, name: "default", reason: expect.stringContaining("server/comments.ts uses comments") })
     expect(tables).toMatchObject({ database: "default", name: "comments" })
-    expect(await readFile(file, "utf8")).toContain("export default defineDatabase({ schema: {} })")
+    expect(await readFile(file, "utf8")).toContain('export default defineDatabase({ dialect: "sqlite", schema: {} })')
 
     // The app now defines its own Database: the tables go to it, and the generated module goes away.
     await mkdir(join(root, "server/databases"), { recursive: true })
@@ -129,6 +131,17 @@ describe("hubComments", () => {
     await configHook(plugin)({ root })
     const entries = await plugin.vitehub.databases({ plugins: [], projectRoot: root, root, rootDir: root })
     expect(entries.at(-1)).toEqual(expect.objectContaining({ definition: { export: "commentsPostgresSchema", module: "@vite-hub/comments/database/postgres" }, dialect: "postgresql" }))
+  })
+
+  it.each(["sqlite", "postgresql"] as const)("resolves the implicit Database and tables with the %s dialect", async dialect => {
+    const root = await project(true)
+    const plugin = hubComments({ dialect })
+    await configHook(plugin)({ root })
+    const contributions = await collectDatabaseContributions([plugin], { plugins: [plugin], projectRoot: root, root, rootDir: root })
+    const generatedDialect = readDatabaseDefinitionDialect(join(root, ".vitehub/comments/database.ts"))
+    const resolved = resolveDatabaseContributionTargets(["default"], contributions.tables, { default: generatedDialect })
+    expect(generatedDialect).toBe(dialect)
+    expect(resolved.default).toEqual([expect.objectContaining({ database: "default", name: "comments" })])
   })
 
   it("writes the Nitro plugin that installs the runtime", async () => {
