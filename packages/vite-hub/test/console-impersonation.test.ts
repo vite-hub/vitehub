@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { DatabaseSync } from "node:sqlite"
-import { defineAuth } from "@vite-hub/auth"
+import { defineAuth, type AuthSessionRefresh } from "@vite-hub/auth"
 import { createAuthAccessHandler, createAuthForRequest, requireAuthAccessRoutes, withAuthorization } from "@vite-hub/auth/server"
 import { adminPlugin } from "../../auth/test/fixtures/admin-plugin.ts"
 import { H3, H3Event } from "h3"
@@ -144,7 +144,7 @@ describe("App Auth Console during impersonation", () => {
   const origin = "https://app.example.com"
   const mount = "/portal"
 
-  async function setup() {
+  async function setup(session?: { onRefresh: AuthSessionRefresh, updateAge: number }) {
     const database = new DatabaseSync(":memory:")
     closers.push(() => database.close())
     const routes: Parameters<typeof createAuthAccessHandler>[0] = [{ route: `${mount}/_vitehub/**`, authorize: true }, { route: `${mount}/api/_vitehub/console/**`, authorize: true }]
@@ -156,6 +156,7 @@ describe("App Auth Console during impersonation", () => {
       secret: "test-secret-at-least-32-bytes-long",
       emailAndPassword: { enabled: true },
       plugins: [adminPlugin()],
+      session,
       access: { routes: routes.map(route => ({ route: route.route, authorize: () => true })) },
     }))
     const authForRequest = (request: Pick<Request, "headers" | "url">) => createAuthForRequest(definition, request)
@@ -222,5 +223,13 @@ describe("App Auth Console during impersonation", () => {
     const console = await visit("/_vitehub/auth/users", restored)
     expect(console.status).toBe(200)
     expect(await console.text()).toContain("<title>ViteHub Console</title>")
+  })
+
+  it("sends a session that the app ends on refresh to sign in", async () => {
+    // Every read refreshes the session, and the app ends it.
+    const { operator, visit } = await setup({ updateAge: 0, onRefresh: ({ clear }) => clear() })
+    const page = await visit("/_vitehub/auth", operator.cookie)
+    expect(page.status).toBe(302)
+    expect(page.headers.get("location")).toContain(`${mount}/_vitehub/sign-in`)
   })
 })

@@ -477,6 +477,7 @@ export function defineConsoleAuthorize(authorize: ConsoleAuthorize): ConsoleAuth
 }
 
 const consoleSessionSchema = v.looseObject({ user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)) }) })
+const endedSessionSchema = v.looseObject({ statusCode: v.literal(401), body: v.looseObject({ code: v.literal("FAILED_TO_GET_SESSION") }) })
 
 /** The part of a ViteHub Auth instance that reads the signed-in session. */
 export interface ConsoleSessionReader {
@@ -517,7 +518,12 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
     let session = sessions.get(event)
     if (!session) {
       const request = toEventRequest(event)
-      session = options.getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers })
+      session = options.getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers }).catch((error: unknown) => {
+        // Better Auth answers 401 when a refresh ends the session, for example from `session.onRefresh`. The access
+        // routes then send the browser to sign in.
+        if (v.is(endedSessionSchema, error)) return null
+        throw error
+      })
       sessions.set(event, session)
     }
     return session

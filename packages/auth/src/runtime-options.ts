@@ -5,7 +5,7 @@ import { applyAuthPreset } from "./preset-options.ts"
 import { deriveAuthSecret } from "./secret.ts"
 import { validateAuthEvents } from "./events-config.ts"
 import { createAuthEventsPlugin } from "./event-plugin.ts"
-import { createImpersonationPlugin } from "./impersonation-plugin.ts"
+import { createImpersonationPlugin, withImpersonationExpiry } from "./impersonation-plugin.ts"
 import { createSessionRefreshPlugin } from "./session-refresh.ts"
 import { authErrorDiagnostics } from "./error-diagnostics.ts"
 import { normalizeAuthBasePath } from "./shared.ts"
@@ -66,7 +66,8 @@ function stripViteHubOptions(
   const sessionRefresh = withSessionRefresh(rest, Boolean(storage.database || storage.secondaryStorage))
   const declaredPlugins = sessionRefresh.plugins ?? rest.plugins ?? []
   // Bounds the admin plugin's impersonation sessions, which the app or the Console can start.
-  const plugins = declaredPlugins.some(plugin => plugin.id === "admin") ? [...declaredPlugins, createImpersonationPlugin()] : declaredPlugins
+  const impersonation = declaredPlugins.some(plugin => plugin.id === "admin")
+  const plugins = impersonation ? [...declaredPlugins, createImpersonationPlugin()] : declaredPlugins
   const eventPlugin = events ? createAuthEventsPlugin(events) : undefined
   if (eventPlugin && storage.secondaryStorage && !rest.session?.storeSessionInDatabase) storage.secondaryStorage = eventPlugin.wrapStorage(storage.secondaryStorage)
   const after = rest.hooks?.after ?? createAuthMiddleware(async () => {})
@@ -75,6 +76,7 @@ function stripViteHubOptions(
     ...rest,
     ...storage,
     ...sessionRefresh,
+    ...(impersonation && rest.databaseHooks ? { databaseHooks: withImpersonationExpiry(rest.databaseHooks) } : {}),
     plugins: eventPlugin ? [...plugins, eventPlugin] : plugins,
     ...(eventPlugin ? {
       hooks: { ...rest.hooks, after: Object.assign(async (...args: Parameters<typeof after>) => {

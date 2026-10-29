@@ -1,7 +1,7 @@
 import { oauthProvider } from "@better-auth/oauth-provider";
 import type { Result } from "@vite-hub/runtime";
 import { getMigrations } from "better-auth/db/migration";
-import { admin, jwt } from "better-auth/plugins";
+import { admin, emailOTP, jwt, phoneNumber, username } from "better-auth/plugins";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createAuthConsole } from "../src/console-runtime.ts";
 import { createDatabaseAuthEventStore, defineAuth } from "../src/index.ts";
@@ -38,7 +38,10 @@ function jar(cookie: string, response: Response): string {
   return [...values.values()].join("; ");
 }
 
-/** A local Better Auth app with the admin, OAuth Provider, and JWT plugins, and a durable event log. */
+/**
+ * A local Better Auth app with the admin, OAuth Provider, and JWT plugins, plugins that change how a user signs in, and
+ * a durable event log.
+ */
 async function app(options: { impersonationSessionDuration?: number } = {}) {
   const database = eventDatabase();
   closers.push(() => database.sqlite.close());
@@ -50,6 +53,9 @@ async function app(options: { impersonationSessionDuration?: number } = {}) {
       admin(options),
       jwt(),
       oauthProvider({ loginPage: "/login", consentPage: "/consent" }),
+      emailOTP({ sendVerificationOTP: async () => {}, changeEmail: { enabled: true } }),
+      phoneNumber({ sendOTP: async () => {} }),
+      username(),
     ],
     events: {
       store: {
@@ -249,12 +255,19 @@ describe("Console impersonation", () => {
     for (const [path, body] of [
       ["admin/impersonate-user", { userId: operator.id }],
       ["oauth2/consent", { accept: true }],
+      ["email-otp/request-email-change", { newEmail: "operator-inbox@example.com" }],
+      ["phone-number/verify", { phoneNumber: "+15555550100", code: "123456", updatePhoneNumber: true }],
+      ["update-user", { username: "operator_alias" }],
+      ["update-user", { displayUsername: "operator_alias" }],
     ] as const) {
       const response = await request(path, body, impersonating);
       expect(response.status, path).toBe(403);
       expect(await response.json(), path).toMatchObject({ code: "IMPERSONATION_FORBIDDEN" });
     }
+    // A profile change keeps the ways the user signs in.
+    expect((await request("update-user", { name: "Member (fixed by support)" }, impersonating)).status).toBe(200);
     const own = await request("oauth2/consent", { accept: true }, operator.cookie);
     expect(own.status).not.toBe(403);
+    expect((await request("update-user", { username: "operator_alias" }, operator.cookie)).status).toBe(200);
   });
 });
