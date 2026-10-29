@@ -2,6 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createClient } from "@libsql/client"
+import { readViteHubConsoleActionFailure } from "@vite-hub/internal/console"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -243,6 +244,43 @@ describe("Content on the GitHub store", () => {
       })
       expect(fake.head("main")).toBe(main)
       expect(fake.tree("main").some(entry => entry.path === "content/posts/b.md")).toBe(false)
+      // status() names the document before anyone tries to publish, and only that one.
+      expect(await posts.status("a")).toMatchObject({ state: "changed", published: textSha(page("A main")), conflict: { base: a.digest } })
+      expect((await posts.status()).filter(entry => entry.conflict).map(entry => entry.id)).toEqual(["a"])
+      // A save that names the published version resolves it. The publish merged `main` into the draft.
+      vi.advanceTimersByTime(6_000)
+      const draft = (await posts.raw("a", { ref: "draft" }))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: draft.digest, ifPublishedDigest: textSha(page("A main")) })
+      expect((await posts.status("a"))?.conflict).toBeUndefined()
+      expect((await content.publish()).documents.map(document => document.id)).toEqual(["a", "b"])
+    })
+
+    it("lets the Console compare and resolve a document that changed on both branches", async () => {
+      const { posts, content } = await setup({ authorize: () => true })
+      const actions = createContentConsoleActions({ content })
+      const context = { user: { id: "joy", name: "Joy" } }
+      const a = (await posts.raw("a"))!
+      await posts.save("a", { data: { title: "A draft" }, body: "" }, { ifDigest: a.digest })
+      onMain({ "content/posts/a.md": page("A main") })
+      const site = textSha(page("A main"))
+
+      // The refusal says the site changed, not that someone saved a newer draft.
+      const refused = await Promise.resolve(actions.publish({ collection: "posts", expect: [{ id: "a", digest: (await posts.raw("a", { ref: "draft" }))!.digest }] }, context)).catch((error: unknown) => error)
+      expect(readViteHubConsoleActionFailure(refused)).toMatchObject({
+        status: 409,
+        code: "WORKSPACE_CONFLICT",
+        message: "1 document also changed on the site after the draft started from it. Nothing was published.",
+        details: { ref: "published", documents: [{ id: "a", actual: site }] },
+      })
+      const opened = (await actions.get({ collection: "posts", id: "a" }, context))!
+      expect(opened.conflict).toEqual({ published: site })
+      expect((await actions.list({ collection: "posts" }, context)).items.find(item => item.id === "a")?.conflict).toEqual({ published: site })
+      expect(await actions.get({ collection: "posts", id: "a", ref: "published" }, context)).toMatchObject({ data: { title: "A main" }, digest: site })
+
+      // Keep my draft: the save names the site version that was compared, and publishing works again.
+      const kept = await actions.save({ collection: "posts", id: "a", data: opened.data, body: opened.body, ifDigest: opened.digest, ifPublishedDigest: site }, context)
+      expect(kept.conflict).toBeUndefined()
+      expect((await actions.publish({ collection: "posts", expect: [{ id: "a", digest: kept.digest }] }, context)).documents).toEqual([{ collection: "posts", id: "a", change: "update" }])
     })
 
     it("acknowledges published drafts across later main edits and partial publishes", async () => {
