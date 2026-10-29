@@ -447,6 +447,101 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect((await post(field({ token }), { "sec-fetch-site": "same-origin" })).status).toBe(403)
   })
 
+  it("counts a Nitro 3 frame body as it streams, stops over 1 MiB, and reads no body from another site", async () => {
+    const { content } = await setup()
+    const app = new H3().get("/blog/hello", async event => ({ method: event.req.method }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const form = (body: string) => new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" }, body } }) }).toString()
+    /** A body that streams `chunks` one pull at a time, and records how far it was read. */
+    function stream(chunks: Uint8Array[], options: { fail?: boolean } = {}) {
+      const read = { pulls: 0, cancelled: false }
+      const body = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (options.fail && read.pulls === 2) return controller.error(new Error("connection reset"))
+          const chunk = chunks[read.pulls++]
+          if (chunk) controller.enqueue(chunk)
+          else controller.close()
+        },
+        cancel() {
+          read.cancelled = true
+        },
+      }, { highWaterMark: 0 })
+      return { body, read }
+    }
+    const post = (body: ReadableStream<Uint8Array>, headers: Record<string, string> = {}) => nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", ...headers },
+      body,
+      // A streamed request body needs `duplex`.
+      duplex: "half",
+    }))
+    const kib = (count: number) => new Uint8Array(count * 1024).fill(0x61)
+
+    // Chunked, without Content-Length: 40 chunks of 64 KiB stop after 1 MiB, and the rest is cancelled.
+    const chunked = stream(Array.from({ length: 40 }, () => kib(64)))
+    expect((await post(chunked.body)).status).toBe(403)
+    expect(chunked.read.pulls).toBeLessThanOrEqual(18)
+    expect(chunked.read.cancelled).toBe(true)
+    // A small declared length is not trusted.
+    const dishonest = stream(Array.from({ length: 40 }, () => kib(64)))
+    expect((await post(dishonest.body, { "content-length": "10" })).status).toBe(403)
+    expect(dishonest.read.pulls).toBeLessThanOrEqual(18)
+    expect(dishonest.read.cancelled).toBe(true)
+    // The limit counts bytes, not characters: 400 Ki of "é" is 800 KiB of text, and its form encoding is 2.4 MiB.
+    const multibyte = new TextEncoder().encode(form("é".repeat(400 * 1024)))
+    expect(multibyte.byteLength).toBeGreaterThan(1024 * 1024)
+    expect("é".repeat(400 * 1024).length).toBeLessThan(1024 * 1024)
+    expect((await post(stream([multibyte]).body)).status).toBe(403)
+    // A valid form under the limit renders, also when it arrives in many small chunks.
+    const valid = new TextEncoder().encode(form("a".repeat(900 * 1024)))
+    expect(valid.byteLength).toBeLessThan(1024 * 1024)
+    const pieces = Array.from({ length: Math.ceil(valid.byteLength / 4096) }, (_, index) => valid.subarray(index * 4096, (index + 1) * 4096))
+    const response = await post(stream(pieces).body)
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ method: "GET" })
+    // A broken body is refused, and the request does not throw.
+    expect((await post(stream([kib(1), kib(1), kib(1)], { fail: true }).body)).status).toBe(403)
+    // A form from another site is refused before any of its body is read.
+    const foreign = stream([new TextEncoder().encode(form("x"))])
+    expect((await post(foreign.body, { "sec-fetch-site": "cross-site" })).status).toBe(403)
+    expect(foreign.read).toEqual({ pulls: 0, cancelled: true })
+  })
+
+  it("stops reading a Nitro 2 frame body over 1 MiB, and reads no body from another site", async () => {
+    const { content } = await setup()
+    const handler = vi.fn(async (_event: unknown) => undefined)
+    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
+    defineContentPreviewPlugin(content)(nitroApp)
+    function nodeRequest(chunks: number, headers: Record<string, string> = {}) {
+      const read = { chunks: 0, closed: false }
+      const request = Object.assign((async function* () {
+        try {
+          for (; read.chunks < chunks; read.chunks++) yield new Uint8Array(64 * 1024).fill(0x61)
+        }
+        finally {
+          read.closed = true
+        }
+      })(), { method: "POST", url: `/blog/hello?${contentPreviewFrameParameter}`, headers: { host: "site.test", "sec-fetch-site": "same-origin", ...headers } })
+      return { read, request }
+    }
+    const response = () => Object.assign(serverResponse(), { statusCode: 200, end: vi.fn() })
+
+    const large = nodeRequest(40)
+    const largeResponse = response()
+    await nitroApp.h3App.handler({ node: { req: large.request, res: largeResponse } })
+    expect(largeResponse.statusCode).toBe(403)
+    expect(large.read.chunks).toBeLessThanOrEqual(17)
+    expect(large.read.closed).toBe(true)
+    const foreign = nodeRequest(1, { "sec-fetch-site": "cross-site" })
+    const foreignResponse = response()
+    await nitroApp.h3App.handler({ node: { req: foreign.request, res: foreignResponse } })
+    expect(foreignResponse.statusCode).toBe(403)
+    expect(foreign.read.chunks).toBe(0)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
   it("renders preview frames on Nitro 2 as a GET of the page", async () => {
     const { content, posts } = await setup()
     const { token } = await content.preview.sign({ collection: "posts", id: "hello" })

@@ -405,6 +405,11 @@ const dirty = computed(() => {
   // The editor writes canonical Markdown, which can drop a trailing newline that the stored file has.
   return draft.value.body.trimEnd() !== base.value.body.trimEnd() || dataDirty.value;
 });
+/**
+ * The shared draft that the local edits started from is gone, such as when another editor deleted it. The local edits
+ * stay on screen with Copy, Apply, and Discard: Apply compares before it creates the document again.
+ */
+const sharedGone = computed(() => local.value && !loading.value && !base.value && !loadError.value);
 /** Local-only edits differ from the version they started as. */
 const localChanged = computed(() => {
   const start = localStart.value;
@@ -414,10 +419,12 @@ const localChanged = computed(() => {
 /** Someone saved the shared draft after the local edits started from it. Apply then asks before overwriting. */
 const sharedMoved = computed(() => local.value && !loading.value && Boolean(base.value) && base.value!.digest !== localBase.value);
 const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(compact(base.value!.data)));
-const deleted = computed(() => !creating.value && !loading.value && !base.value && state.value === "deleted");
+// Local-only edits keep the editor open when the shared draft is gone, so they are never hidden behind these states.
+const deleted = computed(() => !creating.value && !loading.value && !base.value && !local.value && state.value === "deleted");
 // A singleton that was never saved opens with its defaults instead.
-const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !loadError.value && state.value !== "deleted");
-const publishable = computed(() => canPublish.value && !creating.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
+const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !local.value && !loadError.value && state.value !== "deleted");
+// Without a shared draft, Local only has nothing to publish: Apply or Discard the local edits first.
+const publishable = computed(() => canPublish.value && !creating.value && !sharedGone.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
 const title = computed(() => {
   if (single.value) return props.collection.label;
   const value = titleField.value ? draft.value.data[titleField.value.name] : undefined;
@@ -741,9 +748,9 @@ async function save(options: { auto?: boolean, ifDigest?: string | null } = {}):
 function onRemoteDigest(digest: string | null): void {
   // A live room reloads its people itself.
   if (liveActive.value) return;
-  // Local-only edits stay on screen. The stored version updates, so Apply knows the shared draft moved.
+  // Local-only edits stay on screen. The stored version updates, so Apply knows the shared draft moved or is gone.
   if (local.value) {
-    if (!loading.value && digest !== null && base.value?.digest !== digest) void load();
+    if (!loading.value && (base.value?.digest ?? null) !== digest) void load();
     return;
   }
   if (creating.value || loading.value || saving.value || publishing.value || restoring.value || dirty.value) return;
@@ -801,6 +808,18 @@ async function copyUnsaved(): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
     toast.show({ title: "Your edits copied" });
+  }
+  catch {
+    toast.error("Couldn't copy. Select the text and copy it.");
+  }
+}
+
+/** Copies the local edits as the stored file would hold them: the fields as JSON, then the body. */
+async function copyLocal(): Promise<void> {
+  const data = JSON.stringify(compact(draft.value.data), null, 2);
+  try {
+    await navigator.clipboard.writeText(hasBody.value ? `${data}\n\n${draft.value.body}` : data);
+    toast.show({ title: "Your local edits copied" });
   }
   catch {
     toast.error("Couldn't copy. Select the text and copy it.");
@@ -965,13 +984,15 @@ async function startLocal(): Promise<void> {
     await save();
     if (dirty.value || conflict.value || saveError.value) return;
   }
-  // The local edits start from the body the room saved. Typing after the room took its save stays on screen as a
-  // local edit, so the body is read from the room editor before it closes.
-  const start: Version = { body: inRoom ? base.value.body : draft.value.body, data: clone(draft.value.data) };
-  const onScreen = inRoom ? await bodyEditor.value?.markdown() : undefined;
-  localBase.value = base.value.digest;
+  // The local edits start from the version the room saved, fields and body, and name its digest. Typing after the room
+  // took its save stays on screen as a local edit: the fields come from the room, the body from its editor.
+  const saved = base.value;
+  if (!saved) return;
+  const start: Version = inRoom ? { body: saved.body, data: clone(saved.data) } : { body: draft.value.body, data: clone(draft.value.data) };
+  const onScreen: Version = { body: (inRoom ? await bodyEditor.value?.markdown() : undefined) ?? start.body, data: clone(draft.value.data) };
+  localBase.value = saved.digest;
   localStart.value = clone(start);
-  draft.value = { body: onScreen ?? start.body, data: clone(draft.value.data) };
+  draft.value = onScreen;
   editing.value = "local";
   keepLocal();
   // Local edits need no lease: report as a viewer, so other people keep editing the shared draft.
@@ -1619,8 +1640,16 @@ onBeforeUnmount(() => wideQuery.removeEventListener("change", onWideChange));
 /** The live room body, read from the editor, since `v-model` does not follow it in a room. */
 const liveBody = ref<string>();
 let liveBodyTimer: ReturnType<typeof setTimeout> | undefined;
+let liveBodyRead = 0;
 onBeforeUnmount(() => clearTimeout(liveBodyTimer));
-watch(liveActive, () => (liveBody.value = undefined));
+// The body is read only while the preview is open. Closing forgets it, and opening reads the room editor again, so a
+// body typed while the preview was closed never shows as an older one. A new room or document also starts over.
+watch([liveActive, previewOpen, liveEpoch, () => props.documentId], () => {
+  clearTimeout(liveBodyTimer);
+  liveBodyRead++;
+  liveBody.value = undefined;
+  if (liveActive.value && previewOpen.value) void readLiveBody();
+});
 
 function setPreview(open: boolean): void {
   const query = { ...route.query };
@@ -1642,10 +1671,15 @@ const previewTextFields = computed(() => (editable.value ? fields.value.filter(f
 function onBodyChange(): void {
   if (!liveActive.value || !previewOpen.value) return;
   clearTimeout(liveBodyTimer);
-  liveBodyTimer = setTimeout(async () => {
-    const markdown = await bodyEditor.value?.markdown();
-    if (markdown !== null && markdown !== undefined) liveBody.value = markdown;
-  }, 250);
+  liveBodyTimer = setTimeout(() => void readLiveBody(), 250);
+}
+
+/** Reads the room body from the editor. A read that a newer read, the preview closing, or a new room overtook is dropped. */
+async function readLiveBody(): Promise<void> {
+  const read = ++liveBodyRead;
+  const markdown = await bodyEditor.value?.markdown();
+  if (markdown === null || markdown === undefined || read !== liveBodyRead) return;
+  liveBody.value = markdown;
 }
 
 /**
@@ -1853,7 +1887,7 @@ const menuItems = computed(() => [[
         </UTooltip>
       </span>
       <UDropdownMenu
-        v-if="canWrite && base && !creating && !missing && !deleted && !loadError"
+        v-if="canWrite && (base || local) && !creating && !missing && !deleted && !loadError"
         :items="editingItems"
         :content="{ align: 'end' }"
         :ui="{ content: 'w-72', itemDescription: 'whitespace-normal!' }"
@@ -1978,9 +2012,13 @@ const menuItems = computed(() => [[
           <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <UIcon name="i-lucide-laptop" class="size-4 shrink-0 text-warning" aria-hidden="true" />
             <span class="min-w-0 flex-1 text-default">Local only · Your edits stay in this tab. Nobody sees them, and nothing saves until you apply them.</span>
-            <UButton size="xs" color="neutral" variant="ghost" label="Discard…" :disabled="!localChanged || applyingLocal" @click="localExitOpen = true" />
-            <UButton size="xs" color="neutral" variant="outline" label="Apply to shared draft" :disabled="!localChanged" :loading="applyingLocal" @click="applyLocal()" />
+            <UButton v-if="sharedGone" size="xs" color="neutral" variant="ghost" label="Copy" icon="i-lucide-copy" aria-label="Copy your local edits" @click="copyLocal" />
+            <UButton size="xs" color="neutral" variant="ghost" label="Discard…" :disabled="(!localChanged && !sharedGone) || applyingLocal" @click="localExitOpen = true" />
+            <UButton size="xs" color="neutral" variant="outline" label="Apply to shared draft" :disabled="!localChanged && !sharedGone" :loading="applyingLocal" @click="applyLocal()" />
           </div>
+          <p v-if="sharedGone" class="ps-7 text-default">
+            The shared draft was deleted after your local edits started. They are still here. Copy them, apply them to create the {{ single ? "page" : noun.toLowerCase() }} again after a comparison, or discard them.
+          </p>
           <p v-if="localLeaseHolder" class="ps-7 text-muted">{{ localLeaseHolder }} Apply when they stop.</p>
           <p v-if="sharedMoved" class="ps-7 text-muted">Someone saved the shared draft after your local edits started. Apply compares them before it saves.</p>
           <p v-if="localStorageFailed" class="ps-7 text-error">This tab can't keep your local edits after a reload. Apply or copy them before you leave.</p>
@@ -2296,8 +2334,10 @@ const menuItems = computed(() => [[
 
   <UModal
     :open="Boolean(localConflict)"
-    title="The shared draft changed"
-    description="Someone saved the shared draft after your local edits started from it, so nothing was saved. Compare them, then choose."
+    :title="localConflict && !localConflict.theirs ? 'The shared draft was deleted' : 'The shared draft changed'"
+    :description="localConflict && !localConflict.theirs
+      ? 'Someone deleted the shared draft after your local edits started from it, so nothing was saved. Create it again from your local edits, or keep them here.'
+      : 'Someone saved the shared draft after your local edits started from it, so nothing was saved. Compare them, then choose.'"
     :ui="{ content: 'sm:max-w-3xl' }"
     @update:open="(open) => { if (!open) localConflict = undefined }"
   >
@@ -2314,7 +2354,7 @@ const menuItems = computed(() => [[
       <div class="flex w-full flex-wrap justify-end gap-2">
         <UButton variant="ghost" label="Keep editing locally" @click="localConflict = undefined" />
         <UButton variant="outline" label="Discard mine" :disabled="applyingLocal" @click="discardLocal" />
-        <UButton color="error" label="Overwrite with mine" :loading="applyingLocal" @click="applyLocal(localConflict?.theirs?.digest ?? null)" />
+        <UButton color="error" :label="localConflict?.theirs ? 'Overwrite with mine' : 'Create again from mine'" :loading="applyingLocal" @click="applyLocal(localConflict?.theirs?.digest ?? null)" />
       </div>
     </template>
   </UModal>

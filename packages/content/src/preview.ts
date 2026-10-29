@@ -707,15 +707,61 @@ function isFrameRequest(method: unknown, url: URL | undefined): url is URL {
   return String(method).toUpperCase() === "POST" && url !== undefined && url.searchParams.has(contentPreviewFrameParameter)
 }
 
+/**
+ * Reads a frame form body of at most `maximumFrameBytes`, counting the bytes as they arrive. A declared length is not
+ * trusted: reading stops at the first chunk over the limit and cancels the rest. A larger or broken body is undefined.
+ */
 async function readNodeBody(request: AsyncIterable<unknown>): Promise<string | undefined> {
   const chunks: Uint8Array[] = []
   let size = 0
-  for await (const chunk of request) {
-    const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
-    size += bytes.byteLength
-    if (size > maximumFrameBytes) return
-    chunks.push(bytes)
+  try {
+    // Leaving the loop early destroys the Node stream, so no more of the body is read.
+    for await (const chunk of request) {
+      const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
+      size += bytes.byteLength
+      if (size > maximumFrameBytes) return
+      chunks.push(bytes)
+    }
   }
+  catch {
+    return
+  }
+  return decodeChunks(chunks, size)
+}
+
+async function readRequestBody(request: Request): Promise<string | undefined> {
+  if (Number(request.headers.get("content-length") ?? 0) > maximumFrameBytes) {
+    discardRequestBody(request)
+    return
+  }
+  if (!request.body) return ""
+  const chunks: Uint8Array[] = []
+  let size = 0
+  try {
+    const reader = request.body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      size += value.byteLength
+      if (size > maximumFrameBytes) {
+        reader.cancel().catch(() => undefined)
+        return
+      }
+      chunks.push(value)
+    }
+  }
+  catch {
+    return
+  }
+  return decodeChunks(chunks, size)
+}
+
+/** Cancels a request body that is not read, such as a frame form from another site. */
+function discardRequestBody(request: Request): void {
+  if (request.body && !request.body.locked) request.body.cancel().catch(() => undefined)
+}
+
+function decodeChunks(chunks: Uint8Array[], size: number): string {
   const joined = new Uint8Array(size)
   let offset = 0
   for (const chunk of chunks) {
@@ -723,13 +769,6 @@ async function readNodeBody(request: AsyncIterable<unknown>): Promise<string | u
     offset += chunk.byteLength
   }
   return new TextDecoder().decode(joined)
-}
-
-async function readRequestBody(request: Request): Promise<string | undefined> {
-  const length = Number(request.headers.get("content-length") ?? 0)
-  if (length > maximumFrameBytes) return
-  const text = await request.text()
-  return new TextEncoder().encode(text).byteLength > maximumFrameBytes ? undefined : text
 }
 
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
@@ -800,8 +839,10 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
         }
         return (async () => {
+          // A form from another site is refused before its body is read.
           const blocked = crossSite(request.headers, url)
-          const body = await readRequestBody(request)
+          if (blocked) discardRequestBody(request)
+          const body = blocked ? undefined : await readRequestBody(request)
           url.searchParams.delete(contentPreviewFrameParameter)
           const headers = new Headers(request.headers)
           headers.delete("content-type")
@@ -824,10 +865,11 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
         return (async () => {
-          // SAFETY: A Node IncomingMessage is an async iterable of its body chunks, checked above.
-          const body = await readNodeBody(request as unknown as AsyncIterable<unknown>)
           const headers = isObject(request.headers) ? request.headers : {}
+          // A form from another site is refused before its body is read.
           const blocked = crossSite(headers, url)
+          // SAFETY: A Node IncomingMessage is an async iterable of its body chunks, checked above.
+          const body = blocked ? undefined : await readNodeBody(request as unknown as AsyncIterable<unknown>)
           // The page sees a GET request for its own URL. h3 v1 caches the method, path, and headers on the event.
           url.searchParams.delete(contentPreviewFrameParameter)
           request.method = "GET"

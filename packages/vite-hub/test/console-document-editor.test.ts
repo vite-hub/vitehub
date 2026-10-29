@@ -454,7 +454,60 @@ describe("Local only edits on the third review", () => {
     expect(wrapper.text()).toContain("Local edits · not saved")
     expect(readConsoleLocalDraft(sessionStorage, "settings", "settings")?.version.data).toEqual(privateEdit)
     expect(client.save).not.toHaveBeenCalled()
+    // The recovery actions show for a singleton too.
+    expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+    expect(wrapper.get('[data-label="Apply to shared draft"]').attributes("disabled")).toBeUndefined()
+    expect(wrapper.get('[data-label="Copy"]').attributes("aria-label")).toBe("Copy your local edits")
   })
+
+  for (const [name, listed] of [["deleted from the draft", "deleted"], ["gone from the draft and the site", undefined]] as const) {
+    it(`keeps local edits reachable, and creates nothing on its own, when the shared draft is ${name}`, async () => {
+      writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "Shared body", data: { title: "Shared" } }, version: { body: "PRIVATE body", data: privateEdit } })
+      const recreated: ConsoleDocument = { ...saved, body: "PRIVATE body", data: privateEdit, digest: "recreated" }
+      const client = {
+        ...createConsoleDocumentsClient("", "content"),
+        get: vi.fn(async () => null),
+        list: vi.fn(async () => ({ items: listed ? [{ ...draft, state: listed }] : [], nextCursor: null, total: listed ? 1 : 0 })),
+        publish: vi.fn(),
+        // The store refuses a save that names a digest of a draft that no longer exists.
+        save: vi.fn(async (_collection: string, _id: string, input: { ifDigest?: string | null }) => {
+          if (input.ifDigest !== null) throw new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: {} })
+          return recreated
+        }),
+      }
+      const menu = defineComponent({ name: "UDropdownMenu", props: { items: { type: Array, default: () => [] } }, setup: (_props, { slots }) => () => h("div", slots.default?.()) })
+      const posts: ConsoleDocumentCollection = { ...collection, format: "markdown", path: "posts/*.md" }
+      const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: posts, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
+      wrappers.push(wrapper)
+      await flushPromises()
+
+      // The editor, its banner, and the editing menu stay, instead of the empty state that hid them.
+      expect(wrapper.findComponent({ name: "UEmpty" }).exists()).toBe(false)
+      expect(wrapper.getComponent({ name: "ConsoleSchemaForm" }).props("modelValue")).toEqual(privateEdit)
+      expect(wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe("PRIVATE body")
+      expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+      expect(wrapper.findAllComponents(menu).some(item => JSON.stringify(item.props("items")).includes("Local only"))).toBe(true)
+      expect(wrapper.find('[aria-label="Editing: Local only"]').exists()).toBe(true)
+      // Nothing to publish without a shared draft.
+      expect(wrapper.find('[data-label="Publish shared draft"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Publish deletion"]').exists()).toBe(false)
+      expect(wrapper.get('[data-label="Discard…"]').attributes("disabled")).toBeUndefined()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual({ body: "PRIVATE body", data: privateEdit })
+
+      // Apply compares first: the deleted draft is not created again until the person chooses it.
+      await wrapper.get('[data-label="Apply to shared draft"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledOnce()
+      expect(client.save.mock.calls[0]![2]).toMatchObject({ ifDigest: "shared-1" })
+      expect(wrapper.text()).toContain("Local edits · not saved")
+      await wrapper.get('section [data-label="Create again from mine"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledTimes(2)
+      expect(client.save.mock.calls[1]![2]).toMatchObject({ body: "PRIVATE body", data: privateEdit, ifDigest: null })
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(client.publish).not.toHaveBeenCalled()
+    })
+  }
 
   it("says a pull request opened, not published, when Publish shared draft opens one", async () => {
     writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "", data: { title: "Shared" } }, version: { body: "", data: privateEdit } })

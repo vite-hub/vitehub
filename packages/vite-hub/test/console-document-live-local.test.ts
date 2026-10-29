@@ -11,15 +11,23 @@ import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/
 
 /** The body the live room editor holds now: the person keeps typing after the room took its save. */
 const roomBody = vi.hoisted(() => ({ value: "" }))
-const roomSave = vi.hoisted(() => vi.fn(async () => undefined))
+const roomSave = vi.hoisted(() => vi.fn(async (): Promise<string | null> => "room-1"))
+/** The room fields, which another person or this tab can change while a room save is pending. */
+const room = vi.hoisted(() => ({ fields: undefined as { value: Record<string, unknown> | undefined } | undefined }))
 
-vi.mock("vue-router", () => ({
-  onBeforeRouteLeave: vi.fn(),
-  useRoute: () => ({ query: {} }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-}))
+/** The route query, which opens and closes the side browser with `?preview`. */
+const route = vi.hoisted(() => ({ current: { query: {} as Record<string, string | null> } }))
+vi.mock("vue-router", async () => {
+  const { reactive } = await import("vue")
+  const current = (route.current = reactive({ query: {} }))
+  return {
+    onBeforeRouteLeave: vi.fn(),
+    useRoute: () => current,
+    useRouter: () => ({ push: vi.fn(), replace: vi.fn(({ query }: { query: Record<string, string | null> }) => (current.query = query)) }),
+  }
+})
 vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({
-  default: { name: "ConsoleMarkdownEditor", props: ["modelValue", "live"], emits: ["update:modelValue"], setup: (_props: unknown, { expose }: { expose: (exposed: object) => void }) => {
+  default: { name: "ConsoleMarkdownEditor", props: ["modelValue", "live"], emits: ["update:modelValue", "change"], setup: (_props: unknown, { expose }: { expose: (exposed: object) => void }) => {
     expose({ commit: async () => undefined, markdown: async () => roomBody.value })
     return () => null
   } },
@@ -28,7 +36,7 @@ vi.mock("../src/console/runtime/client/live", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/live")>(),
   useConsoleLiveDocument: () => ({
     document: shallowRef({}),
-    fields: shallowRef({ title: "Shared" }),
+    fields: (room.fields = shallowRef<Record<string, unknown> | undefined>()),
     focus: () => undefined,
     issues: ref([]),
     readOnlyReason: ref(null),
@@ -94,7 +102,15 @@ const wrappers: Array<{ unmount(): void }> = []
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
   sessionStorage.clear()
+  roomSave.mockClear()
+  route.current.query = {}
 })
+
+function chooseLocal(wrapper: ReturnType<typeof shallowMount>): void {
+  const menu = wrapper.findAllComponents(UDropdownMenu).find(item => JSON.stringify(item.props("items")).includes("Local only"))!
+  const items = (menu.props("items") as Array<Array<{ label: string, onUpdateChecked?: () => void }>>).flat()
+  items.find(item => item.label === "Local only")!.onUpdateChecked!()
+}
 
 describe("Local only from a live room", () => {
   it("keeps the body typed after the room took its save", async () => {
@@ -105,10 +121,11 @@ describe("Local only from a live room", () => {
     })
     wrappers.push(wrapper)
     await flushPromises()
+    // The room syncs its fields after it joins.
+    room.fields!.value = { title: "Shared" }
+    await flushPromises()
     roomBody.value = "Saved by the room, and typed after the save"
-    const menu = wrapper.findAllComponents(UDropdownMenu).find(item => JSON.stringify(item.props("items")).includes("Local only"))!
-    const items = (menu.props("items") as Array<Array<{ label: string, onUpdateChecked?: () => void }>>).flat()
-    items.find(item => item.label === "Local only")!.onUpdateChecked!()
+    chooseLocal(wrapper)
     await flushPromises()
 
     expect(roomSave).toHaveBeenCalledOnce()
@@ -119,5 +136,99 @@ describe("Local only from a live room", () => {
     expect(stored?.start.body).toBe(shared.body)
     expect(stored?.version.body).toBe(roomBody.value)
     expect(wrapper.text()).toContain("Local edits · not saved")
+  })
+
+  it("keeps fields and body typed while the room save is pending as local edits", async () => {
+    // The server accepted the version the room saved: title Shared and the saved body.
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)), save: vi.fn() }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection, documentId: "hello", setup: { live: { definition: "content" } } },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    // The room syncs its fields after it joins.
+    room.fields!.value = { title: "Shared" }
+    await flushPromises()
+    let finishSave!: (digest: string) => void
+    roomSave.mockImplementationOnce(() => new Promise(resolve => (finishSave = resolve)))
+    roomBody.value = shared.body
+    chooseLocal(wrapper)
+    await flushPromises()
+    // The room save is pending. The title changes in the room, and the body changes in the editor.
+    room.fields!.value = { title: "Typed during the save" }
+    roomBody.value = "Saved by the room, then typed during the save"
+    await flushPromises()
+    finishSave("room-1")
+    await flushPromises()
+
+    const stored = readConsoleLocalDraft(sessionStorage, "posts", "hello")
+    expect(stored?.base).toBe("room-1")
+    expect(stored?.start).toEqual({ body: shared.body, data: shared.data })
+    expect(stored?.version).toEqual({ body: roomBody.value, data: { title: "Typed during the save" } })
+    expect(wrapper.text()).toContain("Local edits · not saved")
+    const apply = wrapper.findAll("button").find(button => button.attributes("data-label") === "Apply to shared draft")!
+    expect(apply.attributes("disabled")).toBeUndefined()
+    // Nothing was published or saved from this tab.
+    expect(client.save).not.toHaveBeenCalled()
+  })
+
+  it("starts unchanged when nothing was typed during the room save", async () => {
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)) }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection, documentId: "hello", setup: { live: { definition: "content" } } },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    // The room syncs its fields after it joins.
+    room.fields!.value = { title: "Shared" }
+    await flushPromises()
+    // The room editor writes the body without the trailing newline of the stored file.
+    roomBody.value = shared.body
+    chooseLocal(wrapper)
+    await flushPromises()
+    expect(wrapper.text()).toContain("Local only")
+    expect(wrapper.text()).not.toContain("Local edits · not saved")
+  })
+
+  it("shows the room body on screen when the preview opens again, after typing while it was closed", async () => {
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => ({ ...structuredClone(shared), url: "/blog/hello" })) }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection, documentId: "hello", setup: { live: { definition: "content" } } },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    // The room syncs its fields after it joins.
+    room.fields!.value = { title: "Shared" }
+    await flushPromises()
+    const editor = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const previewBody = () => (wrapper.findComponent({ name: "ConsoleDocumentPreview" }).props("document") as { body?: string }).body
+    const typed = async (body: string) => {
+      roomBody.value = body
+      editor.vm.$emit("change")
+      await new Promise(resolve => setTimeout(resolve, 300))
+      await flushPromises()
+    }
+
+    roomBody.value = "Typed before the preview opened"
+    route.current.query = { preview: null }
+    await flushPromises()
+    expect(previewBody()).toBe("Typed before the preview opened")
+    await typed("Typed with the preview open")
+    expect(previewBody()).toBe("Typed with the preview open")
+
+    route.current.query = {}
+    await flushPromises()
+    expect(wrapper.findComponent({ name: "ConsoleDocumentPreview" }).exists()).toBe(false)
+    // Typing here and another person's edit in the room both change the body while the preview is closed.
+    await typed("Typed while the preview was closed")
+    roomBody.value = "Typed while the preview was closed, then edited by Ben"
+    route.current.query = { preview: null }
+    await flushPromises()
+    expect(previewBody()).toBe("Typed while the preview was closed, then edited by Ben")
+    // Nothing was saved or published to show it.
+    expect(roomSave).not.toHaveBeenCalled()
   })
 })
