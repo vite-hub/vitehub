@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
-import { describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 
-import { createCommentsClient, type CommentThread, type CommentUser } from "../src/operations-core/client.ts"
-import { createMemoryTransport } from "../src/operations-core/testing.ts"
+import { createCommentsClient, type CommentThread, type CommentUser } from "../src/client.ts"
+import { createMemoryTransport } from "../src/testing.ts"
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
 
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" }
 const ben: CommentUser = { id: "ben", name: "Ben Soto" }
@@ -15,7 +21,40 @@ function setup() {
   return { client, store }
 }
 
+afterEach(() => vi.restoreAllMocks())
+
 describe("createCommentsClient", () => {
+  it.each(["mine", "mentions"] as const)("keeps transport-owned %s membership authoritative", async filter => {
+    const store = createMemoryTransport({ user: ana });
+    const included = await store.create({ subject, anchor, body: "Included", mentions: [ana.id] });
+    const excluded = await store.as(ben).create({ subject, anchor, body: "Excluded" });
+    const client = createCommentsClient({ transport: store });
+    await client.refresh();
+    expect(client.threads).toHaveLength(2);
+    client.query = { [filter]: true };
+    expect(client.threads).toEqual([]);
+    await client.refresh();
+    expect(client.threads.map(item => item.id)).toEqual([included.id]);
+    await client.reply({ threadId: excluded.id, body: "Still excluded" });
+    expect(client.threads.map(item => item.id)).not.toContain(excluded.id);
+    await client.refresh();
+    expect(client.threads.map(item => item.id)).toEqual([included.id]);
+  });
+
+  it("copies message arrays on create and reply", async () => {
+    const store = createMemoryTransport({ user: ana });
+    const mentions = [ben.id];
+    const attachments = ["attachment"];
+    const first = await store.create({ subject, anchor, body: "First", mentions, attachments });
+    await store.reply({ threadId: first.id, body: "Reply", mentions, attachments });
+    mentions.push("unexpected");
+    attachments.length = 0;
+    for (const message of store.threads[0]!.messages) {
+      expect(message.mentions).toEqual([ben.id]);
+      expect(message.attachments).toEqual(["attachment"]);
+    }
+  });
+
   it("numbers threads, keeps them in the cache, and tells listeners", async () => {
     const { client } = setup()
     const changes = vi.fn()
@@ -154,33 +193,9 @@ describe("createCommentsClient", () => {
   })
 
   describe("races", () => {
-    it.each(["reply", "edit"] as const)("keeps the newest same-millisecond %s when responses arrive in reverse order", async (action) => {
-      const store = createMemoryTransport({ user: ana, now: () => 1 })
-      const thread = await store.create({ subject, anchor, body: "First" })
-      const pending: Array<() => void> = []
-      const delay = (snapshot: CommentThread) => new Promise<CommentThread>(resolve => pending.push(() => resolve(snapshot)))
-      const transport = {
-        ...store,
-        reply: (input: Parameters<typeof store.reply>[0]) => store.reply(input).then(delay),
-        edit: (input: Parameters<typeof store.edit>[0]) => store.edit(input).then(delay),
-      }
-      const client = createCommentsClient({ transport })
-      const mutate = (body: string) => action === "reply"
-        ? client.reply({ threadId: thread.id, body })
-        : client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body })
-      const older = mutate("Second")
-      const newer = mutate("Third")
-      await vi.waitFor(() => expect(pending).toHaveLength(2))
-      pending[1]!()
-      await newer
-      pending[0]!()
-      await older
-      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(action === "reply" ? ["First", "Second", "Third"] : ["Third"])
-    })
-
     // A transport whose list answers when the test says so, with what the server knew when it was asked.
     function slowList() {
-      const store = createMemoryTransport({ user: ana, now: () => 1 })
+      const store = createMemoryTransport({ user: ana })
       const pending: Array<{ answer: () => void }> = []
       const transport = {
         ...store,
@@ -223,20 +238,18 @@ describe("createCommentsClient", () => {
       expect(client.threads).toEqual([])
     })
 
-    it("keeps the locally changed thread when the list has an equal timestamp", async () => {
+    it("keeps the local thread when the list holds an older copy", async () => {
       const { pending, store, transport } = slowList()
       const thread = await store.create({ subject, anchor, body: "First" })
-      const reply = transport.reply
-      transport.reply = async input => ({ ...await reply(input), updatedAt: thread.updatedAt })
       const client = createCommentsClient({ transport })
       const loading = client.refresh()
       await vi.waitFor(() => expect(pending).toHaveLength(1))
 
       // The list was cut before the reply, and the reply comes back after it.
+      await new Promise(resolve => setTimeout(resolve, 5))
       await client.reply({ threadId: thread.id, body: "Second" })
       pending[0]!.answer()
       await loading
-      expect(client.threads[0]!.updatedAt).toBe(thread.updatedAt)
       expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second"])
     })
 
@@ -269,6 +282,94 @@ describe("createCommentsClient", () => {
       stop()
     })
 
+    it.each(["reply", "edit"] as const)("orders same-millisecond %s mutations when the first response is delayed", async action => {
+      const store = createMemoryTransport({ user: ana, now: () => 1000 })
+      const gate = deferred<void>()
+      const firstApplied = deferred<void>()
+      const delay = async (result: CommentThread, body: string) => {
+        if (body === "Second") {
+          firstApplied.resolve()
+          await gate.promise
+        }
+        return { ...result, updatedAt: 1000 }
+      }
+      const client = createCommentsClient({ transport: {
+        ...store,
+        subscribe: undefined,
+        reply: async input => delay(await store.reply(input), input.body),
+        edit: async input => delay(await store.edit(input), input.body),
+      } })
+      const thread = await client.create({ subject, anchor, body: "First" })
+      const mutate = (body: string) => action === "reply"
+        ? client.reply({ threadId: thread.id, body })
+        : client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body })
+      const first = mutate("Second")
+      await firstApplied.promise
+      const second = mutate("Third")
+      await new Promise(resolve => setTimeout(resolve, 0))
+      gate.resolve()
+      await Promise.all([first, second])
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(action === "reply" ? ["First", "Second", "Third"] : ["Third"])
+    })
+
+    it("continues after a failed mutation without blocking other threads", async () => {
+      const store = createMemoryTransport({ user: ana })
+      const gate = deferred<void>()
+      const reply = vi.fn(async (input: Parameters<typeof store.reply>[0]) => {
+        if (input.body === "Fail") {
+          await gate.promise
+          throw new Error("Offline")
+        }
+        return store.reply(input)
+      })
+      const client = createCommentsClient({ transport: { ...store, reply, subscribe: undefined } })
+      const first = await client.create({ subject, anchor, body: "First" })
+      const other = await client.create({ subject, anchor, body: "Other" })
+      const failing = client.reply({ threadId: first.id, body: "Fail" }).catch(error => error)
+      const queued = client.reply({ threadId: first.id, body: "Retry" })
+      await client.reply({ threadId: other.id, body: "Independent" })
+      expect(reply.mock.calls.map(([input]) => input.body)).toEqual(["Fail", "Independent"])
+      gate.resolve()
+      expect(await failing).toEqual(new Error("Offline"))
+      await queued
+      expect(client.threads.find(thread => thread.id === first.id)?.messages.map(message => message.body)).toEqual(["First", "Retry"])
+    })
+
+    it("keeps a local reply when a pending list has the same timestamp", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000)
+      const { pending, transport } = slowList()
+      const client = createCommentsClient({ transport })
+      const thread = await client.create({ subject, anchor, body: "First" })
+      const loading = client.refresh()
+      await vi.waitFor(() => expect(pending).toHaveLength(1))
+      await client.reply({ threadId: thread.id, body: "Second" })
+      pending[0]!.answer()
+      await loading
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second"])
+    })
+
+    it("reconciles equal-timestamp events without rolling back a local reply", async () => {
+      vi.spyOn(Date, "now").mockReturnValue(1000)
+      const store = createMemoryTransport({ user: ana })
+      const old = await store.create({ subject, anchor, body: "First" })
+      const listeners: Array<(event: { type: "thread", thread: CommentThread }) => void> = []
+      const client = createCommentsClient({ transport: {
+        ...store,
+        subscribe: listener => { listeners.push(listener); return () => undefined },
+      } })
+      const stop = client.start()
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      await client.reply({ threadId: old.id, body: "Second" })
+      listeners[0]!({ type: "thread", thread: old })
+      expect(client.threads[0]!.messages).toHaveLength(2)
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(client.threads[0]!.messages).toHaveLength(2)
+      const remote = await store.as(ben).reply({ threadId: old.id, body: "Third" })
+      listeners[0]!({ type: "thread", thread: remote })
+      await vi.waitFor(() => expect(client.threads[0]!.messages).toHaveLength(3))
+      stop()
+    })
+
     it("lists again once after the transport reconnects", async () => {
       const store = createMemoryTransport({ user: ana })
       const list = vi.spyOn(store, "list")
@@ -286,6 +387,96 @@ describe("createCommentsClient", () => {
   })
 })
 
+describe("query reconciliation", () => {
+  it.each(["mine", "mentions"] as const)("preserves listed %s membership when mutation reconciliation fails", async filter => {
+    const store = createMemoryTransport({ user: ana })
+    const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query: { [filter]: true } })
+    await client.refresh()
+    expect(client.threads.map(item => item.id)).toEqual([thread.id])
+
+    const failure = new Error("offline")
+    for (const mutate of [client.resolve, client.reopen]) {
+      const pending = deferred<CommentThread[]>()
+      store.list = () => pending.promise.then(() => { throw failure })
+      const updated = await mutate({ threadId: thread.id })
+      const whilePending = [...client.threads]
+      pending.resolve([])
+      await vi.waitFor(() => expect(client.status).toBe("error"))
+      expect(client.error).toBe(failure)
+      expect(whilePending).toEqual([updated])
+      expect(client.threads).toEqual([updated])
+    }
+  })
+
+  it("removes listed mention membership after successful mutation reconciliation", async () => {
+    const store = createMemoryTransport({ user: ana })
+    const thread = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query: { mentions: true } })
+    await client.refresh()
+    const list = store.list
+    const pending = deferred<CommentThread[]>()
+    store.list = () => pending.promise
+
+    const edited = await client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body: "Here", mentions: [] })
+    expect(client.threads).toEqual([edited])
+    pending.resolve(await list(client.query))
+    await vi.waitFor(() => expect(client.status).toBe("ready"))
+    expect(client.threads).toEqual([])
+  })
+
+  it.each([{ mine: true }, { mentions: true }])("uses transport membership for %j without a client user", async query => {
+    const store = createMemoryTransport({ user: ana })
+    const matching = await store.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+    const client = createCommentsClient({ transport: store, query })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const list = deferred<CommentThread[]>()
+      store.list = () => list.promise
+      await store.as(ben).create({ subject, anchor, body: "Someone else's comment" })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+      list.resolve([matching])
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+    } finally {
+      stop()
+    }
+  })
+
+  it.each([
+    { page: "/pricing" },
+    { subject },
+    { status: "open" as const },
+    { mine: true },
+    { mentions: true },
+  ])("keeps pushed and local changes within %j", async query => {
+    let now = 1_000
+    const store = createMemoryTransport({ user: ana, now: () => ++now })
+    const client = createCommentsClient({ transport: store, user: ana, query })
+    const stop = client.start()
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"))
+      const other = store.as(ben)
+      const elsewhere = await other.create({ subject: { kind: "page", id: "/about" }, anchor, body: "Elsewhere" })
+      await other.resolve({ threadId: elsewhere.id })
+      await client.refresh()
+      await other.reply({ threadId: elsewhere.id, body: "Still elsewhere" })
+      expect(client.threads).toEqual([])
+      const matching = await client.create({ subject, anchor, body: "Here @Ana", mentions: [ana.id] })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+      await client.resolve({ threadId: matching.id })
+      await client.edit({ threadId: matching.id, messageId: matching.messages[0]!.id, body: "Here", mentions: [] })
+      expect(client.threads.map(thread => thread.id)).toEqual(query.status || query.mentions ? [] : [matching.id])
+      await client.reopen({ threadId: matching.id })
+      await client.edit({ threadId: matching.id, messageId: matching.messages[0]!.id, body: "Here @Ana", mentions: [ana.id] })
+      expect(client.threads.map(thread => thread.id)).toEqual([matching.id])
+    } finally {
+      stop()
+    }
+  })
+})
+
 it("loads every page before marking the cache ready", async () => {
   const store = createMemoryTransport({ user: ana })
   const sample = await store.create({ subject, anchor, body: "First" })
@@ -298,6 +489,59 @@ it("loads every page before marking the cache ready", async () => {
   await client.refresh()
   expect(client.status).toBe("ready")
   expect(client.threads).toHaveLength(201)
-  expect(list).toHaveBeenCalledTimes(2)
+  expect(list).toHaveBeenCalledTimes(4)
   expect(list.mock.calls[1]?.[0]).toMatchObject({ before: { id: "thread-199", updatedAt: 2 }, page: subject.id })
+})
+
+it.each(["reply below", "reply above", "delete above", "resolve above"] as const)("reconciles a %s the cursor between refresh pages", async mutation => {
+  const sample = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+  const seeded = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 1_000 + i }))
+  const store = createMemoryTransport({ user: ana, threads: seeded, now: () => 10_000 })
+  const target = mutation === "reply below" ? seeded[0]! : seeded.at(-1)!
+  let pendingMutation = false
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    if (query.before && pendingMutation) {
+      pendingMutation = false
+      if (mutation === "delete above") await store.delete({ threadId: target.id })
+      else if (mutation === "resolve above") await store.resolve({ threadId: target.id })
+      else await store.reply({ threadId: target.id, body: "Changed between pages" })
+    }
+    return store.list(query)
+  })
+  // The RPC transport cannot push the intervening change into the cache.
+  const { subscribe: _subscribe, ...pull } = store
+  const client = createCommentsClient({ transport: { ...pull, list }, query: { page: subject.id, status: "open" } })
+  await client.refresh()
+  pendingMutation = true
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.threads).toEqual((await store.list({ page: subject.id, status: "open", limit: 500 })).sort((a, b) => a.n - b.n))
+})
+
+it("bounds refresh retries and preserves the cache while pages keep changing", async () => {
+  const sample = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+  const seeded = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 1_000 + i }))
+  const store = createMemoryTransport({ user: ana, threads: seeded, now: () => 10_000 })
+  let changing = false
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    if (query.before && changing) {
+      const oldest = (await store.list({ limit: 500 })).at(-1)!
+      await store.reply({ threadId: oldest.id, body: "Changed between pages" })
+    }
+    return store.list(query)
+  })
+  const client = createCommentsClient({ transport: { ...store, list } })
+  await client.refresh()
+  const previous = client.threads
+  list.mockClear()
+  changing = true
+  await expect(client.refresh()).rejects.toMatchObject({ code: "COMMENTS_R0015" })
+  expect(client.status).toBe("error")
+  expect(client.threads).toBe(previous)
+  expect(list).toHaveBeenCalledTimes(6)
+  changing = false
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.error).toBeUndefined()
+  expect(client.threads).toEqual(store.threads.sort((a, b) => a.n - b.n))
 })

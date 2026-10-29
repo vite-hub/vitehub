@@ -96,6 +96,19 @@ describe("public package export contracts", () => {
     expect(adapter?.optionalRuntimePeers).toEqual(["@vite-hub/kv"])
   })
 
+  it("classifies the Logs Evlog boundary for isolated consumers", () => {
+    for (const [specifier, declarations, runtime] of [
+      ["vite-hub/logs", ["evlog"], ["evlog"]],
+      ["vite-hub/logs/memory", ["evlog"], []],
+      ["vite-hub/logs/source", [], []],
+      ["vite-hub/logs/host", [], []],
+    ] as const) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
+      expect(contract?.optionalDeclarationPeers, specifier).toEqual(declarations)
+      expect(contract?.optionalRuntimePeers, specifier).toEqual(runtime)
+    }
+  })
+
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
     const lazyPeerExports = new Map<string, string>([
       ["@vite-hub/agent", "@vite-hub/workflow"],

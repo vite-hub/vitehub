@@ -14,6 +14,7 @@ import { createQueueProvisionStep } from "./provision.ts"
 import type { DiscoveredQueueDefinition, QueueModuleOptions } from "./types.ts"
 import type { ViteHubCliContributor } from "@vite-hub/internal/cli"
 import type { ViteHubInspectionContributor } from "@vite-hub/internal/inspect"
+import type { OperationContributionEntry } from "@vite-hub/internal/operations"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import { queueErrorDiagnostics } from "./error-diagnostics.ts"
 
@@ -24,6 +25,7 @@ interface QueueProvisionContributingPlugin {
   vitehub?: {
     cli?: () => Promise<ViteHubCliContributor>
     inspect?: () => ViteHubInspectionContributor | undefined
+    operations?: readonly OperationContributionEntry[]
     queue?: {
       createNitroConfig: (options: QueueNitroConfigOptions) => Promise<Record<string, unknown>>
     }
@@ -229,6 +231,8 @@ export function hubQueue(options?: QueueModuleOptions, internalOptions: QueueVit
   return {
     name: "@vite-hub/queue/vite",
     vitehub: {
+      // The Console, `vitehub queue`, and agents run these. The app imports them through `vite-hub`.
+      operations: [{ export: "queueOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).queueOperations, module: "@vite-hub/queue/operations" }],
       inspect: () => {
         const provider = normalizeQueueOptions(queue, { hosting })?.provider
         if (!provider) return

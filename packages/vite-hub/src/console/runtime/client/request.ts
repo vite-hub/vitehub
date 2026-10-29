@@ -151,6 +151,7 @@ const consoleRoutes: Record<string, ConsoleRoute> = {
   "sections": { operation: "sections.list" },
   "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
   "status": { operation: "status.get", strings: ["agent"] },
+  "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
   "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
 }
 
@@ -215,7 +216,13 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     if (call.method === "POST") return { input: body, operation: "kv.get" }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
-  if (route === "schedule-run") return { input: body, operation: "schedules.run" }
+  if (route === "workflow") {
+    // A POST names its operation: start a run, read it, cancel it, or resume a signal.
+    const { action, ...input } = body
+    if (action !== "start" && action !== "get" && action !== "cancel" && action !== "resume") throw new ConsoleRequestError(400, "Unsupported Workflow action.")
+    return { input, operation: `workflow.${action}` }
+  }
+  if (route === "schedule-run") return { input: body, operation: "schedule.run" }
   const known = Object.hasOwn(consoleRoutes, route) ? consoleRoutes[route] : undefined
   if (!known) throw new ConsoleRequestError(404, "Console operation not found.")
   return { input: inputFromQuery(known, call.query), operation: known.operation }

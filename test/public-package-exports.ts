@@ -72,6 +72,8 @@ const optionalPeerUsage = new Map<string, Readonly<Record<string, OptionalPeerUs
   ["vite-hub/agent/eval", { "evalite": "both", "vitest": "both" }],
   ["vite-hub/doctor", { "vite-doctor": "both" }],
   ["vite-hub/browser/controllers/playwright", { "playwright-core": "declaration" }],
+  ["vite-hub/logs", { "evlog": "both" }],
+  ["vite-hub/logs/memory", { "evlog": "declaration" }],
   ["vite-hub/nuxt", { "vite": "both" }],
   ["vite-hub/source/client", { "vue": "both" }],
   ["vite-hub/content", { "comark-content": "both" }],

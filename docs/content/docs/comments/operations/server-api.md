@@ -45,6 +45,8 @@ const client = createCommentsClient({ transport: createRpcTransport({ base: '/po
 
 `createRpcTransport({ base?, fetch? })` implements `CommentsTransport` over `POST /_vitehub/rpc/__call` with the session cookie. It has no `subscribe`, so the client refreshes when the window gets focus. A failure throws `CommentsRpcError` with `code`, `message`, `fix`, and `status`.
 
+Without an explicit `limit`, the client loads every page. For a multi-page refresh, it requires two matching scans before replacing its cache, so a thread updated across a cursor is included with its current contents. After three scans without agreement, refresh fails with `COMMENTS_R0015` and keeps the previous cache. An explicit `limit` makes a single request.
+
 ## From the CLI
 
 ```bash [Terminal]

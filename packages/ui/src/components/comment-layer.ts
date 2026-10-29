@@ -116,7 +116,8 @@ export const CommentLayer = defineComponent({
           const pins = layer.value?.querySelectorAll<HTMLElement>("[data-slot='comment-pin']") ?? [];
           // Giving the focus back must not open the hover preview of the pin.
           restoring = true;
-          [...pins].find((pin) => pin.getAttribute("data-thread-id") === target)?.focus();
+          const pin = [...pins].find((pin) => pin.getAttribute("data-thread-id") === target);
+          (pin ?? layer.value?.querySelector<HTMLElement>("[data-slot='comment-toolbar-mode']"))?.focus();
           restoring = false;
         });
       },
@@ -130,6 +131,7 @@ export const CommentLayer = defineComponent({
     // The thread tracks each action itself: it clears a box only after the handler succeeded, and shows a failure.
     const threadView = (thread: CommentThreadModel) =>
       h(CommentThread, {
+        key: thread.id,
         detached: state.positions.value.get(thread.id)?.detached === true,
         readOnly: props.readOnly,
         onClose: () => state.close(),
@@ -178,23 +180,26 @@ export const CommentLayer = defineComponent({
                 onSelect: () => (open ? state.close() : state.open(thread)),
                 status: thread.status,
               }),
-              open
-                ? h("div", { "data-slot": "comment-layer-popover" }, threadView(thread))
-                : hover
-                  ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, thread }))
-                  : null,
+              hover
+                ? h("div", { "data-preview": "true", "data-slot": "comment-layer-popover" }, h(CommentThread, { preview: true, thread }))
+                : null,
             ],
           ),
         ];
       });
 
-      // An open thread without a pin on the page, such as a detached one, shows in a corner.
+      // Keep one thread instance while its anchor moves between pinned and floating positions.
       const opened = state.opened.value;
       const openedPosition = opened && state.positions.value.get(opened.id);
-      const floating =
-        opened && (!openedPosition || openedPosition.detached || openedPosition.clipped || opened.anchor.kind === "page")
-          ? h("div", { "data-floating": "true", "data-slot": "comment-layer-popover" }, threadView(opened))
-          : null;
+      const pointForThread = openedPosition && !openedPosition.detached && !openedPosition.clipped && opened?.anchor.kind !== "page" ? openedPosition : undefined;
+      const openThread = opened
+        ? h("div", {
+            ...(pointForThread ? side(pointForThread.x, pointForThread.y) : {}),
+            "data-slot": "comment-layer-item",
+            key: "opened-thread",
+            style: pointForThread ? { left: `${pointForThread.x}px`, top: `${pointForThread.y}px` } : undefined,
+          }, h("div", { "data-floating": pointForThread ? undefined : "true", "data-slot": "comment-layer-popover" }, threadView(opened)))
+        : null;
 
       const draft = state.draft.value;
       const draftPosition = draft && state.positions.value.get(draftPositionKey);
@@ -250,7 +255,7 @@ export const CommentLayer = defineComponent({
             : null,
           ...items,
           composing,
-          floating,
+          openThread,
           slots.default?.({ comments: state }) ?? [
             h(CommentToolbar, { comments: state, people: props.people }),
             state.listOpen.value ? h(CommentList, { comments: state, navigate: props.navigate }) : null,

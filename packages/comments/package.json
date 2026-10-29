@@ -130,16 +130,16 @@
     "h3": "catalog:unjs"
   },
   "devDependencies": {
-    "@libsql/client": "catalog:database",
     "@types/node": "catalog:tooling",
-    "@vite-hub/database": "workspace:*",
     "@vite-hub/internal": "workspace:*",
     "happy-dom": "21.0.3",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
-    "vite": "catalog:vite",
     "vite-plus": "catalog:tooling",
-    "vitest": "catalog:tooling"
+    "vitest": "catalog:tooling",
+    "@libsql/client": "catalog:database",
+    "@vite-hub/database": "workspace:*",
+    "vite": "catalog:vite"
   },
   "peerDependencies": {
     "@vite-hub/database": "workspace:*",

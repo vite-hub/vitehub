@@ -46,7 +46,7 @@ export const reportOperations = [
 | `kind` | `read` never changes state. `write` changes state. `destructive` deletes or publishes. |
 | `input` | A Standard Schema. Valibot is the schema library of this repository. Its JSON Schema makes the CLI options and the tool input. |
 | `output` | Optional. A Standard Schema of the result. |
-| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists the input keys that you pass without a flag. `format` prints a human result; without it the CLI prints JSON. |
+| `cli` | Optional. `namespace` and `command` rename the command. `positional` lists the input keys that you pass without a flag. `default: true` makes `vitehub <namespace>` run the command when no command is named, as `vitehub usage` does; `vitehub usage get` also works. `format` prints a human result; without it the CLI prints JSON. |
 | `maxRequestBytes` | Optional. Raises the 64 KiB request limit for large inputs. A value below 64 KiB fails with `INTERNAL_R0020`. |
 | `readOnlyWhen` | Optional. `(input) => boolean`. Returns true for a call that only reads, such as a dry run of a `destructive` operation. The CLI then skips the confirmation and an agent runs it without approval. Without it, every call of a `destructive` operation asks. |
 | `user` | Optional. `false` tells the Console that `run` never reads `context.user`, so it skips the session lookup. |
@@ -66,6 +66,10 @@ interface OperationContext {
   overrideLeases?: boolean // an Agent may pass `lease: "override"` to `content.save`
 }
 ```
+
+An operation that sets `invoke: true` runs code of the app: `workflow.start`, `workflow.resume`, `queue.send`, `task.run`, and `schedule.run`. The Console registers it only when `console.invoke` is on, which is the default in development and off in a production build. Without `invoke`, the operation does not exist for the Console RPC, the CLI with `--url`, agent tools, and MCP, whatever `console.authorize` grants. `task.run` is `destructive`, so the CLI asks for `--yes` and agents need approval. `cli.dispatch` names a route that takes a signed dispatch of the operation, so `schedule run --url` can run with a dispatch key and no Console credentials.
+
+The generated commands call the Console RPC, so an app needs `vitehub()` for them. A project that adds a package plugin such as `hubWorkflow()` directly has the operations in the plugin but no commands.
 
 `console.authorize` grants a section as `'kv'` (every operation) or `'kv:read'` (only `kind: 'read'` operations and calls that `readOnlyWhen` marks as read only). The check runs once, in the shared access path, so the Console RPC, the CLI with `--url`, agent tools, and MCP agree. An operation that serves both reads and writes under one name, such as `documents.action`, sets `readOnlyWhen` so a read-only role keeps its reads.
 
@@ -164,4 +168,6 @@ Duplicate operation names fail every build, also when the app has no `console` o
 
 ## Built-in operations
 
-`vite-hub` owns the operations of the Console sections: `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `blob.list`, `kv.list`, `kv.get`, `databases.browse`, `definitions.list`, `env.get`, `schedules.run`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, and `media.action`. The [Content](/docs/content/cli) package contributes `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, and `content.sitemap`.
+`vite-hub` owns the operations of the Console sections: `agents.list`, `agents.invoke`, `invocations.list`, `invocations.get`, `invocations.cancel`, `invocations.delete`, `invocations.workspace`, `invocations.capabilities`, `blob.list`, `kv.list`, `kv.get`, `databases.browse`, `databases.tables`, `definitions.list`, `env.get`, `search.query`, `sections.list`, `status.get`, `usage.get`, `documents.action`, and `media.action`. `databases.browse` and `databases.tables` run as `vitehub db rows` and `vitehub db tables`. The task plugin contributes `task.list` and `task.run` in the `tasks` section when the app has tasks; that section has no Console page, and `console.authorize` grants it by name. The [Queue](/docs/queue) package contributes `queue.list` and `queue.send` in the Queues section. There is no peek, because the provider-independent Queue contract cannot read a backlog. The [Content](/docs/content/cli) package contributes `content.collections`, `content.list`, `content.resolve`, `content.show`, `content.status`, `content.diff`, `content.revisions`, `content.save`, `content.publish`, `content.schedule`, `content.unschedule`, `content.schedules`, and `content.sitemap`. The [Workflow](/docs/workflows) package contributes `workflow.start`, `workflow.get`, `workflow.cancel`, and `workflow.resume` in the Workflows section. The [Schedule](/docs/schedule) package contributes `schedule.runs`, `schedule.attempts`, and `schedule.run` in the Schedules section.
+
+The [Workspace](/docs/workspace) package contributes `workspace.history`, `workspace.refs`, and `workspace.show` in the Workspaces section. They read the retained history of a Workspace and run as `vitehub workspace history`, `refs`, and `show`.

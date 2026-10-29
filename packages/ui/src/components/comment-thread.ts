@@ -71,9 +71,18 @@ export const CommentReply = defineComponent({
       editing.value = true;
     }
     async function save(submit: CommentComposerSubmit) {
-      if (await run(() => props.onEdit?.(props.message.id, submit.body, submit.mentions))) editing.value = false;
+      if (!props.onEdit) return;
+      const submitted = draft.value;
+      const submittedMentions = mentions.value;
+      // An unchanged edit cannot remove a mention whose name was not supplied in `people`.
+      const savedMentions = submit.body === props.message.body
+        ? [...new Set([...props.message.mentions, ...submit.mentions])]
+        : submit.mentions;
+      if (await run(() => props.onEdit?.(props.message.id, submit.body, savedMentions))
+        && draft.value === submitted && mentions.value === submittedMentions) editing.value = false;
     }
     async function remove() {
+      if (!props.onDelete) return;
       if (await run(() => props.onDelete?.(props.message.id))) confirming.value = false;
     }
 
@@ -124,15 +133,15 @@ export const CommentReply = defineComponent({
           ]),
           props.editable && !editing.value && !confirming.value && !props.compact
             ? h("div", { "data-slot": "comment-reply-actions" }, [
-                h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }),
-                h(UButton, {
+                props.onEdit ? h(UButton, { "aria-label": "Edit", color: "neutral", icon: "i-ph-pencil-simple-light", onClick: startEdit, size: "xs", variant: "ghost" }) : null,
+                props.onDelete ? h(UButton, {
                   "aria-label": "Delete",
                   color: "neutral",
                   icon: "i-ph-trash-light",
                   onClick: () => (props.confirmDelete ? (confirming.value = true) : void remove()),
                   size: "xs",
                   variant: "ghost",
-                }),
+                }) : null,
               ])
             : null,
         ],
@@ -202,13 +211,17 @@ export const CommentThread = defineComponent({
     });
 
     async function send(submit: CommentComposerSubmit) {
-      if (sending.value) return;
+      if (sending.value || !props.onReply) return;
       sending.value = true;
       failure.value = undefined;
+      const submitted = reply.value;
+      const submittedMentions = mentions.value;
       try {
-        await props.onReply?.(submit.body, [...submit.mentions]);
-        reply.value = "";
-        mentions.value = [];
+        await props.onReply(submit.body, [...submit.mentions]);
+        if (reply.value === submitted && mentions.value === submittedMentions) {
+          reply.value = "";
+          mentions.value = [];
+        }
         void nextTick(() => composer.value?.focus());
       } catch (cause) {
         failure.value = reason(cause);
@@ -218,12 +231,18 @@ export const CommentThread = defineComponent({
     }
     // Resolve and Reopen show their failure too.
     async function act(task: (() => Done) | undefined) {
+      if (root.value && shakeDirtyComposers(root.value)) return;
       failure.value = undefined;
       try {
         await task?.();
       } catch (cause) {
         failure.value = reason(cause);
       }
+    }
+
+    function close() {
+      if (root.value && shakeDirtyComposers(root.value)) return;
+      emit("close");
     }
 
     return () => {
@@ -253,7 +272,7 @@ export const CommentThread = defineComponent({
               size: "xs",
               variant: "ghost",
             }),
-            h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: () => emit("close"), size: "xs", variant: "ghost" }),
+            h(UButton, { "aria-label": "Close", color: "neutral", icon: "i-ph-x-light", onClick: close, size: "xs", variant: "ghost" }),
           ]),
           h("div", { "data-slot": "comment-thread-messages" }, [
             quote ? h("blockquote", { "data-slot": "comment-thread-quote" }, quote) : null,
@@ -285,6 +304,7 @@ export const CommentThread = defineComponent({
             guard: false,
             mentions: mentions.value,
             modelValue: reply.value,
+            onCancel: close,
             onSubmit: send,
             "onUpdate:mentions": (value: string[]) => (mentions.value = value),
             "onUpdate:modelValue": (value: string) => (reply.value = value),

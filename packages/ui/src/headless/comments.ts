@@ -114,7 +114,8 @@ export interface CommentsState {
   /** Sends the draft. Resolves with the new thread, or `undefined` when there is nothing to send or the send failed. */
   send: () => Promise<CommentThread | undefined>;
   open: (thread: CommentThread | string, options?: { scroll?: boolean }) => void;
-  close: () => void;
+  /** Closes the thread, returning false when unsent text prevents closing or navigation. */
+  close: () => boolean;
   reply: (threadId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   edit: (threadId: string, messageId: string, body: string, mentions?: string[]) => Promise<CommentThread>;
   remove: (threadId: string, messageId?: string) => Promise<CommentThread | null>;
@@ -155,7 +156,7 @@ function sameSubject(a: CommentSubject, b: CommentSubject): boolean {
 function samePosition(a: AnchorPosition | undefined, b: AnchorPosition | undefined): boolean {
   if (!a || !b) return a === b;
   if (a.detached || b.detached) return a.detached === b.detached;
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
+  return a.element === b.element && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.clipped === b.clipped;
 }
 
 const editableSelector = "input, textarea, select, [contenteditable]:not([contenteditable='false']), [role='textbox'], [role='combobox'], [role='searchbox']";
@@ -174,7 +175,15 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   const subject = computed(() => toValue(options.subject));
   const user = computed(() => toValue(options.user) ?? client.user);
   const active = ref(false);
-  const scope = ref<CommentScope>("page");
+  const scopeValue = ref<CommentScope>("page");
+  const scope = computed({
+    get: () => scopeValue.value,
+    set: (value: CommentScope) => {
+      if (value === scopeValue.value) return;
+      if (hasText()) return block();
+      scopeValue.value = value;
+    },
+  });
   const filters = reactive<CommentFilterState>({ open: true, resolved: false, mine: false });
   const status = ref<CommentsClientStatus>(client.status);
   const threads = shallowRef<readonly CommentThread[]>(client.threads);
@@ -240,9 +249,14 @@ export function useComments(options: UseCommentsOptions): CommentsState {
   function cancelDraft(): void {
     draft.value = null;
   }
-  function close(): void {
+  function close(): boolean {
+    if (hasText()) {
+      block();
+      return false;
+    }
     openId.value = null;
     hoverId.value = null;
+    return true;
   }
   function exit(): void {
     if (hasText()) return block();
@@ -277,6 +291,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const current = draft.value;
     const body = current?.body.trim() ?? "";
     if (!current || current.busy || !body) return undefined;
+    const submittedBody = current.body;
+    const mentions = [...current.mentions];
     current.busy = true;
     current.error = undefined;
     try {
@@ -284,9 +300,10 @@ export function useComments(options: UseCommentsOptions): CommentsState {
         subject: subject.value,
         anchor: toRaw(current.anchor),
         body,
-        mentions: [...current.mentions],
+        mentions,
       });
-      if (draft.value === current) draft.value = null;
+      current.busy = false;
+      if (draft.value === current && current.body === submittedBody && current.mentions.length === mentions.length && current.mentions.every((id, index) => id === mentions[index])) draft.value = null;
       return thread;
     } catch (error) {
       current.busy = false;
@@ -331,7 +348,7 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     const base = options.subjectUrl?.(thread.subject) ?? (thread.subject.kind === "page" ? thread.subject.id : location.href);
     const url = new URL(base, location.origin);
     url.searchParams.set(param, String(thread.n));
-    // Normalizing dot segments can turn an app path into a protocol-relative URL when reparsed.
+    // URL normalization can produce a pathname that reparses as a protocol-relative link.
     const pathname = url.pathname.startsWith("//") ? `/%2F${url.pathname.slice(2)}` : url.pathname;
     return `${pathname}${url.search}${url.hash}`;
   }
@@ -413,12 +430,19 @@ export function useComments(options: UseCommentsOptions): CommentsState {
       if (records.every(record => record.target instanceof Element && defaultIgnore(record.target))) return;
       schedule();
     });
-    observer.observe(root(), {
+    const observeOptions = {
       attributes: true,
       characterData: true,
       childList: true,
       subtree: true,
-    });
+    };
+    stops.push(watch(root, value => {
+      observer.disconnect();
+      observer.observe(document.documentElement, observeOptions);
+      // Shadow mutations do not cross the host. Keep watching the outer layout as well.
+      if (value !== document) observer.observe(value, observeOptions);
+      schedule();
+    }, { immediate: true, flush: "post" }));
     // A box that resizes without a DOM change, such as one that follows its container, moves its pins.
     const resizes = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(schedule);
     const watched = new Set<Element>();
@@ -461,7 +485,8 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     stops.push(watch(() => `${subject.value.kind}\u0000${subject.value.id}\u0000${scope.value}`, () => {
       client.query = scope.value === "page" ? { subject: subject.value } : {};
       cancelDraft();
-      close();
+      openId.value = null;
+      hoverId.value = null;
       deepLinked = false;
       client.refresh().catch(() => undefined);
     }));
@@ -499,7 +524,14 @@ export function useComments(options: UseCommentsOptions): CommentsState {
     close,
     reply: (threadId, body, mentions) => client.reply({ threadId, body, mentions }),
     edit: (threadId, messageId, body, mentions) => client.edit({ threadId, messageId, body, mentions }),
-    remove: (threadId, messageId) => client.delete({ threadId, messageId }),
+    remove: async (threadId, messageId) => {
+      const next = await client.delete({ threadId, messageId });
+      if (!next && openId.value === threadId) {
+        openId.value = null;
+        hoverId.value = null;
+      }
+      return next;
+    },
     resolve: threadId => client.resolve({ threadId }),
     reopen: threadId => client.reopen({ threadId }),
     users: query => client.users({ query }),

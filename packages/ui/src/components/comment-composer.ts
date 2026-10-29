@@ -83,6 +83,7 @@ export const CommentComposer = defineComponent({
     const optionId = (index: number) => `${menuId}-option-${index}`;
     let timer: ReturnType<typeof setTimeout> | undefined;
     let lookup = 0;
+    let mentionCaret: number | undefined;
 
     const nameOf = (id: string): string | undefined => {
       const person = props.people.find((entry) => entry.id === id);
@@ -141,7 +142,16 @@ export const CommentComposer = defineComponent({
       } else emit("cancel");
     });
 
+    function checkSelection() {
+      const field = textarea();
+      if (!field || (field.selectionStart === mentionCaret && field.selectionEnd === mentionCaret)) return;
+      lookup++;
+      mentionCaret = undefined;
+      menu.value = null;
+    }
+
     function choose(person: CommentUser) {
+      checkSelection();
       const field = textarea();
       const current = menu.value;
       if (!field || !current) return;
@@ -165,6 +175,7 @@ export const CommentComposer = defineComponent({
 
     async function findPeople(field: HTMLTextAreaElement) {
       const run = ++lookup;
+      mentionCaret = field.selectionStart;
       const search = props.users;
       const before = field.value.slice(0, field.selectionStart);
       const match = /(^|\s)@([^\s@]*)$/.exec(before);
@@ -174,6 +185,7 @@ export const CommentComposer = defineComponent({
       }
       const start = before.length - match[2]!.length - 1;
       const items = await search(match[2]!).catch(() => []);
+      checkSelection();
       if (run !== lookup) return;
       const sameToken = field.selectionStart === field.selectionEnd && field.value.slice(0, field.selectionStart) === before;
       menu.value = sameToken && items.length > 0 ? { before, index: 0, items, start } : null;
@@ -186,7 +198,7 @@ export const CommentComposer = defineComponent({
         const name = nameOf(id);
         if (name === undefined) return false;
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return new RegExp(`(^|\\s)@${escaped}(?=$|[\\s.,;:!?)])`, "i").test(payload.text);
+        return new RegExp(`(^|[^\\p{L}\\p{N}\\p{M}_])@${escaped}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "iu").test(payload.text);
       });
       emit("submit", { body: payload.text, mentions: [...mentions] } satisfies CommentComposerSubmit);
     }
@@ -226,6 +238,9 @@ export const CommentComposer = defineComponent({
           "data-variant": props.variant,
           // Capture, so the mention menu and Esc see the key before the prompt does.
           onKeydownCapture: keydown,
+          onKeyupCapture: checkSelection,
+          onClickCapture: checkSelection,
+          onSelectCapture: checkSelection,
           onInputCapture: (event: Event) => {
             if (event.target instanceof HTMLTextAreaElement) void findPeople(event.target);
           },
