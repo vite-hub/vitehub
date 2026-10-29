@@ -714,6 +714,7 @@ function deploymentPlugins(
             const cloudflare = cloneRecord(nitro.cloudflare)
             const wrangler = cloneRecord(cloudflare.wrangler)
             if (typeof wrangler.name !== "string") wrangler.name = cloudflareResourceScope(name)
+            if (options.logs && wrangler.observability === undefined) wrangler.observability = { enabled: true }
             if (options.realtime) {
               const durableObjects = cloneRecord(wrangler.durable_objects)
               const bindings = Array.isArray(durableObjects.bindings) ? durableObjects.bindings : []
