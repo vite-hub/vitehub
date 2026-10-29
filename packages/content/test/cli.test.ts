@@ -566,10 +566,18 @@ describe("vitehub content", { timeout: 30_000 }, () => {
     ] as const) {
       expect(await runOperation(registry, operation, input, context)).toMatchObject({ ok: false, code: "CONTENT_FORBIDDEN", status: 403 })
     }
-    // Without the override, the error names the person and does not tell the model how to override.
-    const held = await runOperation(registry, "content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest }, context)
-    expect(held).toMatchObject({ ok: false, code: "CONTENT_LEASE_HELD", status: 409, message: "Ana is editing Content document \"posts/hello\". Nothing was saved.", details: { holder: { user: { name: "Ana" } } } })
-    expect(JSON.stringify(held)).not.toContain("override")
+    // Ordinary writes always tell the model to wait, even when the developer permits explicit overrides.
+    for (const overrideLeases of [false, true]) {
+      for (const [operation, input] of [
+        ["content.save", { collection: "posts", id: "hello", text, ifDigest: saved.digest }],
+        ["content.remove", { collection: "posts", id: "hello", ifDigest: saved.digest }],
+        ["content.restore", { collection: "posts", id: "hello", revision: first!.id }],
+      ] as const) {
+        const held = await runOperation(registry, operation, input, { ...context, overrideLeases })
+        expect(held).toMatchObject({ ok: false, code: "CONTENT_LEASE_HELD", status: 409, message: "Ana is editing Content document \"posts/hello\". Nothing was saved.", details: { holder: { user: { name: "Ana" } } } })
+        expect(JSON.stringify(held)).not.toContain("override")
+      }
+    }
     expect(await posts.get("hello", { ref: "draft" })).toMatchObject({ data: { title: "Hello" } })
 
     // The developer may allow it.

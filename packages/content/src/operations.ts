@@ -175,7 +175,7 @@ async function write<T>(context: OperationContext, work: () => Promise<T>): Prom
     return await attempt(work)
   }
   catch (error) {
-    if (!modelSurface(context) || context.overrideLeases || errorCode(error) !== "CONTENT_LEASE_HELD") throw error
+    if (!modelSurface(context) || errorCode(error) !== "CONTENT_LEASE_HELD") throw error
     const details: unknown = Reflect.get(Object(error), "details")
     const holder: unknown = Reflect.get(Object(details), "holder")
     const user: unknown = Reflect.get(Object(holder), "user")
