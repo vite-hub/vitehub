@@ -47,12 +47,17 @@ function hunks(base: string[], side: string[]): Hunk[] {
     }
   }
   if (open) found.push(open)
+  return found
+}
+
+function atomicHunks(base: string[], found: Hunk[], sharedInsertions: ReadonlySet<Hunk>): Hunk[] {
   // Repeated whitespace can split a replacement into a deletion and an insertion. Keep that pair atomic, without
-  // joining independent replacements (one of which the other side may have made identically).
+  // joining independent replacements or an insertion that both sides made identically.
   const atomic: Hunk[] = []
   for (const hunk of found) {
     const previous = atomic.at(-1)
-    if (previous && base.slice(previous.end, hunk.start).every(token => !/\S/.test(token))
+    if (previous && !sharedInsertions.has(previous) && !sharedInsertions.has(hunk)
+      && base.slice(previous.end, hunk.start).every(token => !/\S/.test(token))
       && ((previous.sideStart === previous.sideEnd && hunk.start === hunk.end)
         || (previous.start === previous.end && hunk.sideStart === hunk.sideEnd))) {
       previous.end = hunk.end
@@ -89,7 +94,19 @@ function mergeBody(base: string, ours: string, theirs: string): string | undefin
   ] as const
   sides[0].hunks.push(...hunks(baseTokens, sides[0].tokens))
   sides[1].hunks.push(...hunks(baseTokens, sides[1].tokens))
-  const all = [...sides[0].hunks.map(hunk => ({ hunk, side: 0 as const })), ...sides[1].hunks.map(hunk => ({ hunk, side: 1 as const }))]
+  // A shared insertion must stay separate from a nearby one-sided deletion. Shared deletions still belong to
+  // replacement pairs, so a deletion against a replacement keeps conflicting.
+  const sharedInsertions = new Set<Hunk>()
+  for (const left of sides[0].hunks) {
+    if (left.start !== left.end) continue
+    const right = sides[1].hunks.find(right => right.start === left.start && right.end === left.end
+      && sides[0].tokens.slice(left.sideStart, left.sideEnd).join("") === sides[1].tokens.slice(right.sideStart, right.sideEnd).join(""))
+    if (right) {
+      sharedInsertions.add(left)
+      sharedInsertions.add(right)
+    }
+  }
+  const all = [...atomicHunks(baseTokens, sides[0].hunks, sharedInsertions).map(hunk => ({ hunk, side: 0 as const })), ...atomicHunks(baseTokens, sides[1].hunks, sharedInsertions).map(hunk => ({ hunk, side: 1 as const }))]
     .sort((left, right) => left.hunk.start - right.hunk.start || left.hunk.end - right.hunk.end)
   let merged = ""
   let at = 0
@@ -114,7 +131,14 @@ function mergeBody(base: string, ours: string, theirs: string): string | undefin
 }
 
 function same(left: unknown, right: unknown): boolean {
-  return JSON.stringify(left) === JSON.stringify(right)
+  if (Object.is(left, right)) return true
+  if (left === null || right === null || typeof left !== "object" || typeof right !== "object") return false
+  if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length && left.every((value, index) => same(value, right[index]))
+  if (Array.isArray(right)) return false
+  const l = left as Record<string, unknown>
+  const r = right as Record<string, unknown>
+  const keys = Object.keys(l)
+  return keys.length === Object.keys(r).length && keys.every(key => Object.hasOwn(r, key) && same(l[key], r[key]))
 }
 
 /** Merge fields one by one. A field that both sides set to different values is a conflict. */
@@ -161,5 +185,7 @@ export function mergeContentDocument(base: string, ours: string, theirs: string,
   const head = same(fields.fields, o.frontmatter)
     ? frontmatterBlock(ours, o.body)
     : same(fields.fields, t.frontmatter) ? frontmatterBlock(theirs, t.body) : undefined
-  return { text: head === undefined ? renderDocumentFile(fields.fields, body!, format) : head + body! }
+  if (head === undefined) return { text: renderDocumentFile(fields.fields, body!, format) }
+  const separator = head && body && !head.endsWith("\n") ? (head.includes("\r\n") ? "\r\n" : "\n") : ""
+  return { text: head + separator + body! }
 }

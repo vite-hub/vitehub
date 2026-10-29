@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 
+import { parseDocumentFile } from "../src/documents.ts"
 import { mergeContentDocument } from "../src/merge.ts"
 
 const base = `---
@@ -68,6 +69,12 @@ describe("mergeContentDocument", () => {
     expect(mergeContentDocument("a b c", "x y c", "x b z", "markdown")).toEqual({ text: "x y z" })
   })
 
+  it.each([false, true])("takes a shared insertion alongside a one-sided deletion (reversed: %s)", (reversed) => {
+    const ours = reversed ? "b\na" : "b\n"
+    const theirs = reversed ? "b\n" : "b\na"
+    expect(mergeContentDocument("\na", ours, theirs, "markdown")).toEqual({ text: "b\n" })
+  })
+
   it("merges fields one by one and names a field that both changed", () => {
     const ours = base.replace("title: Wedding weekend", "title: Our wedding weekend")
     const theirs = base.replace("date: 2026-12-12", "date: 2026-12-13")
@@ -86,10 +93,29 @@ describe("mergeContentDocument", () => {
     })
   })
 
+  it.each(["\n", "\r\n"])("separates frontmatter ending at EOF from a new body (%j)", (newline) => {
+    const original = ["---", "title: Original", "---"].join(newline)
+    const ours = original.replace("Original", "'Draft' # keep this comment")
+    const theirs = `${original}${newline}Hello`
+    const result = mergeContentDocument(original, ours, theirs, "markdown")
+    expect(result).toEqual({ text: `${ours}${newline}Hello` })
+    if ("text" in result) expect(parseDocumentFile(result.text)).toEqual({ frontmatter: { title: "Draft" }, body: "Hello" })
+    expect(mergeContentDocument(original, theirs, ours, "markdown")).toEqual(result)
+  })
+
   it("merges data files by field", () => {
     const json = (value: object) => `${JSON.stringify(value, null, 2)}\n`
     expect(mergeContentDocument(json({ a: 1, b: 1 }), json({ a: 2, b: 1 }), json({ a: 1, b: 2 }), "json")).toEqual({ text: json({ a: 2, b: 2 }) })
     expect(mergeContentDocument(json({ a: 1 }), json({ a: 2 }), json({ a: 3 }), "json")).toEqual({ conflicts: [{ field: "a" }] })
+  })
+
+  it.each(["json", "yaml"] as const)("ignores nested mapping order but keeps array order in %s fields", (format) => {
+    // JSON flow mappings are also valid YAML; preserve the chosen side's original bytes.
+    const original = '{"nested":{"values":[{"a":1,"b":2,"c":3}]}}'
+    const ours = '{"nested":{"values":[{"b":2,"a":1,"c":3}]}}'
+    const theirs = '{"nested":{"values":[{"a":1,"c":3,"b":2}]}}'
+    expect(mergeContentDocument(original, ours, theirs, format)).toEqual({ text: ours })
+    expect(mergeContentDocument('{"values":[1,2,3]}', '{"values":[2,1,3]}', '{"values":[1,3,2]}', format)).toEqual({ conflicts: [{ field: "values" }] })
   })
 
   it.each(["json", "yaml"] as const)("preserves an own __proto__ field in a %s merge", (format) => {
