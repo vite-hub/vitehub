@@ -4,13 +4,19 @@
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
+    "agent-harness",
     "ai",
+    "ai-agents",
+    "ai-sdk",
     "cloudflare",
+    "coding-agent",
+    "llm",
+    "typescript",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -146,6 +152,12 @@
       "import": "./dist/observability/posthog.js",
       "require": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./output": {
       "types": "./dist/output.d.ts",

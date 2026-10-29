@@ -10,6 +10,7 @@ import * as v from "valibot"
 
 import { forgetGitHubToken, rememberGitHubToken } from "../forge/tokens.ts"
 import { commentsRoute } from "../page.ts"
+import { requestOf } from "./request.ts"
 
 import type { H3Event } from "h3"
 import type { CommentsGitHubAccess, CommentsUser } from "../types.ts"
@@ -76,11 +77,11 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
   const instances = new Map<string, BetterAuth>()
   const access = new Map<string, CommentsGitHubAccess & { until: number }>()
 
-  function auth(event: H3Event): BetterAuth {
+  function auth(event: H3Event, request: Request): BetterAuth {
     const clientId = serverEnv(githubLoginEnv.clientId)!
     const clientSecret = serverEnv(githubLoginEnv.clientSecret)!
     const secret = sessionSecret()
-    const origin = forwardedRequestOrigin(event.req)
+    const origin = forwardedRequestOrigin(request)
     const key = [origin, clientId, clientSecret, secret].join("\0")
     let instance = instances.get(key)
     if (!instance) {
@@ -101,7 +102,7 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         // The app's own Auth may use Better Auth's default cookie names.
         advanced: { cookiePrefix: "vitehub_comments" },
       }))
-      instance = createAuthForRequest(definition, event.req, undefined, event)
+      instance = createAuthForRequest(definition, request, undefined, event)
       if (instances.size > 20) instances.clear()
       instances.set(key, instance)
     }
@@ -141,12 +142,13 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
     configured,
     async user(event) {
       if (!configured()) return null
-      const instance = auth(event)
-      const session = await instance.api.getSession({ headers: event.req.headers })
+      const request = requestOf(event)
+      const instance = auth(event, request)
+      const session = await instance.api.getSession({ headers: request.headers })
       const user: unknown = session?.user
       if (!user || typeof user !== "object" || !("id" in user) || typeof user.id !== "string") return null
       // The GitHub token is in the account cookie of the session. Without it, Comments cannot check the repository.
-      const accessToken = await instance.api.getAccessToken({ body: { useAccountCookie: true }, headers: event.req.headers })
+      const accessToken = await instance.api.getAccessToken({ body: { useAccountCookie: true }, headers: request.headers })
         .then(tokens => tokens.accessToken, () => undefined)
       if (!accessToken) return null
       const githubAccess = await accessOf(user.id, accessToken)
@@ -158,11 +160,12 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
       if (!configured()) {
         return Response.json({ error: { code: "COMMENTS_SIGN_IN_OFF", why: "This site has no GitHub sign-in for Comments.", fix: `Set ${githubLoginEnv.clientId} and ${githubLoginEnv.clientSecret} on the server.` } }, { status: 404 })
       }
-      const instance = auth(event)
-      const url = new URL(event.req.url)
+      const request = requestOf(event)
+      const instance = auth(event, request)
+      const url = new URL(request.url)
       // Starts the GitHub sign-in, then comes back to the page with comment mode on.
-      if (path === "/auth/github" && event.req.method === "GET") {
-        const response = await instance.api.signInSocial({ body: { provider: "github", callbackURL: safeReturn(url.searchParams.get("return")), disableRedirect: true }, headers: event.req.headers, asResponse: true })
+      if (path === "/auth/github" && request.method === "GET") {
+        const response = await instance.api.signInSocial({ body: { provider: "github", callbackURL: safeReturn(url.searchParams.get("return")), disableRedirect: true }, headers: request.headers, asResponse: true })
         const body: unknown = await response.json().catch(() => undefined)
         const target = body && typeof body === "object" && "url" in body && typeof body.url === "string" ? body.url : undefined
         if (!target) return Response.json({ error: { code: "COMMENTS_SIGN_IN_FAILED", why: "GitHub sign-in could not start." } }, { status: 502 })
@@ -171,10 +174,10 @@ export function createCommentsGitHubLogin(options: { repository?: string, apiUrl
         return new Response(null, { status: 302, headers })
       }
       if (path === "/auth/sign-out") {
-        const session = await instance.api.getSession({ headers: event.req.headers }).catch(() => null)
+        const session = await instance.api.getSession({ headers: request.headers }).catch(() => null)
         if (session?.user.id) forgetGitHubToken(session.user.id)
       }
-      return await instance.handler(event.req)
+      return await instance.handler(request)
     },
   }
 }

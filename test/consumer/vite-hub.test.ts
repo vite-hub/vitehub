@@ -136,11 +136,32 @@ async function withDevServer<T>(command: string, args: string[], cwd: string, re
     return { logs: () => logs, value: await callback(`http://127.0.0.1:${port}`) }
   }
   finally {
-    if (child.exitCode === null) {
-      // The package manager starts the server in a child process, so stop the whole group.
-      process.kill(-child.pid!, "SIGTERM")
-      await once(child, "exit")
-    }
+    // The package manager starts the server in a child process, so stop the whole group.
+    await stopProcessGroup(child.pid!)
+  }
+}
+
+/**
+ * Stops a process group and waits until all of it is gone. The package manager exits as soon as it gets the signal, but
+ * the server can still write files while it stops. A caller that removes the app after the package manager exits then
+ * fails with `ENOTEMPTY`.
+ */
+async function stopProcessGroup(pid: number) {
+  signalProcessGroup(pid, "SIGTERM")
+  for (let attempt = 0; attempt < 150 && signalProcessGroup(pid, 0); attempt++) {
+    if (attempt === 100) signalProcessGroup(pid, "SIGKILL")
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+}
+
+/** Sends `signal` to a process group. Returns false when no process of the group is left. */
+function signalProcessGroup(pid: number, signal: NodeJS.Signals | 0) {
+  try {
+    process.kill(-pid, signal)
+    return true
+  }
+  catch {
+    return false
   }
 }
 
@@ -986,7 +1007,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
         const page = await fetch(`${origin}/_vitehub`)
         const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
-          body: JSON.stringify({ method: "vitehub:console:sections" }),
+          body: JSON.stringify({ operation: "sections.list", input: {} }),
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
           method: "POST",
         })

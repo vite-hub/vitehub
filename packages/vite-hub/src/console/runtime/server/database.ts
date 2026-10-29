@@ -1,5 +1,8 @@
 import { resolve } from "node:path"
 
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
+
+import { databaseMcpTools } from "./database-mcp.ts"
 import { installConsoleDatabaseScope, resolveConsoleDatabase } from "../../internal.ts"
 
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
@@ -11,6 +14,7 @@ export function installConsoleDatabase(
   databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>,
   names: readonly string[],
 ): ConsoleDatabaseInspection {
+  registerViteHubMcpTools("console-database", databaseMcpTools())
   const installedNames = [...new Set(names.filter(name => name.length > 0))]
     .filter(name => Object.hasOwn(databases, name))
     .sort((left, right) => left === "default" ? -1 : right === "default" ? 1 : left.localeCompare(right))

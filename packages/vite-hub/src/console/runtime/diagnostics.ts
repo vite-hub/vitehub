@@ -14,6 +14,8 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_CONNECTIONS_MANAGEMENT_UNAVAILABLE"
   | "CONSOLE_DEVELOPMENT_ONLY"
   | "CONSOLE_ENV_MANAGEMENT_UNAVAILABLE"
+  | "CONSOLE_IMPERSONATING"
+  | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_NOT_FOUND"
   | "CONSOLE_ORIGIN_REJECTED"
@@ -64,6 +66,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       `${consoleGuide}#how-each-mode-checks-a-request`,
       "docs",
     ),
+    CONSOLE_IMPERSONATING: code(
+      "This browser uses an impersonation session. The Console does not run as an impersonated user.",
+      "Stop impersonating to get your own session back, then open the Console again.",
+      `${consoleGuide}#impersonate-users`,
+      "docs",
+    ),
     CONSOLE_MANAGER_REQUIRED: code(
       "The Console accepted this request, but the session has no user id. Management actions record the user who made them.",
       "Sign out and sign in again. If this continues, make sure the Auth Definition that protects the Console returns a session user with an id.",
@@ -91,6 +99,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
     CONSOLE_ORIGIN_REJECTED: code(
       "The request did not come from the Console origin.",
       "Open the Console from its own URL. A proxy must forward the public Host and Origin headers.",
+      `${consoleGuide}#protect-the-console-route`,
+      "docs",
+    ),
+    CONSOLE_LOOPBACK_ONLY: code(
+      "The development Console without sign-in accepts only requests from this machine.",
+      "Open the Console from localhost, or set console.auth to \"app\" or a Console Auth config so the Console checks who calls it.",
       `${consoleGuide}#protect-the-console-route`,
       "docs",
     ),
@@ -151,6 +165,12 @@ const consoleDiagnosticCodes = new Set<string>(Object.keys(consoleDiagnostics))
 
 export function isConsoleDiagnosticCode(value: unknown): value is ConsoleDiagnosticCode {
   return typeof value === "string" && consoleDiagnosticCodes.has(value)
+}
+
+/** Whether a Console rejection is `CONSOLE_IMPERSONATING`. The body is read from a clone. */
+export async function isConsoleImpersonationRejection(response: Response): Promise<boolean> {
+  const body: unknown = await response.clone().json().catch(() => undefined)
+  return body !== null && typeof body === "object" && Reflect.get(body, "code") === "CONSOLE_IMPERSONATING"
 }
 
 /** The Console code for an HTTP status when the failure site has no more specific code. */

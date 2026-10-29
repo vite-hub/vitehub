@@ -6,10 +6,12 @@
     "env",
     "environment-variables",
     "runtime-config",
+    "secrets",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -131,6 +133,7 @@
     "test": "vp run -t @vite-hub/env#build && vp test"
   },
   "dependencies": {
+    "@env-spec/parser": "0.6.2",
     "@vite-hub/runtime": "workspace:*",
     "nostics": "catalog:runtime",
     "valibot": "catalog:runtime"

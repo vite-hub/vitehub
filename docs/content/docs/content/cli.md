@@ -1,12 +1,12 @@
 ---
 title: Content CLI
-description: List, read, edit, publish, and schedule Content documents from the terminal, with field issues, edit leases, and pinned digests.
+description: List, read, edit, delete, restore, publish, and schedule Content documents from the terminal, with field issues, edit leases, and pinned digests.
 navigation.title: CLI
 navigation.order: 13
 icon: i-lucide-terminal-square
 ---
 
-`vitehub content` reads, edits, publishes, and schedules the [document collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's Vite Development Server, then run the commands from another terminal. They call the app's `server/content.ts` inside the Nitro dev environment, so they read and write the same Workspace Store as the app.
+`vitehub content` reads, edits, deletes, restores, publishes, and schedules the [document collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's Vite Development Server, then run the commands from another terminal. Each command runs a `content.*` [operation](/docs/development/operations) of the app. The operation uses the app's `server/content.ts`, so it reads and writes the same Workspace Store as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -19,7 +19,7 @@ pnpm vitehub content publish --collection posts --id hello
 pnpm vitehub content schedule --collection posts --id hello --at 2026-10-20T09:00:00+02:00
 ```
 
-The namespace appears when the app has a Content file. The commands work only against a local Vite + Nitro Development Server. They do not reach a deployed app, and Nuxt and plain Vite hosts are not supported. To publish on a deployed stage, call [`content.publish()`](/docs/content/server-api#publish) from a route you protect with `content.can()`.
+The namespace appears when the app has a Content file. Without `--url`, the commands call the running dev server. With `--url https://app.example.com`, they call a deployed app that enables the [Console](/docs/development/console). Set the credentials in `VITEHUB_CONSOLE_AUTHORIZATION`, `VITEHUB_CONSOLE_COOKIE`, or `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`.
 
 ## Commands
 
@@ -32,6 +32,8 @@ The namespace appears when the app has a Content file. The commands work only ag
 | `vitehub content diff <collection> [id]` | Print a unified diff of one document from `published` to `draft`, frontmatter included. |
 | `vitehub content revisions <collection> [id]` | List the revisions that saved, removed, restored, or published one document, newest first. |
 | `vitehub content edit <collection> [id]` | Edit the draft of one document in your editor, or save it from a file. |
+| `vitehub content rm <collection> [id]` | Delete one document from the draft. The next publish deletes it from the site. |
+| `vitehub content restore <collection> [id] --revision <id>` | Save the version of one document from an earlier revision as its draft. |
 | `vitehub content publish` | Publish the listed draft documents in one revision, exactly as listed. |
 | `vitehub content schedule --at <time>` | Publish the listed draft documents at a later time, exactly as listed. |
 | `vitehub content scheduled [collection] [id]` | List pending, overdue, and failed schedules. |
@@ -40,7 +42,7 @@ The namespace appears when the app has a Content file. The commands work only ag
 
 Omit the id for a [singleton](/docs/content/configure#singletons-and-data-files): `vitehub content edit settings` edits `settings.json`.
 
-Every command accepts `--json`, `--url <url>` when Vite does not listen on `http://localhost:5173` (or set `VITEHUB_DEV_SERVER_URL`), and `--timeout <ms>`. Errors go to stderr, or into `{ "error": { "code", "message", "details"? } }` on stdout with `--json`. Failed commands exit with status 1.
+Every command accepts `--json`, `--url <url>`, and `--timeout <ms>`. Without `--url`, the command calls the dev server of this project, found through `.vitehub/dev-server.json` or `VITEHUB_DEV_SERVER_URL` (see [Run any operation](/docs/development/cli#run-any-operation)). Errors go to stderr, or into `{ "error": { "code", "message", "details"? } }` on stdout with `--json`. Failed commands exit with status 1.
 
 ## List and show
 
@@ -94,10 +96,22 @@ The draft has 1 field issue. Publishing refuses it until they are fixed:
 
 ```txt [Output]
 Nothing was saved. Ana holds the edit lease since 2026-10-15T09:12:03.000Z on posts/hello.
-Wait until they finish, or pass --override-lease to save anyway.
+Wait until they finish, or pass --override-lease to write anyway.
 ```
 
-With `--json`, the error is `CONTENT_LEASE_HELD` with `details.holder`. `--override-lease` saves with `lease: 'override'`.
+With `--json`, the error is `CONTENT_LEASE_HELD` with `details.holder`. `--override-lease` saves with `lease: 'override'`. `rm` and `restore` honour leases in the same way.
+
+## Delete and restore
+
+```bash [Terminal]
+pnpm vitehub content rm posts hello
+pnpm vitehub content revisions posts hello
+pnpm vitehub content restore posts hello --revision 01JB8Z7Q4M3T5V2X9K6N8P1R0S
+```
+
+`rm` reads the draft, asks `Delete? [y/N]`, and deletes the draft pinned to the digest that it read. If someone saves the document between the read and the delete, nothing is deleted. Pass `--yes` to skip the prompt; without a terminal, `rm` needs `--yes`. The document stays on the site until you publish: `status` shows it as `deleted`, and `publish` lists it as a `delete`.
+
+`restore` saves the version from `--revision` as the draft and publishes nothing. It also brings back a deleted draft. Like `edit`, it fails when the draft changed after the command read it. Take revision ids from `vitehub content revisions`, or from `--ref published` for a published version.
 
 ## Status
 
@@ -172,7 +186,7 @@ Fix them with `vitehub content edit <collection> <id>`, then run the command aga
 
 With `--json`, the error is `CONTENT_INVALID` and `details.documents` lists `{ collection, id, path, issues }`.
 
-The CLI does not call `authorize`: anyone who can reach the local Development Server can publish, as with the [trusted runtime methods](/docs/content/server-api#collections). Publishing does not check edit leases, because it does not change drafts.
+The operations call `content.can()` with the signed-in Console user, like the Console editor does. The one exception is `vite dev` without Console sign-in (`local` access, or `console: { auth: false }`): there the CLI has no user, so it skips the policy, as it did before. That trust applies only to a development server, which serves only loopback requests (`localhost`, `127.0.0.1`, `[::1]`). A deployed app always applies `authorize`. Publishing does not check edit leases, because it does not change drafts.
 
 ## Schedule
 
@@ -203,6 +217,6 @@ pnpm vitehub content sitemap --xml --site https://example.com
 
 ## How it reaches storage
 
-`vitehub content` follows the same path as the other runtime commands. The Content Vite plugin registers a guarded endpoint on the Development Server, and in `vite dev` adds a dev-only Nitro route that imports `server/content.ts`. The endpoint forwards each command into the Nitro dev environment, which owns the Workspace Store and its bindings. Production builds do not contain the route.
+`vitehub content` sends `{ operation, input }` to `/_vitehub/rpc/__call`, the same route the Console uses. The app plugin `@vite-hub/content` contributes the operations in `@vite-hub/content/operations`. The Console editor, the CLI, and agents run the same code. See [Operations](/docs/development/operations).
 
 `vitehub inspect definitions --kind content` lists the Content file without starting a server.

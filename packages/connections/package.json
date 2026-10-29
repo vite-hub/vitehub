@@ -3,14 +3,16 @@
   "version": "0.0.4",
   "description": "Provider OAuth and API key connections with typed, governed, and audited calls for ViteHub.",
   "keywords": [
-    "connections",
-    "oauth",
     "api-key",
+    "connections",
     "gmail",
+    "oauth",
+    "oauth2",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -44,6 +46,12 @@
       "import": "./dist/agent.js",
       "require": "./dist/agent.js",
       "default": "./dist/agent.js"
+    },
+    "./chatgpt": {
+      "types": "./dist/chatgpt.d.ts",
+      "import": "./dist/chatgpt.js",
+      "require": "./dist/chatgpt.js",
+      "default": "./dist/chatgpt.js"
     },
     "./google": {
       "types": "./dist/google.d.ts",
@@ -81,6 +89,7 @@
   "dependencies": {
     "@vite-hub/env": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "jose": "catalog:auth",
     "nostics": "catalog:runtime",
     "pathe": "catalog:unjs",
     "valibot": "catalog:runtime"

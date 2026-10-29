@@ -141,14 +141,14 @@ describe("vitehub agent invocations wait-idle", () => {
   it("reads the Console once per poll for a deployed --url", async () => {
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      methods.push(JSON.parse(String(init?.body)).method)
+      methods.push(JSON.parse(String(init?.body)).operation)
       return Response.json({ ok: true, value: { invocations: [summary("a", "completed"), summary("b", "running")] } })
     })
     // SAFETY: The mock implements the fetch call shape that the CLI uses.
     const result = await waitIdle(["--url", "https://agent.example.com", "--timeout", "1s", "--json"], fetch as unknown as typeof globalThis.fetch)
 
     expect(result.exitCode).toBe(1)
-    expect(methods).toEqual(["vitehub:console:invocations", "vitehub:console:invocations"])
+    expect(methods).toEqual(["invocations.list", "invocations.list"])
     expect(result.stdout.trim().split("\n").map(line => JSON.parse(line))).toEqual([
       { active: [summary("b", "running")], event: "invocations.waiting" },
       { active: [summary("b", "running")], event: "invocations.timeout" },

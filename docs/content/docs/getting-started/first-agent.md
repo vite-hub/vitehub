@@ -159,3 +159,10 @@ Continue with [Build a chat app](/docs/agents/build-a-chat-app) for a complete
 chat UI with streaming, an offline Driver, and an optional model Driver. Read
 [Capabilities](/docs/agents/capabilities) when the Agent needs a tool or
 access to stored data.
+
+## Related guides
+
+Use [Deploy an Agent on Cloudflare and Vercel](/docs/guides/deploy-agent-cloudflare-vercel)
+to check the same inline Agent on two hosts. Read
+[Choose a TypeScript Agent framework](/docs/guides/typescript-agent-frameworks)
+to compare execution and state models before expanding the app.

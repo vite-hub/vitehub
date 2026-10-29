@@ -4,11 +4,21 @@
   "description": "The cohesive ViteHub framework distribution for Vite applications and agents.",
   "keywords": [
     "agent",
+    "agent-harness",
+    "ai-agents",
+    "cloudflare",
+    "netlify",
+    "nitro",
+    "nuxt",
+    "nuxt-module",
     "server",
+    "serverless",
+    "typescript",
+    "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -62,6 +72,12 @@
       "import": "./dist/_internal/agent/eve.js",
       "require": "./dist/_internal/agent/eve.js",
       "default": "./dist/_internal/agent/eve.js"
+    },
+    "./_internal/agent/operations": {
+      "types": "./dist/_internal/agent/operations.d.ts",
+      "import": "./dist/_internal/agent/operations.js",
+      "require": "./dist/_internal/agent/operations.js",
+      "default": "./dist/_internal/agent/operations.js"
     },
     "./_internal/agent/runtime/invocations-dev": {
       "types": "./dist/_internal/agent/runtime/invocations-dev.d.ts",
@@ -123,17 +139,29 @@
       "require": "./dist/_internal/blob.js",
       "default": "./dist/_internal/blob.js"
     },
-    "./_internal/blob/runtime/dev": {
-      "types": "./dist/_internal/blob/runtime/dev.d.ts",
-      "import": "./dist/_internal/blob/runtime/dev.js",
-      "require": "./dist/_internal/blob/runtime/dev.js",
-      "default": "./dist/_internal/blob/runtime/dev.js"
+    "./_internal/blob/operations": {
+      "types": "./dist/_internal/blob/operations.d.ts",
+      "import": "./dist/_internal/blob/operations.js",
+      "require": "./dist/_internal/blob/operations.js",
+      "default": "./dist/_internal/blob/operations.js"
     },
     "./_internal/blob/runtime/state": {
       "types": "./dist/_internal/blob/runtime/state.d.ts",
       "import": "./dist/_internal/blob/runtime/state.js",
       "require": "./dist/_internal/blob/runtime/state.js",
       "default": "./dist/_internal/blob/runtime/state.js"
+    },
+    "./_internal/comments/operations": {
+      "types": "./dist/_internal/comments/operations.d.ts",
+      "import": "./dist/_internal/comments/operations.js",
+      "require": "./dist/_internal/comments/operations.js",
+      "default": "./dist/_internal/comments/operations.js"
+    },
+    "./_internal/content/operations": {
+      "types": "./dist/_internal/content/operations.d.ts",
+      "import": "./dist/_internal/content/operations.js",
+      "require": "./dist/_internal/content/operations.js",
+      "default": "./dist/_internal/content/operations.js"
     },
     "./_internal/comments/runtime/console": {
       "types": "./dist/_internal/comments/runtime/console.d.ts",
@@ -147,17 +175,17 @@
       "require": "./dist/_internal/content/runtime/console.js",
       "default": "./dist/_internal/content/runtime/console.js"
     },
-    "./_internal/content/runtime/dev": {
-      "types": "./dist/_internal/content/runtime/dev.d.ts",
-      "import": "./dist/_internal/content/runtime/dev.js",
-      "require": "./dist/_internal/content/runtime/dev.js",
-      "default": "./dist/_internal/content/runtime/dev.js"
-    },
     "./_internal/database/runtime/state": {
       "types": "./dist/_internal/database/runtime/state.d.ts",
       "import": "./dist/_internal/database/runtime/state.js",
       "require": "./dist/_internal/database/runtime/state.js",
       "default": "./dist/_internal/database/runtime/state.js"
+    },
+    "./_internal/email/operations": {
+      "types": "./dist/_internal/email/operations.d.ts",
+      "import": "./dist/_internal/email/operations.js",
+      "require": "./dist/_internal/email/operations.js",
+      "default": "./dist/_internal/email/operations.js"
     },
     "./_internal/email/runtime/console": {
       "types": "./dist/_internal/email/runtime/console.d.ts",
@@ -171,11 +199,11 @@
       "require": "./dist/_internal/kv.js",
       "default": "./dist/_internal/kv.js"
     },
-    "./_internal/kv/runtime/dev": {
-      "types": "./dist/_internal/kv/runtime/dev.d.ts",
-      "import": "./dist/_internal/kv/runtime/dev.js",
-      "require": "./dist/_internal/kv/runtime/dev.js",
-      "default": "./dist/_internal/kv/runtime/dev.js"
+    "./_internal/kv/operations": {
+      "types": "./dist/_internal/kv/operations.d.ts",
+      "import": "./dist/_internal/kv/operations.js",
+      "require": "./dist/_internal/kv/operations.js",
+      "default": "./dist/_internal/kv/operations.js"
     },
     "./_internal/kv/runtime/disabled-upstash": {
       "types": "./dist/_internal/kv/runtime/disabled-upstash.d.ts",
@@ -189,17 +217,23 @@
       "require": "./dist/_internal/markdown-template.js",
       "default": "./dist/_internal/markdown-template.js"
     },
+    "./_internal/queue/operations": {
+      "types": "./dist/_internal/queue/operations.d.ts",
+      "import": "./dist/_internal/queue/operations.js",
+      "require": "./dist/_internal/queue/operations.js",
+      "default": "./dist/_internal/queue/operations.js"
+    },
     "./_internal/rate-limit/runtime": {
       "types": "./dist/_internal/rate-limit/runtime.d.ts",
       "import": "./dist/_internal/rate-limit/runtime.js",
       "require": "./dist/_internal/rate-limit/runtime.js",
       "default": "./dist/_internal/rate-limit/runtime.js"
     },
-    "./_internal/rate-limit/runtime/console": {
-      "types": "./dist/_internal/rate-limit/runtime/console.d.ts",
-      "import": "./dist/_internal/rate-limit/runtime/console.js",
-      "require": "./dist/_internal/rate-limit/runtime/console.js",
-      "default": "./dist/_internal/rate-limit/runtime/console.js"
+    "./_internal/rate-limit/operations": {
+      "types": "./dist/_internal/rate-limit/operations.d.ts",
+      "import": "./dist/_internal/rate-limit/operations.js",
+      "require": "./dist/_internal/rate-limit/operations.js",
+      "default": "./dist/_internal/rate-limit/operations.js"
     },
     "./_internal/sandbox/task/runtime/state": {
       "types": "./dist/_internal/sandbox/task/runtime/state.d.ts",
@@ -213,17 +247,17 @@
       "require": "./dist/_internal/schedule.js",
       "default": "./dist/_internal/schedule.js"
     },
+    "./_internal/schedule/operations": {
+      "types": "./dist/_internal/schedule/operations.d.ts",
+      "import": "./dist/_internal/schedule/operations.js",
+      "require": "./dist/_internal/schedule/operations.js",
+      "default": "./dist/_internal/schedule/operations.js"
+    },
     "./_internal/schedule/runtime": {
       "types": "./dist/_internal/schedule/runtime.d.ts",
       "import": "./dist/_internal/schedule/runtime.js",
       "require": "./dist/_internal/schedule/runtime.js",
       "default": "./dist/_internal/schedule/runtime.js"
-    },
-    "./_internal/schedule/runtime/dev": {
-      "types": "./dist/_internal/schedule/runtime/dev.d.ts",
-      "import": "./dist/_internal/schedule/runtime/dev.js",
-      "require": "./dist/_internal/schedule/runtime/dev.js",
-      "default": "./dist/_internal/schedule/runtime/dev.js"
     },
     "./_internal/schedule/runtime/kv": {
       "types": "./dist/_internal/schedule/runtime/kv.d.ts",
@@ -243,17 +277,23 @@
       "require": "./dist/_internal/schedule/runtime/static.js",
       "default": "./dist/_internal/schedule/runtime/static.js"
     },
-    "./_internal/task/runtime/dev": {
-      "types": "./dist/_internal/task/runtime/dev.d.ts",
-      "import": "./dist/_internal/task/runtime/dev.js",
-      "require": "./dist/_internal/task/runtime/dev.js",
-      "default": "./dist/_internal/task/runtime/dev.js"
+    "./_internal/task/operations": {
+      "types": "./dist/_internal/task/operations.d.ts",
+      "import": "./dist/_internal/task/operations.js",
+      "require": "./dist/_internal/task/operations.js",
+      "default": "./dist/_internal/task/operations.js"
     },
     "./_internal/workflow": {
       "types": "./dist/_internal/workflow.d.ts",
       "import": "./dist/_internal/workflow.js",
       "require": "./dist/_internal/workflow.js",
       "default": "./dist/_internal/workflow.js"
+    },
+    "./_internal/workflow/operations": {
+      "types": "./dist/_internal/workflow/operations.d.ts",
+      "import": "./dist/_internal/workflow/operations.js",
+      "require": "./dist/_internal/workflow/operations.js",
+      "default": "./dist/_internal/workflow/operations.js"
     },
     "./_internal/workflow/runtime/cloudflare-runner": {
       "types": "./dist/_internal/workflow/runtime/cloudflare-runner.d.ts",
@@ -266,12 +306,6 @@
       "import": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
       "require": "./dist/_internal/workflow/runtime/cloudflare-vite.js",
       "default": "./dist/_internal/workflow/runtime/cloudflare-vite.js"
-    },
-    "./_internal/workflow/runtime/dev": {
-      "types": "./dist/_internal/workflow/runtime/dev.d.ts",
-      "import": "./dist/_internal/workflow/runtime/dev.js",
-      "require": "./dist/_internal/workflow/runtime/dev.js",
-      "default": "./dist/_internal/workflow/runtime/dev.js"
     },
     "./_internal/workflow/runtime/execute": {
       "types": "./dist/_internal/workflow/runtime/execute.d.ts",
@@ -297,12 +331,6 @@
       "require": "./dist/_internal/workspace.js",
       "default": "./dist/_internal/workspace.js"
     },
-    "./_internal/workspace/internal/runtime/history-dev": {
-      "types": "./dist/_internal/workspace/internal/runtime/history-dev.d.ts",
-      "import": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "require": "./dist/_internal/workspace/internal/runtime/history-dev.js",
-      "default": "./dist/_internal/workspace/internal/runtime/history-dev.js"
-    },
     "./_internal/workspace/internal/runtime/hosted": {
       "types": "./dist/_internal/workspace/internal/runtime/hosted.d.ts",
       "import": "./dist/_internal/workspace/internal/runtime/hosted.js",
@@ -320,6 +348,12 @@
       "import": "./dist/_internal/workspace/internal/runtime/state.js",
       "require": "./dist/_internal/workspace/internal/runtime/state.js",
       "default": "./dist/_internal/workspace/internal/runtime/state.js"
+    },
+    "./_internal/workspace/operations": {
+      "types": "./dist/_internal/workspace/operations.d.ts",
+      "import": "./dist/_internal/workspace/operations.js",
+      "require": "./dist/_internal/workspace/operations.js",
+      "default": "./dist/_internal/workspace/operations.js"
     },
     "./_internal/workspace/runtime": {
       "types": "./dist/_internal/workspace/runtime.d.ts",
@@ -531,6 +565,42 @@
       "require": "./dist/channels/server.js",
       "default": "./dist/channels/server.js"
     },
+    "./comments": {
+      "types": "./dist/comments.d.ts",
+      "import": "./dist/comments.js",
+      "require": "./dist/comments.js",
+      "default": "./dist/comments.js"
+    },
+    "./comments/client": {
+      "types": "./dist/comments/client.d.ts",
+      "import": "./dist/comments/client.js",
+      "require": "./dist/comments/client.js",
+      "default": "./dist/comments/client.js"
+    },
+    "./comments/database": {
+      "types": "./dist/comments/database.d.ts",
+      "import": "./dist/comments/database.js",
+      "require": "./dist/comments/database.js",
+      "default": "./dist/comments/database.js"
+    },
+    "./comments/database/postgres": {
+      "types": "./dist/comments/database/postgres.d.ts",
+      "import": "./dist/comments/database/postgres.js",
+      "require": "./dist/comments/database/postgres.js",
+      "default": "./dist/comments/database/postgres.js"
+    },
+    "./comments/rpc": {
+      "types": "./dist/comments/rpc.d.ts",
+      "import": "./dist/comments/rpc.js",
+      "require": "./dist/comments/rpc.js",
+      "default": "./dist/comments/rpc.js"
+    },
+    "./comments/server": {
+      "types": "./dist/comments/server.d.ts",
+      "import": "./dist/comments/server.js",
+      "require": "./dist/comments/server.js",
+      "default": "./dist/comments/server.js"
+    },
     "./connections": {
       "types": "./dist/connections.d.ts",
       "import": "./dist/connections.js",
@@ -542,6 +612,12 @@
       "import": "./dist/connections/agent.js",
       "require": "./dist/connections/agent.js",
       "default": "./dist/connections/agent.js"
+    },
+    "./connections/chatgpt": {
+      "types": "./dist/connections/chatgpt.d.ts",
+      "import": "./dist/connections/chatgpt.js",
+      "require": "./dist/connections/chatgpt.js",
+      "default": "./dist/connections/chatgpt.js"
     },
     "./connections/google": {
       "types": "./dist/connections/google.d.ts",
@@ -579,23 +655,11 @@
       "require": "./dist/console/server.js",
       "default": "./dist/console/server.js"
     },
-    "./comments": {
-      "types": "./dist/comments.d.ts",
-      "import": "./dist/comments.js",
-      "require": "./dist/comments.js",
-      "default": "./dist/comments.js"
-    },
     "./comments/anchor": {
       "types": "./dist/comments/anchor.d.ts",
       "import": "./dist/comments/anchor.js",
       "require": "./dist/comments/anchor.js",
       "default": "./dist/comments/anchor.js"
-    },
-    "./comments/database": {
-      "types": "./dist/comments/database.d.ts",
-      "import": "./dist/comments/database.js",
-      "require": "./dist/comments/database.js",
-      "default": "./dist/comments/database.js"
     },
     "./comments/realtime": {
       "types": "./dist/comments/realtime.d.ts",
@@ -813,6 +877,12 @@
       "require": "./dist/realtime/vue.js",
       "default": "./dist/realtime/vue.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -956,6 +1026,12 @@
       "import": "./dist/ui/avatar-stack.js",
       "require": "./dist/ui/avatar-stack.js",
       "default": "./dist/ui/avatar-stack.js"
+    },
+    "./ui/comments": {
+      "types": "./dist/ui/comments.d.ts",
+      "import": "./dist/ui/comments.js",
+      "require": "./dist/ui/comments.js",
+      "default": "./dist/ui/comments.js"
     },
     "./ui/connection-status": {
       "types": "./dist/ui/connection-status.d.ts",
@@ -1192,12 +1268,6 @@
       "require": "./dist/console/runtime/server/env.js",
       "default": "./dist/console/runtime/server/env.js"
     },
-    "./console/kv": {
-      "types": "./dist/console/runtime/server/kv.d.ts",
-      "import": "./dist/console/runtime/server/kv.js",
-      "require": "./dist/console/runtime/server/kv.js",
-      "default": "./dist/console/runtime/server/kv.js"
-    },
     "./console/sections": {
       "types": "./dist/console/runtime/server/sections.d.ts",
       "import": "./dist/console/runtime/server/sections.js",
@@ -1283,12 +1353,36 @@
       "import": "./dist/auth/console-runtime.js",
       "require": "./dist/auth/console-runtime.js",
       "default": "./dist/auth/console-runtime.js"
+    },
+    "./logs": {
+      "types": "./dist/logs.d.ts",
+      "import": "./dist/logs.js",
+      "require": "./dist/logs.js",
+      "default": "./dist/logs.js"
+    },
+    "./logs/source": {
+      "types": "./dist/logs/source.d.ts",
+      "import": "./dist/logs/source.js",
+      "require": "./dist/logs/source.js",
+      "default": "./dist/logs/source.js"
+    },
+    "./logs/memory": {
+      "types": "./dist/logs/memory.d.ts",
+      "import": "./dist/logs/memory.js",
+      "require": "./dist/logs/memory.js",
+      "default": "./dist/logs/memory.js"
+    },
+    "./logs/host": {
+      "types": "./dist/logs/host.d.ts",
+      "import": "./dist/logs/host.js",
+      "require": "./dist/logs/host.js",
+      "default": "./dist/logs/host.js"
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp pack",
-    "dev": "vp build --config console.vite.config.ts && vp pack --watch",
-    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.console.json",
+    "build": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "dev": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
+    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },
   "dependencies": {
@@ -1301,6 +1395,7 @@
     "@standard-schema/spec": "catalog:runtime",
     "standard-context": "catalog:runtime",
     "@types/node": "catalog:tooling",
+    "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/sandbox": "catalog:sandbox",
     "@vite-hub/agent": "workspace:*",
     "@vite-hub/auth": "workspace:*",
@@ -1308,8 +1403,8 @@
     "@vite-hub/browser": "workspace:*",
     "@vite-hub/channels": "workspace:*",
     "@vite-hub/cli": "workspace:*",
-    "@vite-hub/connections": "workspace:*",
     "@vite-hub/comments": "workspace:*",
+    "@vite-hub/connections": "workspace:*",
     "@vite-hub/content": "workspace:*",
     "@vite-hub/database": "workspace:*",
     "@vite-hub/email": "workspace:*",
@@ -1331,6 +1426,7 @@
     "@vite-hub/workspace": "workspace:*",
     "@vueuse/core": "catalog:ui",
     "@workflow/builders": "catalog:workflow",
+    "confbox": "^0.2.4",
     "drizzle-kit": "catalog:database",
     "drizzle-orm": "catalog:database",
     "esbuild": "catalog:tooling",
@@ -1340,6 +1436,7 @@
     "nitro": "catalog:unjs",
     "nostics": "catalog:runtime",
     "ocache": "catalog:runtime",
+    "pkg-types": "^2.3.3",
     "semver": "^7.8.5",
     "shiki": "^4.5.0",
     "ssh2": "^1.17.0",

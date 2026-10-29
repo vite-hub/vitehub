@@ -1,6 +1,7 @@
 ---
 title: Agent Drivers
-description: Choose model-backed, provider-backed, question-backed, or application-owned Agent execution.
+description: Run an Agent with an AI SDK model, Codex, Claude Code, typed questions, or your own function. Each Driver decides how one Invocation runs.
+seo.title: Agent Drivers for Codex, Claude Code, and AI SDK models
 navigation.order: 11
 navigation.group: Define and run
 icon: i-lucide-cpu
@@ -67,6 +68,8 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 | `execution.workspaceFallback` | Controls synthesis from Workspace evidence when a run produced tool results but no text. |
 
 ## Use a provider-backed Driver
+
+To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: { kind: 'codex', gateway: chatgpt() }`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. It requires a POSIX Node.js host and supports Codex only. Model Drivers on the same grant are a follow-up.
 
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 

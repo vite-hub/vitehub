@@ -339,19 +339,26 @@ describe("the cms preset on the GitHub store", () => {
     ["store: 'github', root: '/abs'", "option \"root\" must be a folder inside the repository"],
     ["store: 'github', publish: 'merge'", "option \"publish\" must be \"commit\" or \"pr\"."],
     ["store: 'github', branch: 'main', draftBranch: 'main'", "option \"draftBranch\" must differ from \"branch\"."],
-    ["store: 'github', blob: 'media'", "option \"blob\" does not apply to store: \"github\""],
-    ["repo: 'onmax/docs'", "option \"repo\" only applies to store: \"github\"."],
-    ["root: 'content', publish: 'commit'", "options \"root\", \"publish\" only apply to store: \"github\"."],
+    ["store: 'github', blob: 'media'", "option \"blob\" does not apply to the GitHub store"],
+    ["store: 'blob-database', repo: 'onmax/docs'", "option \"repo\" only applies to the GitHub store. Remove store: \"blob-database\" to keep content in Git, or remove it."],
+    ["root: 'content', publish: 'commit'", "options \"root\", \"publish\" only apply to the GitHub store. Set repo: \"owner/name\" to keep content in Git, or remove them."],
   ])("rejects %s with CONTENT_B0001", (options, message) => {
     const error = errorOf(() => readCmsPresetUsage(githubSource(options), file, "/app", parseAst))
     expect(error.code).toBe("CONTENT_B0001")
     expect(error.message).toContain(message)
   })
 
-  it("names the follow-up when publish is pr", () => {
-    const error = errorOf(() => readCmsPresetUsage(githubSource("store: 'github', publish: 'pr'"), file, "/app", parseAst))
-    expect(error.code).toBe("CONTENT_B0001")
-    expect(error.message).toContain("pull request publishing comes in a follow-up release")
+  it("selects the GitHub store with repo alone", () => {
+    const usage = readCmsPresetUsage(githubSource("repo: 'onmax/docs', branch: 'master'"), file, "/app", parseAst)!
+    expect(usage.options).toEqual({ repo: "onmax/docs", branch: "master" })
+    expect(resolveCmsPresetPlan(usage, choices([]), "/app")).toMatchObject({ store: "github", github: { repo: "onmax/docs", branch: "master", draftBranch: "vitehub/content", publish: "commit" } })
+    expect(resolveCmsPresetPlan({ file, options: {} }, choices([]), "/app")).toMatchObject({ store: "blob-database", blob: "default" })
+  })
+
+  it("reads publish: pr and plans it", () => {
+    const usage = readCmsPresetUsage(githubSource("store: 'github', publish: 'pr'"), file, "/app", parseAst)!
+    expect(usage.options).toEqual({ store: "github", publish: "pr" })
+    expect(resolveCmsPresetPlan(usage, choices([]), "/app").github).toMatchObject({ publish: "pr" })
   })
 
   it("plans the GitHub store with its defaults, a Database, and no Blob store", () => {
@@ -383,8 +390,8 @@ describe("the cms preset on the GitHub store", () => {
   it("validates the options at runtime too", () => {
     const collections = { posts: documents({ path: "posts/*.md", fields: { title: z.string() } }) }
     expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "docs" }], collections })).message).toContain("option \"repo\" must be a repository in owner/name format.")
-    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", publish: "pr" }], collections })).message).toContain("pull request publishing comes in a follow-up release")
-    expect(errorOf(() => defineContent({ extends: [cms, { repo: "onmax/docs" }], collections })).message).toContain("only applies to store: \"github\"")
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "github", publish: "merge" as never }], collections })).message).toContain("option \"publish\" must be \"commit\" or \"pr\".")
+    expect(errorOf(() => defineContent({ extends: [cms, { store: "blob-database", repo: "onmax/docs" }], collections })).message).toContain("only applies to the GitHub store")
     expect(errorOf(() => defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }], collections, workspace: "x" })).message).toContain("sets workspace")
     const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs", root: "", workspace: "docs" }], collections, logger: false })
     expect(content).toBeDefined()

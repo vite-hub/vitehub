@@ -38,7 +38,7 @@ import type { ContentDocumentSchedule, ContentSchedule } from "../schedules.ts"
 import type { ContentDocumentSessions, ContentSession } from "../sessions.ts"
 import { contentLive } from "../live.ts"
 
-type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "schedule" | "schedules" | "unschedule">
+type ContentRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "publish" | "revisions" | "supportsScheduling" | "schedule" | "schedules" | "unschedule">
   & Partial<Pick<ContentDocumentsRuntime, "hasPolicy" | "live" | "sessions">>
 
 const sessionActions: readonly ViteHubConsoleDocumentSessionAction[] = ["report", "acquire", "takeover", "release"]
@@ -63,6 +63,7 @@ function isContentRuntime(value: unknown): value is ContentRuntime {
     && value.can instanceof Function
     && value.publish instanceof Function
     && value.revisions instanceof Function
+    && value.supportsScheduling instanceof Function
     && value.schedule instanceof Function
     && value.schedules instanceof Function
     && value.unschedule instanceof Function
@@ -479,6 +480,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           name: collection.name,
           label: collection.label,
           path: collection.path,
+          paths: [...collection.paths],
           kind: collection.kind,
           format: collection.format,
           schema,
@@ -498,8 +500,11 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       return collections
     },
 
-    setup() {
+    async setup() {
       const setup: ViteHubConsoleDocumentSetup = {}
+      if (content.collections().length > 0 && !await content.supportsScheduling()) {
+        setup.schedule = { message: "The GitHub store does not support scheduled publishing. Publish documents with Publish instead." }
+      }
       // Without a policy `content.can()` denies everything, so the editor names the fix instead of an empty section.
       if (content.hasPolicy === false) {
         setup.access = { message: "Add `authorize` to `defineContent()` to decide who may read, edit, and publish documents.", docs: "https://vitehub.dev/docs/content/configure#access" }
@@ -639,7 +644,7 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
           expect: expected.map(({ id, digest }) => ({ collection: collection.name, id, digest })),
           metadata: writeMetadata(context),
         })
-        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })) }
+        return { revision: result.revision?.id ?? null, documents: result.documents.map(document => ({ ...document })), ...(result.pullRequest ? { pullRequest: { ...result.pullRequest } } : {}) }
       })
     },
 
@@ -980,3 +985,5 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
   }
   return actions
 }
+
+export { contentMcpTools, registerContentMcpTools } from "./mcp.ts"

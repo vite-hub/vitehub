@@ -26,6 +26,7 @@ const serverPrimitiveSections = [
   "email",
   "env",
   "kv",
+  "logs",
   "queue",
   "rate-limit",
   "realtime",
@@ -42,10 +43,10 @@ describe("docs product navigation", () => {
     const catalog = getDocsCatalog(docsManifest.sections);
     const rail = getDocsRailCatalog(docsManifest.sections);
     expect(catalog.find(group => group.category === "Develop and deploy")?.sections.map(section => section.id))
-      .toEqual(expect.arrayContaining(["development", "frameworks-hosts"]));
-    expect(catalog.find(group => group.category === "Reference")?.sections.map(section => section.id)).toEqual(["reference"]);
+      .toEqual(expect.arrayContaining(["development", "frameworks-hosts", "guides"]));
+    expect(catalog.find(group => group.category === "Reference")?.sections.map(section => section.id)).toEqual(["reference", "compare"]);
     const railSectionIds = rail.flatMap(group => group.sections.map(section => section.id));
-    for (const sectionId of ["development", "frameworks-hosts", "reference"]) {
+    for (const sectionId of ["development", "frameworks-hosts", "guides", "reference", "compare"]) {
       expect(railSectionIds).not.toContain(sectionId);
     }
     expect(rail.map(group => group.category)).toEqual(docsCategoryOrder.filter(category => !["Develop and deploy", "Reference"].includes(category)));

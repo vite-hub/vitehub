@@ -132,17 +132,19 @@ export default defineConfig({
 
 See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
+A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and editing Content fields require the full `comments` grant as well as the Comments policy.
+
 When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. That sets the comment mode cookie, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
 
 | Console sign-in | Comment author |
 | --- | --- |
 | `auth: 'app'` or a Console Auth config | The signed-in Console user |
 | `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest. The overlay asks for a display name. |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guest access is allowed. |
 
 ### Use your own login
 
-When the app does not use ViteHub Auth, return the user from `identify`. Return `null` for an anonymous request.
+Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, Comments does not read the ViteHub Auth session. Apps with the Console still check Console section access first.
 
 ```ts [server/comments.ts]
 import { getCookie } from 'h3'
@@ -379,11 +381,35 @@ The close button in the toolbar ends comment mode. It clears the cookie and remo
 
 Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one `<script type="module">` before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. Paths under `/_vitehub` and `/api` never get the overlay.
 
-- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook.
+- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
-- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
+- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders, or serve the prerendered files through a route.
 
-The overlay is a custom element with its own shadow root. Your CSS does not change it, and its CSS does not change your page.
+A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
+
+```ts [server/middleware/pages.ts]
+import { defineEventHandler } from 'h3'
+import { wantsCommentMode } from 'vite-hub/comments/runtime'
+
+export default defineEventHandler(async (event) => {
+  const { request, env } = event.context.cloudflare
+  if (request.method !== 'GET') return
+  let assetRequest = request
+  if (wantsCommentMode(request)) {
+    const headers = new Headers(request.headers)
+    headers.delete('if-none-match')
+    headers.delete('if-modified-since')
+    assetRequest = new Request(request, { headers })
+  }
+  const file = await env.ASSETS.fetch(assetRequest)
+  // The overlay goes into this response for people in comment mode. Everyone else gets the file unchanged.
+  if (file.status !== 404) return file
+})
+```
+
+Comment-mode requests remove cache validators before fetching the asset. Otherwise the binding can return a bodyless `304`, and the browser reuses a cached page without the overlay. Requests without the comment hint retain their validators.
+
+The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page.
 
 ## Mark Content fields
 
@@ -489,7 +515,7 @@ App mentions and thread numbers stay plain text on GitHub: `@ada` does not notif
 
 ## Triage in the Console
 
-The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity: page, first comment, author, replies, status, and last update. A thread's **Open on page** field is its `?comments#comment-<id>` link. Reply and resolve on the page, where the context is.
+The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 
@@ -499,4 +525,4 @@ The Console serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. An A
 
 An app with its own MCP server can register the same tools: `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them with a JSON Schema and a `call(input, { user })` function each.
 
-Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. A session reader returning `false` denies access before `identify` or `authorize`. Otherwise `identify` takes precedence; without `identify`, the session reader in `commentsMcpTools(comments, { session })` is used, or `user` when no reader is supplied.
+Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. Pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `identify` or `authorize`. Otherwise `identify` takes precedence. Without `identify`, the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.
