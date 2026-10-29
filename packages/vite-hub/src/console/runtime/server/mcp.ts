@@ -38,6 +38,12 @@ function consoleTools(access: ConsoleAccess, event: H3Event): McpTool[] {
           }
         }
         catch (error) {
+          // A Console request error tells the Agent what to change without exposing server failures.
+          const status = Number(Reflect.get(Object(error), "statusCode"))
+          if (status >= 400 && status < 500 && error instanceof Error) {
+            const statusMessage = Reflect.get(error, "statusMessage")
+            return { content: [{ type: "text", text: typeof statusMessage === "string" ? statusMessage : error.message }], isError: true }
+          }
           console.error(`[vitehub] ViteHub MCP tool ${tool.name} failed:`, error)
           return { content: [{ type: "text", text: `${tool.name} failed on the server.` }], isError: true }
         }
