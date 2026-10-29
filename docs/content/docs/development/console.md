@@ -555,7 +555,7 @@ Invocation journals are metadata-only by default. In that mode, Captured setup i
 
 ## Inspect Skills
 
-Open **Skills** to browse the files bundled with each discovered Agent Definition. The tree includes colocated `skills/` files and Skills added with `agentWithSkills()`. Select a file to read Markdown or its source with the configured Comark UI renderer. Markdown links to other bundled files open those files in the tree. The URL keeps the selected Agent and file.
+Open **Skills** to browse the files bundled with each discovered Agent Definition. The tree includes colocated `skills/` files and Skills added with `agentWithSkills()`. Select a file to read its Markdown preview or its source. Markdown links to other bundled files open those files in the tree. The URL keeps the selected Agent and file.
 
 **Skill index** opens [ViteHub's published Skill index](https://vitehub.dev/.well-known/skills/index.json). This public index is separate from the current app's bundled Agent Skills.
 
