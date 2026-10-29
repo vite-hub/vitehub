@@ -77,12 +77,12 @@ describe("viteHubPageToolsIndexHtml", () => {
     const page = viteHubPageToolsIndexHtml(html, "/")!
     expect(run(page, "/")).toEqual([])
     expect(run(page, "/", "theme=dark")).toEqual([])
-    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
-    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
+    expect(run(page, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=7"])
+    expect(run(page, "/pricing", "theme=dark; vitehub-tools=1")).toEqual(["/_vitehub/page/assets/loader.js?v=7"])
   })
 
   it("imports the loader below the Vite base", () => {
-    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=6"])
-    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=6"])
+    expect(run(viteHubPageToolsIndexHtml(html, "/portal/")!, "/portal/?vitehub")).toEqual(["/portal/_vitehub/page/assets/loader.js?v=7"])
+    expect(run(viteHubPageToolsIndexHtml("<p>No body</p>", "./")!, "/?vitehub")).toEqual(["/_vitehub/page/assets/loader.js?v=7"])
   })
 })

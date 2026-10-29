@@ -95,8 +95,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=6")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=6")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=7")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=7")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -289,6 +289,41 @@ describe("lazy tools", () => {
     expect(signals[1]!.aborted).toBe(true)
     expect(document.querySelector("vitehub-window")).toBeNull()
     expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
+  it("forgets a destroyed window without hiding it when another tool opens", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool, comments] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    const onHide = vi.fn()
+    const first = started[0]!.createWindow({ id: "console", title: "Console", trigger: started[0]!.bar, onHide })
+    const second = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
+    first.show()
+    first.destroy()
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("false")
+    expect(document.querySelectorAll("vitehub-window")).toHaveLength(1)
+    second.show()
+    expect(onHide).not.toHaveBeenCalled()
+    pill().exit.click()
+  })
+
+  it("keeps a replacement window registered when the previous handle is destroyed", async () => {
+    page("/?vitehub")
+    session({ tools: [consoleTool, comments] })
+    const { load, started } = modules()
+    await loadViteHubPageTools({ load })
+    const context = started[0]!
+    const first = context.createWindow({ id: "console", title: "Console", trigger: context.bar })
+    const onHide = vi.fn()
+    const replacement = context.createWindow({ id: "console", title: "Console", trigger: context.bar, onHide })
+    replacement.show()
+    first.destroy()
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:console")).toBe("true")
+    const other = started[1]!.createWindow({ id: "comments", title: "Comments", trigger: started[1]!.bar })
+    other.show()
+    expect(onHide).toHaveBeenCalledOnce()
+    pill().exit.click()
   })
 
   it("restores a remembered eager window", async () => {

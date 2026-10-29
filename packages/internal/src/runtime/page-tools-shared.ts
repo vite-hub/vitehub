@@ -22,7 +22,7 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
  * The URL of the loader script, below the app base. Its version query changes when the loader changes, so caches keep
  * it 5 minutes.
  */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=6"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=7"
 
 /** The attribute of the script that loads the page tools. A page that has it does not get a second one. */
 export const viteHubPageToolsMarker = "data-vitehub-page-tools"
