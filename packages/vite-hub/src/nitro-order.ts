@@ -30,9 +30,9 @@ function unsupportedHook(): Error {
 }
 
 /**
- * Makes `plugins: [nitro(), vitehub()]` build like `[vitehub(), nitro()]`. Vite runs `config` hooks in plugin order and Nitro
- * reads `config.nitro` in its own, so every handler, plugin, and asset that ViteHub adds after it is lost. When `nitro()` comes
- * first, the first plugin holds Nitro's `config` hooks back and the second runs them once the rest of ViteHub's have run.
+ * Runs Nitro after ViteHub's config hooks, including the post hooks that use the final application root. Nitro reads
+ * `config.nitro` once, so hold its hooks regardless of whether the app supplies Nitro before or after ViteHub, or uses
+ * the included Nitro. The second plugin replays only the hooks selected by Vite.
  */
 export function nitroOrderPlugins(): Plugin[] {
   let held: Held[] = []
@@ -45,8 +45,7 @@ export function nitroOrderPlugins(): Plugin[] {
         async handler(config) {
           early = []
           const plugins = await flatten(config.plugins)
-          const self = plugins.findLastIndex(plugin => plugin.name === marker)
-          const nitro = plugins.slice(0, Math.max(self, 0)).filter(plugin => nitroConfigPlugins.includes(plugin.name) && plugin.config !== undefined)
+          const nitro = plugins.filter(plugin => nitroConfigPlugins.includes(plugin.name) && plugin.config !== undefined)
           if (nitro.length === 0) return
           const next: Held[] = []
           for (const plugin of nitro) {

@@ -416,6 +416,9 @@ function summary(record: Awaited<ReturnType<typeof invocations.get>>): Record<st
   return value
 }
 
+/** Requests per Rate Limit counter, so the page has something to peek at and reset. */
+const rateLimitUsed = new Map<string, number>([["api-search:192.0.2.1", 42], ["invite:ada@example.test", 5]])
+
 function storeName(value: string | null): keyof typeof kvStores | undefined {
   const name = value || "default"
   return name === "default" || name === "cache" ? name : undefined
@@ -425,6 +428,8 @@ function formattedKVValue(key: string, name: keyof typeof kvStores, value: unkno
   if (!kvStores[name].has(key)) return { found: false, key, store: name }
   const text = typeof value === "string" ? value : JSON.stringify(value, null, 2)
   return {
+    editable: true,
+    expiry: "unknown",
     format: typeof value === "string" ? "text" : "json",
     found: true,
     key,
@@ -870,6 +875,73 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     return true
   }
 
+  if (path === "/api/_vitehub/console/rate-limit" && request.method === "POST") {
+    // SAFETY: The playground checks every field right after it decodes this local JSON request.
+    const input = await body(request) as { action?: unknown, key?: unknown, name?: unknown }
+    const policy = definitions["rate-limits"].find(definition => definition.name === input.name)
+    if (!policy || typeof input.key !== "string" || !input.key) {
+      json(response, { message: "Rate Limit or key not found" }, 404)
+      return true
+    }
+    const counterKey = `${policy.name}:${input.key}`
+    const target = { key: input.key, name: policy.name, provider: "memory" }
+    if (input.action === "reset") {
+      rateLimitUsed.delete(counterKey)
+      json(response, { ...target, scope: "process", status: "reset" })
+      return true
+    }
+    const used = rateLimitUsed.get(counterKey)
+    if (used === undefined) {
+      json(response, { ...target, reason: "No request used this Rate Limit in this process since it started, so no counter exists.", status: "unused" })
+      return true
+    }
+    const limit = Number(policy.fields.find(field => field.label === "Limit")?.value)
+    const window = policy.fields.find(field => field.label === "Window")?.value
+    json(response, { ...target, counters: [{ limit, remaining: Math.max(limit - used, 0), resetAt: Date.now() + 45_000, used, window, windowMs: 60_000 }], scope: "process", status: "known" })
+    return true
+  }
+
+  if (path === "/api/_vitehub/console/blob" && request.method === "POST") {
+    // SAFETY: The playground checks every field right after it decodes this local JSON request.
+    const input = await body(request) as { action?: unknown, contentType?: unknown, data?: unknown, overwrite?: unknown, pathname?: unknown, store?: unknown }
+    const requested = typeof input.store === "string" ? input.store : "default"
+    const store = requested === "default" || requested === "uploads" ? requested : undefined
+    if (!store || typeof input.pathname !== "string" || !input.pathname) {
+      json(response, { message: "Blob store or pathname not found" }, 404)
+      return true
+    }
+    const pathname = input.pathname
+    if (pathname.startsWith("_vitehub/")) {
+      json(response, { code: "BLOB_RESERVED_PATH", message: `ViteHub keeps ${pathname} for itself.`, status: 403 }, 403)
+      return true
+    }
+    const blobs: Array<(typeof blobStores)["default"][number]> = blobStores[store]
+    const index = blobs.findIndex(blob => blob.pathname === pathname)
+    if (input.action === "del") {
+      if (index !== -1) blobs.splice(index, 1)
+      json(response, { deleted: index !== -1, pathname, store })
+      return true
+    }
+    if (index !== -1 && input.overwrite === false) {
+      json(response, { code: "BLOB_EXISTS", message: `Blob ${pathname} already exists.`, status: 409 }, 409)
+      return true
+    }
+    const object = {
+      contentType: typeof input.contentType === "string" ? input.contentType : "application/octet-stream",
+      customMetadata: {},
+      httpEtag: '"playground"',
+      httpMetadata: {},
+      pathname,
+      size: typeof input.data === "string" ? Math.floor(input.data.length * 3 / 4) : 0,
+      uploadedAt: new Date().toISOString(),
+      urlAvailable: true as const,
+    }
+    if (index === -1) blobs.push(object)
+    else blobs[index] = object
+    json(response, { created: index === -1, object, store })
+    return true
+  }
+
   if (path === "/api/_vitehub/console/blob") {
     const requested = url.searchParams.get("store") || "default"
     const store = requested === "default" || requested === "uploads" ? requested : undefined
@@ -892,10 +964,25 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
   if (path === "/api/_vitehub/console/kv") {
     if (request.method === "POST") {
       // SAFETY: The playground handler validates both fields immediately after decoding this local JSON request.
-      const input = await body(request) as { key?: unknown, store?: unknown }
+      const input = await body(request) as { action?: unknown, key?: unknown, store?: unknown, value?: unknown }
       const name = storeName(typeof input.store === "string" ? input.store : null)
       if (!name || typeof input.key !== "string") {
         json(response, { error: "KV store or key not found" }, 404)
+        return true
+      }
+      if ((input.action === "set" || input.action === "del") && input.key.toLowerCase().startsWith("vitehub:")) {
+        json(response, { code: "KV_RESERVED_KEY", message: `ViteHub owns the keys that start with vitehub:.`, status: 403 }, 403)
+        return true
+      }
+      if (input.action === "set") {
+        const created = !kvStores[name].has(input.key)
+        kvStores[name].set(input.key, input.value)
+        json(response, { created, key: input.key, store: name, type: typeof input.value })
+        return true
+      }
+      if (input.action === "del") {
+        const deleted = kvStores[name].delete(input.key)
+        json(response, { deleted, key: input.key, store: name })
         return true
       }
       json(response, formattedKVValue(input.key, name, kvStores[name].get(input.key)))

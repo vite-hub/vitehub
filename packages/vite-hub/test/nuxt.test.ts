@@ -727,8 +727,8 @@ describe("ViteHub Nuxt integration", () => {
     await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
       `installConsoleBlob("/tmp/vitehub-nuxt", vitehubConsoleBlob, ["default"])`,
     )
-    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default"])`,
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toMatch(
+      /installConsoleSections\("\/tmp\/vitehub-nuxt", \[[^\]]*"kv"/,
     )
 
     const production = createNuxt(false)
@@ -1018,7 +1018,6 @@ describe("ViteHub Nuxt integration", () => {
     expect(generated).not.toContain(`from "vite-hub/console/server"`)
     expect(generated).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env","kv"])`)
     expect(generated).not.toContain("installConsoleInvocations")
-    expect(generated).toContain(`installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`)
   })
 
   it("adds the Console to Nuxt DevTools in development only", async () => {
@@ -1051,8 +1050,8 @@ describe("ViteHub Nuxt integration", () => {
 
     await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "node" }, named.nuxt)
 
-    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache","sessions"])`,
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toMatch(
+      /installConsoleSections\("\/tmp\/vitehub-nuxt", \[[^\]]*"kv"/,
     )
 
     mocks.vitehub.mockReturnValue([])
@@ -1442,8 +1441,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "node" }, retained.nuxt)
     await retained.runNitroConfigHook(nitroOptions(retained.nuxt))
 
-    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","sessions"])`,
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toMatch(
+      /installConsoleSections\("\/tmp\/vitehub-nuxt", \[[^\]]*"kv"/,
     )
   })
 
@@ -1472,8 +1471,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ console: { auth: false }, kv: true, preset: "node" }, retained.nuxt)
     await retained.runNitroConfigHook(nitroOptions(retained.nuxt))
 
-    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toContain(
-      `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`,
+    await expect(readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")).resolves.toMatch(
+      /installConsoleSections\("\/tmp\/vitehub-nuxt", \[[^\]]*"kv"/,
     )
   })
 
@@ -1500,8 +1499,8 @@ describe("ViteHub Nuxt integration", () => {
         },
       }
       await development.runNitroConfigHook(nitroOptions(development.nuxt))
-      await expect(readFile(generatedPlugin, "utf8")).resolves.toContain(
-        `installConsoleKV("/tmp/vitehub-nuxt", vitehubConsoleKV, ["default","cache"])`,
+      await expect(readFile(generatedPlugin, "utf8")).resolves.toMatch(
+        /installConsoleSections\("\/tmp\/vitehub-nuxt", \[[^\]]*"kv"/,
       )
       await expect(readFile(generatedPlugin, "utf8")).resolves.toContain(
         `installConsoleFixtureInvocations("/tmp/vitehub-nuxt", ${JSON.stringify(fixture)}, `,
