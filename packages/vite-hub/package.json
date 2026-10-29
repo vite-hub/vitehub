@@ -585,6 +585,12 @@
       "require": "./dist/connections/agent.js",
       "default": "./dist/connections/agent.js"
     },
+    "./connections/chatgpt": {
+      "types": "./dist/connections/chatgpt.d.ts",
+      "import": "./dist/connections/chatgpt.js",
+      "require": "./dist/connections/chatgpt.js",
+      "default": "./dist/connections/chatgpt.js"
+    },
     "./connections/google": {
       "types": "./dist/connections/google.d.ts",
       "import": "./dist/connections/google.js",
