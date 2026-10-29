@@ -36,8 +36,8 @@ defineAuth({
     const output = result.stdout + result.stderr
     expect(result.error).toBeUndefined()
     expect(result.status, output).toBe(2)
-    expect(output).toContain("input.ts(4,3): error TS2769")
-    expect(output).toContain("secondaryStorage")
+    expect(output).toContain("input.ts(4,14): error TS2769")
+    expect(output).toContain("type 'SecondaryStorage'")
     expect(output).toContain("getAndDelete")
     expect(output).toContain("increment")
     expect(output).not.toContain("'emailAndPassword' does not exist")
