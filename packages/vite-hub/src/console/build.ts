@@ -1,3 +1,5 @@
+import { commentsEntryMode, commentsOperationsConsoleSection, findCommentsEntry } from "@vite-hub/comments/vite"
+import { describeViteHubConsoleSection, readViteHubConsoleSection } from "@vite-hub/internal/console"
 import { discoverAgentDefinitionEntries } from "@vite-hub/agent/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
 import { collectOperationContributions, createOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
@@ -27,6 +29,8 @@ export interface ConsoleBuildCatalog {
   operations?: readonly CollectedOperationContribution[]
   /** Record table sections whose application module exists, such as Comments with `server/comments.ts`. */
   entries?: readonly ConsoleSectionId[]
+  /** Per-app view descriptors when a contribution supports multiple entry forms. */
+  sectionOverrides?: Record<ConsoleSectionId, ReturnType<typeof describeViteHubConsoleSection>>
 }
 
 /**
@@ -118,11 +122,17 @@ export async function discoverConsoleBuildCatalog(options: ConsoleSectionDiscove
   }
   const entries = await discoverConsoleEntrySections(options)
   for (const section of entries) content[section] = await consoleContributedSections.get(section)!.read(options)
+  const commentsEntry = findCommentsEntry({ projectRoot, serverDirs })
+  const sectionOverrides: NonNullable<ConsoleBuildCatalog["sectionOverrides"]> = {}
+  if (commentsEntry && commentsEntryMode(commentsEntry) === "operations") {
+    content.comments = await readViteHubConsoleSection(commentsOperationsConsoleSection, undefined)
+    sectionOverrides.comments = describeViteHubConsoleSection(commentsOperationsConsoleSection)
+  }
   const manualSchedules = (schedules ?? [])
     .filter(definition => definition.manual === true)
     .map(definition => ({ handler: definition.handler, name: definition.name }))
   const contributed = await collectOperationContributions(await flattenPluginOptions(options.plugins))
   await assertUniqueOperationNames(contributed)
   const operations = contributed.filter(contribution => contribution.runtime !== false)
-  return { agents, content, documents, entries, manualSchedules, operations }
+  return { agents, content, documents, entries, sectionOverrides, manualSchedules, operations }
 }

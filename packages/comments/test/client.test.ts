@@ -101,6 +101,16 @@ describe("createCommentsClient", () => {
     expect(await other.resolve({ threadId: thread.id })).toMatchObject({ status: "resolved", resolvedBy: ben })
   })
 
+  it.each([false, true])("preserves other authors' replies when deleting a thread (first message: %s)", async (firstMessage) => {
+    const { client, store } = setup()
+    const thread = await client.create({ subject, anchor, body: "Mine" })
+    const replied = await store.as(ben).reply({ threadId: thread.id, body: "Ben's reply" })
+    await expect(client.delete({ threadId: thread.id, ...(firstMessage ? { messageId: thread.messages[0]!.id } : {}) })).rejects.toMatchObject({ code: "COMMENTS_R0004" })
+    expect((await store.get({ id: thread.id }))?.messages).toHaveLength(2)
+    await store.as(ben).delete({ threadId: thread.id, messageId: replied.messages[1]!.id })
+    expect(await client.delete({ threadId: thread.id })).toBeNull()
+  })
+
   it("rejects an empty comment and an unknown thread with a coded error", async () => {
     const { client } = setup()
     await expect(client.create({ subject, anchor, body: "   " })).rejects.toMatchObject({ code: "COMMENTS_R0005" })
@@ -272,31 +282,34 @@ describe("createCommentsClient", () => {
       stop()
     })
 
-    it("keeps concurrent replies with equal timestamps when the first response is delayed", async () => {
-      vi.spyOn(Date, "now").mockReturnValue(1000)
-      const store = createMemoryTransport({ user: ana })
+    it.each(["reply", "edit"] as const)("orders same-millisecond %s mutations when the first response is delayed", async action => {
+      const store = createMemoryTransport({ user: ana, now: () => 1000 })
       const gate = deferred<void>()
       const firstApplied = deferred<void>()
+      const delay = async (result: CommentThread, body: string) => {
+        if (body === "Second") {
+          firstApplied.resolve()
+          await gate.promise
+        }
+        return { ...result, updatedAt: 1000 }
+      }
       const client = createCommentsClient({ transport: {
         ...store,
         subscribe: undefined,
-        reply: async input => {
-          const result = await store.reply(input)
-          if (input.body === "Second") {
-            firstApplied.resolve()
-            await gate.promise
-          }
-          return result
-        },
+        reply: async input => delay(await store.reply(input), input.body),
+        edit: async input => delay(await store.edit(input), input.body),
       } })
       const thread = await client.create({ subject, anchor, body: "First" })
-      const first = client.reply({ threadId: thread.id, body: "Second" })
+      const mutate = (body: string) => action === "reply"
+        ? client.reply({ threadId: thread.id, body })
+        : client.edit({ threadId: thread.id, messageId: thread.messages[0]!.id, body })
+      const first = mutate("Second")
       await firstApplied.promise
-      const second = client.reply({ threadId: thread.id, body: "Third" })
+      const second = mutate("Third")
       await new Promise(resolve => setTimeout(resolve, 0))
       gate.resolve()
       await Promise.all([first, second])
-      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(["First", "Second", "Third"])
+      expect(client.threads[0]!.messages.map(message => message.body)).toEqual(action === "reply" ? ["First", "Second", "Third"] : ["Third"])
     })
 
     it("continues after a failed mutation without blocking other threads", async () => {
@@ -462,4 +475,73 @@ describe("query reconciliation", () => {
       stop()
     }
   })
+})
+
+it("loads every page before marking the cache ready", async () => {
+  const store = createMemoryTransport({ user: ana })
+  const sample = await store.create({ subject, anchor, body: "First" })
+  const all = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 201 - i }))
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    const start = query.before ? all.findIndex(thread => thread.id === query.before?.id) + 1 : 0
+    return all.slice(start, start + (query.limit ?? 200))
+  })
+  const client = createCommentsClient({ transport: { ...store, list }, query: { page: subject.id } })
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.threads).toHaveLength(201)
+  expect(list).toHaveBeenCalledTimes(4)
+  expect(list.mock.calls[1]?.[0]).toMatchObject({ before: { id: "thread-199", updatedAt: 2 }, page: subject.id })
+})
+
+it.each(["reply below", "reply above", "delete above", "resolve above"] as const)("reconciles a %s the cursor between refresh pages", async mutation => {
+  const sample = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+  const seeded = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 1_000 + i }))
+  const store = createMemoryTransport({ user: ana, threads: seeded, now: () => 10_000 })
+  const target = mutation === "reply below" ? seeded[0]! : seeded.at(-1)!
+  let pendingMutation = false
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    if (query.before && pendingMutation) {
+      pendingMutation = false
+      if (mutation === "delete above") await store.delete({ threadId: target.id })
+      else if (mutation === "resolve above") await store.resolve({ threadId: target.id })
+      else await store.reply({ threadId: target.id, body: "Changed between pages" })
+    }
+    return store.list(query)
+  })
+  // The RPC transport cannot push the intervening change into the cache.
+  const { subscribe: _subscribe, ...pull } = store
+  const client = createCommentsClient({ transport: { ...pull, list }, query: { page: subject.id, status: "open" } })
+  await client.refresh()
+  pendingMutation = true
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.threads).toEqual((await store.list({ page: subject.id, status: "open", limit: 500 })).sort((a, b) => a.n - b.n))
+})
+
+it("bounds refresh retries and preserves the cache while pages keep changing", async () => {
+  const sample = await createMemoryTransport({ user: ana }).create({ subject, anchor, body: "First" })
+  const seeded = Array.from({ length: 201 }, (_, i) => ({ ...sample, id: `thread-${i}`, n: i + 1, updatedAt: 1_000 + i }))
+  const store = createMemoryTransport({ user: ana, threads: seeded, now: () => 10_000 })
+  let changing = false
+  const list = vi.fn(async (query: Parameters<typeof store.list>[0]) => {
+    if (query.before && changing) {
+      const oldest = (await store.list({ limit: 500 })).at(-1)!
+      await store.reply({ threadId: oldest.id, body: "Changed between pages" })
+    }
+    return store.list(query)
+  })
+  const client = createCommentsClient({ transport: { ...store, list } })
+  await client.refresh()
+  const previous = client.threads
+  list.mockClear()
+  changing = true
+  await expect(client.refresh()).rejects.toMatchObject({ code: "COMMENTS_R0015" })
+  expect(client.status).toBe("error")
+  expect(client.threads).toBe(previous)
+  expect(list).toHaveBeenCalledTimes(6)
+  changing = false
+  await client.refresh()
+  expect(client.status).toBe("ready")
+  expect(client.error).toBeUndefined()
+  expect(client.threads).toEqual(store.threads.sort((a, b) => a.n - b.n))
 })

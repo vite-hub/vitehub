@@ -1,4 +1,5 @@
 import { consoleDiagnostic, consoleStatusDiagnosticCode, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
 
 interface ConsoleHeaders {
   get(name: string): string | null
@@ -122,7 +123,7 @@ export function consoleRequestError(statusCode: number, statusMessage: string, c
 
 /** Tells if the Console runs on a development server. */
 export function isConsoleDevelopmentRuntime(): boolean {
-  return globalThis.process?.env?.NODE_ENV === "development"
+  return isConsoleDevelopmentBuild()
 }
 
 export function assertConsoleRequest(event: ConsoleRequestEvent, allowedMethods: readonly string[] = ["GET"]): void {
