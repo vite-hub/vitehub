@@ -19,6 +19,7 @@ import { createContentConsoleActions } from "../src/runtime/console.ts"
 import cms from "../src/presets/cms.ts"
 
 import type { FakeGitHub } from "../../workspace/test/fake-github.ts"
+import type { ContentDocumentUrl } from "../src/index.ts"
 
 const sessionsTable = await readFile(new URL("./fixtures/sessions.sql", import.meta.url), "utf8")
 const cleanup: Array<() => Promise<void> | void> = []
@@ -41,7 +42,7 @@ afterEach(async () => {
   for (const dispose of cleanup.splice(0).reverse()) await dispose()
 })
 
-async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, route?: (id: string) => string, seed?: boolean, token?: string | undefined } = {}) {
+async function setup(options: { authorize?: () => boolean, database?: boolean, files?: Record<string, string>, path?: string[], publish?: "commit" | "pr", root?: string, url?: ContentDocumentUrl<{ title: string }>, seed?: boolean, token?: string | undefined } = {}) {
   if (options.seed !== false) fake.commit("main", options.files ?? {
     "README.md": "# Docs\n",
     "package.json": "{}\n",
@@ -71,7 +72,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
   })
   const content = defineContent({
     ...(options.publish ? { extends: [cms, { store: "github", publish: options.publish, workspace }] as const } : { workspace }),
-    collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.route ? { route: options.route } : {}) }) },
+    collections: { posts: documents({ path: options.path ?? ["content/posts/**/*.md"], fields: { title: z.string() }, ...(options.url ? { url: options.url } : {}) }) },
     logger: false,
     ...(options.authorize ? { authorize: options.authorize } : {}),
   })
@@ -81,7 +82,7 @@ async function setup(options: { authorize?: () => boolean, database?: boolean, f
 
 describe("Content on the GitHub store", () => {
   it("fails a request with a coded error that names the missing token", async () => {
-    const { content, posts } = await setup({ token: undefined, route: id => `/posts/${id}` })
+    const { content, posts } = await setup({ token: undefined, url: "/posts/:id" })
     const named = { code: "WORKSPACE_R0072", message: expect.stringContaining("VITEHUB_GITHUB_TOKEN") }
     await expect(content.resolve("/posts/a", { ref: "draft" })).rejects.toMatchObject(named)
     await expect(posts.get("a")).rejects.toMatchObject(named)
@@ -836,7 +837,7 @@ describe("Content on the GitHub store", () => {
         "packages/core/docs/guide/start.md": page("Start"),
         "packages/core/src/notes.md": page("Not a doc"),
       },
-      route: id => id.replace(/^docs\/pages\//, "/").replace(/^packages\/([^/]+)\/docs\//, "/$1/").replace(/\/index$/, "") || "/",
+      url: ({ id }) => id.replace(/^docs\/pages\//, "/").replace(/^packages\/([^/]+)\/docs\//, "/$1/").replace(/\/index$/, "") || "/",
     })
     // Only the files under the globs are documents. Their ids are the whole path, since the globs share no folder.
     expect((await posts.list()).items.map(item => item.id).sort()).toEqual(["docs/pages/index", "packages/core/docs/guide/start"])

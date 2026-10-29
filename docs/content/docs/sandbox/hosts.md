@@ -43,3 +43,8 @@ On the Vite or Nuxt dev server, the Vercel provider works when Vercel credential
 | `sleepAfter`, `keepAlive`, `normalizeId` | - | Cloudflare Sandbox session options. |
 
 The Cloudflare integration writes the Container, Durable Object binding, migration, and Worker exports to Provider Output. It generates `.vitehub/sandbox-task/Dockerfile` when the container has no image. For a custom image, configure the application-owned container with a complete Dockerfile. For Vercel, set `runtime` or `source`. Sandbox has no Dockerfile-fragment helper because partial image syntax is not portable across providers.
+
+## Related guides
+
+Read [Choose Cloudflare Sandbox or Vercel Sandbox](/docs/guides/sandbox-providers)
+to compare setup, execution boundaries, and provider verification.

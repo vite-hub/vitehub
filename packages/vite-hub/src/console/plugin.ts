@@ -89,6 +89,8 @@ export interface ConsoleAccessBuild {
   mode: "open" | "auth" | "cloudflare-access" | "local"
   authorize?: string
   check?: { module: string } | { appRoutes: readonly { authorize: boolean, index: number, method?: string, route: string }[] }
+  /** `console.impersonation`. App Auth access then rejects impersonation sessions from the Console. */
+  impersonation?: true
   /** Path of the sign-in page under the application mount, such as `/sign-in`. */
   signInPage?: string
 }
@@ -148,12 +150,13 @@ function renderConsoleAccess(access: ConsoleAccessBuild | undefined): { imports:
     )
     fields.push("check: vitehubConsoleAppAccess.check", "user: vitehubConsoleAppAccess.user", "signIn: vitehubConsoleAppPages.signIn", "authBasePath: vitehubConsoleAppPages.authBasePath")
     setup.push("const vitehubConsoleAppPages = vitehubCreateConsoleAppAuthPages(vitehubGetAuthForRequest)")
-    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined) })`)
+    setup.push(`const vitehubConsoleAppAccess = vitehubCreateConsoleAppAuthAccess({ routes: ${routes}, getAuthForRequest: vitehubGetAuthForRequest, requireAuthAccessRoutes: vitehubRequireAuthAccessRoutes, requireSession: vitehubWithAuthorization(true, () => undefined)${access.impersonation ? ", impersonation: true" : ""} })`)
   }
   if (access.authorize) {
     imports.push(`import vitehubConsoleAuthorize from ${JSON.stringify(pathToFileURL(access.authorize).href)}`)
     fields.push("authorize: vitehubConsoleAuthorize")
   }
+  if (access.impersonation) fields.push("impersonation: true")
   if (access.signInPage) fields.push(`signInPage: ${JSON.stringify(access.signInPage)}`)
   return {
     imports,
@@ -214,6 +217,9 @@ function renderConsoleNitroPlugin(
     `import { ${access ? "installConsoleAccess, " : ""}installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`,
     ...operations.map((operation, index) => `import { ${operation.export} as vitehubConsoleOperations${index} } from ${JSON.stringify(operation.module)}`),
     ...accessCode.imports,
+    ...(documentEditors.some(editor => editor.section === "content") ? [
+      'import { registerContentMcpTools } from "vite-hub/_internal/content/runtime/console"',
+    ] : []),
     ...(agentsEnabled ? runtimeCapabilities.imports : []),
     ...(blobEnabled
       ? [
@@ -235,7 +241,7 @@ function renderConsoleNitroPlugin(
         ]
       : []),
     ...(sections.includes("env") ? [`import { describeServerEnv } from "#vitehub/env/description"`, `import { installConsoleEnv } from "vite-hub/console/env"`] : []),
-    ...(documentEditors.length ? [`import { installConsoleDocuments } from "vite-hub/console/documents"`] : []),
+    ...(documentEditors.length ? [`import { installConsoleDocuments, loadConsoleDocumentActions } from "vite-hub/console/documents"`] : []),
     ...documentEditors.map((editor, index) => `import { ${editor.export} as vitehubConsoleDocumentActions${index} } from ${JSON.stringify(editor.module)}`),
     ...agents.map((agent, index) => `import * as vitehubConsoleAgent${index} from ${JSON.stringify(pathToFileURL(agent.handler).href)}`),
     `installConsoleDevelopment(${JSON.stringify(projectRoot)}, ${JSON.stringify(development)})`,
@@ -251,6 +257,9 @@ function renderConsoleNitroPlugin(
     // The application module loads on the first document request, so the Console does not start Content at boot.
     ...(documentEditors.length
       ? [`installConsoleDocuments(${JSON.stringify(projectRoot)}, { ${documentEditors.map((editor, index) => `${JSON.stringify(editor.section)}: { actions: vitehubConsoleDocumentActions${index}, load: () => import(${JSON.stringify(pathToFileURL(editor.entry).href)}) }`).join(", ")} })`]
+      : []),
+    ...(documentEditors.some(editor => editor.section === "content")
+      ? ['registerContentMcpTools(() => loadConsoleDocumentActions("content"))']
       : []),
     ...(definitionsEnabled ? [`installConsoleDefinitions(${JSON.stringify(projectRoot)}, ${JSON.stringify(catalog.content)}, ${JSON.stringify(contributedSections)}${runtimeReaders.length ? `, { ${runtimeReaders.map((reader, index) => `${JSON.stringify(reader.section)}: vitehubConsoleRuntimeReader${index}`).join(", ")} }` : ""})`] : []),
     ...(schedulesEnabled ? [`installConsoleSchedules(${JSON.stringify(projectRoot)}, {${runnableSchedules}})`] : []),

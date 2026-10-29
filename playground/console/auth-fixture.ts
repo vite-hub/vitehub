@@ -91,7 +91,7 @@ const description: AuthConsoleDescription = {
     revokeSession: enabled,
     revokeSessions: enabled,
     editField: enabled,
-    impersonate: { enabled: false, reason: "Impersonation is disabled in this playground." },
+    impersonate: enabled,
     setRole: { enabled: false, reason: "Roles come from the app's administrator list." },
     revokeConsent: grantLimit,
   },
@@ -115,6 +115,31 @@ const description: AuthConsoleDescription = {
     },
   ],
 };
+// The playground root redirects to the Console, so a started impersonation shows the Console banner.
+let impersonating: { userId: string; expiresAt: string } | undefined;
+function impersonation(): AuthConsoleDescription["impersonation"] {
+  const user = users.find((user) => user.id === impersonating?.userId);
+  return {
+    duration: 3600,
+    active:
+      user && impersonating
+        ? {
+            user: { id: user.id, name: user.name, email: user.email, image: user.image },
+            expiresAt: impersonating.expiresAt,
+          }
+        : null,
+  };
+}
+function record(type: AuthEvent["type"], userId: string) {
+  events.unshift({
+    id: `${type}-${events.length}`,
+    type,
+    time: new Date().toISOString(),
+    actor: "user:user-0001",
+    userId,
+    metadata: {},
+  });
+}
 function page<T>(items: T[], query: AuthConsoleQuery = {}): AuthConsoleList<T> {
   const offset = query.offset ?? 0;
   const limit = query.limit ?? 25;
@@ -259,14 +284,32 @@ export function authFixture(input: unknown, eventsEnabled = true): unknown {
     id?: string;
     query?: AuthConsoleQuery;
     activity?: AuthConsoleActivityQuery;
-  } & AuthConsoleMutation;
+  } & (AuthConsoleMutation | { action: "stopImpersonating" });
   const user = users.find(
     (user) => user.id === ("userId" in command ? command.userId : command.id),
   );
   const query = command.query ?? {};
   switch (command.operation) {
     case "describe":
-      return { ...description, events: { enabled: eventsEnabled } };
+      return {
+        ...description,
+        events: { enabled: eventsEnabled },
+        actions: {
+          ...description.actions,
+          impersonate: impersonating
+            ? {
+                enabled: false,
+                reason: "This browser already impersonates a user. Stop impersonating first.",
+              }
+            : eventsEnabled
+              ? enabled
+              : {
+                  enabled: false,
+                  reason: "Add events.store to defineAuth() so that impersonation is recorded.",
+                },
+        },
+        impersonation: impersonation(),
+      };
     case "overview":
       return overview(eventsEnabled);
     case "activity":
@@ -304,6 +347,12 @@ export function authFixture(input: unknown, eventsEnabled = true): unknown {
           organizations: [
             { ...organizations[0], role: user.role === "admin" ? "owner" : "member" },
           ],
+          impersonation:
+            user.role === "admin"
+              ? { enabled: false, reason: "Better Auth does not impersonate administrators." }
+              : user.banned
+                ? { enabled: false, reason: "Better Auth does not open sessions for banned users." }
+                : enabled,
         };
       break;
     case "sessions":
@@ -346,6 +395,15 @@ export function authFixture(input: unknown, eventsEnabled = true): unknown {
     user.banReason = command.reason ?? null;
     for (let i = sessions.length - 1; i >= 0; i--)
       if (sessions[i]!.user.id === user.id) sessions.splice(i, 1);
+  } else if (command.action === "stopImpersonating" && impersonating) {
+    record("impersonation.stopped", impersonating.userId);
+    impersonating = undefined;
+  } else if (user && command.action === "impersonate" && !impersonating) {
+    impersonating = {
+      userId: user.id,
+      expiresAt: new Date(Date.now() + 3600_000).toISOString(),
+    };
+    record("impersonation.started", user.id);
   } else if (user && command.action === "unban") user.banned = false;
   else if (user && command.action === "editField" && command.field === "plan")
     user.fields.plan = command.value;

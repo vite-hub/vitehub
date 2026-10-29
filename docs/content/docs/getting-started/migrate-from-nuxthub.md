@@ -382,3 +382,8 @@ feature.
 
 - Give an Agent the same data with the [KV](/docs/kv/agent-capability), [Blob](/docs/blob/agent-capability), and [Database](/docs/database/agent-capability) Capabilities.
 - Read [Server primitives](/docs/getting-started/server-primitives) for Queue, Workflow, Schedule, Auth, and the other APIs that NuxtHub does not provide.
+
+## Related guides
+
+Read [ViteHub vs NuxtHub](/docs/compare/nuxthub) for the current scope and Nuxt
+compatibility requirements before choosing a migration.

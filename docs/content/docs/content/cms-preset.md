@@ -89,12 +89,11 @@ The build reads `server/content.ts` without running it. Import the preset from `
 
 ## GitHub store
 
-Set `store: 'github'` to keep documents in a Git repository instead of Blob and the Database. Published content is on one branch, drafts are on another, and a publish is a commit.
+Set `repo` to keep documents in a Git repository instead of Blob and the Database. Published content is on one branch, drafts are on another, and a publish is a commit. Choose this store when someone edits content files in a checkout: local edits and online edits then meet in Git. Without `repo`, files on collection paths are not the content; the Blob + Database store is, and it needs no GitHub access.
 
 ```ts [server/content.ts]
 export const content = defineContent({
   extends: [cms, {
-    store: 'github',
     repo: 'onmax/docs',
     branch: 'main',
     draftBranch: 'vitehub/content',
@@ -111,14 +110,15 @@ Set `VITEHUB_GITHUB_TOKEN` to a token that can read and write the repository. Th
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `repo` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. |
+| `repo` | `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` | The repository, as `owner/name`. Setting it selects the GitHub store. |
+| `store` | `github` with `repo`, else `blob-database` | Set `store: 'github'` only for a GitHub store that reads the repository from `VITEHUB_WORKSPACE_GITHUB_REPOSITORY`. |
 | `branch` | `main` | The published branch. `content.publish()` commits here. |
 | `draftBranch` | `vitehub/content` | The draft branch. The first save creates it from `branch`. It must differ from `branch`. |
 | `root` | `''` | The folder of the repository that collection paths start from. `''` is the repository root. |
 | `publish` | `commit` | How a publish reaches `branch`: `commit` commits to it, `pr` opens a pull request. See [Pull request mode](#pull-request-mode). |
 | `database` | The default or only Database | Database for editor sessions. |
 
-The options `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with `store: 'github'`. The `blob` option does not work with it.
+The options `repo`, `branch`, `draftBranch`, `root`, and `publish` work only with the GitHub store. The `blob` option does not work with it. The store comes only from these options, never from the environment, so every build of the app reads content from the same place.
 
 ### What is stored where
 
@@ -173,7 +173,7 @@ The preset works on every host where both [Blob](/docs/blob/hosts) and [Database
 
 | Code | Cause | What to do |
 | --- | --- | --- |
-| `CONTENT_B0001` | The build cannot read the preset selection: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a string literal or is not valid for its option, or a GitHub option is used without `store: 'github'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. |
+| `CONTENT_B0001` | The build cannot read the preset selection: `extends` is missing or built at runtime, the tuple is not `[cms, { ... }]`, an option is unknown, a value is not a string literal or is not valid for its option, or a GitHub option is used without `repo` or `store: 'github'`, or with `store: 'blob-database'`. | Pass `extends: cms` or `extends: [cms, { ... }]` with literal options that the message accepts. |
 | `CONTENT_R0006` | The same checks fail when `defineContent()` runs. | Fix the option that the message names. |
 | `CONTENT_R0016` | `content.schedule()` ran on a Workspace on the GitHub store. | Use `content.publish()`, or the Blob + Database store. |
 | `CONTENT_R0017` | `publish()` with `publish: 'pr'` named a document that an open publish pull request already covers. | Merge or close the pull request that the message names, then publish again. |
