@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
 import { readConsoleLocalDraft } from "../src/console/runtime/client/preview"
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
 
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
@@ -171,6 +172,37 @@ describe("Local only from a live room", () => {
     expect(apply.attributes("disabled")).toBeUndefined()
     // Nothing was published or saved from this tab.
     expect(client.save).not.toHaveBeenCalled()
+  })
+
+  it("names the digest the room save stored, so a draft saved after it makes Apply compare", async () => {
+    const moved: ConsoleDocument = { ...shared, body: "Saved by Ben after the room", digest: "ben-2" }
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      save: vi.fn(async () => {
+        throw new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: {} })
+      }),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection, documentId: "hello", setup: { live: { definition: "content" } } },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    // The room save stores room-1. Ben saves before this tab reads the draft again.
+    client.get.mockImplementation(async () => structuredClone(moved))
+    roomBody.value = "Typed in the room"
+    chooseLocal(wrapper)
+    await flushPromises()
+
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.base).toBe("room-1")
+    expect(wrapper.text()).toContain("Someone saved the shared draft after your local edits started")
+    await wrapper.findAll("button").find(button => button.attributes("data-label") === "Apply to shared draft")!.trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenCalledOnce()
+    expect(client.save.mock.calls[0]![2]).toMatchObject({ ifDigest: "room-1" })
+    // Nothing overwrote Ben's draft: the store refused the old digest, and the edits stay local.
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.body).toBe("Typed in the room")
   })
 
   it("starts unchanged when nothing was typed during the room save", async () => {

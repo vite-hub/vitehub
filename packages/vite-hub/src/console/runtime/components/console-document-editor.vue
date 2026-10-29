@@ -599,13 +599,16 @@ async function refreshState(): Promise<void> {
   }
 }
 
+/** The draft digest that the last room save of this tab stored. A read after it can already show a newer draft. */
+let roomSaved: string | null = null;
+
 /** Saves the live room now, such as for ⌘S or before Publish. Resolves whether the stored version is current. */
 async function saveLive(): Promise<boolean> {
   if (!live) return false;
   saving.value = true;
   saveError.value = undefined;
   try {
-    await live.save();
+    roomSaved = await live.save();
     await refreshState();
     return true;
   }
@@ -984,13 +987,16 @@ async function startLocal(): Promise<void> {
     await save();
     if (dirty.value || conflict.value || saveError.value) return;
   }
-  // The local edits start from the version the room saved, fields and body, and name its digest. Typing after the room
-  // took its save stays on screen as a local edit: the fields come from the room, the body from its editor.
+  // The local edits start from the version the room saved, fields and body, and name the digest the room save returned.
+  // When someone saved or deleted the draft after the room save, the read shows their version under another digest:
+  // Apply then compares instead of overwriting it. Typing after the room took its save stays on screen as a local edit:
+  // the fields come from the room, the body from its editor.
   const saved = base.value;
   if (!saved) return;
+  const savedDigest = inRoom ? roomSaved : saved.digest;
   const start: Version = inRoom ? { body: saved.body, data: clone(saved.data) } : { body: draft.value.body, data: clone(draft.value.data) };
   const onScreen: Version = { body: (inRoom ? await bodyEditor.value?.markdown() : undefined) ?? start.body, data: clone(draft.value.data) };
-  localBase.value = saved.digest;
+  localBase.value = savedDigest;
   localStart.value = clone(start);
   draft.value = onScreen;
   editing.value = "local";

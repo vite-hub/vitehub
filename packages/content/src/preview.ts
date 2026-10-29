@@ -916,7 +916,13 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           if (response.headersSent === true || !(response.end instanceof Function) || !(response.setHeader instanceof Function)) return result
           response.statusCode = 403
           for (const [name, value] of result.headers) Reflect.apply(response.setHeader, response, [name, value])
-          Reflect.apply(response.end, response, [await result.text()])
+          // The body of a form from another site is never read. Close the connection after the 403 instead of draining
+          // an upload that may be slow or large.
+          if (blocked) Reflect.apply(response.setHeader, response, ["connection", "close"])
+          const closeUnread = () => {
+            if (blocked && request.destroy instanceof Function) Reflect.apply(request.destroy, request, [])
+          }
+          Reflect.apply(response.end, response, [await result.text(), closeUnread])
         })()
       }
       // Route rule headers run inside the request, so mark the response private again just before it is sent.

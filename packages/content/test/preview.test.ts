@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { createServer } from "node:http"
+import { createServer, request as httpRequest } from "node:http"
 import type { AddressInfo } from "node:net"
 import { H3, redirect } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -571,6 +571,47 @@ describe("content preview", { timeout: 30_000 }, () => {
     await nitroApp.h3App.handler({ node: { req: foreign.request, res: foreignResponse } })
     expect(foreignResponse.statusCode).toBe(403)
     expect(foreign.read.chunks).toBe(0)
+    expect(handler).not.toHaveBeenCalled()
+  })
+
+  it("closes a Nitro 2 connection after refusing a slow upload from another site, without reading it", async () => {
+    const { content } = await setup()
+    const handler = vi.fn(async () => undefined)
+    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
+    defineContentPreviewPlugin(content)(nitroApp)
+    let serverRequest: import("node:http").IncomingMessage | undefined
+    // SAFETY: The plugin replaced the handler with one that takes an h3 v1 event.
+    const server = createServer((req, res) => {
+      serverRequest = req
+      void (nitroApp.h3App.handler as (event: unknown) => Promise<unknown>)({ node: { req, res } })
+    })
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
+    const { port } = server.address() as AddressInfo
+    // A chunked upload that never ends on its own: 16 KiB every 10 ms.
+    const outcome = await new Promise<{ status?: number, closed: boolean, sentKiB: number }>((resolve) => {
+      let sent = 0
+      let status: number | undefined
+      const upload = httpRequest({ host: "127.0.0.1", port, method: "POST", path: `/blog/hello?${contentPreviewFrameParameter}`, headers: { "transfer-encoding": "chunked", "sec-fetch-site": "cross-site" } }, (response) => {
+        status = response.statusCode
+        response.resume()
+      })
+      const timer = setInterval(() => {
+        sent += 16
+        upload.write(new Uint8Array(16 * 1024))
+      }, 10)
+      const done = (closed: boolean) => {
+        clearInterval(timer)
+        upload.destroy()
+        resolve({ status, closed, sentKiB: sent })
+      }
+      upload.on("close", () => done(true))
+      upload.on("error", () => undefined)
+      setTimeout(() => done(false), 3000)
+    })
+    expect(outcome.status).toBe(403)
+    expect(outcome.closed).toBe(true)
+    expect(serverRequest?.destroyed).toBe(true)
     expect(handler).not.toHaveBeenCalled()
   })
 
