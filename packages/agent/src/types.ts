@@ -1,3 +1,4 @@
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import type { AgentActivity, Message, StreamEvent } from "./messages.ts"
 import type { AiGateway, AskAnswerType, AskQuestion } from "@vite-hub/gateways"
 import type { AgentRunEventPublisher, AgentRunEvents } from "./run-events.ts"
@@ -1827,7 +1828,7 @@ export interface AgentProviderDriverOptions<
    * ViteHub writes the provider configuration and passes the key and headers in the provider environment.
    * A gateway replaces Codex `credentials`.
    */
-  gateway?: AiGateway
+  gateway?: AiGateway | ChatGPTGateway
   instructions?: AgentAdapterInstructions<TRuntimeConfig>
   launch?: AgentProviderLaunchResolver<TRuntimeConfig>
   model?: string
@@ -2626,7 +2627,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   wrapUp?: false | AgentChatWrapUpOptions
   /** IANA time zone for the send time in each message header that the model reads. Defaults to `"UTC"`. An invalid value uses UTC. */
   timeZone?: string
-  transcripts?: TranscriptsConfig
+  /**
+   * Keep every inbound and outbound message of the Channel in Chat SDK's transcript store. It is on when the Agent State
+   * is durable, and `false` turns it off. A config sets `maxPerUser`, `retention`, and `storeFormatted`.
+   */
+  transcripts?: false | TranscriptsConfig
   triggerHistory?: AgentChatTriggerHistory
   userName?: string
   [key: string]: unknown
@@ -2862,6 +2867,8 @@ export interface AgentChannelDefinition<TRuntimeConfig extends AgentRuntimeConfi
   message?: AgentChannelMessageDefinition<TRuntimeConfig>
   messages?: false | AgentMessageChannelSettings<TRuntimeConfig>
   route?: unknown
+  /** Same as `messages.transcripts`, for this Channel. */
+  transcripts?: false | TranscriptsConfig
   triggers?: Record<string, AgentChannelTriggerDefinition<TRuntimeConfig, any, any>>
   webhooks?: boolean | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig> | AgentChannelWebhookRegistrationDefinition<TRuntimeConfig>[]
 }

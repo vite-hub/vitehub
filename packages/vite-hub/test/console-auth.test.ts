@@ -263,7 +263,7 @@ describe("independent Console Auth", () => {
 
       // Every stateless Console call carries the session cookie and is authorized on its own.
       const rpcCall = (headers: Record<string, string>) => new Request("https://example.com/portal/_vitehub/rpc/__call", {
-        body: JSON.stringify({ method: "vitehub:console:sections" }),
+        body: JSON.stringify({ operation: "sections.list" }),
         headers: { "content-type": "application/json", ...headers },
         method: "POST",
       })
@@ -589,6 +589,8 @@ describe("independent Console Auth", () => {
       const options = definition.options({ env: {}, requestOrigin: "http://internal.example.com", request })
       if (!(options.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
       database = options.database
+      // Inline Console Auth needs a file. Without fsync, its migrations take milliseconds instead of seconds on a busy disk.
+      database.exec("PRAGMA synchronous = OFF")
       await prepareConsoleAuth(input, definition, request)
       const response = await requireAuthAccessRoutes(request, [0], definition, [0])
       expect(response?.status).toBe(302)

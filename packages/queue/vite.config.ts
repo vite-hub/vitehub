@@ -14,6 +14,7 @@ export default defineConfig({
     entry: [
       "src/index.ts",
       "src/nuxt.ts",
+      "src/operations.ts",
       "src/vite.ts",
       "src/internal/runtime/cloudflare-client.ts",
       "src/internal/runtime/cloudflare-vite.ts",

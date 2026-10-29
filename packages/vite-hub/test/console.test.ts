@@ -493,7 +493,6 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         blobStores: ["default", "archive"],
         console: { auth: false, authorize: hostManagedAuthorize },
-        kvStores: ["default", "cache"],
         preset: "node",
         sections: ["agents", "usage", "blob", "kv"],
       })
@@ -540,9 +539,7 @@ describe("Agent invocation console", () => {
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
         `installConsoleBlob(${JSON.stringify(root)}, vitehubConsoleBlob, ["default","archive"])`,
       )
-      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(
-        `installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`,
-      )
+      await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.not.toContain("installConsoleKV")
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`from "file://`)
     }
     finally {
@@ -681,7 +678,7 @@ describe("Agent invocation console", () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-resolved-base-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize }, preset: "node", sections: ["agents", "usage"] })
+      const plugin = consoleVitePlugin({ console: { auth: false, authorize: hostManagedAuthorize, signInPage: "/sign-in" }, preset: "node", sections: ["agents", "usage"] })
       const configHook = plugin.config
       const configResolvedHook = plugin.configResolved
       if (!configHook || !configResolvedHook) throw new TypeError("Expected Console Vite hooks.")
@@ -695,6 +692,8 @@ describe("Agent invocation console", () => {
       await Reflect.apply(configResolvedHandler, {}, [resolvedConfig])
 
       expect(resolvedConfig.nitro?.handlers.map(handler => handler.route)).toEqual([
+        "/portal/_vitehub/**",
+        "/portal/_vitehub",
         "/portal/api/_vitehub/console/status",
         "/portal/api/_vitehub/console/usage",
         "/portal/_vitehub",
@@ -740,7 +739,7 @@ describe("Agent invocation console", () => {
         blobStores: ["default", "archive"],
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["blob"],
       })
       const configHook = plugin.config
@@ -786,7 +785,7 @@ describe("Agent invocation console", () => {
         blobStores: ["default"],
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["blob"],
       })
       const config = {
@@ -814,7 +813,6 @@ describe("Agent invocation console", () => {
       await writeFile(join(root, "hidden.agent.ts"), "export default {}\n")
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
-        kvStores: ["default"],
         preset: "cloudflare",
         sections: ["kv"],
       })
@@ -835,7 +833,7 @@ describe("Agent invocation console", () => {
       expect(generated).not.toContain(`from "vite-hub/console/server"`)
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
       expect(generated).not.toContain("installConsoleInvocations")
-      expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default"])`)
+      expect(generated).not.toContain("installConsoleKV")
       expect(generated).not.toContain("hidden.agent")
     } finally {
       await rm(root, { force: true, recursive: true })
@@ -849,7 +847,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: kv => kv ? ["default", "cache"] : false,
+        resolveKV: kv => Boolean(kv),
       })
       const config: {
         kv?: unknown
@@ -864,7 +862,7 @@ describe("Agent invocation console", () => {
       expect(config.nitro?.handlers.map(handler => handler.route)).toContain("/_vitehub/rpc/**")
       const generated = await readFile(config.nitro!.plugins[0]!, "utf8")
       expect(generated).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)
-      expect(generated).toContain(`installConsoleKV(${JSON.stringify(root)}, vitehubConsoleKV, ["default","cache"])`)
+      expect(generated).not.toContain("installConsoleKV")
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -908,7 +906,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["queues"],
       })
       const config: {
@@ -976,7 +974,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["workspaces"],
       })
       const configHook = plugin.config
@@ -1013,7 +1011,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["databases"],
       })
       const configHook = plugin.config
@@ -1068,7 +1066,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["queues"],
       })
       const configHook = plugin.config
@@ -1121,7 +1119,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["rate-limits"],
       })
       const configHook = plugin.config
@@ -1169,7 +1167,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["rate-limits"],
       })
       const config: {
@@ -1209,7 +1207,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["schedules"],
       })
       const configHook = plugin.config
@@ -1306,7 +1304,7 @@ describe("Agent invocation console", () => {
         console: { auth: false, authorize: hostManagedAuthorize },
         databaseDiscoveryRoot: "packages/api",
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["databases"],
       })
       const config: { database?: object; nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
@@ -1336,7 +1334,7 @@ describe("Agent invocation console", () => {
         preset: "cloudflare",
         rateLimitDiscoveryRoot: "packages/rate-limit",
         rateLimitScanDirs: ["policies"],
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["databases", "rate-limits", "workspaces"],
         workspaceDiscoveryRoot: "packages/workspace",
       })
@@ -1370,7 +1368,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["sandbox-tasks", "workspaces"],
       })
       const config: {
@@ -1403,7 +1401,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["databases", "sandbox-tasks", "workspaces"],
       })
       const config: {
@@ -1441,7 +1439,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["rate-limits", "sandbox-tasks", "schedules"],
       })
       const config: { nitro?: { plugins: string[] }; root: string } = { root: viteRoot }
@@ -1473,7 +1471,7 @@ describe("Agent invocation console", () => {
       const plugin = consoleVitePlugin({
         console: { auth: false, authorize: hostManagedAuthorize },
         preset: "cloudflare",
-        resolveKVStores: () => false,
+        resolveKV: () => false,
         sections: ["sandbox-tasks"],
       })
       const configHook = plugin.config

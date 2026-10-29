@@ -74,6 +74,7 @@ export type { NormalizedRetention, RetentionSizeLimit } from "./internal/retenti
 import type { Plugin, ResolvedConfig, UserConfig, ViteDevServer } from "vite"
 import type { ProviderDeploymentOutputWriter, ProviderOutputCatalog } from "@vite-hub/internal/build/deployment-output"
 import type { ViteHubDefinitionSummary, ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { CloudflareAgentStateMigration, CloudflareAgentStateRollupTarget, CloudflareAgentStateTarget } from "./cloudflare.ts"
 import type { AgentModuleOptions, DiscoveredAgentDefinition, ResolvedAgentModuleOptions } from "./types.ts"
 import { agentDiagnostics } from "./agent-diagnostics.ts"
@@ -84,6 +85,7 @@ interface AgentCliContributingPlugin {
       transformWorkflowRegistry: (code: string, id: string) => string
     }
     cli?: unknown
+    operations?: OperationContributions
     providerOutput?: {
       prepareSources: (sources: { resolve: (path: string) => string }) => Promise<void>
     }
@@ -1717,6 +1719,29 @@ function generatedWebhookWarmupHelper(routeCapabilities: { requestOption: string
   ]
 }
 
+/**
+ * Lets the Console read Channel conversations through the same handlers, State, and identities as the webhook routes. A
+ * Durable Object State needs the Cloudflare environment of the call, which the Console passes in.
+ */
+function generatedChannelsConsoleHost(routeCapabilities: { requestOption: string }, runtimeRouteOption = "", cloudflare = false): string[] {
+  return [
+    "installChannelsConsoleHost({",
+    "  agents,",
+    "  handlers: webhookHandlers,",
+    ...(cloudflare
+      ? [
+          "  options: (name, env) => {",
+          "    const cloudflare = env ? { env } : undefined",
+          "    const state = chatStateFromCloudflare(cloudflare)",
+          `    return { agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}cloudflare, state, webhookState: state }`,
+          "  },",
+        ]
+      : [`  options: name => ({ agentIdentity: agentIdentities[name]${runtimeRouteOption}, ${routeCapabilities.requestOption}state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),`]),
+    "})",
+    "",
+  ]
+}
+
 function generatedNetlifyRuntimeHelpers(): string[] {
   return [
     "function waitUntilFromContext(context) {",
@@ -2033,7 +2058,8 @@ async function generateAgentWebhookRouteHandler(
       : []),
     ...(options.libsqlState ? [`import { createLibsqlAgentState } from ${JSON.stringify(subpath(agentImportBase, "state/sqlite"))}`] : []),
     ...(options.processDiscordGateway ? [`import { createDiscordGatewayRouteHandler } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
-    ...(options.libsqlState ? [`import { createAgentWebhookWarmup } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.libsqlState ? [`import { createAgentWebhookWarmup, installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
+    ...(options.cloudflareState && !options.libsqlState ? [`import { installChannelsConsoleHost } from ${JSON.stringify(subpath(agentImportBase, "server/internal"))}`] : []),
     ...workflowRuntime.imports,
     ...workspaceDependencyRuntime.imports,
     ...routeCapabilities.imports,
@@ -2063,6 +2089,7 @@ async function generateAgentWebhookRouteHandler(
     ...routeCapabilities.setup,
     ...(options.libsqlState ? generatedWebhookQueueResumeHelper(routeCapabilities, true, runtimeRouteOption) : []),
     ...(options.libsqlState ? generatedWebhookWarmupHelper(routeCapabilities, runtimeRouteOption) : []),
+    ...(options.libsqlState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption) : options.cloudflareState ? generatedChannelsConsoleHost(routeCapabilities, runtimeRouteOption, true) : []),
     ...(options.processDiscordGateway
       ? [
           "function hasDiscordGatewayChannel(agent: unknown): boolean {",
@@ -3011,17 +3038,21 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
 
   return {
     name: "@vite-hub/agent/vite",
-    async resolveId(source, importer, options) {
-      if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
-        // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
-        // optional package and its unresolved virtual config out of unrelated Agent builds.
-        if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
-        return
-      }
-      if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
-      // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
-      // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
-      return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
+    resolveId: {
+      // Run before Vite resolves installed optional peers to absolute module paths.
+      order: "pre",
+      async handler(source, importer, options) {
+        if (source === "@vite-hub/kv" && isAgentPackageImporter(importer)) {
+          // Configured KV must bundle with the host's virtual config. Without hubKv(), keep the
+          // optional package and its unresolved virtual config out of unrelated Agent builds.
+          if (!resolved?.plugins.some(plugin => plugin.name === "@vite-hub/kv/vite")) return { external: true, id: source }
+          return
+        }
+        if (source !== optionalAskDriverPeer || !isAgentPackageImporter(importer)) return
+        // The ask Driver imports this optional peer lazily. Keep it external when the application does not install it,
+        // so Agents without driver.ask still build. An ask Driver then reports the missing package when it runs.
+        return await this.resolve(source, importer, { ...options, skipSelf: true }) ?? { external: true, id: source }
+      },
     },
     async configureServer(server) {
       const clearUnlinkedEveExtensionOwnership = (file: string) => clearEveExtensionOwnership(file.replace(/\\/g, "/"))
@@ -3191,6 +3222,10 @@ export function hubAgent(options?: AgentModuleOptions): AgentVitePlugin {
       }
     },
     vitehub: {
+      // The Console, `vitehub channels`, and agents run these. The app imports them through `vite-hub`.
+      operations: () => agent === false
+        ? []
+        : [{ export: "agentChannelOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).agentChannelOperations, module: "@vite-hub/agent/operations" }],
       providerOutput: {
         async prepareSources(sources) {
           if (agent === false || !resolved) return

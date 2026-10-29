@@ -72,6 +72,11 @@ export function viteHubPageSessionUrl(loaderUrl: string): string {
   return index === -1 ? viteHubPageSessionPath : `${path.slice(0, index)}${viteHubPageSessionPath}`
 }
 
+/** Mount a page-tools URL under the application path, ignoring Vite asset bases such as CDN URLs. */
+export function viteHubPageToolsPath(path: string, base = ""): string {
+  return base.startsWith("/") && !base.startsWith("//") ? `${base.replace(/\/+$/, "")}${path}` : path
+}
+
 /** One tool that the visitor may use, as the session route returns it. */
 export interface ViteHubPageToolInfo {
   /** The owner, such as `comments`. It also names the tool's segment in the pill. */

@@ -295,7 +295,7 @@ describe("host documentation fixtures", () => {
       .sort()
 
     expect(builtHosts).toEqual([...hostFixtures].sort())
-    expect(contracts.filter(contract => contract.verification === "json")).toHaveLength(1)
+    expect(contracts.filter(contract => contract.verification === "json")).toHaveLength(3)
     expect(contracts.every(contract => !contract.fixture.startsWith("../") && !contract.page.startsWith("../"))).toBe(true)
 
     for (const contract of contracts.filter(contract => contract.verification === "json")) {

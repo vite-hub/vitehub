@@ -4,16 +4,21 @@ import { describe, expect, it } from "vitest"
 
 import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHtml } from "../src/build/page-tools.ts"
 import { createNitroServerKit } from "../src/nitro-kit.ts"
+import { VITEHUB_APP_BASE_URL } from "../src/build/vite.ts"
 
 describe("addViteHubPageToolRoutes", () => {
-  it("adds the session route and the loader asset once, for the first owner package", () => {
+  it.each([
+    { mount: "" },
+    { mount: "/portal" },
+    { mount: "" },
+  ])("adds the session route and the loader asset once, for the first owner package: %j", ({ mount }) => {
     const kit = createNitroServerKit({ publicAssets: [{ baseURL: "/assets", dir: "/app/public" }] })
-    addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page" })
-    addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page" })
-    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: "/_vitehub/page/session" }])
+    addViteHubPageToolRoutes(kit, { handler: "/a/page-session.mjs", loader: "/a/dist/page", mount })
+    addViteHubPageToolRoutes(kit, { handler: "/b/page-session.mjs", loader: "/b/dist/page", mount })
+    expect(kit.config.handlers).toEqual([{ handler: "/a/page-session.mjs", route: `${mount}/_vitehub/page/session` }])
     expect(kit.config.publicAssets).toEqual([
       { baseURL: "/assets", dir: "/app/public" },
-      { baseURL: "/_vitehub/page/assets", dir: "/a/dist/page", maxAge: 300 },
+      { baseURL: `${mount}/_vitehub/page/assets`, dir: "/a/dist/page", maxAge: 300 },
     ])
   })
 })
@@ -29,6 +34,7 @@ describe("viteHubPageToolsBase", () => {
     expect(viteHubPageToolsBase({ base: "/a/b/", nitro: { baseURL: "/a/" } }, {})).toEqual({ base: "/a/b", mount: "/b" })
     // Nuxt: the module sets ViteHub's app base constant, and Nitro serves below `app.baseURL`.
     expect(viteHubPageToolsBase({ define: { __VITEHUB_APP_BASE_URL__: "\"/docs/\"" }, nitro: { baseURL: "/docs/" } }, {})).toEqual({ base: "/docs", mount: "" })
+    expect(viteHubPageToolsBase({ base: "/_nuxt/", [VITEHUB_APP_BASE_URL]: "/docs/", nitro: { baseURL: "/docs/" } }, {})).toEqual({ base: "/docs", mount: "" })
   })
 
   it("adds the routes below the mount", () => {

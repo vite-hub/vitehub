@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest"
 import { agentEnvAccess } from "../../env/test/agent-access.ts"
 
 import { createConnectionsCliContributor, runConnectionsCli } from "../src/cli.ts"
+import { defineConnection } from "../src/definition.ts"
 import { createConnectionsHandler } from "../src/http.ts"
-import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN } from "./helpers.ts"
+import { ACCESS_TOKEN, connect, createTestRuntime, REFRESH_TOKEN, testProvider } from "./helpers.ts"
 
 function cli(test = createTestRuntime()) {
   const handler = createConnectionsHandler({ actor: () => "user:local", runtime: () => test.runtime })
@@ -13,7 +14,7 @@ function cli(test = createTestRuntime()) {
     stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
     stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
   }
-  const options = { fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
+  const options = { openBrowser: false as const, fetch: (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => handler(new Request(input, init))) as typeof fetch, timeout: 5 }
   return {
     output,
     run: (command: string, args: string[] = []) => runConnectionsCli(command, args, context, options),
@@ -30,7 +31,7 @@ describe("vitehub connections", () => {
   it("contributes the connections namespace", () => {
     const [namespace] = createConnectionsCliContributor().namespaces
     expect(namespace?.name).toBe("connections")
-    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "set-key", "activity", "approvals", "revoke"])
+    expect(namespace?.features.map(feature => feature.name)).toEqual(["list", "inspect", "connect", "export", "import", "models", "set-key", "activity", "approvals", "revoke"])
   })
 
   it("connects through a loopback callback", async () => {
@@ -51,6 +52,18 @@ describe("vitehub connections", () => {
     expect(await done).toBe(0)
     expect(JSON.parse(harness.output.stdout)).toMatchObject({ account: { email: "owner@example.com" }, status: "connected" })
     expect(harness.output.stdout + harness.output.stderr).not.toContain(ACCESS_TOKEN)
+  })
+
+  it.each(["list", "inspect"])("preserves public OAuth metadata in JSON %s", async (command) => {
+    const harness = cli(createTestRuntime(async () => defineConnection({ provider: { ...testProvider(), mcp: "https://mcp.example.com/mcp" }, scopes: [] })))
+    await connect(harness.test)
+    const expected = await harness.test.runtime.inspect("mail")
+    expect(expected).toMatchObject({ mcp: "https://mcp.example.com/mcp", connectedAt: expect.any(String), refreshedAt: expect.any(String) })
+    expect(await harness.run(command, [...(command === "inspect" ? ["mail"] : []), "--json"])).toBe(0)
+    const output = JSON.parse(harness.output.stdout)
+    expect(command === "list" ? output[0] : output).toEqual(expected)
+    expect(harness.output.stdout).not.toContain(ACCESS_TOKEN)
+    expect(harness.output.stdout).not.toContain(REFRESH_TOKEN)
   })
 
   it("prints the Console connect URL for a deployed app", async () => {
@@ -141,7 +154,7 @@ describe("vitehub connections", () => {
       stderr: { write: (chunk: string | Uint8Array) => (output.stderr += String(chunk)) },
       stdout: { write: (chunk: string | Uint8Array) => (output.stdout += String(chunk)) },
     }
-    const options = { fetch: async () => Response.json({ connections: [{ name: "mail" }] }) }
+    const options = { openBrowser: false as const, fetch: async () => Response.json({ connections: [{ name: "mail" }] }) }
     expect(await runConnectionsCli("list", [], context, options)).toBe(1)
     expect(output.stderr).toContain("invalid Connections response")
     expect(output.stdout).toBe("")
