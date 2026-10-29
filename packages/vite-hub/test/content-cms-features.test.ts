@@ -35,3 +35,32 @@ export const content = defineContent({ extends: [cms, { store: '${store}' }] })`
   expect(selected).toEqual(expected)
   expect(config.plugins.some(plugin => plugin.name === "blob-service")).toBe(store !== "github")
 })
+
+it.each([undefined, "github", "blob-database"] as const)("enables comments with the %s CMS store", async store => {
+  const root = await mkdtemp(join(tmpdir(), "vitehub-comments-features-"))
+  roots.push(root)
+  await mkdir(join(root, "server"))
+  await writeFile(join(root, "server/comments.ts"), "export default defineComments({})")
+  if (store) await writeFile(join(root, "server/content.ts"), `import { defineContent } from '@vite-hub/content'
+import { cms } from '@vite-hub/content/presets/cms'
+export const content = defineContent({ extends: [cms, { store: '${store}' }] })`)
+  const expected = { blob: store === "blob-database" ? true : undefined, database: true, workspace: store ? true : undefined }
+  expect(resolveCmsPresetFeatures({}, { projectRoot: root })).toEqual(expected)
+  expect(resolveCmsPresetFeatures({ database: false }, { projectRoot: root })).toEqual({ ...expected, database: false })
+  const options = { blob: undefined, database: undefined, workspace: undefined }
+  let selected: typeof options | undefined
+  const config = await resolveConfig({
+    root,
+    configFile: false,
+    plugins: withCmsPresetPlugins(options, resolved => [
+      { name: "selected-services", config: () => { selected = resolved } },
+      ...(resolved.database ? [{ name: "database-service" }] : []),
+      ...(resolved.blob ? [{ name: "blob-service" }] : []),
+      ...(resolved.workspace ? [{ name: "workspace-service" }] : []),
+    ]),
+  }, "build")
+  expect(selected).toEqual(expected)
+  expect(config.plugins.some(plugin => plugin.name === "database-service")).toBe(true)
+  expect(config.plugins.some(plugin => plugin.name === "blob-service")).toBe(store === "blob-database")
+  expect(config.plugins.some(plugin => plugin.name === "workspace-service")).toBe(Boolean(store))
+})

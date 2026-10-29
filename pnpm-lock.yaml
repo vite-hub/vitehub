@@ -1326,6 +1326,12 @@ importers:
 
   packages/comments:
     dependencies:
+      '@standard-schema/spec':
+        specifier: catalog:runtime
+        version: 1.1.0
+      '@valibot/to-json-schema':
+        specifier: catalog:runtime
+        version: 1.8.0(valibot@1.5.0(typescript@6.0.3))
       '@vite-hub/auth':
         specifier: workspace:*
         version: link:../auth
@@ -2738,12 +2744,12 @@ importers:
       '@vite-hub/cli':
         specifier: workspace:*
         version: link:../cli
-      '@vite-hub/connections':
-        specifier: workspace:*
-        version: link:../connections
       '@vite-hub/comments':
         specifier: workspace:*
         version: link:../comments
+      '@vite-hub/connections':
+        specifier: workspace:*
+        version: link:../connections
       '@vite-hub/content':
         specifier: workspace:*
         version: link:../content

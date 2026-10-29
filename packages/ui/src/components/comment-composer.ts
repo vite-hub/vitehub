@@ -22,6 +22,8 @@ export interface CommentComposerSubmit {
 interface MentionMenu {
   /** Where the `@` sits in the text. */
   start: number;
+  /** Text through the caret when the lookup started. */
+  before: string;
   items: CommentUser[];
   index: number;
 }
@@ -146,6 +148,10 @@ export const CommentComposer = defineComponent({
       const field = textarea();
       const current = menu.value;
       if (!field || !current) return;
+      if (field.selectionStart !== field.selectionEnd || field.value.slice(0, field.selectionStart) !== current.before) {
+        menu.value = null;
+        return;
+      }
       const caret = field.selectionStart;
       const insert = `@${displayName(person)} `;
       const next = props.modelValue.slice(0, current.start) + insert + props.modelValue.slice(caret);
@@ -166,7 +172,7 @@ export const CommentComposer = defineComponent({
       const search = props.users;
       const before = field.value.slice(0, field.selectionStart);
       const match = /(^|\s)@([^\s@]*)$/.exec(before);
-      if (!search || !match) {
+      if (!search || !match || field.selectionStart !== field.selectionEnd) {
         menu.value = null;
         return;
       }
@@ -174,7 +180,8 @@ export const CommentComposer = defineComponent({
       const items = await search(match[2]!).catch(() => []);
       checkSelection();
       if (run !== lookup) return;
-      menu.value = items.length > 0 ? { index: 0, items, start } : null;
+      const sameToken = field.selectionStart === field.selectionEnd && field.value.slice(0, field.selectionStart) === before;
+      menu.value = sameToken && items.length > 0 ? { before, index: 0, items, start } : null;
     }
 
     function submit(payload: PromptInputSubmit) {
@@ -184,7 +191,7 @@ export const CommentComposer = defineComponent({
         const name = nameOf(id);
         if (name === undefined) return false;
         const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        return new RegExp(`@${escaped}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "u").test(payload.text);
+        return new RegExp(`(^|[^\\p{L}\\p{N}\\p{M}_])@${escaped}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "iu").test(payload.text);
       });
       emit("submit", { body: payload.text, mentions: [...mentions] } satisfies CommentComposerSubmit);
     }
