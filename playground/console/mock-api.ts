@@ -46,6 +46,7 @@ const sections = [
   "connections",
   "agents",
   "usage",
+  "mcp-client",
   "blob",
   "databases",
   "email",

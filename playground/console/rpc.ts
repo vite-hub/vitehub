@@ -3,6 +3,7 @@ import type { Plugin } from "vite"
 
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
+import { mcpClientFixture } from "./mcp-client-fixture.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
 
@@ -31,6 +32,8 @@ const fixtureRoutes: Record<string, string> = {
 
 // Map one Console call to the synthetic HTTP route that serves its fixture data.
 export async function callConsoleFixture(origin: string, payload: { input?: Record<string, unknown>; operation: string }, cookie?: string): Promise<ConsoleRpcResult> {
+  // The MCP client keeps its connections in this process, so its fixture answers here, not over HTTP.
+  if (payload.operation.startsWith("mcp-client.")) return mcpClientFixture(origin, payload, cookie)
   const input = payload.input ?? {}
   let route = fixtureRoutes[payload.operation]
   let method = "GET"

@@ -190,3 +190,40 @@ it("forwards failure cookies while translating write operations to fixture reque
     method: "POST",
   })
 })
+
+it("serves the MCP client from a stateful fixture, with sign-in, Run as, and the shared session", async () => {
+  const origin = "http://localhost:5173"
+  type Answer = { ok: boolean, value: Record<string, unknown> & { connections?: Array<Record<string, unknown>> } }
+  const call = async (operation: string, input: Record<string, unknown> = {}, cookie?: string) => await callConsoleFixture(origin, { input, operation }, cookie) as Answer
+  const overview = await call("mcp-client.list")
+  expect(overview.value.sharedSession).toBe(false)
+  expect(overview.value.servers).toEqual([
+    { authorizationServer: `${origin}/api/auth`, label: "Northwind Ledger", url: `${origin}/mcp` },
+    { auth: "console", label: "ViteHub MCP", url: `${origin}/_vitehub/mcp` },
+  ])
+  expect(overview.value.connections?.map(connection => [connection.label, connection.auth, connection.status])).toEqual([
+    ["Maxi García", "oauth", "connected"],
+    ["Lucía Romero", "oauth", "connected"],
+    ["Lucía (API key)", "bearer", "connected"],
+    ["Sam Rivera", "oauth", "signed-out"],
+    ["You", "console", "connected"],
+    ["docs.example.com/mcp", "none", "connected"],
+  ])
+  expect((await call("mcp-client.list", {}, "playground-mcp=shared")).value.sharedSession).toBe(true)
+
+  // Run as: the same call through two accounts sees different private accounts.
+  const finances = async (id: string) => JSON.stringify((await call("mcp-client.call", { arguments: { scope: "household" }, id, tool: "get_finances" })).value.result)
+  expect(await finances("mcp_maxi")).toContain("Maxi savings")
+  expect(await finances("mcp_lucia")).toContain("Lucía card")
+  expect(await finances("mcp_lucia")).not.toContain("Maxi savings")
+  expect((await call("mcp-client.items", { id: "mcp_sam", kind: "tools" })).ok).toBe(false)
+
+  // Sign in as someone else: the fixture sends the browser to the callback page, which finishes the sign-in.
+  const started = await call("mcp-client.connect", { prompt: "login", server: "/mcp" })
+  const callback = new URL(String(started.value.authorizationUrl))
+  expect(callback.pathname).toBe("/_vitehub/mcp-client/callback")
+  const completed = await call("mcp-client.complete", { code: "playground", state: callback.searchParams.get("state") })
+  expect(completed.value).toMatchObject({ label: "Sam Rivera", status: "connected" })
+  await call("mcp-client.disconnect", { id: completed.value.id })
+  expect((await call("mcp-client.list")).value.connections).toHaveLength(6)
+})
