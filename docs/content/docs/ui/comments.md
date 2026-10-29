@@ -150,6 +150,7 @@ The overlay of a page. Renders a `div` with `data-slot="comment-layer"`. Give it
 | `comments` | `CommentsState` | None | A state from `useComments()`, instead of `client` and `subject`. |
 | `people` | `AvatarStackPerson[]` | `[]` | The people on the page. The toolbar shows them in an [Avatar Stack](/docs/ui/avatar-stack). |
 | `hotkey` | `string \| false` | `"c"` | The key of comment mode. |
+| `readOnly` | `boolean` | `false` | Hide reply, edit, delete, and status controls in threads. |
 | `subjectUrl` | `(subject: CommentSubject) => string \| undefined` | None | The URL of the page of a subject, for the links of threads that are not page threads. |
 | `navigate` | `(href: string) => void` | `location.assign` | Goes to the page of a thread that the list shows. |
 
@@ -189,6 +190,7 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 | `thread` | `CommentThread` | Required | The thread. |
 | `user` | `CommentUser` | None | The signed-in user. Their messages can be edited and deleted. |
 | `preview` | `boolean` | `false` | A read-only card with the comment and the reply count. |
+| `readOnly` | `boolean` | `false` | Keep the full thread readable without reply, edit, delete, or status controls. |
 | `busy` | `boolean` | `false` | Show a reply as being sent, on top of the thread's own tracking. |
 | `error` | `string` | None | An error to show, on top of the ones from the handlers. |
 | `detached` | `boolean` | `false` | The place of the thread is no longer on the page. |
