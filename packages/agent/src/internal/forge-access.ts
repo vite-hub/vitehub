@@ -148,6 +148,7 @@ export function workspaceGitHubRepositories(definition: WorkspaceDefinition | un
   }
   const repositories: string[] = []
   for (const { source } of sources) {
+    if (source.name !== "github") continue
     const fingerprint = source.fingerprint
     if (!isRuntimeRecord(fingerprint)) continue
     const resolved = isRuntimeRecord(fingerprint.sourceResolution) && isRuntimeRecord(fingerprint.source) ? fingerprint.source : fingerprint

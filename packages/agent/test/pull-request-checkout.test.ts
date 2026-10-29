@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { github } from "@vite-hub/workspace"
 import type { WorkspaceDefinition } from "@vite-hub/workspace"
+import { resolveWorkspaceSources } from "@vite-hub/workspace/runtime"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { forgeAccessKey, forgeGitEnvironment, forgeGitScope } from "../src/internal/forge-access.ts"
@@ -165,6 +166,47 @@ describe("pull request checkout", () => {
     expect(await header("https://github.com/quiverdk/ingestion.git/info/refs")).toBe(basic("ingestion-token"))
     expect(await header("https://github.com/other/private.git/info/refs")).toBe("")
     expect(await header("https://github.com/quiverdk/k8s.git/info/refs")).toBe("")
+  })
+
+  it.each([false, true])("uses only effective GitHub Sources for credentials (resolved: %s)", async (resolved) => {
+    const custom = {
+      name: "custom",
+      fingerprint: { repo: "owner/custom" },
+      async getKeys() { return [] },
+      async getItem() { throw new Error("unused") },
+    }
+    const definition = {
+      name: "review",
+      sources: {
+        direct: github({ repo: "owner/direct" }),
+        inferred: { repo: "owner/inferred" },
+        bound: { source: github({ repo: "owner/bound" }), mount: "docs" },
+        dynamic: github(() => ({ repo: "owner/dynamic" })),
+        custom,
+        boundCustom: { source: custom, mount: "custom-docs" },
+        dynamicCustom: { ...custom, async resolve() { return custom } },
+      },
+    }
+    const workspace = resolved
+      ? await resolveWorkspaceSources(definition, {
+          invocation: {
+            context: {
+              entries: () => new Map<string, unknown>().entries(),
+              get: () => undefined,
+              has: () => false,
+              toJSON: () => ({}),
+            },
+          },
+        })
+      : definition
+    const scope = forgeGitScope({ get: () => undefined }, workspace)
+    const repositories = ["owner/bound", "owner/direct", "owner/inferred", ...(resolved ? ["owner/dynamic"] : [])].sort()
+    expect([...scope?.repositories || []].sort()).toEqual(repositories)
+
+    const access = vi.fn(async (_context: AgentCallbackContext, _scope: { repository: string }) => ({ token: "token" }))
+    const context = { memo: (_key: string, create: () => unknown) => create(), runtime: "unknown" } as never
+    await forgeGitEnvironment(context, { [forgeAccessKey]: access }, scope)
+    expect(access.mock.calls.map(([, scope]) => scope.repository).sort()).toEqual(repositories)
   })
 
   it("keeps a pull request run scoped to its pull request when the Agent has Sources", () => {
