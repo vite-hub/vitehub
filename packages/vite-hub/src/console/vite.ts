@@ -16,7 +16,7 @@ import { insertConsoleSection, isConsoleConnectionsEnabled, type ConsoleSectionI
 
 import { discoverConsoleBuildCatalog } from "./build.ts"
 import { consoleConnectionsActorId, writeConsoleConnectionsActor, registeredConsoleAuthMode, resolveConsoleAuthConfig, writeConsoleAuthHandlers, type ConsoleAuthConfig, type ConsoleAuthHandlers, type ResolvedConsoleAuthConfig } from "./auth-build.ts"
-import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
+import { assertConsoleRetention, consolePublicRoot, consoleRuntimeRoot, consoleSkillsRoot, writeConsoleNitroPlugin, type ConsoleAccessBuild } from "./plugin.ts"
 import { serializeConsoleRefresh } from "./refresh.ts"
 import { createConsoleCliNamespace } from "./cli.ts"
 import { consoleViteDevTools, type ConsoleViteDevTools } from "./devtools.ts"
@@ -312,7 +312,7 @@ function configureConsoleNitroRoutes(
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, baseURL, sections, !rpcOnly && oauth)
   const consoleAssetsBase = consoleMountPath(baseURL, "/_vitehub/assets")
   const userPublicAssets = Array.isArray(nitro.publicAssets)
-    ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot)
+    ? nitro.publicAssets.filter(asset => asset?.dir !== consolePublicRoot && asset?.dir !== consoleSkillsRoot)
     : []
   const publicAssets = [...rpcOnly
     ? []
@@ -322,6 +322,11 @@ function configureConsoleNitroRoutes(
         fallthrough: false,
         // Every Console asset name contains a content hash.
         maxAge: 60 * 60 * 24 * 365,
+      }, {
+        // Static files, so the skills CLI reads them without a Console sign-in. They are the public ViteHub skill.
+        baseURL: consoleMountPath(baseURL, "/_vitehub/.well-known/skills"),
+        dir: consoleSkillsRoot,
+        fallthrough: false,
       }], ...userPublicAssets]
   return { kit, publicAssets }
 }

@@ -702,6 +702,10 @@ describe("ViteHub Nuxt integration", () => {
       dir: expect.stringMatching(/console\/runtime\/public\/console$/),
       fallthrough: false,
       maxAge: 31536000,
+    }, {
+      baseURL: "/_vitehub/.well-known/skills",
+      dir: expect.stringMatching(/console\/runtime\/public\/skills$/),
+      fallthrough: false,
     }])
     expect(development.nuxt.options.nitro).toMatchObject({
       handlers: [{ route: "/_vitehub/rpc/**" }, { route: "/_vitehub/env/manage" }, { method: "post", route: "/_vitehub/channels/replay" }, { route: "/_vitehub/schedules/run" }, { route: "/_vitehub/mcp" }, { route: "/_vitehub" }, { route: "/_vitehub/**" }, { route: "/api/_vitehub/console/client.js" }],

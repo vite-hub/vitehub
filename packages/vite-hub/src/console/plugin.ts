@@ -29,6 +29,8 @@ function resolveConsoleRuntimeRoot(): string {
 }
 export const consoleRuntimeRoot: string = resolveConsoleRuntimeRoot()
 export const consolePublicRoot: string = join(consoleRuntimeRoot, "public/console")
+/** The ViteHub skill and its well-known index, which the Console serves at `/_vitehub/.well-known/skills`. */
+export const consoleSkillsRoot: string = join(consoleRuntimeRoot, "public/skills")
 function readConsoleOutput(root: string): string {
   if (!existsSync(root)) return ""
   const files: string[] = []
