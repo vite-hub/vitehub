@@ -5466,6 +5466,8 @@ export async function postChatErrorFallback(
   }
   const fallbackPlaceholder = manualDelivery?.placeholderCleanup ? undefined : manualDelivery?.placeholder
   const fallbackDeliveryAbort = maximumInvocationDeadline === undefined ? undefined : new AbortController()
+  const transcript = transcriptThreads.get(thread)
+  let fallbackPost: unknown
   const fallbackDelivery = (async (): Promise<boolean> => {
     if (!fallback) {
       if (fallbackPlaceholder) await deleteManualDeliveryPlaceholder(fallbackPlaceholder)
@@ -5473,20 +5475,33 @@ export async function postChatErrorFallback(
     }
     if (await deliverToManualDeliveryPlaceholder(fallbackPlaceholder, fallback)) return true
     fallbackDeliveryAbort?.signal.throwIfAborted()
-    const sent = await thread.post(fallback).catch(() => undefined)
+    // Record only after accepting the provider delivery; a late post is deleted below.
+    const sent = await (transcript?.thread ?? thread).post(fallback).catch(() => undefined)
     if (!sent) return false
     if (fallbackDeliveryAbort?.signal.aborted) {
       await deleteManualDeliveryPlaceholder(sent)
       fallbackDeliveryAbort.signal.throwIfAborted()
     }
+    fallbackPost = sent
     return true
   })()
-  if (maximumInvocationDeadline === undefined) return await fallbackDelivery
-  return await enforceChatInvocationTimeout(
-    fallbackDelivery,
-    Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
-    fallbackDeliveryAbort,
-  ).catch(() => false)
+  const delivered = maximumInvocationDeadline === undefined
+    ? await fallbackDelivery
+    : await enforceChatInvocationTimeout(
+        fallbackDelivery,
+        Math.max(0, maximumInvocationDeadline + cloudflareChatFallbackTimeoutMs - Date.now()),
+        fallbackDeliveryAbort,
+      ).catch(() => false)
+  if (delivered && fallback && fallbackPost && transcript) {
+    await transcript.recorder.outbound(
+      transcript.thread.adapter,
+      transcript.thread.id,
+      isRecord(fallbackPost) && isRuntimeString(fallbackPost.id) ? fallbackPost.id : undefined,
+      fallback,
+      transcript.userKey,
+    )
+  }
+  return delivered
 }
 
 function createChatFinishExtension(
@@ -7672,6 +7687,8 @@ function createTranscriptRecorder(state: StateAdapter, keyPrefix: string): Trans
 }
 
 const transcriptRecorders = new WeakMap<Chat, TranscriptRecorder>()
+// Deadline-bound fallback posts defer recording until the provider delivery is accepted.
+const transcriptThreads = new WeakMap<Thread, { thread: Thread, recorder: TranscriptRecorder, userKey: string | null }>()
 
 function sentText(sent: unknown): string {
   return isRecord(sent) && isRuntimeString(sent.text) ? sent.text : ""
@@ -7701,7 +7718,7 @@ function recordTranscriptsOfSent<T>(sent: T, adapter: Adapter, threadId: string,
  * again with the same id, and the reader keeps the last one.
  */
 export function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRecorder, userKey: string | null): Thread {
-  return new Proxy(thread, {
+  const recorded = new Proxy(thread, {
     get(target, property) {
       if (property === "post" || property === "reply") {
         return async (...args: unknown[]) => {
@@ -7715,6 +7732,8 @@ export function recordTranscriptsOfThread(thread: Thread, recorder: TranscriptRe
       return isRuntimeFunction(value) ? value.bind(target) : value
     },
   })
+  transcriptThreads.set(recorded, { thread, recorder, userKey })
+  return recorded
 }
 
 function postableText(message: unknown): string {

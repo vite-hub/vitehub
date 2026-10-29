@@ -17540,11 +17540,27 @@ describe("server helpers", () => {
       title: "bounds a fallback post that never settles and keeps it reserved for retry",
     },
   ] as const)("$title", async ({ boundary, deliveryFailure, firstDeliveryCount, finalDeliveryCount }) => {
-    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback } = await import("../src/server/routes.ts")
+    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback, recordTranscriptsOfThread } = await import("../src/server/routes.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-fallback-recovery-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const queue = "durable-steer-fallback-recovery"
+    const adapter = createTestChatAdapter()
+    const chat = new Chat({
+      // SAFETY: createTestChatAdapter implements the Adapter methods used by the transcript store.
+      adapters: { telegram: adapter as unknown as Adapter },
+      identity: () => "account:original",
+      state,
+      transcripts: { maxPerUser: 50 },
+      userName: "vitehub",
+    })
+    const recorder: Parameters<typeof recordTranscriptsOfThread>[1] = {
+      inbound: async () => {},
+      outbound: async (_adapter, threadId, id, text, userKey) => {
+        if (!userKey) return
+        await chat.history.user.append(chat.thread(threadId), { platformMessageId: id, role: "assistant", text }, { userKey })
+      },
+    }
     const entry = {
       enqueuedAt: Date.now(),
       expiresAt: Number.MAX_SAFE_INTEGER,
@@ -17578,7 +17594,7 @@ describe("server helpers", () => {
       const delivered = await postChatErrorFallback(
         new Error("failed"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        { post } as never,
+        recordTranscriptsOfThread({ adapter, id: "telegram:456", post } as never, recorder, "account:original"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         entry.message.errorDeliveries[0]!.message as never,
         { errorFallbackText: "Fallback" },
@@ -17631,6 +17647,7 @@ describe("server helpers", () => {
       expect(reserved.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("reserved")
       if (deliveryFailure === "timeout") {
         await vi.waitFor(() => expect(lateDeliveryDelete).toHaveBeenCalledOnce())
+        await expect(chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })).resolves.toEqual([])
       }
 
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17641,6 +17658,14 @@ describe("server helpers", () => {
         message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> }
       }
       expect(delivered.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("delivered")
+      if (deliveryFailure === "timeout") {
+        const transcripts = await chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })
+        expect(transcripts).toEqual([expect.objectContaining({ platformMessageId: "fallback", role: "assistant", text: "Fallback", userKey: "account:original" })])
+        const { channelConversationArchive, stitchChannelConversation } = await import("../src/internal/channel-conversation.ts")
+        const messages = stitchChannelConversation({ invocations: [], provider: [], threadId: "telegram:456", transcripts })
+        expect(messages).toEqual([expect.objectContaining({ id: "fallback", source: "transcript", text: "Fallback" })])
+        expect(channelConversationArchive({ agent: "calories", channel: "telegram", messages, provider: "telegram", retention: { durable: true, maxMessages: 50, ttlMs: 0 }, threadId: "telegram:456" }).messages).toEqual(messages)
+      }
       queueReplaceHead.mockRestore()
     } finally {
       await state.disconnect()
