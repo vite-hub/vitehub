@@ -18,7 +18,7 @@ import { env, hubEnv } from "@vite-hub/env/vite"
 import type { KVModuleOptions } from "@vite-hub/kv"
 import { resolveKVViteConfig } from "@vite-hub/kv/vite"
 import type { QueueModuleOptions } from "@vite-hub/queue"
-import type { Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
+import type { ConfigEnv, Plugin, PluginOption, ResolvedConfig, UserConfig } from "vite"
 import { consoleOpenAccessWarning } from "../src/console/runtime/server/access.ts"
 import { resolveConsoleSections } from "../src/console/internal.ts"
 
@@ -367,8 +367,8 @@ describe("ViteHub Nuxt integration", () => {
       nuxt.options.rootDir = root
       await viteHubNuxtModule({ preset: "node" }, nuxt)
       const config: UserConfig = { root }
-      const configure = plugin.config as { handler: (config: UserConfig) => Promise<void> }
-      await configure.handler(config)
+      const configure = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
+      await configure.handler(config, { command: "serve", mode: "development" })
       let finalName = "InitialCard"
       // A module registered after Comments can rename, remove, and add components asynchronously.
       componentsExtendHooks.push(async (components) => {

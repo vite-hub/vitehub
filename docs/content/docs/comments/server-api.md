@@ -1,8 +1,8 @@
 ---
 title: Comments server API
-description: defineComments() options, the runtime methods and their error codes, thread and anchor types, the HTTP routes, and Content field addresses.
+description: The comments() plugin, defineComments() options, the runtime methods and their error codes, thread and anchor types, the HTTP routes, and Content field addresses.
 navigation.title: Server API
-navigation.order: 4
+navigation.order: 5
 icon: i-lucide-code-2
 ---
 
@@ -10,6 +10,7 @@ icon: i-lucide-code-2
 
 | Import | Use |
 | --- | --- |
+| `comments` from `@vite-hub/comments/vite`, also its default export | The Vite plugin for an app without `vite-hub`. See [`comments()` options](#comments-options). |
 | `defineComments` from `vite-hub/comments` | Define Comments in `server/comments.ts`. Export the result as `comments`. |
 | `Comments`, `CommentThread`, `Comment`, `CommentAnchor`, `CommentAuthor`, `CommentMention`, `CommentsErrorCode` from `vite-hub/comments` | Types of the runtime, threads, comments, anchors, and error codes. |
 | `normalizeCommentPage` from `vite-hub/comments` | The page key of a path, as Comments stores it. |
@@ -17,18 +18,26 @@ icon: i-lucide-code-2
 | `contentField`, `formatContentField`, `parseContentField` from `vite-hub/content/client` | Write and read [Content field addresses](#content-field-addresses). |
 | `connectRealtimeRoom` from `@vite-hub/realtime/client` | Join a Realtime room for presence. The overlay uses it for the [presence rooms](#presence-rooms). |
 
-Libraries can install `@vite-hub/comments` and use the same exports. `@vite-hub/comments/vite` exports `hubComments()`, the build integration that `vitehub()` adds for you.
+Without `vite-hub`, import the same names from `@vite-hub/comments`. `@vite-hub/comments/vite` also exports `hubComments()`, the build integration that `vitehub()` adds for you.
+
+## `comments()` options
+
+`comments()` turns Comments on in a Vite app without `vite-hub`. It needs no `server/comments.ts`; when the app has one, it uses it. It adds [Nitro](https://nitro.build), unless the app adds `nitro()` itself. In an app with `vitehub()`, it does nothing, because `vitehub()` runs Comments.
+
+| Option | Default | Behavior |
+| --- | --- | --- |
+| `database` | `.vitehub/data/comments.sqlite` on `vite dev`. None in a production build. | A SQLite file, `'file:./data/comments.sqlite'` or a plain path, relative to the directory that the server starts in. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 
 ## `defineComments()` options
 
 | Option | Default | Behavior |
 | --- | --- | --- |
-| `authorize({ user, action, thread })` | Signed-in users may do everything. Anonymous requests may do nothing. | Return `false` to deny. `action` is `read`, `comment`, or `resolve`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
-| `identify({ event })` | The ViteHub Auth session | Return the user of a request, with a string `id`, or `null`. See [Use your own login](/docs/comments/configure#use-your-own-login). |
-| `database` | `default`, else the only Database | The Database name, as a string literal. See [Choose the Database](/docs/comments/configure#choose-the-database). |
+| `authorize({ user, action, thread })` | People signed in with GitHub who can push to the repository, and users of any other sign-in, may do everything. Guests may only on the dev server. | Return `false` to deny. `action` is `read`, `comment`, or `resolve`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment). |
+| `identify({ event })` | The Console user, else the ViteHub Auth session, else [Sign in with GitHub](/docs/comments/configure#sign-in-with-github) | Return the user of a request, with a string `id`, or `null`. See [Use your own login](/docs/comments/configure#use-your-own-login). |
+| `database` | `default`, else the only Database | In a ViteHub app, the Database name, as a string literal. `comments()` takes its own [`database`](#comments-options) instead. See [Choose the Database](/docs/comments/configure#choose-the-database). |
 | `people({ query, user })` | Authors of earlier comments | The people that `@` suggests, as `{ id, name }[]`. |
 | `onComment({ thread, comment, mentions })` | None | Runs after a new thread or a reply saves. Errors are logged, not returned. See [Notify mentioned people](/docs/comments/configure#notify-mentioned-people). |
-| `forge` | None | `{ provider: 'github', repository?, pullRequest?(thread), token?(author), title?, apiUrl? }`. Posts threads to the pull request of the preview. See [Post comments to the pull request](/docs/comments/configure#post-comments-to-the-pull-request). |
+| `forge` | None | `{ provider: 'github', repository?, pullRequest?(thread), token?(author), title?, apiUrl? }`. Posts threads to the pull request of the preview. Without `token`, people signed in with GitHub post as themselves. See [Post comments to the pull request](/docs/comments/configure#post-comments-to-the-pull-request). |
 
 ## Runtime methods
 
@@ -132,6 +141,23 @@ interface CommentMention {
 
 Each comment row keeps a copy of its author. A comment keeps its author name when the Auth user changes or goes away.
 
+### Users
+
+`authorize`, `can()`, and `people()` get the user of the request, or `null` for an anonymous one.
+
+```ts
+type CommentsUser = Record<string, unknown> & {
+  id: string
+  github?: CommentsGitHubAccess   // set for a person who signed in with GitHub
+}
+
+interface CommentsGitHubAccess {
+  login: string                   // their GitHub username
+  repository?: string             // the repository of the build, 'owner/name'
+  write: boolean                  // whether they can push to it, checked every 5 minutes
+}
+```
+
 ### Anchors
 
 An anchor says where a thread sits on its page. The overlay writes it when someone clicks.
@@ -202,7 +228,7 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 
 | Route | Needs | Does |
 | --- | --- | --- |
-| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`. Sets the `vitehub-comments` cookie when `read` is allowed, and clears it when not. |
+| `GET /session` | None | Returns `{ user, can: { read, comment, resolve }, realtime, content }`, plus `signIn: { provider, url }` for a person who can sign in with GitHub, and `github` with `signOut` for a person signed in with GitHub. Sets the `vitehub-comments` cookie when `read` is allowed or a sign-in is offered, and clears it when not. |
 | `GET /threads?page=&status=` | `read` | Lists threads, as `list()` does. |
 | `POST /threads` | `comment` | Starts a thread from `{ page, anchor, context?, body, mentions? }`. |
 | `POST /threads/:id/comments` | `comment` | Replies with `{ body, mentions? }`. |
@@ -212,6 +238,9 @@ The overlay calls the Comments API at `/api/_vitehub/comments`. Each answer is J
 | `GET /people?q=` | `read` | Returns the `@` suggestions. |
 | `GET /fields?field=` | `comment`, and Content `write` | Reads the draft of one Content field: `{ field, value, editable, digest, collection, id }`. |
 | `POST /fields` | `comment`, and Content `write` | Saves `{ field, value, ifDigest }` as a Content draft. Returns `{ field, value, digest }`. |
+| `GET /auth/github?return=` | None | Starts [Sign in with GitHub](/docs/comments/configure#sign-in-with-github), then sends the person back to `return`, a path on the same site. |
+| `GET /auth/callback/github` | None | Where GitHub sends the person back. List it as the App's callback URL. |
+| `POST /auth/sign-out` | None | Ends the GitHub sign-in in this browser. |
 
 The server sets the author of a comment from the user of the request. A guest sends its id and name in the `x-vitehub-comments-guest-id` and `x-vitehub-comments-guest-name` headers.
 
@@ -221,10 +250,11 @@ The server sets the author of a comment from the user of the request. A guest se
 | --- | --- |
 | `400` | `COMMENTS_INVALID_INPUT`, `COMMENTS_FIELD_INVALID` |
 | `403` | `COMMENTS_FORBIDDEN`, `COMMENTS_FIELD_FORBIDDEN` |
-| `404` | `COMMENTS_NOT_FOUND`, `COMMENTS_CONTENT_MISSING` |
+| `404` | `COMMENTS_NOT_FOUND`, `COMMENTS_CONTENT_MISSING`, `COMMENTS_SIGN_IN_OFF` |
 | `409` | `COMMENTS_RESOLVED`, `COMMENTS_FIELD_CONFLICT` |
 | `422` | `COMMENTS_FIELD_NOT_EDITABLE` |
 | `423` | `COMMENTS_FIELD_LOCKED` |
+| `502` | `COMMENTS_SIGN_IN_FAILED` |
 | `503` | `COMMENTS_NOT_INSTALLED` |
 
 The overlay script is a static file at `/api/_vitehub/comments/assets/overlay.js`.
@@ -252,4 +282,4 @@ The server sets each person in the room from `identify` or the Auth session, and
 
 ## Generated output
 
-When the app has `server/comments.ts`, the integration writes `.vitehub/nitro/comments/handler.mjs` and `.vitehub/nitro/comments/plugin.mjs`. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and adds the overlay to pages in comment mode. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.
+When the app has `server/comments.ts`, or uses `comments()`, the integration writes `.vitehub/nitro/comments/handler.mjs` and `.vitehub/nitro/comments/plugin.mjs`. Without `server/comments.ts`, `comments()` also writes `definition.mjs`, which exports `defineComments()` with no options. The handler serves `/api/_vitehub/comments/**`. The plugin installs Comments with its Database when the server starts, and adds the overlay to pages in comment mode. With a room authority, Realtime also gets `comments.mjs`, the presence room definition. Treat these files as build output, not application imports.
