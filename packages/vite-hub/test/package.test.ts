@@ -755,16 +755,24 @@ describe("framework package contract", () => {
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
-    expect(consoleClient).toContain("prefers-color-scheme: dark");
-    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // Shared appearance and route code may move out of the entry when route chunks change.
+    const consoleClientModules = [
+      consoleClient,
+      ...globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot })
+        .map(file => readFileSync(`${packageRoot}/${file}`, "utf8")),
+    ];
+    const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
+    expect(consoleAppearance).toContain("prefers-color-scheme: dark");
+    expect(consoleAppearance).toMatch(/classList\.toggle\(["`]dark["`]/);
     // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
-    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleAppearance).not.toContain("vueuse-color-scheme");
     expect(consoleClient).not.toContain("vueuse-color-scheme");
-    expect(consoleClient).toContain("ViteHub");
-    expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
-    expect(consoleClient).toContain("/blob");
-    expect(consoleClient).toContain("/databases");
-    expect(consoleClient).toContain("/kv");
+    const consoleClientCode = consoleClientModules.join("\n");
+    expect(consoleClientCode).toContain("ViteHub");
+    expect(consoleClientCode).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClientCode).toContain("/blob");
+    expect(consoleClientCode).toContain("/databases");
+    expect(consoleClientCode).toContain("/kv");
     // Owner-contributed sections get their routes from the navigation response at runtime.
     expect(consoleClient).toContain(".addRoute(");
     expect(consoleClient).toContain(".hasRoute(");

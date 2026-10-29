@@ -255,6 +255,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-connections-activity.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-connections-approvals.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-state.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-loading.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-documents.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-document-dashboard.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-media-library.vue", to: "dist/console/runtime/components" },
