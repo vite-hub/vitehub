@@ -48,6 +48,56 @@ function sentBody(fetch: ReturnType<typeof devServer>): Record<string, unknown> 
   return { ...input, operation: operation.replace(/^kv\./, "") }
 }
 
+describe("KV delete confirmation", () => {
+  it.each([{ target: [] }, { target: ["--url", "https://app.example/base/"] }])("refuses an unconfirmed deletion: $target", async ({ target }) => {
+    const output = context()
+    const fetch = devServer({ deleted: true, key: "a", store: "default" })
+    await expect(runKVCli(["del", "a", ...target], output.context, { fetch })).resolves.toBe(1)
+    expect(output.stderr.output()).toContain("was not confirmed")
+    expect(output.stderr.output()).toContain("--yes")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("reports a declined confirmation as JSON without sending a request", async () => {
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runKVCli(["del", "a", "--json", "--url", "https://app.example"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "KV_NOT_CONFIRMED" } })
+    expect(output.stderr.output()).toBe("")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("asks about the selected object, store and deployment, then sends confirmation", async () => {
+    const output = context()
+    const fetch = devServer({ deleted: true, key: "a", store: "archive" })
+    const confirm = vi.fn(async (_question: string) => true)
+    await expect(runKVCli(["del", "a", "--store", "archive", "--url", "https://app.example/base/"], output.context, { confirm, fetch })).resolves.toBe(0)
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("a"))
+    expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("archive"))
+    expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("https://app.example/base/"))
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
+    expect(sentBody(fetch)).toEqual({ operation: "del", key: "a", store: "archive" })
+  })
+
+  it.each(["--yes", "-y"])("deletes with %s without prompting", async flag => {
+    const output = context()
+    const fetch = devServer({ deleted: true, key: "a", store: "default" })
+    const confirm = vi.fn(() => false)
+    await expect(runKVCli(["del", "a", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(new Headers(fetch.mock.calls[0]?.[1]?.headers).get("x-vitehub-confirmation")).toBe("confirmed")
+  })
+
+  it("does not treat a literal --yes after -- as confirmation", async () => {
+    const output = context()
+    const fetch = vi.fn()
+    await expect(runKVCli(["del", "--", "--yes"], output.context, { fetch })).resolves.toBe(1)
+    expect(output.stderr.output()).toContain("was not confirmed")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 describe("KV review regressions", () => {
   it.each([
     { operation: "get", result: { found: true, type: "string", value: "empty key" } },
@@ -57,7 +107,7 @@ describe("KV review regressions", () => {
   ])("passes an empty key to $operation", async ({ operation, result }) => {
     const output = context()
     const fetch = devServer({ ...result, key: "", store: "default" })
-    await expect(runKVCli([operation, "", ...(operation === "set" ? ["empty key"] : []), "--json"], output.context, { fetch })).resolves.toBe(0)
+    await expect(runKVCli([operation, "", ...(operation === "set" ? ["empty key"] : []), ...(operation === "del" ? ["--yes"] : []), "--json"], output.context, { fetch })).resolves.toBe(0)
     expect(sentBody(fetch)).toMatchObject({ key: "", operation })
     expect(JSON.parse(output.stdout.output())).toMatchObject({ key: "" })
     expect(output.stderr.output()).toBe("")
@@ -211,7 +261,7 @@ describe("KV review regressions", () => {
     ["del", { key: "a", store: "default", deleted: "yes" }],
   ] as const)("rejects malformed %s responses", async (operation, result) => {
     const output = context()
-    await expect(runKVCli([operation, "a", ...(operation === "set" ? ["value"] : []), "--json"], output.context, { fetch: devServer(result) })).resolves.toBe(1)
+    await expect(runKVCli([operation, "a", ...(operation === "set" ? ["value"] : []), ...(operation === "del" ? ["--yes"] : []), "--json"], output.context, { fetch: devServer(result) })).resolves.toBe(1)
     expect(JSON.parse(output.stdout.output())).toEqual({ error: { message: "The kv operation answered with an invalid result shape." } })
   })
 
@@ -307,15 +357,15 @@ describe("vitehub kv", () => {
     expect(updated.stdout.output()).toBe("Updated key settings in store cache (object).\n")
 
     const deleted = context()
-    await expect(runKVCli(["del", "greeting"], deleted.context, { fetch: devServer({ deleted: true, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["del", "greeting", "--yes"], deleted.context, { fetch: devServer({ deleted: true, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(deleted.stdout.output()).toBe("Deleted key greeting from store default.\n")
 
     const unchanged = context()
-    await expect(runKVCli(["del", "greeting"], unchanged.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["del", "greeting", "--yes"], unchanged.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(unchanged.stdout.output()).toBe("Key greeting was not found in store default. Deletion completed.\n")
 
     const json = context()
-    await expect(runKVCli(["del", "greeting", "--json"], json.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
+    await expect(runKVCli(["del", "greeting", "--json", "--yes"], json.context, { fetch: devServer({ deleted: false, key: "greeting", store: "default" }) })).resolves.toBe(0)
     expect(JSON.parse(json.stdout.output())).toEqual({ deleted: false, key: "greeting", store: "default" })
   })
 

@@ -274,6 +274,10 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       }
       const file = unwrap(await selected.storage.get(pathname))
       if (!file) throw notFound(pathname, selected.name)
+      // A Blob has its own byte size even when the driver's head metadata is missing or stale.
+      if (file.size > blobDevMaximumUploadBytes) {
+        throw new BlobOperationError(`Blob ${pathname} is ${file.size} bytes. The blob operations return at most ${blobDevMaximumUploadBytes} bytes.`, 413, "BLOB_DOWNLOAD_TOO_LARGE", "Download larger files with the tools of the provider.")
+      }
       const bytes = new Uint8Array(await file.arrayBuffer())
       // The head size can be missing or stale, so the bytes that were read have the last word.
       if (bytes.byteLength > blobDevMaximumUploadBytes) {

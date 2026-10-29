@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
@@ -22,6 +23,8 @@ import type { BlobDevDeleteResult, BlobDevGetResult, BlobDevHeadResult, BlobDevL
 export type BlobCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface BlobCliOptions {
+  /** Asks whether `del` may delete a blob. Defaults to a prompt on a terminal, and refuses without one. */
+  confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
 
@@ -48,6 +51,7 @@ interface ParsedBlobArgs {
   store?: string
   timeout?: number
   url?: string
+  yes: boolean
 }
 
 interface BlobCliFailure {
@@ -92,7 +96,7 @@ function commandUsage(command: BlobCommand): string {
   const pathname = command.pathname ? " <pathname>" : ""
   const file = command.file ? " <file>" : ""
   const options = command.options.map(option => ` ${optionUsage[option]}`).join("")
-  return `vitehub blob ${command.name}${pathname}${file}${options} [--store <name>] [--json] [--url <url>]`
+  return `vitehub blob ${command.name}${pathname}${file}${options} [--store <name>] [--json]${command.name === "del" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -108,6 +112,7 @@ function writeUsage(command: BlobCommand, stream: ViteHubCliStreams["stdout"]): 
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      Blob store. Defaults to `default`.",
     "  --json              Print JSON.",
+    ...(command.name === "del" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
@@ -134,7 +139,7 @@ function readOptionValue(args: readonly string[], index: number, name: string): 
 }
 
 function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArgs {
-  const parsed: ParsedBlobArgs = { help: false, json: false }
+  const parsed: ParsedBlobArgs = { help: false, json: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -144,6 +149,10 @@ function parseArgs(command: BlobCommand, args: readonly string[]): ParsedBlobArg
     }
     if (arg === "--json") {
       parsed.json = true
+      continue
+    }
+    if (command.name === "del" && (arg === "--yes" || arg === "-y")) {
+      parsed.yes = true
       continue
     }
     if (arg === "--") {
@@ -389,6 +398,16 @@ async function writeDownload(file: BlobDevGetResult, parsed: ParsedBlobArgs, con
   return 0
 }
 
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
 async function runBlobCommand(command: BlobCommand, args: string[], context: BlobCliContext, options: BlobCliOptions): Promise<number> {
   let parsed: ParsedBlobArgs
   try {
@@ -404,6 +423,11 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   if (parsed.help) {
     writeUsage(command, context.stdout)
     return 0
+  }
+  if (command.name === "del" && !parsed.yes) {
+    const question = `Delete blob ${parsed.pathname} from Blob store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
+    const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+    if (!confirmed) return writeFailure(parsed, context, { code: "BLOB_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "blob del deletes a blob and was not confirmed." })
   }
   let data: string | undefined
   if (command.file) {
@@ -422,6 +446,7 @@ async function runBlobCommand(command: BlobCommand, args: string[], context: Blo
   // The command shows every object, also the ones that ViteHub keeps for itself. The Console hides them.
   if (command.name === "list") input.showVitehub = true
   const called = await callOperationFromCli({
+    ...(command.name === "del" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

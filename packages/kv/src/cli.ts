@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
@@ -16,6 +17,8 @@ import type { KVDevDeleteResult, KVDevGetResult, KVDevHasResult, KVDevListResult
 export type KVCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface KVCliOptions {
+  /** Asks whether `del` may delete a key. Defaults to a prompt on a terminal, and refuses without one. */
+  confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
 }
 
@@ -42,6 +45,7 @@ interface ParsedKVArgs {
   ttl?: number
   url?: string
   value?: string
+  yes: boolean
 }
 
 interface KVCliFailure {
@@ -84,7 +88,7 @@ function commandUsage(command: KVCommand): string {
   const key = command.key ? " <key>" : ""
   const value = command.value ? " <value|@file>" : ""
   const options = command.options.map(option => ` ${optionUsage[option]}`).join("")
-  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json] [--url <url>]`
+  return `vitehub kv ${command.name}${key}${value}${options} [--store <name>] [--json]${command.name === "del" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -99,6 +103,7 @@ function writeUsage(command: KVCommand, stream: ViteHubCliStreams["stdout"]): vo
     ...command.options.map(option => optionHelp[option]),
     "  --store <name>      KV store. Defaults to `default`.",
     "  --json              Print JSON.",
+    ...(command.name === "del" ? ["  --yes, -y           Delete without asking. Without it, the command asks on a terminal and refuses elsewhere."] : []),
     "  --url <url>         Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>      Request timeout.",
     "  -h, --help          Show this help.",
@@ -131,7 +136,7 @@ function readOptionValue(args: readonly string[], index: number, name: string): 
 }
 
 function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
-  const parsed: ParsedKVArgs = { help: false, json: false, jsonValue: false }
+  const parsed: ParsedKVArgs = { help: false, json: false, jsonValue: false, yes: false }
   const positionals: string[] = []
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
@@ -141,6 +146,10 @@ function parseArgs(command: KVCommand, args: readonly string[]): ParsedKVArgs {
     }
     if (arg === "--json") {
       parsed.json = true
+      continue
+    }
+    if (command.name === "del" && (arg === "--yes" || arg === "-y")) {
+      parsed.yes = true
       continue
     }
     if (arg === "--json-value" && command.options.includes("json-value")) {
@@ -328,6 +337,16 @@ function writeFailure(parsed: Pick<ParsedKVArgs, "json">, context: KVCliContext,
   return 1
 }
 
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
 async function runKVCommand(command: KVCommand, args: string[], context: KVCliContext, options: KVCliOptions): Promise<number> {
   let parsed: ParsedKVArgs
   let value: unknown
@@ -346,6 +365,11 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
     writeUsage(command, context.stdout)
     return 0
   }
+  if (command.name === "del" && !parsed.yes) {
+    const question = `Delete key ${parsed.key} from KV store ${parsed.store ?? "default"} at ${parsed.url ?? context.rootDir}? [y/N] `
+    const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+    if (!confirmed) return writeFailure(parsed, context, { code: "KV_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "kv del deletes a key and was not confirmed." })
+  }
   const input: Record<string, unknown> = {}
   if (parsed.cursor !== undefined) input.cursor = parsed.cursor
   if (parsed.key !== undefined) input.key = parsed.key
@@ -355,6 +379,7 @@ async function runKVCommand(command: KVCommand, args: string[], context: KVCliCo
   if (parsed.ttl !== undefined) input.ttl = parsed.ttl
   if (command.value) input.value = value
   const called = await callOperationFromCli({
+    ...(command.name === "del" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

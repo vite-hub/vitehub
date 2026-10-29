@@ -593,6 +593,8 @@ export async function callOperation(target: OperationTarget, name: string, input
 
 /** What a command-line tool passes to {@link callOperationFromCli}. */
 export interface CliOperationCall {
+  /** Whether the command confirmed a destructive call. */
+  confirmed?: boolean
   /** Environment of the command, with the credentials. */
   env: NodeJS.ProcessEnv
   /** Replaces `fetch`, so tests need no server. */
@@ -619,5 +621,5 @@ export async function callOperationFromCli(call: CliOperationCall, name: string,
   }
   const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
   if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
-  return await callOperation({ env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
+  return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
 }

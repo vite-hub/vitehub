@@ -166,7 +166,7 @@ The operations carry a file as base64 in a JSON call, so `put` accepts files up 
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands do not print object URLs, because a signed URL can carry credentials. `media` prints the record's served route URL, which carries none. Metadata values under secret names, such as `token`, are redacted, as the Console Blob page does.
 
-The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. The Console Blob page uploads and deletes objects with the same operations.
+The operations are `blob.list`, `blob.head`, `blob.get`, `blob.put`, `blob.del`, `blob.media`, and `blob.variants`, in the `blob` Console section. They run in the Nitro runtime, which owns the Blob storage, and answer through the Console RPC, so a person or an agent needs access to the `blob` section. `blob.put` writes and `blob.del` is destructive. `vitehub blob del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console Blob page uploads and deletes objects with the same operations.
 
 ## Inspect the Email development outbox
 
@@ -368,7 +368,7 @@ The KV storage deserializes stored strings that look like JSON, so a string such
 
 Errors go to stderr, or into `{ "error": { "code", "message" } }` on stdout with `--json`. The commands print values as they are stored and do not redact them, as the Console KV page does. Do not store credentials in keys that you inspect in shared logs.
 
-The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
+The operations are `kv.list`, `kv.get`, `kv.has`, `kv.set`, and `kv.del`, in the `kv` Console section. They run in the Nitro runtime, which owns the KV storage, and answer through the Console RPC, so a person or an agent needs access to the `kv` section. `kv.del` is destructive. `vitehub kv del` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). The Console KV page uses the same operations to list keys, show a value, edit it, and delete a key.
 
 
 ## Run app tasks

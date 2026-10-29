@@ -192,13 +192,22 @@ describe("blob operations", () => {
     await expect(run({ data, operation: "put", overwrite: false, pathname: "fresh.txt" })).resolves.toMatchObject({ body: { created: true } })
   })
 
-  it("returns at most the limit even when the head reports a smaller size", async () => {
+  it.each([undefined, 1])("rejects an oversized Blob before buffering when head size is %s", async size => {
     await run({ data: Buffer.from("x").toString("base64"), operation: "put", pathname: "grown.bin" })
-    const get = vi.spyOn(blob, "get").mockResolvedValue([null, new File([new Uint8Array(blobDevMaximumUploadBytes + 1)], "grown.bin")])
+    const [error, object] = await blob.head("grown.bin")
+    expect(error).toBeNull()
+    const file = new File([new Uint8Array(blobDevMaximumUploadBytes + 1)], "grown.bin")
+    const arrayBuffer = vi.spyOn(file, "arrayBuffer")
+    const head = vi.spyOn(blob, "head").mockResolvedValue([null, { ...object!, size }])
+    const get = vi.spyOn(blob, "get").mockResolvedValue([null, file])
     try {
       await expect(run({ operation: "get", pathname: "grown.bin" })).resolves.toMatchObject({ body: { error: { code: "BLOB_DOWNLOAD_TOO_LARGE" } }, status: 413 })
+      expect(arrayBuffer).not.toHaveBeenCalled()
     }
-    finally { get.mockRestore() }
+    finally {
+      head.mockRestore()
+      get.mockRestore()
+    }
   })
 
   it("refuses to write or delete the paths that ViteHub owns, and still reads them", async () => {
