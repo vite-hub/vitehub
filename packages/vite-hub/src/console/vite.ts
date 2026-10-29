@@ -195,6 +195,9 @@ function consoleAccessTargets(base: string | undefined, sections?: readonly Cons
   return [
     { route: consoleMountPath(base, "/_vitehub/**") },
     { method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/status") },
+    ...(sections?.includes("logs")
+      ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/logs") }]
+      : []),
     ...(sections?.includes("agents") && sections.includes("usage")
       ? [{ method: "GET", route: consoleMountPath(base, "/api/_vitehub/console/usage") }]
       : []),
@@ -237,6 +240,7 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocation.get.js"),
     join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
     join(consoleRuntimeRoot, "server/invocations.get.js"),
+    join(consoleRuntimeRoot, "server/logs.get.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
     join(consoleRuntimeRoot, "server/sign-in.js"),
@@ -269,6 +273,7 @@ function configureConsoleNitroRoutes(
     for (const handler of [
       { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/status"), method: "get" },
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
+      ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/logs"), method: "get" }] : []),
       ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(baseURL, "/_vitehub/sign-in"), method: "get" }] : []),
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(baseURL, "/_vitehub") },

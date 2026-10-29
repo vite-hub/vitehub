@@ -1,8 +1,11 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { dirname, join, relative, resolve, sep } from "node:path"
+import { readFile } from "node:fs/promises"
+import { dirname, extname, join, relative, resolve, sep } from "node:path"
 import { fileURLToPath } from "node:url"
 
+import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
+import { findNearestFile } from "pkg-types"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -72,6 +75,17 @@ function configuredProjectRootOption(value: unknown): string | undefined {
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? value.projectRoot
     : undefined
+}
+
+async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
+  // Match Nitro's project-file discovery and parsing before adding our context-level default.
+  const configPath = await findNearestFile(["wrangler.json", "wrangler.jsonc", "wrangler.toml"], { startingFrom: rootDir }).catch(() => undefined)
+  if (!configPath) return undefined
+  const text = await readFile(configPath, "utf8")
+  const extension = extname(configPath)
+  const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
+  const alias = isRecord(config) && isRecord(config.alias) ? config.alias["#vitehub/env/server"] : undefined
+  return typeof alias === "string" ? alias : undefined
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
@@ -1209,7 +1223,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       throw viteHubErrorDiagnostics.VITE_HUB_B0011({ message: `[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.` })
     }
   }
-  const generatedAliases = {
+  const generatedAliases: Record<string, string> = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
     ...(!nuxt.options.dev ? Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
         `#vitehub/emails/${name}`,
@@ -1396,6 +1410,22 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
     installNitroRuntimeResolvers(config, replayPlugins)
     installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
+    if (plan.preset === "cloudflare") {
+      const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>
+      const envServer = generatedAliases["#vitehub/env/server"]
+      if (envServer) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const alias = (wrangler.alias ??= {}) as Record<string, string>
+        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
+        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
+      }
+      if (cloudflare.nodeCompat === true) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
+        // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
+        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat", "nodejs_compat_v2"])]
+      }
+    }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
