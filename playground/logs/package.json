@@ -1,0 +1,14 @@
+{
+  "name": "playground-logs",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vp dev", "build": "vp build" },
+  "dependencies": {
+    "evlog": "^2.28.1",
+    "nitro": "catalog:unjs",
+    "nostics": "catalog:runtime",
+    "vite-hub": "workspace:*"
+  },
+  "devDependencies": { "vite": "catalog:vite", "vite-plus": "catalog:tooling" },
+  "engines": { "node": ">=24.15.0" }
+}

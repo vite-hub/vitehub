@@ -3,13 +3,16 @@
   "version": "0.0.4",
   "description": "Comments and in-place edits on live ViteHub sites, with presence and Content drafts.",
   "keywords": [
-    "comments",
+    "annotations",
     "collaboration",
+    "comments",
     "h3",
+    "typescript",
     "vite",
-    "vitehub"
+    "vitehub",
+    "website-feedback"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",

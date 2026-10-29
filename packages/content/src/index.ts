@@ -291,6 +291,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
    * `schema`. Narrow an entry with `kind`. Empty without `collections`.
    */
   collections(): AnyContentCollection[]
+  /** The revision id at the head of a ref, or null before the first revision. It changes with every save and publish. */
+  head(ref: ContentRef): Promise<string | null>
   /** Open one collection or singleton to list, read, save, remove, restore, and compare documents. */
   collection<TName extends CollectionName<TCollections>>(name: TName): CollectionOf<TCollections[TName]>
   /** Copy draft documents to the `published` ref in one revision. Pass `expect` to publish exactly what was reviewed. */
@@ -298,9 +300,10 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   /** Whether the Workspace store supports scheduled publishing. False for the GitHub store; does not check for a Schedule runner. */
   supportsScheduling(): Promise<boolean>
   /**
-   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
-   * path with its `route`; the default is the id after a slash, without a trailing `/index`. A query string, a hash, and
-   * a trailing slash are ignored. Use it to link a page to its document, for example to an Edit button.
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`, and a document whose `url` is null does not resolve. A collection without `url` maps the
+   * id after a slash, without a trailing `/index`. A query string, a hash, and a trailing slash are ignored. Use it to
+   * link a page to its document, for example to an Edit button.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved<CollectionName<TCollections>> | null>
   /**
@@ -541,6 +544,7 @@ export function defineContent<
       })
     },
     collections: () => documentsRuntime ? [...documentsRuntime.collections.values()] : [],
+    head: async ref => documentsRuntime ? await documentsRuntime.head(ref) : null,
     // SAFETY: Each method forwards its arguments unchanged, so the overloads of ContentSessions hold.
     sessions: {
       report: (...args: unknown[]) => Reflect.apply(requireDocuments().sessions.report, undefined, args),

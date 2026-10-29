@@ -131,10 +131,11 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
+  "@vite-hub/agent/operations",
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
-  "@vite-hub/blob/runtime/dev",
+  "@vite-hub/blob/operations",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/operations",
   "@vite-hub/comments/runtime/console",
@@ -150,14 +151,15 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/content/runtime/console",
+  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
-  "@vite-hub/kv/runtime/dev",
+  "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
-  "@vite-hub/rate-limit/runtime/console",
+  "@vite-hub/rate-limit/operations",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
@@ -320,7 +322,6 @@ describe("framework package contract", () => {
       "./console/definitions",
       "./console/documents",
       "./console/env",
-      "./console/kv",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -758,16 +759,24 @@ describe("framework package contract", () => {
     const consoleClient = readFileSync(`${packageRoot}/${consoleClientFile}`, "utf8");
     expect(consoleClient).toContain('"bot":{"width":24');
     expect(consoleClient).toContain('"folder-tree":{"width":24');
-    expect(consoleClient).toContain("prefers-color-scheme: dark");
-    expect(consoleClient).toMatch(/classList\.toggle\(["`]dark["`]/);
+    // Shared appearance and route code may move out of the entry when route chunks change.
+    const consoleClientModules = [
+      consoleClient,
+      ...globSync("dist/console/runtime/public/console/chunks/*.js", { cwd: packageRoot })
+        .map(file => readFileSync(`${packageRoot}/${file}`, "utf8")),
+    ];
+    const consoleAppearance = consoleClientModules.find(source => source.includes("vitehub-console:appearance"));
+    expect(consoleAppearance).toContain("prefers-color-scheme: dark");
+    expect(consoleAppearance).toMatch(/classList\.toggle\(["`]dark["`]/);
     // The Console appearance module is the only color scheme writer. Nuxt UI color mode stays off.
-    expect(consoleClient).toContain("vitehub-console:appearance");
+    expect(consoleAppearance).not.toContain("vueuse-color-scheme");
     expect(consoleClient).not.toContain("vueuse-color-scheme");
-    expect(consoleClient).toContain("ViteHub");
-    expect(consoleClient).toContain("/agents/:agent/invocations/:invocation");
-    expect(consoleClient).toContain("/blob");
-    expect(consoleClient).toContain("/databases");
-    expect(consoleClient).toContain("/kv");
+    const consoleClientCode = consoleClientModules.join("\n");
+    expect(consoleClientCode).toContain("ViteHub");
+    expect(consoleClientCode).toContain("/agents/:agent/invocations/:invocation");
+    expect(consoleClientCode).toContain("/blob");
+    expect(consoleClientCode).toContain("/databases");
+    expect(consoleClientCode).toContain("/kv");
     // Owner-contributed sections get their routes from the navigation response at runtime.
     expect(consoleClient).toContain(".addRoute(");
     expect(consoleClient).toContain(".hasRoute(");

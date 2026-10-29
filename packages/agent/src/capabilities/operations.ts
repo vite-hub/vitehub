@@ -23,15 +23,23 @@ export interface OperationsCapabilityOptions {
    */
   user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
   /**
-   * Let the Agent pass `lease: "override"` to `content.save`, so it can write over a document that a person is
-   * editing. Default: false.
+   * Let the Agent pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`, so it can write
+   * over a document that a person is editing. Default: false.
    */
   overrideLeases?: boolean
+  /**
+   * What the Agent may read of the Channel conversations (`channels.threads`, `channels.conversation`,
+   * `conversations.export`). Unset: nothing, and those operations refuse. `"participant"`: the threads that the Actor
+   * takes part in, matched by the Actor id, its Auth user id, or the id of a person in the thread. `"all"`: every
+   * thread that a Channel knows. `conversations.export` always waits for approval and never includes media.
+   */
+  conversations?: "all" | "participant"
   /** The operations to use. Default: the ones the app installed. Tests pass their own. */
   registry?: OperationRegistry
 }
 
 const optionsSchema = v.object({
+  conversations: v.optional(v.picklist(["all", "participant"])),
   approve: v.optional(v.union([v.picklist(["all", "destructive", "never", "write"]), v.array(v.string()), v.custom<(operation: { kind: OperationKind, name: string }) => boolean>(value => value instanceof Function)])),
   include: v.pipe(v.array(v.pipe(v.string(), v.minLength(1))), v.minLength(1)),
   overrideLeases: v.optional(v.boolean()),
@@ -45,6 +53,8 @@ function matches(pattern: string, name: string): boolean {
 }
 
 function needsApproval(approve: OperationsApproval, operation: Pick<AnyOperation, "kind" | "name">): boolean {
+  // An export copies a whole conversation out of the app, so a person confirms it, as for a write.
+  if (operation.name === "conversations.export" && approve !== "never") return true
   if (approve === "all") return true
   if (approve === "never") return false
   if (approve === "write") return operation.kind !== "read"
@@ -68,7 +78,7 @@ async function authUser(context: AgentCapabilityContext): Promise<OperationUser 
   return operationUser(await auth.user(context.actor))
 }
 
-async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
+async function operationTools(context: AgentCapabilityContext, options: { approve: OperationsApproval, conversations?: "all" | "participant", include: readonly string[], overrideLeases: boolean, registry?: OperationRegistry, user?: OperationsCapabilityOptions["user"] }): Promise<AgentToolSet> {
   const registry = options.registry ?? installedOperationRegistry()
   if (!registry) {
     throw agentDiagnostics.AGENT_R1014({ message: "[vitehub] operations() found no operations. The app installs them when its server starts, with the Console plugin that `vite dev` and `console` add." })
@@ -104,6 +114,7 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
             access,
             ...(context.actor ? { actor: context.actor } : {}),
             ...(options.overrideLeases ? { overrideLeases: true } : {}),
+            ...(options.conversations ? { conversations: options.conversations } : {}),
             surface: "agent",
             user,
           })
@@ -151,11 +162,11 @@ async function operationTools(context: AgentCapabilityContext, options: { approv
 export function operations(options: OperationsCapabilityOptions): AgentCapabilityDefinition {
   const parsed = v.safeParse(optionsSchema, options)
   if (!parsed.success) throw agentDiagnostics.AGENT_C0013()
-  const { approve = "write", include, overrideLeases = false, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
+  const { approve = "write", conversations, include, overrideLeases = false, registry, user } = parsed.output as typeof parsed.output & Pick<OperationsCapabilityOptions, "registry" | "user">
   return defineCapability({
     id: "operations",
-    metadata: { approve: typeof approve === "string" ? approve : Array.isArray(approve) ? approve : "custom", include: [...include] },
+    metadata: { approve: typeof approve === "string" ? approve : Array.isArray(approve) ? approve : "custom", ...(conversations ? { conversations } : {}), include: [...include] },
     mode: "write",
-    tools: context => operationTools(context, { approve, include, overrideLeases, registry, user }),
+    tools: context => operationTools(context, { approve, ...(conversations ? { conversations } : {}), include, overrideLeases, registry, user }),
   })
 }

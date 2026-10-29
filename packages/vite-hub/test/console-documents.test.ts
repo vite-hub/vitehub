@@ -129,10 +129,17 @@ describe("Console document editor route", () => {
     await expect(documents("list", { collection: "posts" })).resolves.toMatchObject({ status: 200 })
     // `scoped` tells the Overview that other sections may exist but are hidden from this user.
     await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { scoped: true, sections: ["content"] } } })
-    for (const method of ["kv.list", "agents.list", "env.get"]) {
+    for (const method of ["agents.list", "env.get"]) {
       await expect(call(method, {}), method).resolves.toMatchObject({ status: 403 })
     }
     await expect(call("definitions.list", { section: "kv" })).resolves.toMatchObject({ status: 403 })
+  })
+
+  it("tells the client which visible sections it may only read", async () => {
+    installConsoleAccess({ authorize: () => ({ sections: ["content", "kv:read", "blob:read", "blob"] }), mode: "open" })
+    await expect(call("sections.list", {})).resolves.toMatchObject({ body: { value: { readOnly: ["kv"], scoped: true } } })
+    installConsoleAccess({ authorize: () => true, mode: "open" })
+    expect((await call("sections.list", {})).body.value).not.toHaveProperty("readOnly")
   })
 
   it("requires a write grant to acquire or take over an edit lease", async () => {
@@ -268,7 +275,7 @@ describe("Console document editor route", () => {
     install(fakeActions({ save: save as never }))
     const body = "x".repeat(200 * 1024)
     await expect(documents("save", { body })).resolves.toEqual({ body: { ok: true, value: { length: body.length } }, status: 200 })
-    await expect(call("kv.list", { prefix: "x".repeat(200 * 1024) })).resolves.toMatchObject({ status: 413 })
+    await expect(call("env.get", { search: "x".repeat(200 * 1024) })).resolves.toMatchObject({ status: 413 })
   })
 })
 
@@ -317,19 +324,21 @@ describe("Console document editor discovery", () => {
     const root = await temporaryRoot()
     const plugin = join(root, "console.mjs")
     const entry = join(root, "server/content.ts")
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [], ["default"])
+    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: { content: { collections: [], kind: "document-editor" } }, documents: { content: entry } }, [])
     const source = await readFile(plugin, "utf8")
 
     expect(describeConsoleDocumentEditors(["content"], { content: entry })).toEqual([
       { entry, export: "createContentConsoleActions", module: "vite-hub/_internal/content/runtime/console", section: "content" },
     ])
-    expect(source).toContain(`import { installConsoleDocuments } from "vite-hub/console/documents"`)
+    expect(source).toContain(`import { installConsoleDocuments, loadConsoleDocumentActions } from "vite-hub/console/documents"`)
+    expect(source).toContain('registerContentMcpTools(() => loadConsoleDocumentActions("content"))')
+    expect(source).toContain('import { registerContentMcpTools } from "vite-hub/_internal/content/runtime/console"')
     expect(source).toContain(`import { createContentConsoleActions as vitehubConsoleDocumentActions0 } from "vite-hub/_internal/content/runtime/console"`)
     expect(source).toContain(`installConsoleDocuments(${JSON.stringify(root)}, { "content": { actions: vitehubConsoleDocumentActions0, load: () => import(${JSON.stringify(pathToFileURL(entry).href)}) } })`)
     expect(source).toContain(`installConsoleSections(${JSON.stringify(root)}, ["content","kv"])`)
     expect(source).toContain(`"id":"content"`)
 
-    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [], ["default"])
+    await writeConsoleNitroPlugin(plugin, root, ["kv"], [], { agents: [], content: {} }, [])
     const without = await readFile(plugin, "utf8")
     expect(without).not.toContain("installConsoleDocuments")
     expect(without).toContain(`installConsoleSections(${JSON.stringify(root)}, ["kv"])`)

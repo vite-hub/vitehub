@@ -127,6 +127,37 @@ it("checks read access on the subject before creating a thread", async () => {
   expect(await store.list({})).toEqual([])
 })
 
+it("checks overlay session permissions for the requested subject", async () => {
+  const authorize = vi.fn(({ subject, action }) => subject?.kind === "page" && subject.id.startsWith("/docs/") && (action === "read" || subject.id !== "/docs/readonly"))
+  setup(defineComments({ authorize }))
+  for (const [id, canRead, canWrite] of [["/docs/intro", true, true], ["/docs/readonly", true, false], ["/pricing", false, false]] as const) {
+    expect(await call("comments.session", { subject: { id, kind: "page" } })).toMatchObject({ ok: true, value: { canRead, canWrite, user: { id: member.id } } })
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "read", subject: { id, kind: "page" } }))
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ action: "write", subject: { id, kind: "page" } }))
+  }
+  expect(await call("comments.session", {})).toMatchObject({ ok: true, value: { canRead: false, canWrite: false } })
+  authorize.mockClear()
+  expect(await call("comments.session", { subject: page }, null)).toEqual({ ok: true, value: { canRead: false, canWrite: false, user: null } })
+  expect(authorize).not.toHaveBeenCalled()
+})
+
+it.each([
+  ["all", true], [["comments"], true], [["comments:read"], false],
+] as const)("reports session write access for %j grants", async (sections, canWrite) => {
+  setup(defineComments({ authorize: () => true }))
+  const result = await runOperation(registry, "comments.session", { subject: page }, {
+    access: { mode: "auth", sections }, user: member,
+    development: false, surface: "console", request: new Request("https://example.com/"),
+  })
+  expect(result).toMatchObject({ ok: true, value: { canRead: true, canWrite } })
+})
+
+it("returns only the public session identity", async () => {
+  setup(defineComments({ authorize: () => true }))
+  const result = await call("comments.session", { subject: page }, { ...member, image: "/ana.png", secret: "private" })
+  expect(result).toEqual({ ok: true, value: { canRead: true, canWrite: true, user: { id: member.id, name: member.name, image: "/ana.png" } } })
+})
+
 it("checks read access before searching mention suggestions", async () => {
   const definition = defineComments({ authorize: ({ action }) => action !== "read" })
   const store = setup(definition)

@@ -278,7 +278,7 @@ export default { plugins: [hubBlob({ driver: "fs" }), hubEnv({ server: {} }), ni
     expect(blob).toMatchObject({ code: 1, stderr: expect.stringContaining("as renderer template") });
     // JSON.parse fails when any log line comes before the payload.
     expect(JSON.parse(blob.stdout)).toEqual({
-      error: { message: expect.stringContaining("No Compatible Vite Development Server found at http://127.0.0.1:1.") },
+      error: expect.objectContaining({ message: expect.stringContaining("http://127.0.0.1:1 failed") }),
     });
 
     // `env check` also starts a stage Development Server, which loads the config again.

@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
-import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem } from "./cms-options.ts"
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./cms-options.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { CmsPresetOptions } from "./presets/cms.ts"
@@ -288,7 +288,7 @@ export interface CmsDatabaseChoices {
 
 /** Pick the Database, Blob store, and Workspace name that the preset uses. Fails with the option to set. */
 export function resolveCmsPresetPlan(usage: CmsPresetUsage, databases: CmsDatabaseChoices, projectRoot: string): CmsPresetPlan {
-  const store = usage.options.store ?? "blob-database"
+  const store = cmsStoreOf(usage.options)
   // The GitHub store keeps files in Git. It still needs the Database, for editor sessions.
   const stored = store === "github"
     ? { store, github: githubPlan(usage.options) } satisfies Pick<CmsPresetPlan, "github" | "store">
@@ -356,7 +356,7 @@ export function cmsPresetStoreSync(input: { projectRoot: string, serverDirs?: re
   // Vite asks once per plugin while it filters them, so parse each version of the file once.
   if (lastPresetCheck?.file !== file || lastPresetCheck.source !== source) {
     const usage = readCmsPresetUsage(source, file, root, parseAst)
-    lastPresetCheck = { file, source, store: usage ? usage.options.store ?? "blob-database" : undefined }
+    lastPresetCheck = { file, source, store: usage ? cmsStoreOf(usage.options) : undefined }
   }
   return lastPresetCheck.store
 }

@@ -4,8 +4,8 @@ import { commentsRoute } from "./page.ts"
 import type { ViteHubConsoleRuntimeRecordTableSection } from "@vite-hub/internal/console"
 
 /**
- * Console section for Comments: every thread with its page, first comment, author, replies, and status. People reply
- * and resolve on the page itself, where the context is; each record links there in comment mode. The Console shows it
+ * Console section for Comments: every thread with its first comment, page, author, replies, and status, open threads
+ * first. People reply and resolve on the page itself, where the context is; each record links there in comment mode. The Console shows it
  * when the app has `server/comments.ts`.
  */
 export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ projectRoot: string, serverDirs?: string[] }> = {
@@ -19,14 +19,14 @@ export const commentsConsoleSection: ViteHubConsoleRuntimeRecordTableSection<{ p
   visit: `${commentsRoute}/session`,
   view: {
     columns: [
-      { key: "page", label: "Page" },
       { key: "comment", label: "Comment" },
+      { key: "page", label: "Page" },
       { key: "author", label: "Author" },
       { key: "replies", label: "Replies" },
       { key: "status", label: "Status" },
-      { key: "updated", label: "Updated" },
+      { key: "updated", label: "Last activity" },
     ],
     kind: "record-table",
-    notice: "Threads come from the Comments Database on each request. After you open the Console, the app's pages show the Comments toolbar: comment, reply, and resolve on the page. `comments.list()` in server code reads the same threads.",
+    notice: "People comment, reply, and resolve on the site's pages, which show the Comments toolbar after you open the Console. Open threads come first. Server code reads the same threads with `comments.list()`.",
   },
 }

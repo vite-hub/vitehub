@@ -245,8 +245,9 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
     expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
-    const transform = plugin.transformIndexHtml
-    if (typeof transform !== "function") throw new Error("Expected a Comments HTML transform")
+    const hook = plugin.transformIndexHtml
+    const transform = typeof hook === "function" ? hook : hook?.handler
+    if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
     expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
   })

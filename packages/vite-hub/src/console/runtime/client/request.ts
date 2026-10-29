@@ -143,6 +143,10 @@ interface ConsoleRoute {
 const consoleRoutes: Record<string, ConsoleRoute> = {
   "agents": { operation: "agents.list" },
   "blob": { booleans: { folded: "true", showVitehub: "true" }, numbers: ["limit"], operation: "blob.list", strings: ["cursor", "prefix", "store"] },
+  "channels": { operation: "channels.list" },
+  "channels/conversation": { numbers: ["limit"], operation: "channels.conversation", strings: ["agent", "channel", "cursor", "thread"] },
+  "channels/export": { booleans: { media: "true" }, operation: "conversations.export", strings: ["agent", "channel", "format", "thread"] },
+  "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
   "env": { booleans: { status: "1" }, operation: "env.get" },
@@ -213,8 +217,25 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     return { input: { action: first(call.query.action), ...(call.body === undefined ? {} : { body: call.body }), section: first(call.query.section) }, operation: `${route}.action` }
   }
   if (route === "kv") {
-    if (call.method === "POST") return { input: body, operation: "kv.get" }
+    // A POST names its operation: a read of one key by default, or a write or a delete from the editor.
+    if (call.method === "POST") {
+      const { action, ...input } = body
+      if (action === "set" || action === "del") return { input, operation: `kv.${action}` }
+      return { input: { ...input, preview: true }, operation: "kv.get" }
+    }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
+  }
+  if (route === "blob" && call.method === "POST") {
+    // The Blob page uploads and deletes through the same route as it lists.
+    const { action, ...input } = body
+    if (action === "put" || action === "del") return { input, operation: `blob.${action}` }
+    throw new ConsoleRequestError(400, "Unsupported Blob action.")
+  }
+  if (route === "rate-limit" && call.method === "POST") {
+    // The Rate Limits page peeks at a counter and resets it through one route.
+    const { action, ...input } = body
+    if (action === "peek" || action === "reset") return { input, operation: `rate-limit.${action}` }
+    throw new ConsoleRequestError(400, "Unsupported Rate Limit action.")
   }
   if (route === "workflow") {
     // A POST names its operation: start a run, read it, cancel it, or resume a signal.
