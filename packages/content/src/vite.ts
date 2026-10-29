@@ -19,6 +19,7 @@ import {
   resolveCmsPresetPlan,
   usesCmsPresetSync,
 } from "./cms-build.ts"
+import { cmsStoreOf } from "./cms-options.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
@@ -374,7 +375,8 @@ export async function findContentPublishRunner(schedules: readonly string[]): Pr
  * `content.publishDue()`; without one, schedules never publish and only turn overdue.
  */
 async function inspectContentSetup(options: ContentConsoleOptions, file: string): Promise<ViteHubConsoleDocumentSetup> {
-  if ((await readCmsPresetUsageFile(file, options.projectRoot, parseAst))?.options.store === "github") return {}
+  const usage = await readCmsPresetUsageFile(file, options.projectRoot, parseAst)
+  if (usage && cmsStoreOf(usage.options) === "github") return {}
   if (options.schedules && await findContentPublishRunner(options.schedules)) return {}
   return {
     schedule: {
