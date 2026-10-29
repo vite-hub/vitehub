@@ -24,6 +24,7 @@ import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 import { ContentScheduleCancelled, contentScheduleKey, createContentSchedules } from "./schedules.ts"
 import { isContentSeoField } from "./seo.ts"
 import { contentLive, contentLiveRoom, contentLiveSession } from "./live.ts"
+import { mergeContentDocument } from "./merge.ts"
 import { contentLeaseHeld, createContentSessions } from "./sessions.ts"
 
 import type { ViteHubErrorDetails } from "@vite-hub/runtime"
@@ -787,10 +788,14 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
   }
 
   function isDocumentPath(path: string): boolean {
+    return documentFormat(path) !== undefined
+  }
+
+  /** The format of the collection that holds `path`, or undefined for a file of no collection. */
+  function documentFormat(path: string): ContentFormat | undefined {
     for (const collection of collections.values()) {
-      if (collection.compiled.match(path)) return true
+      if (collection.compiled.match(path)) return collection.compiled.format
     }
-    return false
   }
 
   /** Paths a Content commit changed, from its `metadata.content.documents`. Undefined for other commits and seeds. */
@@ -1023,17 +1028,35 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
           into: "draft",
           message: "Bring published content into the draft",
           metadata: { content: { ...content, bases } },
-          onConflict: async (conflicts) => {
+          onConflict: async (conflicts, { read }) => {
             const left: string[] = []
-            for (const { path, theirs } of conflicts) {
-              if (!isDocumentPath(path) || !Object.hasOwn(carried, path)) continue
-              if (await draftHeld(path, theirs, draftHead)) bases[path] = theirs
-              else {
-                bases[path] = carried[path] ?? null
-                left.push(path)
+            const merged: Record<string, string> = {}
+            for (const { path, base, ours, theirs } of conflicts) {
+              const format = documentFormat(path)
+              if (format === undefined || !Object.hasOwn(carried, path)) continue
+              if (await draftHeld(path, theirs, draftHead)) {
+                bases[path] = theirs
+                continue
               }
+              // Edits to different fields or words merge. The result stays in the draft, so a person sees it before
+              // it is published; it now builds on the published version.
+              if (base !== null && ours !== null && theirs !== null) {
+                const [baseText, oursText, theirsText] = await Promise.all([base, ours, theirs].map(async digest => new TextDecoder().decode(await read(digest))))
+                const result = mergeContentDocument(baseText!, oursText!, theirsText!, format)
+                if ("text" in result) {
+                  merged[path] = result.text
+                  bases[path] = theirs
+                  continue
+                }
+              }
+              bases[path] = carried[path] ?? null
+              left.push(path)
             }
-            return { content: { ...content, bases, ...(left.length ? { conflicts: left } : {}) } }
+            const paths = Object.keys(merged)
+            return {
+              metadata: { content: { ...content, bases, ...(paths.length ? { merged: paths } : {}), ...(left.length ? { conflicts: left } : {}) } },
+              ...(paths.length ? { files: merged } : {}),
+            }
           },
         })
       }
