@@ -4,7 +4,7 @@ import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { describeCommentContext } from "../context.ts"
 import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders, text } from "../identity.ts"
-import { normalizeCommentPage } from "../page.ts"
+import { commentsPageScope, normalizeCommentPage } from "../page.ts"
 import { resolveCommentsUser } from "./session.ts"
 
 import type { ViteHubMcpTool, ViteHubMcpToolContext, ViteHubMcpToolResult } from "@vite-hub/internal/runtime/mcp-tools"
@@ -46,8 +46,8 @@ function spend(grant: ToolGrant, action: CommentsAction, threadId: string): void
 /** One thread as text an Agent reads: where it is, what the person saw, and the conversation. */
 function describeThread(thread: CommentThread): string {
   const lines = [
-    `Thread ${thread.id} (${thread.status}) on ${thread.page}`,
-    `Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label} (${thread.anchor.selector})`,
+    `Thread #${thread.number} ${thread.id} (${thread.status}) on ${thread.page}`,
+    ...(thread.anchor ? [`Anchor: ${thread.anchor.field ? `Content field ${thread.anchor.field}` : thread.anchor.label} (${thread.anchor.selector})`] : []),
     ...describeCommentContext(thread.context).map(field => `${field.label}: ${field.value}`),
     "",
     ...thread.comments.map(comment => `${comment.author.name}${comment.author.guest ? " (guest)" : ""}, ${comment.createdAt}: ${comment.body}`),
@@ -88,6 +88,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
     if (!id) return failure("Give the thread id from comments_list_threads.")
     const [error, thread] = await comments.get(id)
     if (error) return failure(error.why)
+    if (thread.scope !== commentsPageScope) return failure(`No thread ${id} on the app's pages.`)
     if (!await comments.can({ user, action, thread })) return forbidden(action)
     return { thread, grant: toolGrant.issue({ action, threadId: thread.id }) }
   }
@@ -116,7 +117,7 @@ export function commentsMcpTools(comments: Comments, options: CommentsSessionOpt
         const page = text(input.page)
         const search = text(input.search)?.toLowerCase()
         const limit = Math.min(Math.max(Number(input.limit) || 25, 1), 100)
-        const [error, threads] = await comments.list({ status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
+        const [error, threads] = await comments.list({ scope: commentsPageScope, status, limit: search ? 500 : limit, ...(page ? { page: normalizeCommentPage(page) } : {}) })
         if (error) return failure(error.why)
         const found = (search ? threads.filter(thread => thread.comments.some(comment => comment.body.toLowerCase().includes(search))) : threads).slice(0, limit)
         const line = (thread: CommentThread) => {

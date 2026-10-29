@@ -26,6 +26,8 @@ export default defineConfig({
       "src/inspect.ts",
       "src/object.ts",
       "src/operations.ts",
+      "src/operations-vite.ts",
+      "src/operations-dev.ts",
       "src/owned-paths.ts",
       "src/provision.ts",
       "src/provision-state.ts",

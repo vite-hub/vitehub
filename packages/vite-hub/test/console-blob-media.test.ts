@@ -6,6 +6,7 @@ vi.mock("../src/console/runtime/client/request", async (original) => ({
   requestConsole: mocks.request,
 }))
 
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import { consoleBlobMediaFile, createConsoleBlobMediaClient, parseConsoleBlobPage } from "../src/console/runtime/client/blob-media"
 
 function object(pathname: string, extra: Record<string, unknown> = {}) {
@@ -26,7 +27,7 @@ describe("Console Blob media client", () => {
     const listing = await client.list({ folder: "covers" })
 
     expect(mocks.request).toHaveBeenCalledWith("/api/_vitehub/console/blob", { query: { cursor: undefined, folded: true, limit: undefined, prefix: "covers/", showVitehub: undefined, store: "media" } })
-    expect(listing).toMatchObject({ access: { manage: false, read: true, write: false }, cursor: "next", folder: "covers", folders: ["covers/large"], hasMore: true, served: null })
+    expect(listing).toMatchObject({ access: { manage: true, read: true, write: true }, cursor: "next", folder: "covers", folders: ["covers/large"], hasMore: true, served: null })
     // A folder marker that ends in `/` is not a file.
     expect(listing.items.map(item => item.pathname)).toEqual(["covers/a.png"])
     expect(client.object("covers/a.png")).toMatchObject({ httpEtag: "\"1\"", size: 2048 })
@@ -54,10 +55,55 @@ describe("Console Blob media client", () => {
     await expect(client.get("missing.txt")).rejects.toThrow("No object missing.txt in store default.")
   })
 
-  it("rejects every write, since the Blob section is read-only", async () => {
+  it("deletes each object through blob.del and reports the ones that failed", async () => {
+    mocks.request.mockResolvedValueOnce({ deleted: true }).mockRejectedValueOnce(new Error("Object is locked."))
+    const client = createConsoleBlobMediaClient("/blob", { store: "media" })
+    await expect(client.remove(["a.png", "b.png"])).resolves.toEqual({ failed: [{ message: "Object is locked.", pathname: "b.png" }], removed: ["a.png"] })
+    expect(mocks.request).toHaveBeenNthCalledWith(1, "/blob", { body: { action: "del", pathname: "a.png", store: "media" }, method: "POST" })
+  })
+
+  it("uploads a file as base64 through blob.put", async () => {
+    mocks.request.mockResolvedValueOnce({ object: object("docs/hi.txt", { contentType: "text/plain", size: 2 }) })
     const client = createConsoleBlobMediaClient("/blob", { store: "default" })
-    await expect(client.remove(["a.png"])).rejects.toThrow("read-only")
-    await expect(client.createFolder("", "new")).rejects.toThrow("read-only")
+    const uploaded = await client.upload(new File(["hi"], "hi.txt", { type: "text/plain" }), { folder: "docs" })
+    expect(mocks.request).toHaveBeenCalledWith("/blob", { body: { action: "put", contentType: "text/plain", data: "aGk=", overwrite: false, pathname: "docs/hi.txt", store: "default" }, method: "POST" })
+    expect(uploaded.file).toMatchObject({ name: "hi.txt", pathname: "docs/hi.txt" })
+    expect(client.object("docs/hi.txt")).toBeDefined()
+  })
+
+  it("asks before it replaces a blob that exists", async () => {
+    const exists = new ConsoleRequestError(409, "exists", { code: "BLOB_EXISTS" })
+    const client = createConsoleBlobMediaClient("/blob", { store: "default" })
+    mocks.request.mockRejectedValueOnce(exists)
+    await expect(client.upload(new File(["hi"], "hi.txt"))).rejects.toMatchObject({ status: 409, message: expect.stringContaining("not replaced") })
+    expect(mocks.request).toHaveBeenCalledTimes(1)
+
+    mocks.request.mockReset()
+    mocks.request.mockRejectedValueOnce(exists).mockResolvedValueOnce({ object: object("hi.txt", { size: 2 }) })
+    const confirmReplace = vi.fn(() => true)
+    await expect(client.upload(new File(["hi"], "hi.txt"), { confirmReplace })).resolves.toMatchObject({ file: { pathname: "hi.txt" } })
+    expect(confirmReplace).toHaveBeenCalledWith("hi.txt")
+    expect(mocks.request.mock.calls.map(call => call[1].body.overwrite)).toEqual([false, true])
+  })
+
+  it("refuses a file above 8 MiB before it sends it", async () => {
+    const client = createConsoleBlobMediaClient("/blob", { store: "default" })
+    await expect(client.upload(new File([new Uint8Array(8 * 1024 * 1024 + 1)], "big.bin"))).rejects.toMatchObject({ status: 413 })
+    expect(mocks.request).not.toHaveBeenCalled()
+  })
+
+  it("offers no upload or delete to a read-only grant", async () => {
+    mocks.request.mockResolvedValueOnce(page([object("a.png")]))
+    const client = createConsoleBlobMediaClient("/blob", { readOnly: true, store: "default" })
+    expect((await client.info()).access).toEqual({ manage: false, read: true, write: false })
+    expect((await client.list()).access).toEqual({ manage: false, read: true, write: false })
+    expect(client.isProtected?.("_vitehub/a.json")).toBe(true)
+    expect(client.isProtected?.("docs/a.json")).toBe(false)
+  })
+
+  it("has no folders to create or move", async () => {
+    const client = createConsoleBlobMediaClient("/blob", { store: "default" })
+    await expect(client.createFolder("", "new")).rejects.toMatchObject({ status: 405 })
     await expect(client.usage(["a.png"])).resolves.toEqual({})
     expect(mocks.request).not.toHaveBeenCalled()
   })
