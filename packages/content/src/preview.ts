@@ -783,13 +783,16 @@ const maximumFrameRedirects = 5
 /**
  * Runs a preview frame page and follows its same-origin redirects inside the frame scope, such as a locale or canonical
  * redirect. The browser would follow them without the form, and so without the token and the document on screen. The
- * frame shows the last page at the URL it posted to. A redirect to another origin, or past the limit, is returned.
+ * frame shows the last page at the URL it posted to. A redirect to another origin, one that sets a cookie, or one past
+ * the limit is returned.
  */
 async function followFrameRedirects(first: Request, page: (url: URL) => Request, render: (request: Request) => unknown): Promise<unknown> {
   let request = first
   for (let hop = 0; ; hop++) {
     const result = await render(request)
     if (!isResponseLike(result) || !isRedirect(result.status) || hop === maximumFrameRedirects) return result
+    // A redirect that sets a cookie goes to the browser, which applies the cookie the way the next request expects.
+    if (result.headers.getSetCookie().length) return result
     const location = result.headers.get("location")
     if (location === null || !URL.canParse(location, request.url)) return result
     const target = new URL(location, request.url)

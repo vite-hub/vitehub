@@ -323,6 +323,7 @@ describe("content preview", { timeout: 30_000 }, () => {
       .get("/en/blog/hello", () => new Response(null, { status: 302, headers: { location: "../../blog/hello?lang=en#top" } }))
       .get("/blog/away", () => Response.redirect("https://other.test/blog/hello", 302))
       .get("/blog/loop", () => new Response(null, { status: 302, headers: { location: "/blog/loop" } }))
+      .get("/blog/locale", () => new Response(null, { status: 302, headers: { location: "/blog/hello", "set-cookie": "locale=en; Path=/" } }))
       .get("/blog/hello", async event => ({ url: event.req.url, get: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id }))
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
     defineContentPreviewPlugin(content)(nitroApp)
@@ -343,6 +344,10 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(away.status).toBe(302)
     expect(away.headers.get("location")).toBe("https://other.test/blog/hello")
     expect(away.headers.get("cache-control")).toBe("private, no-store")
+    // A redirect that sets a cookie goes to the browser with its cookie, so the next request carries it.
+    const locale = await frame("/blog/locale")
+    expect(locale.status).toBe(302)
+    expect(locale.headers.getSetCookie()).toEqual(["locale=en; Path=/"])
     // A loop stops after five redirects.
     const loop = await frame("/blog/loop")
     expect(loop.status).toBe(302)
