@@ -8,6 +8,8 @@ import type { BetterAuthOptions, BetterAuthPlugin } from "better-auth"
  * number changes, linked accounts, two-factor setup, and one-time tokens that open a new session.
  */
 const credentialPaths: ReadonlySet<string> = new Set([
+  // This GET can refresh and persist linked-provider tokens.
+  "/account-info",
   "/admin/impersonate-user",
   "/api-key/create",
   "/api-key/update",
@@ -98,7 +100,8 @@ export function createImpersonationPlugin(): BetterAuthPlugin {
     }),
     hooks: {
       before: [{
-        matcher: ctx => createsCredential(ctx.path, ctx.body),
+        // Better Auth's server-only setPassword has an operation ID but no path.
+        matcher: ctx => ("operationId" in ctx && ctx.operationId === "setPassword") || createsCredential(ctx.path, ctx.body),
         handler: createAuthMiddleware(async (ctx) => {
           const session = await getSessionFromCtx(ctx, { disableRefresh: true })
           if (!session?.session.impersonatedBy) return

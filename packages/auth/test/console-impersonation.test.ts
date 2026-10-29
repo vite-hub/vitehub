@@ -331,4 +331,82 @@ describe("Console impersonation", () => {
     expect((await request("unlink-account", { accountId: account.id }, member.cookie)).status).toBe(200);
     expect((await context.internalAdapter.findAccounts(member.id)).some(value => value.id === account.id)).toBe(false);
   });
+
+  it.each([-60_000, 2_000])("blocks account-info token rotation with %i ms until expiry", async (expiresIn) => {
+    const { auth, request, operator, member } = await app();
+    const context = await auth.$context;
+    const account = await context.internalAdapter.createAccount({
+      userId: member.id,
+      providerId: "google",
+      accountId: "member-google",
+      accessToken: "provider-access",
+      refreshToken: "provider-refresh",
+      accessTokenExpiresAt: new Date(Date.now() + expiresIn),
+    });
+    const before = (await context.internalAdapter.findAccounts(member.id)).find(value => value.id === account.id);
+    const provider = context.socialProviders.find(value => value.id === "google")!;
+    const refresh = vi.spyOn(provider, "refreshAccessToken");
+    const update = vi.spyOn(context.internalAdapter, "updateAccount");
+    const userInfo = vi.spyOn(provider, "getUserInfo").mockResolvedValue({
+      user: { name: "Member", email: "member@example.com", emailVerified: true },
+      data: { sub: "member-google" },
+    });
+    const started = await request("admin/impersonate-user", { userId: member.id }, operator.cookie);
+    expect(started.status).toBe(200);
+    const impersonating = jar(operator.cookie, started);
+    const accountInfo = (cookie: string) => auth.handler(new Request(`${origin}/api/auth/account-info?accountId=${account.id}`, {
+      headers: { cookie },
+    }));
+
+    const blocked = await accountInfo(impersonating);
+    expect(blocked.status).toBe(403);
+    expect(await blocked.json()).toMatchObject({ code: "IMPERSONATION_FORBIDDEN" });
+    expect(refresh).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(userInfo).not.toHaveBeenCalled();
+    expect((await context.internalAdapter.findAccounts(member.id)).find(value => value.id === account.id)).toEqual(before);
+
+    // The account owner's read can still refresh an expired or near-expiry token.
+    const own = await accountInfo(member.cookie);
+    expect(own.status).toBe(200);
+    expect(await own.json()).toMatchObject({ account: { id: account.id }, user: { email: "member@example.com" } });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(update).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      accessToken: "refreshed-provider-access",
+      refreshToken: "rotated-provider-refresh",
+    }));
+    expect(userInfo).toHaveBeenCalledOnce();
+    expect((await context.internalAdapter.findAccounts(member.id)).find(value => value.id === account.id)).toMatchObject({
+      accessToken: "refreshed-provider-access",
+      refreshToken: "rotated-provider-refresh",
+    });
+  });
+
+  it("blocks server-only password creation for an impersonated OAuth-only user", async () => {
+    const { auth, request, operator, member } = await app();
+    const context = await auth.$context;
+    await context.internalAdapter.createAccount({ userId: member.id, providerId: "google", accountId: "member-google" });
+    const credential = await context.internalAdapter.findCredentialAccount(member.id);
+    await context.internalAdapter.deleteAccount(credential!.id);
+    const started = await request("admin/impersonate-user", { userId: member.id }, operator.cookie);
+    expect(started.status).toBe(200);
+    const impersonating = jar(operator.cookie, started);
+    const newPassword = "permanent-password-for-member";
+
+    // Server actions forward session headers to this API; it has no HTTP route in Better Auth 1.7.7.
+    await expect(auth.api.setPassword({
+      headers: new Headers({ cookie: impersonating, origin }),
+      body: { newPassword },
+    })).rejects.toMatchObject({ statusCode: 403, body: { code: "IMPERSONATION_FORBIDDEN" } });
+    expect(await context.internalAdapter.findCredentialAccount(member.id)).toBeNull();
+
+    // An ordinary owner session can still add a password and then use it to sign in.
+    expect(await auth.api.setPassword({
+      headers: new Headers({ cookie: member.cookie, origin }),
+      body: { newPassword },
+    })).toEqual({ status: true });
+    const signedIn = await request("sign-in/email", { email: "member@example.com", password: newPassword });
+    expect(signedIn.status).toBe(200);
+    expect(await signedIn.json()).toMatchObject({ user: { id: member.id } });
+  });
 });
