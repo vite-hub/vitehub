@@ -1703,6 +1703,25 @@ importers:
         specifier: catalog:runtime
         version: 4.6.7
 
+  packages/env/examples/schema-lab:
+    dependencies:
+      '@vite-hub/env':
+        specifier: workspace:*
+        version: link:../..
+      vite:
+        specifier: npm:@voidzero-dev/vite-plus-core@0.3.3
+        version: '@voidzero-dev/vite-plus-core@0.3.3(@types/node@24.19.1)(esbuild@0.28.2)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)'
+    devDependencies:
+      '@types/node':
+        specifier: catalog:tooling
+        version: 24.19.1
+      typescript:
+        specifier: catalog:tooling
+        version: 6.0.3
+      vite-plus:
+        specifier: catalog:tooling
+        version: 0.3.3(@opentelemetry/api@1.9.1)(@types/node@24.19.1)(esbuild@0.28.2)(happy-dom@21.0.3)(jiti@2.7.0)(publint@0.3.25)(terser@5.51.2)(tsx@4.23.15)(typescript@6.0.3)(unrun@0.2.36)(yaml@2.9.1)
+
   packages/env/examples/vite:
     dependencies:
       '@vite-hub/env':
@@ -2788,6 +2807,9 @@ importers:
       comark-tiptap:
         specifier: catalog:markdown
         version: 0.1.1(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/extension-code-block@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/extension-image@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4)))(@tiptap/extension-table@3.31.4(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(@tiptap/starter-kit@3.31.4)(@tiptap/vue-3@3.23.6(@floating-ui/dom@1.8.0)(@tiptap/core@3.31.4(@tiptap/pm@3.31.4))(@tiptap/pm@3.31.4)(vue@3.5.44(typescript@6.0.3)))(comark@0.7.0(katex@0.17.0)(shiki@4.5.0))(react-dom@19.2.8(react@19.2.6))(react@19.2.6)(vue@3.5.44(typescript@6.0.3))
+      confbox:
+        specifier: ^0.2.4
+        version: 0.2.4
       drizzle-kit:
         specifier: catalog:database
         version: 0.31.11
@@ -2821,6 +2843,9 @@ importers:
       ocache:
         specifier: catalog:runtime
         version: 0.3.0
+      pkg-types:
+        specifier: ^2.3.3
+        version: 2.3.3
       playwright-core:
         specifier: catalog:browser
         version: 1.63.0

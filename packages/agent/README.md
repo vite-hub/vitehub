@@ -688,7 +688,7 @@ reviews. The operation never approves, merges directly, or deletes a branch.
 If automatic repository branch deletion could affect open child PRs, it blocks.
 API failures propagate without a direct-merge fallback.
 
-`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials and login, and it gives its Agent forge access.
+`host.channel({ activity: true })` is a github() Channel whose `app.token` comes from `host.access({ repository })`. It shares the host's credentials, login, and immutable App ID, and it gives its Agent forge access. App-owned activity keeps the original managed comment across App renames and process restarts. Each publication edits that comment once; historical duplicates are left alone.
 A provider `env` resolver can call `host.environment()` inside
 `withPullRequestCheckout()`. The environment binds to that callback's checkout,
 including concurrent callbacks. Await the entire agent run before returning.
