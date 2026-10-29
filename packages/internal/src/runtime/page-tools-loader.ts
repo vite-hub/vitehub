@@ -25,7 +25,12 @@ export const viteHubPageToolsAssets = "/_vitehub/page/assets"
 export const viteHubPageSessionPath = "/_vitehub/page/session"
 
 /** The URL of the loader script. Its version query changes when the loader changes, so caches keep it 5 minutes. */
-export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=1"
+export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=2"
+
+/** Mount a page-tools URL under the application path, ignoring Vite asset bases such as CDN URLs. */
+export function viteHubPageToolsPath(path: string, base = ""): string {
+  return base.startsWith("/") && !base.startsWith("//") ? `${base.replace(/\/+$/, "")}${path}` : path
+}
 
 /** One tool that the visitor may use, as the session route returns it. */
 export interface ViteHubPageToolInfo {
@@ -90,6 +95,8 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 }
 
 export interface LoadViteHubPageToolsOptions {
+  /** The public session URL. A browser entry resolves it relative to its own loader URL. */
+  session?: string
   /** Imports the script of a tool. Default: a dynamic `import()`. */
   load?: (script: string) => Promise<unknown>
 }
@@ -102,7 +109,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
+    const response = await fetch(options.session ?? viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }

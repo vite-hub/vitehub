@@ -1,4 +1,4 @@
-import { viteHubPageSessionPath, viteHubPageToolsAssets } from "../runtime/page-tools-loader.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsPath } from "../runtime/page-tools-loader.ts"
 
 import type { NitroServerKit } from "../nitro-kit.ts"
 
@@ -7,6 +7,8 @@ export interface ViteHubPageToolRoutesOptions {
   handler: string
   /** The directory with the built `loader.js`. */
   loader: string
+  /** The public application base, shared with the owner's runtime installation. */
+  base?: string
 }
 
 /**
@@ -16,14 +18,16 @@ export interface ViteHubPageToolRoutesOptions {
  * tools registry is shared by every copy of this package.
  */
 export function addViteHubPageToolRoutes(kit: NitroServerKit, options: ViteHubPageToolRoutesOptions): void {
+  const route = viteHubPageToolsPath(viteHubPageSessionPath, options.base)
+  const baseURL = viteHubPageToolsPath(viteHubPageToolsAssets, options.base)
   const handlers = Array.isArray(kit.config.handlers) ? kit.config.handlers : []
-  if (!handlers.some(handler => Object(handler) === handler && Reflect.get(Object(handler), "route") === viteHubPageSessionPath)) {
-    kit.addHandler({ handler: options.handler, route: viteHubPageSessionPath })
+  if (!handlers.some(handler => Object(handler) === handler && Reflect.get(Object(handler), "route") === route)) {
+    kit.addHandler({ handler: options.handler, route })
   }
   const assets = Array.isArray(kit.config.publicAssets) ? [...kit.config.publicAssets] : []
-  if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "baseURL") === viteHubPageToolsAssets)) {
+  if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "baseURL") === baseURL)) {
     // The loader URL has a version query, so a short cache is enough.
-    assets.push({ baseURL: viteHubPageToolsAssets, dir: options.loader, maxAge: 300 })
+    assets.push({ baseURL, dir: options.loader, maxAge: 300 })
   }
   kit.config.publicAssets = assets
 }

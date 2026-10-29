@@ -9,7 +9,7 @@ import { defineComments } from "../src/index.ts"
 
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=1\" data-vitehub-page-tools></script>"
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=2" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -83,8 +83,8 @@ describe("Comments page tool", () => {
     install(nitroApp, {}, overlay)
     install(nitroApp, {}, overlay)
     const page = async (path: string, cookie = "") => (await nitroApp.fetch(new Request(`http://site.test${path}`, { headers: { cookie } }))).text()
-    expect(await page(`${mount}/?vitehub`)).toBe(`<html><body>Page${loaderTag}</body></html>`)
-    expect(await page(`${mount}/`, "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag}</body></html>`)
+    expect(await page(`${mount}/?vitehub`)).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
+    expect(await page(`${mount}/`, "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
     expect(await page(`${mount}/`)).toBe("<html><body>Page</body></html>")
     expect(await page(`${mount}/?comments`, "vitehub-comments=1")).toBe("<html><body>Page</body></html>")
     for (const path of ["/_vitehub/content", "/api/x"]) {
@@ -109,7 +109,7 @@ describe("Comments page tool", () => {
     }
     expect(page(`${mount}/`)).toEqual([])
     expect(headers).toEqual({})
-    expect(page(`${mount}/?vitehub`)).toEqual([loaderTag.replace(" data-vitehub", ' nonce="n1" data-vitehub')])
+    expect(page(`${mount}/?vitehub`)).toEqual([loaderTag(mount).replace(" data-vitehub", ' nonce="n1" data-vitehub')])
     expect(headers).toEqual({ "cache-control": "private, no-store" })
     expect(page(`${mount}/_vitehub?vitehub`)).toEqual([])
     expect(page(`${mount}/api/x?vitehub`)).toEqual([])
@@ -139,6 +139,6 @@ describe("Comments page tool", () => {
     expect(page).toBeInstanceOf(Response)
     if (!(page instanceof Response)) return
     expect(page.headers.get("cache-control")).toBe("private, no-store")
-    expect(await page.text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
+    expect(await page.text()).toBe(`<html><body>Page${loaderTag(mount)}</body></html>`)
   })
 })

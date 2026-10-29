@@ -29,7 +29,7 @@ function tool(id: string, people: string[]): ViteHubPageTool {
 
 const comments = tool("comments", ["ada", "ben"])
 const pill = { ...tool("console", ["ada"]), hotkey: "k" }
-const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=1\" data-vitehub-page-tools></script>"
+const loaderTag = "<script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=2\" data-vitehub-page-tools></script>"
 
 /** A Nitro 3 app whose fetch returns one HTML page, and counts its calls. */
 function nitro3App(html = "<html><body>Page</body></html>") {
@@ -90,7 +90,7 @@ describe("injectPageToolsLoader", () => {
     expect(scriptNonce(new Headers({ "content-security-policy": "script-src-elem 'nonce-elem'; script-src 'nonce-other'" }))).toBe("elem")
     expect(scriptNonce(new Headers())).toBeUndefined()
     const page = new Response("<body></body>", { headers: { "content-type": "text/html", "content-security-policy": policy } })
-    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=1\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
+    expect(await injectPageToolsLoader(page).text()).toBe("<body><script type=\"module\" src=\"/_vitehub/page/assets/loader.js?v=2\" nonce=\"a1B2+c/3==\" data-vitehub-page-tools></script></body>")
   })
 
   it("appends the loader to HTML without a body tag, and leaves other responses alone", async () => {

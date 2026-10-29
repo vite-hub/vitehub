@@ -1,5 +1,5 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "./page-tools-loader.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "./page-tools-loader.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-loader.ts"
@@ -72,8 +72,8 @@ function wantsLoader(nitroApp: object, request: Request, base: string): boolean 
   return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, base)
 }
 
-function loaderTag(nonce?: string): string {
-  return `<script type="module" src="${viteHubPageToolsLoader}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-page-tools></script>`
+function loaderTag(nonce?: string, base = ""): string {
+  return `<script type="module" src="${viteHubPageToolsPath(viteHubPageToolsLoader, base)}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-page-tools></script>`
 }
 
 const hintMaxAge = 60 * 60 * 24 * 30
@@ -153,10 +153,10 @@ export function scriptNonce(headers: Headers): string | undefined {
  * varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other responses return
  * unchanged. `policyHeaders` supplies the effective CSP when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers): Response {
+export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers, base = ""): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = loaderTag(scriptNonce(policyHeaders))
+  const tag = loaderTag(scriptNonce(policyHeaders), base)
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -228,7 +228,7 @@ export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request, base) ? injectPageToolsLoader(response) : response
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request, base) ? injectPageToolsLoader(response, response.headers, base) : response
     })
     return
   }
@@ -243,7 +243,7 @@ export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
     if (!request || !wantsLoader(nitroApp, request, base)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
-    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
+    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined, base))
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
@@ -255,7 +255,7 @@ export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
       const headers = new Headers(response.body.headers)
       const policy = event.node?.res?.getHeader?.("content-security-policy")
       if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
-      response.body = injectPageToolsLoader(response.body, headers)
+      response.body = injectPageToolsLoader(response.body, headers, base)
     }
   }])
 }

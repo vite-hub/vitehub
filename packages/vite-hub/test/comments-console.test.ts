@@ -63,12 +63,12 @@ describe("Comments activation from the Console", () => {
       expect(route).toBe(`${mount}/api/_vitehub/comments`)
       const generated = await readFile(resolveGeneratedConsolePlugin(root, undefined, undefined), "utf8")
       expect(generated).not.toContain('"visit":')
-      expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/page/session" })]))
+      expect(config.nitro!.handlers).toEqual(expect.arrayContaining([expect.objectContaining({ route: `${mount}/_vitehub/page/session` })]))
 
       const comments = defineComments({ authorize: () => true })
       const app = new H3()
         .all(`${route}/**`, createCommentsHandler({ comments, realtime: false }))
-        .all(`${mount}/_vitehub/page/session`, viteHubPageSessionHandler)
+        .all(config.nitro!.handlers.find(handler => handler.route.endsWith("/_vitehub/page/session"))!.route, viteHubPageSessionHandler)
       defineCommentsPlugin({ comments, database: () => undefined, overlay: `${route}/assets/overlay.js` })(app)
       let session: Response | undefined
       const fetch = vi.fn(async (url: string, init?: RequestInit) => {

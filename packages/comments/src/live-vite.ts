@@ -9,7 +9,7 @@ import { argumentExpression, objectProperties, scanModule, staticString, unwrapE
 import { resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
+import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
@@ -318,6 +318,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let resolvedComponents: readonly CommentsComponent[] = []
   let componentsFile: string | undefined
   let route = commentsRoute
+  let loader = viteHubPageToolsLoader
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
   async function writeComponents(): Promise<void> {
     if (!projectRoot || !componentsFile) return
@@ -393,6 +394,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[], [VITEHUB_APP_BASE_URL]?: string }
         const base = viteConfig[VITEHUB_APP_BASE_URL] ?? config.base
         route = mountedCommentsRoute(base)
+        loader = viteHubPageToolsPath(viteHubPageToolsLoader, base)
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
@@ -417,7 +419,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
         kit.addHandler({ handler, route: `${route}/**` })
         kit.addPlugin(plugin)
-        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page") })
+        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), base })
         const nitro = kit.config
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
         const overlay = commentsOverlayDirectory()
@@ -434,7 +436,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
       return [{
         tag: "script",
         attrs: { type: "module" },
-        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(viteHubPageToolsLoader)})`,
+        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(loader)})`,
         injectTo: "body",
       }]
     },

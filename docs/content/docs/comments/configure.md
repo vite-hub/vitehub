@@ -237,7 +237,7 @@ The close button in the toolbar ends comment mode. It turns the page tools off: 
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=1">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. Paths under `/_vitehub` and `/api` never get the loader.
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=2">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie.
