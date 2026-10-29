@@ -87,7 +87,7 @@ ViteHub MCP accepts the same access as the Console routes:
 
 A request without access gets `401`. Requests from a browser page on another origin get `403`.
 
-ViteHub MCP has no OAuth sign-in yet, so most desktop Agents cannot connect to an app whose Console uses `auth: 'app'` or Console Auth. Use `auth: false` on a local app, or Cloudflare Access. An app that already serves its own MCP server can add the same tools to it with `commentsMcpTools(comments)` from `vite-hub/comments/runtime`.
+ViteHub MCP has no OAuth sign-in yet, so most desktop Agents cannot connect to an app whose Console uses `auth: 'app'` or Console Auth. Use `auth: false` on a local app, or Cloudflare Access. To try the tools as yourself, open the Console's [MCP client](/docs/development/console#open-vitehub-mcp): it connects with your Console session. An app that already serves its own MCP server can add the same tools to it with `commentsMcpTools(comments)` from `vite-hub/comments/runtime`.
 
 ## Protocol
 

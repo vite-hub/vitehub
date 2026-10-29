@@ -95,6 +95,30 @@ function consolePage(caller: ConsoleMcpCaller): { mount: string, origin: string 
   return { mount: consoleMountBase(url.pathname), origin: url.origin }
 }
 
+/** ViteHub MCP, the MCP server of the Console, under the Console mount. */
+const viteHubMcpPath = "/_vitehub/mcp"
+/** The request headers that carry a Console session: an app session cookie, a bearer token, or a Cloudflare Access token. */
+const sessionHeaders = ["authorization", "cf-access-jwt-assertion", "cookie"] as const
+
+function viteHubMcpUrl(caller: ConsoleMcpCaller): string {
+  const { mount, origin } = consolePage(caller)
+  return `${origin}${mount}${viteHubMcpPath}`
+}
+
+/**
+ * The Console session of this request, for a `console` connection. It goes only to ViteHub MCP on the origin and mount
+ * of this request, and the Console keeps none of it.
+ */
+function consoleSession(caller: ConsoleMcpCaller, connection: StoredConnection): Record<string, string> {
+  if (connection.auth !== "console" || connection.url !== viteHubMcpUrl(caller)) return {}
+  const headers: Record<string, string> = {}
+  for (const name of sessionHeaders) {
+    const value = caller.request?.headers.get(name)
+    if (value) headers[name] = value
+  }
+  return headers
+}
+
 const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"])
 
 /** Resolve a URL or a path such as `/mcp` against the Console origin. Plain HTTP works only on this origin and on loopback hosts. */
@@ -288,14 +312,15 @@ class SignedOutError extends Error {
  * gave one, and starts a new session when the server forgot it. A grant that the server rejects marks the connection
  * signed out.
  */
-async function withClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, timeoutMs?: number } = {}): Promise<T> {
+async function withClient<T>(caller: ConsoleMcpCaller, connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, timeoutMs?: number } = {}): Promise<T> {
   let authorizing = false
   let challenge: Challenge | undefined
   const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs)
+  const headers = { ...consoleSession(caller, connection), ...(connection.bearer ? { authorization: `Bearer ${connection.bearer}` } : {}) }
   const attempt = async (sessionId: string | undefined) => {
     const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
       ...(connection.auth === "oauth" ? { authProvider: oauthProvider(connection, () => { authorizing = true }) } : {}),
-      ...(connection.bearer ? { requestInit: { headers: { authorization: `Bearer ${connection.bearer}` } } } : {}),
+      ...(Object.keys(headers).length ? { requestInit: { headers } } : {}),
       fetch: async (input, init) => {
         const response = await fetchWithTimeout(input, init)
         if (response.status === 401) challenge = extractWWWAuthenticateParams(response)
@@ -340,7 +365,7 @@ async function withClient<T>(connection: StoredConnection, run: (client: Client)
       // A request leaves no sign-in behind. Connect and reconnect start one with `startAuthorization()`.
       if (connection.oauth?.pending) delete connection.oauth.pending
       connection.status = "signed-out"
-      connection.error = connection.auth === "bearer" ? "The server rejected this token." : "The server rejected the grant. Sign in again."
+      connection.error = { bearer: "The server rejected this token.", console: "ViteHub MCP did not accept your Console session.", none: "The server asks for credentials.", oauth: "The server rejected the grant. Sign in again." }[connection.auth]
       delete connection.sessionId
       throw new SignedOutError(connection.error, challenge)
     }
@@ -447,9 +472,10 @@ export async function listConsoleMcp(caller: ConsoleMcpCaller, options: { shared
   prune()
   const owner = await ownerOf(caller)
   const { origin } = consolePage(caller)
+  const viteHubMcp = viteHubMcpUrl(caller)
   return {
     connections: owned(owner).map(describe),
-    servers: await discoverAppServers(origin),
+    servers: [...(await discoverAppServers(origin)).filter(server => server.url !== viteHubMcp), { auth: "console", label: "ViteHub MCP", url: viteHubMcp }],
     sharedSession: options.sharedSession,
   }
 }
@@ -507,15 +533,22 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
   prune()
   const owner = await ownerOf(caller)
   const { mount, origin } = consolePage(caller)
-  if (owned(owner).length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
   const url = serverUrl(input.server, origin)
   const token = text(input.token)
-  const connection: StoredConnection = {
-    auth: token ? "bearer" : "none",
+  // ViteHub MCP accepts the Console session, so the Console needs no sign-in or token for it. One session is one
+  // account, so connecting again opens the same connection.
+  const session = !token && url.href === viteHubMcpUrl(caller)
+  const existing = session ? owned(owner).find(candidate => candidate.auth === "console" && candidate.url === url.href) : undefined
+  if (!existing && owned(owner).length >= maximumConnections) throw consoleRequestError(409, `The Console keeps ${maximumConnections} MCP connections per person. Disconnect one first.`)
+  const user = session ? await readConsoleOperationUser(caller.access) : undefined
+  const identity = user ? identityFrom({ email: user.email, name: user.name, picture: user.image, sub: user.id }) : undefined
+  const connection: StoredConnection = existing ?? {
+    auth: token ? "bearer" : session ? "console" : "none",
     ...(token ? { bearer: token } : {}),
     createdAt: Date.now(),
     id: `mcp_${randomId(12)}`,
-    label: text(input.label)?.slice(0, 80) ?? url.host + (url.pathname === "/" ? "" : url.pathname),
+    ...(identity ? { identity } : {}),
+    label: text(input.label)?.slice(0, 80) ?? (session ? identity?.name ?? identity?.email ?? "Console session" : url.host + (url.pathname === "/" ? "" : url.pathname)),
     labelled: Boolean(text(input.label)),
     owner,
     sameOrigin: url.origin === origin,
@@ -523,13 +556,13 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
     url: url.href,
   }
   try {
-    await withClient(connection, async () => {}, { fresh: true })
+    await withClient(caller, connection, async () => {}, { fresh: true })
     store().connections.set(connection.id, connection)
     return { connection: describe(connection) }
   }
   catch (error) {
     if (!(error instanceof SignedOutError)) throw error
-    if (token) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
+    if (connection.auth !== "none") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
     // Without a token, a server that asks for credentials gets the MCP authorization flow.
     connection.auth = "oauth"
     connection.oauth = { redirectUrl: `${origin}${mount}${consoleMcpCallbackPath}` }
@@ -575,7 +608,7 @@ export async function completeConsoleMcp(caller: ConsoleMcpCaller, input: { code
   connection.identity = await readIdentity(connection)
   if (!connection.labelled) connection.label = connection.identity?.name ?? connection.identity?.email ?? connection.label
   try {
-    await withClient(connection, async () => {}, { fresh: true })
+    await withClient(caller, connection, async () => {}, { fresh: true })
   }
   catch (error) {
     if (error instanceof SignedOutError) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
@@ -591,7 +624,7 @@ export async function reconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id:
     return { authorizationUrl: await startAuthorization(connection, input.prompt), connection: describe(connection) }
   }
   try {
-    await withClient(connection, async () => {}, { fresh: true })
+    await withClient(caller, connection, async () => {}, { fresh: true })
   }
   catch (error) {
     if (!(error instanceof SignedOutError)) throw error
@@ -664,7 +697,7 @@ export async function listConsoleMcpItems(caller: ConsoleMcpCaller, input: { cur
   const connection = await connectionOf(caller, input.id)
   const { field, method } = listMethods[input.kind]
   try {
-    const result = await withClient(connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
+    const result = await withClient(caller, connection, client => client.request({ method, params: input.cursor ? { cursor: input.cursor } : {} }, ResultSchema, { timeout: requestTimeoutMs }))
     const values = Reflect.get(result, field)
     const items = Array.isArray(values) ? values.filter(isRecord) : []
     const nextCursor = text(Reflect.get(result, "nextCursor"))
@@ -682,7 +715,7 @@ async function outcome(caller: ConsoleMcpCaller, id: string, request: { method: 
   const connection = await connectionOf(caller, id)
   const startedAt = performance.now()
   try {
-    const result = await withClient(connection, client => client.request(request, ResultSchema, { maxTotalTimeout: timeoutMs, timeout: timeoutMs }), { timeoutMs })
+    const result = await withClient(caller, connection, client => client.request(request, ResultSchema, { maxTotalTimeout: timeoutMs, timeout: timeoutMs }), { timeoutMs })
     return { connection: describe(connection), durationMs: Math.round(performance.now() - startedAt), result }
   }
   catch (error) {

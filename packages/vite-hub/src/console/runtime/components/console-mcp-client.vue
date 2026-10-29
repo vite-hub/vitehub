@@ -171,7 +171,8 @@ onBeforeUnmount(() => request?.abort());
                 </template>
               </button>
             </UTooltip>
-            <UTooltip :text="group.connections.length ? 'Add an account' : 'Connect'" :disabled="!collapsed" :content="{ side: 'right' }">
+            <!-- ViteHub MCP has one account: the Console session. -->
+            <UTooltip v-if="!(group.candidate?.auth === 'console' && group.connections.length)" :text="group.connections.length ? 'Add an account' : 'Connect'" :disabled="!collapsed" :content="{ side: 'right' }">
               <button
                 type="button"
                 class="vitehub-console__section-link text-dimmed"

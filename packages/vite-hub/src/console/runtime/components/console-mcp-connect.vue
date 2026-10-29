@@ -10,6 +10,7 @@ import type { ConsoleMcpCandidate, ConsoleMcpConnection } from "../mcp-client";
  * Connect to an MCP server. OAuth needs nothing from the person until the server asks for it: the authorization
  * server of the app's own `/mcp` sees the session of this browser, so a signed-in person only approves the client.
  * A token is the fallback for servers without OAuth, or to act as someone whose sign-in this browser does not have.
+ * ViteHub MCP needs neither: the Console sends it the session of each request.
  */
 const props = defineProps<{
   base: string;
@@ -41,11 +42,20 @@ const sameOrigin = computed(() => {
 });
 // Signing in as someone else at this origin would also replace the Console's own session.
 const anotherBlocked = computed(() => props.sharedSession && sameOrigin.value);
+const usesSession = computed(() => {
+  try {
+    const url = new URL(server.value.trim(), window.location.origin).href;
+    return props.servers.some(candidate => candidate.auth === "console" && candidate.url === url);
+  }
+  catch {
+    return false;
+  }
+});
 const methods = [
   { description: "Sign in at the server's authorization server. A server without sign-in connects at once.", label: "OAuth", value: "oauth" },
   { description: "Paste a personal API key or another bearer token.", label: "Token", value: "token" },
 ];
-const canSubmit = computed(() => Boolean(server.value.trim()) && (method.value === "oauth" || Boolean(token.value.trim())));
+const canSubmit = computed(() => Boolean(server.value.trim()) && (usesSession.value || method.value === "oauth" || Boolean(token.value.trim())));
 
 watch(open, (isOpen) => {
   if (!isOpen) return;
@@ -65,8 +75,7 @@ async function submit(): Promise<void> {
     const result = await requestConsoleMcp(props.base, "mcp-client.connect", {
       server: server.value.trim(),
       ...(label.value.trim() ? { label: label.value.trim() } : {}),
-      ...(method.value === "token" ? { token: token.value.trim() } : {}),
-      ...(method.value === "oauth" && another.value && !anotherBlocked.value ? { prompt: "login" } : {}),
+      ...(usesSession.value ? {} : method.value === "token" ? { token: token.value.trim() } : another.value && !anotherBlocked.value ? { prompt: "login" } : {}),
     });
     if (result.authorizationUrl) {
       // The authorization server sends the browser back to the Console's callback page, which finishes the sign-in.
@@ -112,12 +121,15 @@ async function submit(): Promise<void> {
           </div>
         </UFormField>
 
-        <UFormField label="Sign in with" name="method">
+        <p v-if="usesSession" class="text-sm text-muted">
+          ViteHub MCP uses your Console session. It acts as you, with the tools of your Console sections, and the Console keeps no token for it.
+        </p>
+        <UFormField v-else label="Sign in with" name="method">
           <URadioGroup v-model="method" :items="methods" variant="card" orientation="horizontal" :ui="{ fieldset: 'grid gap-2 sm:grid-cols-2', item: 'items-start' }" />
         </UFormField>
 
         <UCheckbox
-          v-if="method === 'oauth'"
+          v-if="!usesSession && method === 'oauth'"
           v-model="another"
           :disabled="anotherBlocked"
           label="Sign in as someone else"
@@ -125,11 +137,11 @@ async function submit(): Promise<void> {
             ? 'This app’s sign-in is also the Console’s, so signing in as someone else here would sign the Console in as them. Use their token instead.'
             : 'The authorization server shows its sign-in even when this browser is signed in.'"
         />
-        <UFormField v-else label="Bearer token" description="Sent in the Authorization header. The Console never shows it again." name="token" required>
+        <UFormField v-else-if="!usesSession" label="Bearer token" description="Sent in the Authorization header. The Console never shows it again." name="token" required>
           <UInput v-model="token" class="w-full" type="password" autocomplete="off" spellcheck="false" :ui="{ base: 'font-mono text-base sm:text-sm' }" />
         </UFormField>
 
-        <UFormField label="Name" description="Optional. A sign-in names the connection after its account." name="label">
+        <UFormField v-if="!usesSession" label="Name" description="Optional. A sign-in names the connection after its account." name="label">
           <UInput v-model="label" class="w-full" maxlength="80" :placeholder="method === 'token' ? 'Lucía (API key)' : undefined" :ui="{ base: 'text-base sm:text-sm' }" />
         </UFormField>
 
@@ -141,7 +153,7 @@ async function submit(): Promise<void> {
     <template #footer>
       <div class="flex w-full justify-end gap-2">
         <UButton color="neutral" label="Cancel" variant="ghost" @click="open = false" />
-        <UButton form="vitehub-mcp-connect" type="submit" :label="method === 'oauth' ? 'Continue' : 'Connect'" :loading="pending" :disabled="!canSubmit" />
+        <UButton form="vitehub-mcp-connect" type="submit" :label="method === 'oauth' && !usesSession ? 'Continue' : 'Connect'" :loading="pending" :disabled="!canSubmit" />
       </div>
     </template>
   </UModal>
