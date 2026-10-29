@@ -63,6 +63,12 @@
       "require": "./dist/_internal/agent/eve.js",
       "default": "./dist/_internal/agent/eve.js"
     },
+    "./_internal/agent/operations": {
+      "types": "./dist/_internal/agent/operations.d.ts",
+      "import": "./dist/_internal/agent/operations.js",
+      "require": "./dist/_internal/agent/operations.js",
+      "default": "./dist/_internal/agent/operations.js"
+    },
     "./_internal/agent/runtime/invocations-dev": {
       "types": "./dist/_internal/agent/runtime/invocations-dev.d.ts",
       "import": "./dist/_internal/agent/runtime/invocations-dev.js",
@@ -1364,8 +1370,8 @@
     }
   },
   "scripts": {
-    "build": "vp build --config console.vite.config.ts && vp pack",
-    "dev": "vp build --config console.vite.config.ts && vp pack --watch",
+    "build": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack",
+    "dev": "vp build --config console.vite.config.ts && vp build --config overlay.vite.config.ts && vp pack --watch",
     "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.dev.json && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.console.json",
     "test": "vp run -t vite-hub#build && vp test"
   },

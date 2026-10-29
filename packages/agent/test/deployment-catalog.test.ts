@@ -49,6 +49,8 @@ function deploymentRuntimeModules(): Map<string, string> {
       `export { inheritAgentLayerOptions } from ${JSON.stringify(join(import.meta.dirname, "../src/agent-layers.ts"))}`,
       // The generated SQLite-state route builds its webhook warm-up at module load (#2628).
       `export { createAgentWebhookWarmup } from ${JSON.stringify(join(import.meta.dirname, "../src/server/webhook-warmup.ts"))}`,
+      // The generated route installs the Channel reader for the Console.
+      `export { installChannelsConsoleHost } from ${JSON.stringify(join(import.meta.dirname, "../src/channels-console-host.ts"))}`,
       `export { markDiscoveredAgentName, resetPublicUrlAgentNames } from ${JSON.stringify(join(import.meta.dirname, "../src/internal/discovered-agent-name.ts"))}`,
       "import { defineAgent } from '@vite-hub/agent'",
       `const capture = () => globalThis.${runtimeCaptureKey}`,

@@ -26,6 +26,7 @@ const serverPrimitiveSections = [
   "email",
   "env",
   "kv",
+  "logs",
   "queue",
   "rate-limit",
   "realtime",

@@ -27,6 +27,16 @@ Blob, Databases, Email, Rate Limits, Sandboxes, Workspaces, Schedules, Workflows
 This playground does not change the Console routes generated for Vite
 or Nuxt applications.
 
+To check Content loading and Rich/Source editing, start this playground on a fixed port and run the browser regression:
+
+```bash
+pnpm exec vp dev --config playground/console/vite.config.ts --host 127.0.0.1 --port 3087
+# In another terminal, from the repository root:
+CONSOLE_TEST_URL=http://127.0.0.1:3087 node --test packages/vite-hub/test/console-content.browser.mjs
+```
+
+The check uses installed Playwright Chromium, the real Console components, and intercepted RPC responses with nine synthetic documents. Saves and publishes change only the fixture in that browser test. It covers delayed and failed loads, retry, empty filters, Rich hydration, mode switching, failed saves and publishes, keyboard controls, and mobile layouts. Set `CONSOLE_TEST_ARTIFACTS` to a project-local directory to save screenshots and element bounds. Stop the dev server when the check ends.
+
 To see an error state, set the `playground-fail` cookie to `<route>=<status>` pairs. A route is the path after
 `/api/_vitehub/console/`, and it also matches the paths under it:
 
