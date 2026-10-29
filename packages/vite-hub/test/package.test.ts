@@ -135,7 +135,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/agent/runtime/workflow",
   "@vite-hub/agent/server/registry",
   "@vite-hub/auth/runtime/console",
-  "@vite-hub/blob/runtime/dev",
+  "@vite-hub/blob/operations",
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/operations",
   "@vite-hub/comments/runtime/console",
@@ -150,14 +150,15 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/database/runtime/virtual-databases",
   "@vite-hub/database/runtime/virtual-schema",
   "@vite-hub/content/runtime/console",
+  "@vite-hub/email/operations",
   "@vite-hub/email/runtime/console",
   "@vite-hub/kv/runtime/cloudflare-kv",
-  "@vite-hub/kv/runtime/dev",
+  "@vite-hub/kv/operations",
   "@vite-hub/kv/runtime/upstash-driver",
   "@vite-hub/queue/operations",
   "@vite-hub/queue/runtime/hosted",
   "@vite-hub/rate-limit/runtime",
-  "@vite-hub/rate-limit/runtime/console",
+  "@vite-hub/rate-limit/operations",
   "@vite-hub/sandbox/task/runtime/empty-registry",
   "@vite-hub/sandbox/task/runtime/provider-loader",
   "@vite-hub/sandbox/task/runtime/state",
@@ -317,7 +318,6 @@ describe("framework package contract", () => {
       "./console/definitions",
       "./console/documents",
       "./console/env",
-      "./console/kv",
       "./console/sections",
       "./console/server",
       "./console/ui",
@@ -850,7 +850,7 @@ describe("framework package contract", () => {
       if (!Array.isArray(handlers) || !Array.isArray(publicAssets)) {
         throw new TypeError("Expected the distributed Console Nitro configuration.");
       }
-      expect(handlers).toHaveLength(9);
+      expect(handlers).toHaveLength(10);
       expect(handlers.map((registration) => Reflect.get(Object(registration), "route"))).toEqual([
         "/api/_vitehub/console/status",
         "/api/_vitehub/console/usage",
@@ -861,6 +861,7 @@ describe("framework package contract", () => {
         "/_vitehub/env/manage",
         "/_vitehub/channels/replay",
         "/_vitehub/schedules/run",
+        "/_vitehub/mcp",
       ]);
       for (const registration of handlers) {
         const handler = Reflect.get(Object(registration), "handler");

@@ -142,13 +142,13 @@ export interface ConsoleVitePluginOptions {
   resolveD1Binding?: (root: string, serverDirs: string[] | undefined) => string | undefined
   databaseUrl?: string
   databaseDiscoveryRoot?: string
-  kvStores?: readonly string[]
   preset?: string
   rateLimitDiscoveryRoot?: string
   rateLimitScanDirs?: string[]
   resolveAuthConfig?: (root: string, serverDirs: string[] | undefined, auth: AuthModuleOptions | undefined) => ResolvedAuthViteConfig | undefined
   resolveBlobStores?: (blob: unknown) => readonly string[] | false
-  resolveKVStores?: (kv: unknown) => readonly string[] | false
+  /** Whether the KV section is on for this `kv` config. */
+  resolveKV?: (kv: unknown) => boolean
   invocationRootState?: ConsoleInvocationRootState
   sections?: readonly ConsoleSectionId[]
   scheduleDiscoveryRoot?: string
@@ -246,7 +246,6 @@ function configureConsoleNitroRoutes(
 ): { kit: ReturnType<typeof createNitroServerKit>, publicAssets: NonNullable<ConsoleNitroConfig["publicAssets"]> } {
   const runtimeHandlers = new Set([
     join(consoleRuntimeRoot, "server/agents.get.js"),
-    join(consoleRuntimeRoot, "server/blob.get.js"),
     join(consoleRuntimeRoot, "server/client.get.js"),
     join(consoleRuntimeRoot, "server/database.get.js"),
     join(consoleRuntimeRoot, "server/definitions.get.js"),
@@ -254,7 +253,6 @@ function configureConsoleNitroRoutes(
     join(consoleRuntimeRoot, "server/invocation-capabilities.get.js"),
     join(consoleRuntimeRoot, "server/invocations.get.js"),
     join(consoleRuntimeRoot, "server/logs.get.js"),
-    join(consoleRuntimeRoot, "server/kv.get.js"),
     join(consoleRuntimeRoot, "server/page.get.js"),
     join(consoleRuntimeRoot, "server/search.get.js"),
     join(consoleRuntimeRoot, "server/sign-in.js"),
@@ -288,7 +286,7 @@ function configureConsoleNitroRoutes(
       { handler: join(consoleRuntimeRoot, "server/status.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/status"), method: "get" },
       // The Usage section reads the Agent invocation journal, which exists only with the Agents section.
       ...(sections.includes("logs") ? [{ handler: join(consoleRuntimeRoot, "server/logs.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/logs"), method: "get" }] : []),
-    ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/usage"), method: "get" }] : []),
+      ...(sections.includes("agents") && sections.includes("usage") ? [{ handler: join(consoleRuntimeRoot, "server/usage.get.js"), route: consoleMountPath(baseURL, "/api/_vitehub/console/usage"), method: "get" }] : []),
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(baseURL, "/_vitehub/sign-in"), method: "get" }] : []),
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(baseURL, "/_vitehub") },
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(baseURL, "/_vitehub/**") },
@@ -436,7 +434,6 @@ function consoleD1JournalMessage(binding: string): string {
 
 export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
   let sections = options.sections ?? []
-  let kvStores = options.kvStores ?? []
   let blobStores = options.blobStores ?? []
   let generatedPlugin: string | undefined
   let databaseDiscoveryRoot: string | undefined
@@ -478,7 +475,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     authConfig: ResolvedConsoleAuthConfig
     handlers?: ConsoleAuthHandlers
     blobStores: typeof blobStores
-    kvStores: typeof kvStores
     fixture?: string
     invoke: boolean
     observations: typeof observations
@@ -500,15 +496,13 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
     if (!generatedPlugin || !projectRoot || !root) return
     const catalog = await discoverConsoleBuildCatalog({ contentImportBase: options.contentImportBase, databaseDiscoveryRoot, databaseImplicitDefault: true, discoveryRoot: root, plugins: resolvedPlugins, projectRoot, rateLimitDiscoveryRoot, rateLimitScanDirs, sandboxTaskDiscoveryRoot: root, scheduleDiscoveryRoot, sections, serverDirs, workspaceDiscoveryRoot })
     consoleBuildCatalogs.set(projectRoot, catalog)
-    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, kvStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase)
+    const identity = await writeConsoleNitroPlugin(generatedPlugin, projectRoot, sections, catalog.agents, catalog, blobStores, fixture, options.invocationRootState?.binding, invoke, observations, () => !options.invocationRootState?.closed, journal, consoleAuthMode, retention, consoleAccess(), options.runtimeCapabilityImports, development, applicationBase)
     if (options.invocationRootState) updateConsoleInvocationRootState(options.invocationRootState, projectRoot, identity)
   })
 
   function resolveKVRegistration(kv: unknown): void {
-    const resolvedKVStores = options.resolveKVStores?.(kv)
     sections = sections.filter(section => section !== "kv")
-    if (resolvedKVStores !== false) sections = [...sections, "kv"]
-    kvStores = resolvedKVStores === false ? [] : resolvedKVStores ?? options.kvStores ?? []
+    if (options.resolveKV?.(kv) !== false) sections = [...sections, "kv"]
   }
 
   function resolveBlobRegistration(blob: unknown): void {
@@ -669,7 +663,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
           catalog.agents,
           catalog,
           blobStores,
-          kvStores,
           fixture,
           options.invocationRootState?.binding,
           invoke,
@@ -724,7 +717,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
             blobStores,
-            kvStores,
             fixture,
             invoke,
             observations,
@@ -771,7 +763,6 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
                 callbackState.catalog.agents,
                 callbackState.catalog,
                 callbackState.blobStores,
-                callbackState.kvStores,
                 callbackState.fixture,
                 callbackState.invocationBinding,
                 callbackState.invoke,

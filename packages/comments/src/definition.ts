@@ -5,6 +5,8 @@ import type { CommentsAuthorizeContext as LiveContext, DefineCommentsOptions as 
 export interface CommentsAuthorizeContext {
   user: LiveContext["user"]
   action: LiveContext["action"] | OperationsContext["action"]
+  /** The live-site thread scope. Operations use `subject` instead. */
+  scope?: LiveContext["scope"]
   thread?: LiveContext["thread"] | OperationsContext["thread"]
   actor?: OperationsContext["actor"]
   subject?: OperationsContext["subject"]

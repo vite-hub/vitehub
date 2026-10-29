@@ -1,3 +1,5 @@
+import { resolveViteHubProjectRoot } from "./build/vite.ts"
+import { findViteHubDevServerUrl } from "./cli.ts"
 import { internalErrorDiagnostics } from "./error-diagnostics.ts"
 import { standardJsonSchema } from "./standard-schema.ts"
 import { withValibotJsonSchema } from "./valibot.ts"
@@ -605,4 +607,37 @@ export async function callOperation(target: OperationTarget, name: string, input
   catch (error) {
     return unreachable(`The request to ${origin} failed: ${error instanceof Error ? error.message : String(error)}`)
   }
+}
+
+/** What a command-line tool passes to {@link callOperationFromCli}. */
+export interface CliOperationCall {
+  /** Whether the command confirmed a destructive call. */
+  confirmed?: boolean
+  /** Environment of the command, with the credentials. */
+  env: NodeJS.ProcessEnv
+  /** Replaces `fetch`, so tests need no server. */
+  fetch?: typeof fetch
+  /** The project root of the command. */
+  rootDir: string
+  /** Request timeout in milliseconds. */
+  timeout?: number
+  /** `--url`: a deployed app. Without it the command finds the dev server of its project. */
+  url?: string
+}
+
+/**
+ * Call one operation from a `vitehub` command: on `--url` when it is set, else on the dev server that the project
+ * started. Never throws. Without a dev server the result is an `INTERNAL_R0024` failure that says to start one.
+ */
+export async function callOperationFromCli(call: CliOperationCall, name: string, input: unknown): Promise<OperationResult> {
+  let roots: string[]
+  try {
+    roots = [...new Set([call.rootDir, resolveViteHubProjectRoot(call.rootDir)])]
+  }
+  catch {
+    roots = [call.rootDir]
+  }
+  const url = call.url ?? findViteHubDevServerUrl(roots, call.env)
+  if (!url) return unreachable(`No dev server is running for ${call.rootDir}.`)
+  return await callOperation({ ...(call.confirmed !== undefined ? { confirmed: call.confirmed } : {}), env: call.env, ...(call.fetch ? { fetch: call.fetch } : {}), ...(call.url ? {} : { roots }), ...(call.timeout ? { timeout: call.timeout } : {}), url }, name, input)
 }

@@ -1,6 +1,7 @@
 import type { IncomingMessage } from "node:http"
 import type { Plugin } from "vite"
 
+import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../../packages/vite-hub/src/console/runtime/diagnostics.ts"
 import type { ConsoleRpcResult } from "../../packages/vite-hub/src/console/runtime/rpc.ts"
 
 const consoleRpcCallPath = "/_vitehub/rpc/__call"
@@ -53,6 +54,13 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     method = "POST"
     body = input
   }
+  // Writes and counters share one fixture route per section, told apart by `action`.
+  const writes: Record<string, string> = { "blob.del": "blob", "blob.put": "blob", "kv.del": "kv", "kv.set": "kv", "rate-limit.peek": "rate-limit", "rate-limit.reset": "rate-limit" }
+  if (writes[payload.operation]) {
+    route = writes[payload.operation]
+    method = "POST"
+    body = { ...input, action: payload.operation.split(".")[1] }
+  }
   if (!route) return { code: "CONSOLE_REQUEST_INVALID", message: `The playground has no fixture for ${payload.operation}.`, ok: false, status: 404 }
   const url = new URL(`/api/_vitehub/console/${route}`, origin)
   if (method === "GET") {
@@ -67,7 +75,8 @@ export async function callConsoleFixture(origin: string, payload: { input?: Reco
     headers: { "content-type": "application/json", ...(cookie ? { cookie } : {}) },
     method,
   })
-  if (!response.ok) return { code: "CONSOLE_REQUEST_FAILED", message: await response.text(), ok: false, status: response.status }
+  // Answer as the server RPC does for a failure without its own code, so 401 asks to sign in and 403 shows a lock.
+  if (!response.ok) return { ...consoleDiagnosticBody(consoleStatusDiagnosticCode(response.status), await response.text()), ok: false, status: response.status }
   return { ok: true, value: await response.json() }
 }
 

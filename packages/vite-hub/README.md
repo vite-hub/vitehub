@@ -247,3 +247,7 @@ For production, use `logs: { source: './server/logs.ts' }`. That server module m
 Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.
 
 With the Cloudflare preset and Logs enabled, ViteHub defaults the generated Wrangler configuration to `observability: { enabled: true }`. An explicit Wrangler observability configuration is preserved, including `enabled: false`. This enables Cloudflare's native collection. It does not create an exporter, configure a destination, or connect that history to the Console. Those remain owned by the existing backend and its source adapter.
+
+## ViteHub MCP
+
+The Console serves `POST /_vitehub/mcp`. It exposes Content draft tools, Database names and schemas, KV keys, Blob metadata, and Comments tools within the caller's Console sections. Env values, credentials, tokens, KV values, Database rows, and Blob contents are not exposed. See [ViteHub MCP](https://vitehub.dev/docs/development/mcp) for the tools and access rules.

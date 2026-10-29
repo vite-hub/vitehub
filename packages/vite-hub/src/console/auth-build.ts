@@ -264,6 +264,8 @@ export async function writeConsoleAuthHandlers(root: string, config: ResolvedCon
       "  if (path === '/_vitehub/schedules/run' && request.headers.has('x-vitehub-dispatch-signature')) return",
       "  if (!(path === '/_vitehub' || path.startsWith('/_vitehub/') || path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/'))) return",
       "  await prepare(event)",
+      "  // ViteHub MCP is a data route for Agents: answer 401 instead of the sign-in page.",
+      "  if (path === '/_vitehub/mcp') return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "  if (path === '/_vitehub' || path.startsWith('/_vitehub/')) return consoleAuthPageResponse(request, await requireAuthAccessRoutes(event, [0], definition, [0], { redirectToSignIn: path === '/_vitehub' && url.searchParams.has('auth_start') }), mountBase)",
       "  if (path === '/api/_vitehub/console' || path.startsWith('/api/_vitehub/console/')) return requireAuthAccessRoutes(event, [1], definition, [1], { redirectToSignIn: false })",
       "}",

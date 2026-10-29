@@ -1,5 +1,8 @@
 import { createOperationRegistry, installOperationRegistry, operationsOf } from "@vite-hub/internal/operations"
+import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 
+import { blobMcpTools } from "./blob-mcp.ts"
+import { kvMcpTools } from "./kv-mcp.ts"
 import { consoleOperations } from "./operations.ts"
 
 import type { AnyOperation, OperationRegistry } from "@vite-hub/internal/operations"
@@ -31,6 +34,8 @@ export function installConsoleOperations(contributed: readonly ConsoleOperationC
   const registry = createOperationRegistry([{ operations: consoleOperations, plugin: "vite-hub" }, ...installed])
   scope[contributionKey] = { contributed: installed, registry }
   installOperationRegistry(registry)
+  registerViteHubMcpTools("console-kv", registry.get("kv.list") ? kvMcpTools(registry) : [])
+  registerViteHubMcpTools("console-blob", registry.get("blob.list") ? blobMcpTools(registry) : [])
   return registry
 }
 
