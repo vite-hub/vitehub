@@ -452,7 +452,7 @@ describe("vitehub", () => {
         await callHook(inactive.configResolved, [inactiveConfig])
 
         const inactiveGenerated = await readFile(join(inactiveRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-        expect(inactiveGenerated).not.toContain("installConsoleKV")
+        expect(inactiveGenerated).not.toContain('"kv"')
         expect(inactiveConfig.nitro).not.toMatchObject({
           handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
         })
@@ -471,8 +471,8 @@ describe("vitehub", () => {
       await callHook(named.configResolved, [namedConfig])
 
       const generated = await readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(generated).toContain('installConsoleKV(')
-      expect(generated).toContain('["cache","sessions"]')
+      expect(generated).toContain('"kv"')
+      expect(generated).not.toContain("installConsoleKV")
       expect(namedConfig.nitro).toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/_vitehub/rpc/**" })]),
       })
@@ -488,7 +488,7 @@ describe("vitehub", () => {
       await callHook(disabled.configResolved, [config])
 
       const disabledGenerated = await readFile(join(disabledRoot, ".vitehub/nitro/console/plugin.mjs"), "utf8")
-      expect(disabledGenerated).not.toContain("installConsoleKV")
+      expect(disabledGenerated).not.toContain('"kv"')
       expect(config.nitro).not.toMatchObject({
         handlers: expect.arrayContaining([expect.objectContaining({ route: "/api/_vitehub/console/kv" })]),
       })
@@ -682,6 +682,7 @@ describe("vitehub", () => {
     expect(appliedPluginNames(vitehub({ preset: "node" }))).toEqual([
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
@@ -722,6 +723,7 @@ describe("vitehub", () => {
       "vite-hub/doctor",
       "@vite-hub/markdown-template/vite",
       "vite-hub/agent-channel-env",
+      "vite-hub/deployment-settings",
       "vite-hub/deployment-preset",
       "vite-hub/deployment-output",
       "vite-hub/public-url",
@@ -807,12 +809,11 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "resend",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
     expect(integrationMocks.hubChannels).toHaveBeenLastCalledWith(undefined)
-    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" }, { importBase: "vite-hub/_internal/kv" })
+    expect(integrationMocks.hubKv).toHaveBeenLastCalledWith({ driver: "cloudflare-kv-binding" })
     expect(integrationMocks.hubSandboxTask).toHaveBeenLastCalledWith({
       provider: "cloudflare",
       providerImportAliases: expect.any(Object),
@@ -927,7 +928,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       ...email,
       hosting: "node-server",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })
@@ -942,7 +942,6 @@ describe("vitehub", () => {
     expect(integrationMocks.hubEmail).toHaveBeenLastCalledWith({
       driver: "cloudflare-email",
       hosting: "cloudflare-module",
-      importBase: "vite-hub/_internal/email",
       runtimeEnvImport: "vite-hub/env/server",
       workflowProvider: undefined,
     })

@@ -185,6 +185,17 @@ it("rejects empty and malformed image chats", async () => {
     .resolves.toMatchObject({ error: expect.any(String) })
 })
 
+it.each([
+  [401, "CONSOLE_SIGN_IN_REQUIRED"],
+  [403, "CONSOLE_ACCESS_DENIED"],
+  [404, "CONSOLE_NOT_FOUND"],
+  [500, "CONSOLE_REQUEST_FAILED"],
+])("answers a failed %i fixture with the code the server gives it", async (status, code) => {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response("Playground failure", { status })))
+  await expect(callConsoleFixture("http://localhost:5173", { operation: "env.get", input: {} }))
+    .resolves.toMatchObject({ code, fix: expect.any(String), message: "Playground failure", ok: false, status })
+})
+
 it("forwards failure cookies while translating write operations to fixture requests", async () => {
   const fetch = vi.fn(async () => new Response("Playground failure", { status: 503 }))
   vi.stubGlobal("fetch", fetch)
@@ -192,8 +203,8 @@ it("forwards failure cookies while translating write operations to fixture reque
   await expect(callConsoleFixture("http://localhost:5173", {
     operation: "invocations.cancel",
     input: { id: "run/1" },
-  }, "playground-fail=invocations:503")).resolves.toEqual({
-    code: "CONSOLE_REQUEST_FAILED", message: "Playground failure", ok: false, status: 503,
+  }, "playground-fail=invocations:503")).resolves.toMatchObject({
+    code: "CONSOLE_UNAVAILABLE", message: "Playground failure", ok: false, status: 503,
   })
   expect(fetch).toHaveBeenCalledWith(new URL("http://localhost:5173/api/_vitehub/console/invocations/run%2F1"), {
     body: JSON.stringify({ action: "cancel" }),

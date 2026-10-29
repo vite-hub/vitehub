@@ -5,6 +5,7 @@ import { defineOperation } from "@vite-hub/internal/operations"
 import { assertUniqueOperationNames } from "../src/console/build.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
+import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { consoleOperationRegistry as installedRegistry, installConsoleOperations, installConsoleProjectRoot } from "../src/console/runtime/server/operation-contributions.ts"
 import { consoleOperationRegistry } from "../src/console/runtime/server/rpc.ts"
@@ -45,6 +46,7 @@ afterEach(() => {
   installConsoleDevelopment("/work/app", false)
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
+  installConsoleSections("/work/app", [])
 })
 
 describe("operations that run app code", () => {
@@ -90,17 +92,19 @@ describe("operations that run app code", () => {
   })
 
   it.each([
-    { grant: "fixture", operations: ["fixture.start"] },
-    { grant: "fixture:read", operations: undefined },
-  ])("advertises app Auth and permitted actions for $grant access", async ({ grant, operations }) => {
+    { grant: "fixture", operations: ["fixture.start"], readOnly: undefined },
+    { grant: "fixture:read", operations: undefined, readOnly: ["fixture"] },
+  ])("advertises app Auth and permitted actions for $grant access", async ({ grant, operations, readOnly }) => {
+    installConsoleSections("/work/app", ["fixture"])
     installConsoleOperations([{ operations: [greet, start], plugin: "fixture-plugin" }], { invoke: true })
     installConsoleAccess({ mode: "auth", check: async () => undefined, authorize: () => ({ sections: [grant] }) })
 
     const response = await call("sections.list")
     expect(response.status).toBe(200)
-    const { value } = await response.json() as { value: { auth?: true, operations?: string[] } }
+    const { value } = await response.json() as { value: { auth?: true, operations?: string[], readOnly?: string[] } }
     expect(value.auth).toBe(true)
     expect(value.operations).toEqual(operations)
+    expect(value.readOnly).toEqual(readOnly)
   })
 
   it("marks the workflow, queue, task, and schedule operations that start app code", async () => {

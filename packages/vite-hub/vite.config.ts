@@ -70,6 +70,7 @@ export default defineConfig({
       { from: "src/cloudflare-prerender.mjs", to: "dist" },
       { from: "src/error-diagnostics.ts", to: "dist" },
       { from: ".vitehub/console", to: "dist/console/runtime/public" },
+      { from: ".vitehub/comments-overlay", to: "dist" },
       {
         from: "src/console/runtime/components/console-wrap.ts",
         to: "dist/console/runtime/components",
@@ -291,6 +292,7 @@ export default defineConfig({
       { from: "src/console/runtime/components/console-status.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-value.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-property-list.vue", to: "dist/console/runtime/components" },
+      { from: "src/console/runtime/components/console-rate-limit.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-blob-detail.vue", to: "dist/console/runtime/components" },
       { from: "src/console/runtime/components/console-toaster.vue", to: "dist/console/runtime/components" },
       { from: "../ui/styles.css", to: "dist/ui" },
@@ -351,6 +353,8 @@ export default defineConfig({
       "src/console/runtime/client/publish.ts",
       "src/console/runtime/client/operation-view.ts",
       "src/console/runtime/client/problem.ts",
+      "src/console/runtime/client/rate-limit.ts",
+      "src/console/runtime/client/read-only.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/schema-form.ts",
       "src/console/runtime/client/sign-in.ts",
@@ -362,7 +366,6 @@ export default defineConfig({
       "src/console/runtime/sections.ts",
       "src/console/runtime/skills.ts",
       "src/console/runtime/server/agents.get.ts",
-      "src/console/runtime/server/blob.get.ts",
       "src/console/runtime/server/channel-replay.ts",
       "src/console/runtime/server/client.get.ts",
       "src/console/runtime/server/database.get.ts",
@@ -377,7 +380,7 @@ export default defineConfig({
       "src/console/runtime/server/auth-manage.ts",
       "src/console/runtime/server/env-manage.ts",
       "src/console/runtime/server/logs.get.ts",
-      "src/console/runtime/server/kv.get.ts",
+      "src/console/runtime/server/mcp.ts",
       "src/console/runtime/server/page.get.ts",
       "src/console/runtime/server/schedule-run.ts",
       "src/console/runtime/server/search.get.ts",
@@ -413,6 +416,8 @@ export default defineConfig({
         delete exports["./console/runtime/client/presence"];
         delete exports["./console/runtime/client/publish"];
         delete exports["./console/runtime/client/problem"];
+        delete exports["./console/runtime/client/rate-limit"];
+        delete exports["./console/runtime/client/read-only"];
         delete exports["./console/runtime/client/schedule-run"];
         delete exports["./console/runtime/client/schema-form"];
         delete exports["./console/runtime/client/sign-in"];
@@ -425,7 +430,6 @@ export default defineConfig({
         delete exports["./console/runtime/skills"];
         delete exports["./console/runtime/server/agents.get"];
         delete exports["./console/runtime/server/blob"];
-        delete exports["./console/runtime/server/blob.get"];
         delete exports["./console/runtime/server/channel-replay"];
         delete exports["./console/runtime/server/client.get"];
         delete exports["./console/runtime/server/database"];
@@ -443,8 +447,7 @@ export default defineConfig({
         delete exports["./console/runtime/server/env-manage"];
         delete exports["./console/runtime/server/env"];
         delete exports["./console/runtime/server/logs.get"];
-        delete exports["./console/runtime/server/kv.get"];
-        delete exports["./console/runtime/server/kv"];
+        delete exports["./console/runtime/server/mcp"];
         delete exports["./console/runtime/server/page.get"];
         delete exports["./console/runtime/server/schedule-run"];
         delete exports["./console/runtime/server/search.get"];
@@ -467,7 +470,6 @@ export default defineConfig({
           "./console/definitions": "./dist/console/runtime/server/definitions.js",
           "./console/documents": "./dist/console/runtime/server/documents.js",
           "./console/env": "./dist/console/runtime/server/env.js",
-          "./console/kv": "./dist/console/runtime/server/kv.js",
           "./console/sections": "./dist/console/runtime/server/sections.js",
           "./ui/styles.css": "./dist/ui/styles.css",
           "./tsconfig": "./tsconfig.json",

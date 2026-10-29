@@ -23,6 +23,7 @@ import type {
   ContentDevDiffResult,
   ContentDevListResult,
   ContentDevPublishResult,
+  ContentDevRemoveResult,
   ContentDevRevisionsResult,
   ContentDevSaveResult,
   ContentDevSchedulesResult,
@@ -33,7 +34,7 @@ import type {
 } from "./results.ts"
 
 /** The parts of a `defineContent()` runtime that the operations use. */
-type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule">
+type ContentOperationsRuntime = Pick<ContentDocumentsRuntime, "can" | "collection" | "collections" | "hasPolicy" | "head" | "publish" | "revisions" | "schedule" | "schedules" | "sitemap" | "unschedule"> & Partial<Pick<ContentDocumentsRuntime, "preview">>
 
 const runtimeMembers = ["can", "collection", "collections", "publish", "revisions", "schedule", "schedules", "sitemap", "unschedule"]
 
@@ -148,6 +149,42 @@ function guard(content: ContentOperationsRuntime, context: OperationContext): Gu
       const allowed = await Promise.all(list.map(id => can("read", collection, id)))
       return new Set(list.filter((_id, index) => allowed[index]))
     },
+  }
+}
+
+/** An Agent tool or an MCP client: a model decides the call, for the person it works for. */
+function modelSurface(context: OperationContext): boolean {
+  return context.surface === "agent" || context.surface === "mcp"
+}
+
+/** The `lease` write option. A model may not take over a document that a person is editing, unless the developer allowed it. */
+function leaseOption(lease: "override" | undefined, context: OperationContext): Pick<ContentWriteOptions, "lease"> {
+  if (lease === undefined) return {}
+  if (modelSurface(context) && !context.overrideLeases) {
+    throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Tell the person you work for who is editing it, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true })." })
+  }
+  return { lease }
+}
+
+/**
+ * Run a write. For a model, a held lease names the person and says to wait, because the runtime error tells a
+ * developer how to override it.
+ */
+async function write<T>(context: OperationContext, work: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt(work)
+  }
+  catch (error) {
+    if (!modelSurface(context) || errorCode(error) !== "CONTENT_LEASE_HELD") throw error
+    const details: unknown = Reflect.get(Object(error), "details")
+    const holder: unknown = Reflect.get(Object(details), "holder")
+    const user: unknown = Reflect.get(Object(holder), "user")
+    const name: unknown = Reflect.get(Object(user), "name") ?? Reflect.get(Object(user), "id")
+    const document = `${String(Reflect.get(Object(details), "collection"))}/${String(Reflect.get(Object(details), "id"))}`
+    throw new ContentOperationError(409, "CONTENT_LEASE_HELD", `${String(name) === name ? name : "Someone"} is editing Content document ${JSON.stringify(document)}. Nothing was saved.`, {
+      details,
+      fix: "Tell the person you work for, and try again after they finish.",
+    })
   }
 }
 
@@ -299,6 +336,79 @@ const list = defineOperation({
   section: "content",
 })
 
+/** `/blog/hello/` and `/blog/hello` are the same page. */
+function normalizeUrl(value: string): string {
+  const path = value.split(/[?#]/, 1)[0] ?? value
+  return path.length > 1 ? path.replace(/\/+$/, "") || "/" : path
+}
+
+/**
+ * A conservative prefilter over normalized paths. Tokens may be empty or contain slashes, so only the literal prefix
+ * before the first token is safe to require; the generated URL index decides the match. Functions can produce any path.
+ */
+function routePattern(collection: AnyContentCollection): RegExp | null {
+  if (collection.urlPattern === undefined) return null
+  const pattern = normalizeUrl(collection.urlPattern)
+  const token = /:[A-Za-z_$][\w$]*/.exec(pattern)
+  const prefix = token ? normalizeUrl(pattern.slice(0, token.index)) : pattern
+  const source = prefix.replaceAll(/[$()*+.?[\\\]^{|}]/g, "\\$&")
+  return new RegExp(`^${source}${token ? "" : "$"}`)
+}
+
+/** Paths of the documents of one collection and ref. Rebuilt only when that ref's head moves. */
+interface PathIndex {
+  byPath: Map<string, string>
+  head: string
+}
+
+const pathIndexes = new WeakMap<object, Map<string, PathIndex>>()
+
+/** Every document of the collection with a URL, from full pages of summaries (no bodies). One list per head. */
+async function pathIndexOf(content: ContentOperationsRuntime, collection: AnyContentCollection, selectedRef: "draft" | "published"): Promise<Map<string, string>> {
+  // A stand-in runtime without head() builds the index each time.
+  const head = await (content as Partial<Pick<ContentOperationsRuntime, "head">>).head?.(selectedRef) ?? null
+  if (selectedRef === "published" && head === null && typeof content.head === "function") return new Map()
+  const key = `${selectedRef}:${collection.name}`
+  const cached = pathIndexes.get(content)?.get(key)
+  if (head !== null && cached?.head === head) return cached.byPath
+  const byPath = new Map<string, string>()
+  let cursor: string | undefined
+  do {
+    const page = await collection.list({ limit: 1_000, ref: selectedRef, ...(cursor === undefined ? {} : { cursor }) })
+    for (const item of page.items) if (item.url !== undefined && item.url !== null) byPath.set(normalizeUrl(item.url), item.id)
+    cursor = page.nextCursor ?? undefined
+  } while (cursor !== undefined)
+  if (head !== null) {
+    const indexes = pathIndexes.get(content) ?? new Map<string, PathIndex>()
+    indexes.set(key, { byPath, head })
+    pathIndexes.set(content, indexes)
+  }
+  return byPath
+}
+
+const resolveDocument = defineOperation({
+  cli: { command: "resolve", positional: ["path"] },
+  description: "Find the document whose public URL is a path, for the Edit button of the comments overlay. Null when no readable document has it.",
+  input: v.strictObject({ path: v.pipe(v.string(), v.minLength(1), v.maxLength(2_000)) }),
+  kind: "read",
+  name: "content.resolve",
+  run: async (input, context): Promise<{ collection: string, id: string } | null> => attempt(async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const wanted = normalizeUrl(input.path)
+    // A collection whose `url` pattern cannot produce the path is not listed at all.
+    const candidates = content.collections().filter(collection => collection.routable && (routePattern(collection)?.test(wanted) ?? true))
+    // Match the ref serving this request; another ref can assign the same URL to a different document.
+    const selectedRef = content.preview?.active() ? "draft" : "published"
+    for (const collection of candidates) {
+      const id = (await pathIndexOf(content, collection, selectedRef)).get(wanted)
+      if (id !== undefined && (await access.readable(collection.name, [id])).has(id)) return { collection: collection.name, id }
+    }
+    return null
+  }),
+  section: "content",
+})
+
 /** The field issues of a stored document: `issues` of a draft, or the `CONTENT_INVALID` details of any other read. */
 async function issuesOf(collection: AnyContentCollection, id: string, selectedRef: "draft" | "published"): Promise<ContentFieldIssue[] | undefined> {
   try {
@@ -442,27 +552,80 @@ const save = defineOperation({
   kind: "write",
   maxRequestBytes: 1024 * 1024 + 64 * 1024,
   name: "content.save",
-  run: async (input, context): Promise<ContentDevSaveResult> => attempt(async () => {
+  run: async (input, context): Promise<ContentDevSaveResult> => write(context, async () => {
     const content = await contentRuntime()
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "save")
     await access.allow("write", collection.name, id)
-    if (input.lease === "override" && context.surface === "agent" && !context.overrideLeases) {
-      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Create the capability with operations({ overrideLeases: true }) if Agents may write over an edit lease." })
-    }
+    const lease = leaseOption(input.lease, context)
     const parsed = parseDocumentFile(input.text, collection.format)
     if (!("frontmatter" in parsed)) {
       throw new ContentOperationError(422, "CONTENT_INVALID", `Content document ${JSON.stringify(`${collection.name}/${id}`)} cannot be read as ${collection.format}.`, { details: { collection: collection.name, id, issues: parsed.issues } })
     }
-    const options: ContentWriteOptions = { metadata: metadata(context) }
+    const options: ContentWriteOptions = { metadata: metadata(context), ...lease }
     if (input.ifDigest !== undefined) options.ifDigest = input.ifDigest
     if (input.message !== undefined) options.message = input.message
-    if (input.lease !== undefined) options.lease = input.lease
-    const document = await collection.save(id, { body: parsed.body, data: parsed.frontmatter }, options)
-    const result: ContentDevSaveResult = { collection: document.collection, digest: document.digest, id: document.id, path: document.path, revision: document.revision }
-    if (document.issues?.length) result.issues = document.issues
-    return result
+    return saveResult(await collection.save(id, { body: parsed.body, data: parsed.frontmatter }, options))
+  }),
+  section: "content",
+})
+
+function saveResult(document: { collection: string, digest: string, id: string, issues?: ContentFieldIssue[] | undefined, path: string, revision: string }): ContentDevSaveResult {
+  const result: ContentDevSaveResult = { collection: document.collection, digest: document.digest, id: document.id, path: document.path, revision: document.revision }
+  if (document.issues?.length) result.issues = document.issues
+  return result
+}
+
+const remove = defineOperation({
+  cli: { command: "rm", positional: ["collection", "id"] },
+  description: "Delete one document from the draft, pinned to the draft digest that you read. The next publish deletes it from the site. Fails while someone else holds the edit lease.",
+  input: v.strictObject({
+    collection: text,
+    id: optionalText,
+    ifDigest: text,
+    lease: v.optional(v.literal("override")),
+    message: optionalText,
+  }),
+  kind: "destructive",
+  name: "content.remove",
+  run: async (input, context): Promise<ContentDevRemoveResult> => write(context, async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const collection = content.collection(input.collection)
+    const id = documentId(collection, input.id, "remove")
+    await access.allow("write", collection.name, id)
+    const options: ContentWriteOptions = { ifDigest: input.ifDigest, metadata: metadata(context), ...leaseOption(input.lease, context) }
+    if (input.message !== undefined) options.message = input.message
+    await collection.remove(id, options)
+    return { collection: collection.name, id }
+  }),
+  section: "content",
+})
+
+const restore = defineOperation({
+  cli: { command: "restore", positional: ["collection", "id"] },
+  description: "Save the version of one document from an earlier revision as its draft. Publishes nothing. Pass ifDigest, the current draft digest or null, to restore only over what you read.",
+  input: v.strictObject({
+    collection: text,
+    id: optionalText,
+    ifDigest: v.optional(digest),
+    lease: v.optional(v.literal("override")),
+    message: optionalText,
+    revision: text,
+  }),
+  kind: "write",
+  name: "content.restore",
+  run: async (input, context): Promise<ContentDevSaveResult> => write(context, async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const collection = content.collection(input.collection)
+    const id = documentId(collection, input.id, "restore")
+    await access.allow("write", collection.name, id)
+    const options: ContentWriteOptions = { metadata: metadata(context), ...leaseOption(input.lease, context) }
+    if (input.ifDigest !== undefined) options.ifDigest = input.ifDigest
+    if (input.message !== undefined) options.message = input.message
+    return saveResult(await collection.restore(id, input.revision, options))
   }),
   section: "content",
 })
@@ -600,4 +763,4 @@ const sitemap = defineOperation({
 })
 
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap]

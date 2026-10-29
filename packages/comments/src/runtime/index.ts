@@ -4,3 +4,4 @@ export { defineCommentsPlugin, injectOverlay, installedComments, scriptNonce, wa
 export type { CommentsPluginOptions } from "./plugin.ts"
 export { commentsConsoleSession } from "./console-session.ts"
 export type { CommentsConsoleAccess } from "./console-session.ts"
+export { commentsMcpTools } from "./mcp.ts"

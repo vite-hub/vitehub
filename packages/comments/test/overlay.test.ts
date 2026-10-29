@@ -5,7 +5,7 @@ import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 import * as page from "../src/page.ts"
 import { api } from "../src/overlay/api.ts"
 
-import type { CommentThread } from "../src/types.ts"
+import type { PageThread } from "../src/overlay/api.ts"
 
 vi.mock("../src/overlay/api.ts", () => ({
   api: { session: vi.fn(), threads: vi.fn(), reply: vi.fn(), remove: vi.fn(), removeComment: vi.fn(), field: vi.fn(), saveField: vi.fn() },
@@ -32,11 +32,11 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-function thread(): CommentThread {
+function thread(): PageThread {
   const author = { id: "ada", name: "Ada" }
   const now = new Date().toISOString()
   return {
-    id: "thread", page: "/", status: "open", createdBy: author, resolvedBy: null, resolvedAt: null,
+    id: "thread", scope: "pages", number: 1, metadata: null, page: "/", status: "open", createdBy: author, resolvedBy: null, resolvedAt: null,
     createdAt: now, updatedAt: now, context: null,
     anchor: { selector: "h1", label: "h1 Published", x: 500, y: 500, page: { x: 10, y: 10 }, viewport: { width: 1024 } },
     comments: [{ id: "root", threadId: "thread", body: "First comment", mentions: [], author, createdAt: now, editedAt: null }],
@@ -67,6 +67,8 @@ beforeEach(async () => {
 
 afterEach(() => {
   overlay.remove()
+  document.documentElement.removeAttribute("data-theme")
+  document.documentElement.style.colorScheme = ""
   history.replaceState(null, "", "/")
   vi.useRealTimers()
   vi.restoreAllMocks()
@@ -88,6 +90,41 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it.each(["dark", "light"])("follows the host's data-theme=%s on mount and when it changes", async (theme) => {
+    overlay.remove()
+    const opposite = theme === "dark" ? "light" : "dark"
+    document.documentElement.style.colorScheme = opposite
+    document.documentElement.dataset.theme = theme
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    shadow = overlay.shadowRoot!
+    const root = shadow.querySelector<HTMLElement>(".root")!
+    expect(root.dataset.theme).toBe(theme)
+
+    document.documentElement.dataset.theme = opposite
+    await vi.waitFor(() => expect(root.dataset.theme).toBe(opposite))
+    document.documentElement.style.colorScheme = theme
+    delete document.documentElement.dataset.theme
+    await vi.waitFor(() => expect(root.dataset.theme).toBe(theme))
+  })
+
+  it.each(["normal", "light dark"])("follows the system preference with color-scheme: %s", (scheme) => {
+    overlay.remove()
+    let prefersDark = true
+    const media = matchMedia("(prefers-color-scheme: dark)")
+    vi.spyOn(media, "matches", "get").mockImplementation(() => prefersDark)
+    vi.spyOn(globalThis, "matchMedia").mockReturnValue(media)
+    document.documentElement.style.colorScheme = scheme
+    overlay = document.createElement("vitehub-comments")
+    document.body.append(overlay)
+    const root = overlay.shadowRoot!.querySelector<HTMLElement>(".root")!
+    expect(root.dataset.theme).toBe("dark")
+
+    prefersDark = false
+    media.dispatchEvent(new Event("change"))
+    expect(root.dataset.theme).toBe("light")
+  })
+
   it("uses the loaded thread permissions for replies and resolution", async () => {
     overlay.remove()
     vi.mocked(api.session).mockResolvedValue([undefined, {
@@ -142,12 +179,12 @@ describe("Comments overlay", () => {
   })
 
   it("refreshes the thread panel after remote replies and resolution", async () => {
-    shadow.querySelector<HTMLButtonElement>('[title="Threads on this page"]')!.click()
+    shadow.querySelector<HTMLButtonElement>('[aria-label="Comments on this page, 1 open thread"]')!.click()
     const updated = thread()
     updated.comments.push({ ...updated.comments[0]!, id: "reply", body: "Remote reply" })
     vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(shadow.querySelector(".panel")?.textContent).toContain("1 replies")
+    expect(shadow.querySelector(".panel")?.textContent).toContain("1 reply")
     vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...updated, status: "resolved" }]])
     await vi.advanceTimersByTimeAsync(30_000)
     expect(shadow.querySelector(".panel-item")).toBeNull()

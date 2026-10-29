@@ -1,3 +1,4 @@
+import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { afterEach, describe, expect, it } from "vitest";
 import { createClient } from "@libsql/client";
 import { drizzle } from "drizzle-orm/libsql";
@@ -252,3 +253,28 @@ describe("Console database inspection", () => {
     expect(() => parseConsoleDatabase(value)).toThrow("database inspection");
   });
 });
+
+describe("Database MCP tools", () => {
+  it("lists only installed databases and reads schema without querying rows", async () => {
+    const client = createClient({ url: "file::memory:" })
+    clients.push(client)
+    // No tables exist in SQLite. Schema inspection must not execute a query.
+    const entry = { db: drizzle({ client, schema }), schema }
+    installConsoleDatabase("/project", { default: entry, hidden: entry }, ["default"])
+    const tools = getViteHubMcpTools()
+    const list = tools.find(tool => tool.name === "database_list_databases")!
+    const read = tools.find(tool => tool.name === "database_get_schema")!
+    expect(read.section).toBe("databases")
+    expect(read.annotations).toEqual({ readOnlyHint: true })
+    expect((await list.call({}, { user: null, event: null })).structured).toEqual({ databases: ["default"] })
+    const result = await read.call({}, { user: null, event: null })
+    expect(result.structured).toMatchObject({ database: "default", tables: [
+      { name: "posts", columns: expect.arrayContaining([{ key: "authorId", name: "author_id", type: "integer", nullable: false, primary: false, unique: false, foreignKey: { column: "id", table: "users" } }]) },
+      { name: "users" },
+    ] })
+    expect(result.structured).not.toHaveProperty("rows")
+    expect(result.text).not.toContain("file::memory:")
+    await expect(read.call({ database: "hidden" }, { user: null, event: null })).rejects.toThrow("Database not found.")
+    await expect(read.call({ database: {} }, { user: null, event: null })).rejects.toThrow("database must be a string.")
+  })
+})

@@ -46,4 +46,10 @@ describe("commentsConsoleSession", () => {
     await expect(session(event())).resolves.toBeNull()
     await expect(session(event({ "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" }))).resolves.toBeNull()
   })
+
+  it("keeps browser guest headers anonymous on H3 1 events passed by Nuxt", async () => {
+    const session = commentsConsoleSession(access({ allowed: true, person: { id: "guest-12345678-1234-4123-8123-123456789abc" } }))
+    const nodeEvent = { node: { req: { method: "POST", url: "/_vitehub/mcp", headers: { host: "site.test", "x-vitehub-comments-guest-id": "g1", "x-vitehub-comments-guest-name": "Ben%20K" } } } }
+    await expect(Reflect.apply(session, undefined, [nodeEvent])).resolves.toBeNull()
+  })
 })

@@ -76,6 +76,34 @@ export default defineComments({
 
 `onMention` runs after the comment is saved, through `waitUntil` where the host has it. A failure is logged and never fails the comment. It receives only the people that the message mentions for the first time and that `authorize({ action: 'read', user: <mentioned>, thread })` lets read the thread. The mention stays in the text for the others.
 
+## Overlay
+
+In production, enable `console` with your access policy to serve the operation RPC that the overlay needs. With `console` omitted, the overlay runs only in development. With `console: false`, it is disabled in both modes.
+
+`vitehub({ comments: { overlay } })` controls the comment UI that [the loader](/docs/comments/operations/get-started#the-overlay) puts on your pages.
+
+| Option | Type | Default | Description |
+| --- | --- | --- | --- |
+| `overlay` | `false \| { paths?, exclude?, session? }` | `{}` | `false` adds no loader. |
+| `overlay.paths` | `string[]` | every page | Globs of the pages that get the overlay, relative to the app base. `*` is one path segment, `**` any depth: `/docs/**` is `/docs` and everything below it. |
+| `overlay.exclude` | `string[]` | none | Globs of the pages that never get it. |
+| `overlay.session` | `"marker" \| "always"` | `"always"` | When the loader asks the server whether the visitor may read comments. `"always"` asks on page load and client-side navigation; `"marker"` also requires an app-managed `vitehub_session` cookie. See [Privacy](#content-security-policy-and-privacy). |
+
+The globs are checked in the browser against `location.pathname`, so they apply to client-side navigation as well. The loader is on every page, but a page that the globs leave out makes no request at all. The loader follows navigation: when a visitor moves to a page that the globs leave out, the overlay hides and its `C` hotkey stops, and when they move to an allowed page it shows again. If the landing page was left out, the loader waits, and the first allowed page loads the overlay.
+
+The loader and the overlay are served by your app below `/_vitehub/comments/`, as `loader.<hash>.js` and `overlay.<hash>.js`. The file names carry a hash of their content, and the tag names both, so a page always loads a loader and an overlay of the same build. They are sent with `Cache-Control: max-age=31536000`, and a new release has new names.
+
+### Content Security Policy and privacy
+
+- **CSP.** Both files come from your own origin, so `script-src 'self'` is enough, and `connect-src 'self'` covers the loader's `fetch`. With a nonce policy (`script-src 'nonce-…' 'strict-dynamic'`) the loader tag gets the nonce of the response's `Content-Security-Policy` automatically, in the Nitro middleware and in the Nuxt `render:html` hook. The loader loads the overlay with a dynamic `import()`, which `'strict-dynamic'` allows from a trusted script. The overlay builds its icons from SVG elements and sets no `innerHTML`, so it works under Trusted Types. It adopts its styles as a constructed stylesheet, which needs no `style-src 'unsafe-inline'`; where the browser has none, it falls back to a `<style>` element that carries the loader's nonce.
+- **What gets the tag.** The middleware rewrites only UTF-8 `text/html` that is not compressed and has a `</body>` or `</html>`: streamed pages are rewritten as they stream, and fragments, JSON, and other types are never touched.
+- **Privacy.** On each allowed page load and client-side navigation, the loader sends `POST /_vitehub/rpc/__call` with the session cookie and current page subject. It receives your own user, and whether you may read and write, and nothing about anyone else. Everything else is downloaded only after `authorize` says you may read comments. Navigation rechecks authorization; a denied session removes the overlay and stops its comment client. The Console page never gets the loader.
+- **Anonymous visitors.** The default works with ViteHub Auth, other session providers, and local development. Anonymous visitors receive no comments or overlay bundle. To skip even the session request for anonymous visitors, opt into `overlay: { session: 'marker' }` only if your app sets a readable `vitehub_session=1` cookie when signing in and clears it on sign-out. ViteHub Auth maintains this marker with its session cookie. The marker holds no secret and grants no access: the server still authorizes every session request. The loader rereads it on navigation and destroys the overlay when it disappears.
+
+```ts [vite.config.ts]
+vitehub({ comments: { overlay: { session: 'always' } } })
+```
+
 ## Database
 
 With `server/comments.ts` and no `database` option, `vitehub()` turns the Database on and adds an empty default Database Definition (`.vitehub/comments/database.ts`) when the app has none, the way the Content cms preset does. Comments then use the default Database. Setting `database: false` fails the build with `COMMENTS_B0001`. To choose another Database:
