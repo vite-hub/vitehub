@@ -5,7 +5,7 @@ import type { ConsoleAuthMode } from "../../internal.ts"
 import type { ConsoleSectionId } from "../sections.ts"
 
 // Generated Console output installs its access policy from this entry, next to its sections.
-export { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess } from "./access.ts"
+export { consoleConnectionsActor, consoleRealtimeAccess, installConsoleAccess, resolveConsoleAppAuthIdentity } from "./access.ts"
 export { installConsolePageTool } from "./page-tool.ts"
 export { installConsoleOperations } from "./operation-contributions.ts"
 export type { ConsoleRealtimeAccess, ConsoleRealtimeUser } from "./access.ts"

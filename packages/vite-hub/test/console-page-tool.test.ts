@@ -1,7 +1,6 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { runInNewContext } from "node:vm"
 
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -154,21 +153,12 @@ describe("the Console Nitro configuration", () => {
       const transform = typeof htmlHook === "function" ? htmlHook : htmlHook?.handler
       if (!transform) throw new Error("Expected a Console HTML transform")
       const tags: unknown = await Reflect.apply(transform, undefined, ["<body>Page</body>", { path: "/", filename: join(root, "index.html") }])
-      expect(tags).toEqual([{ tag: "script", attrs: { type: "module" }, children: expect.any(String), injectTo: "body" }])
-      if (!Array.isArray(tags) || typeof tags[0]?.children !== "string") throw new TypeError("Expected a page tools loader script")
-      for (const [search, cookie, imports] of [
-        ["?vitehub", "", 1],
-        ["?vitehub=comments", "", 1],
-        ["", "session=ada; vitehub-tools=1", 1],
-        ["", "", 0],
-        ["?other=1", "vitehub-tools=0", 0],
-      ] as const) {
-        const load = vi.fn()
-        // Replace only the dynamic import so the browser's hint gate runs without fetching a browser module.
-        runInNewContext(tags[0].children.replace("import(", "load("), { URLSearchParams, location: { search }, document: { cookie }, load })
-        expect(load).toHaveBeenCalledTimes(imports)
-        if (imports) expect(load).toHaveBeenCalledWith(`${mount}/_vitehub/page/assets/loader.js?v=2`)
-      }
+      // A same-origin external module works with script-src 'self'; no inline exception is required.
+      expect(tags).toEqual([{
+        tag: "script",
+        attrs: { type: "module", src: `${mount}/_vitehub/page/assets/loader.js?v=2` },
+        injectTo: "body",
+      }])
     }
     finally {
       await rm(root, { force: true, recursive: true })

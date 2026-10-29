@@ -119,6 +119,9 @@ export interface LoadViteHubPageToolsOptions {
  * it removes the pill. Returns the tools that it started.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
+  // Vite pages load this external module under CSP; visitors without a hint make no session request.
+  const query = new URLSearchParams(location.search)
+  if (!query.has(viteHubPageToolsQuery) && !document.cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`)) return []
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
@@ -132,7 +135,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   // One pill per page: a second loader on the same page does nothing.
   if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
 
-  const open = new URLSearchParams(location.search).get(viteHubPageToolsQuery)
+  const open = query.get(viteHubPageToolsQuery)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
   const exit = () => {
