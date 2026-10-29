@@ -4,12 +4,15 @@
   "description": "Ready-made Agents built from ViteHub primitives: Babysitter, Labeller, and the workspace preset.",
   "keywords": [
     "agent",
+    "ai-agents",
     "babysitter",
+    "coding-agent",
     "gmail",
     "preset",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
