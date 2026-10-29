@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleContributedSection, ConsoleDefinitionSummary, ConsoleRecord, ConsoleSectionContent } from "../definitions";
 import { requestConsole } from "../client/request";
+import { loadConsoleNavigation } from "../client/sections";
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
@@ -18,6 +19,7 @@ import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
+import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -32,6 +34,8 @@ const props = defineProps<{
   scheduleRunBase?: string;
   searchBase: string;
   sectionsBase: string;
+  /** Console route of the `workflow.*` operations. Set on the Workflows section. */
+  workflowBase?: string;
 }>();
 
 interface ConsoleSectionEntry {
@@ -72,8 +76,11 @@ const selectedDefinition = computed(() =>
   definitions.value.find((definition) => definition.name === selectedName.value),
 );
 const selectedRecord = computed(() => records.value.find((row) => row.id === selectedName.value));
+// The Console lists the operations that run app code and that this request may run. `console.invoke` off or a read-only
+// grant leaves them out, so the page offers no action that the server would refuse.
+const registeredOperations = ref<readonly string[]>([]);
 const canRunSelected = computed(() =>
-  Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
+  Boolean(props.scheduleRunBase && registeredOperations.value.includes("schedule.run") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
 );
 const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
@@ -200,6 +207,9 @@ onMounted(() => {
   rememberConsoleSection(section.value);
   selectedName.value = queryValue() ?? selectedName.value;
   void loadDefinitions();
+  void loadConsoleNavigation(props.sectionsBase).then((navigation) => {
+    registeredOperations.value = navigation?.operations ?? [];
+  });
 });
 
 watch(section, (current) => {
@@ -306,7 +316,7 @@ onBeforeUnmount(() => request?.abort());
     >
       <ConsolePageHeader :title="(catalogView && selectedEntry?.id) || sectionDetails.label" :toggle="catalogView">
         <template #right>
-          <span v-if="!rateLimitBase" class="hidden text-xs text-dimmed sm:inline">Read-only</span>
+          <span v-if="!rateLimitBase && !workflowBase" class="hidden text-xs text-dimmed sm:inline">Read-only</span>
           <UButton
             v-if="canRunSelected && catalogView"
             icon="i-lucide-play"
@@ -405,6 +415,7 @@ onBeforeUnmount(() => request?.abort());
           </header>
           <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
           <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
+          <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
           <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />

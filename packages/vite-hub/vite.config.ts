@@ -115,6 +115,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-workflow-actions.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-frame.vue",
         to: "dist/console/runtime/components",
       },
@@ -346,6 +350,7 @@ export default defineConfig({
       "src/console/runtime/client/sign-in.ts",
       "src/console/runtime/client/time.ts",
       "src/console/runtime/client/toast.ts",
+      "src/console/runtime/client/workflow.ts",
       "src/console/runtime/definitions.ts",
       "src/console/runtime/rpc.ts",
       "src/console/runtime/sections.ts",
@@ -405,6 +410,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/sign-in"];
         delete exports["./console/runtime/client/time"];
         delete exports["./console/runtime/client/toast"];
+        delete exports["./console/runtime/client/workflow"];
         delete exports["./console/runtime/definitions"];
         delete exports["./console/runtime/rpc"];
         delete exports["./console/runtime/sections"];

@@ -90,6 +90,12 @@
       "require": "./dist/nuxt.js",
       "default": "./dist/nuxt.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
@@ -138,12 +144,6 @@
       "import": "./dist/hosted-vercel-blob.js",
       "require": "./dist/hosted-vercel-blob.js",
       "default": "./dist/hosted-vercel-blob.js"
-    },
-    "./internal/runtime/history-dev": {
-      "types": "./dist/runtime/history-dev.d.ts",
-      "import": "./dist/runtime/history-dev.js",
-      "require": "./dist/runtime/history-dev.js",
-      "default": "./dist/runtime/history-dev.js"
     },
     "./internal/runtime/state": {
       "types": "./dist/runtime/state.d.ts",
