@@ -56,6 +56,8 @@ cloudflared tunnel --url http://127.0.0.1:5173
 Quick Tunnel URLs are public and have no uptime guarantee. Keep playground data
 synthetic.
 
+The MCP client section answers from `mcp-client-fixture.ts`, which keeps its connections in the playground process. Northwind Ledger, the app's own `/mcp`, has Maxi and Lucía through OAuth, Lucía's API key, and Sam, who is signed out. ViteHub MCP runs on the Console session, and `docs.example.com/mcp` needs no sign-in. Run `get_finances` with the `household` scope as Maxi and Lucía to compare their accounts. **Connect** with OAuth goes through the real callback page, and **Sign in as someone else** finishes as Sam. Set `document.cookie = "playground-mcp=shared"` to see the `auth: "app"` case, where signing in as someone else on this origin is off. Restart the playground to reset the connections.
+
 Auth serves 1,048 synthetic users from `auth-fixture.ts`. It covers Users, profile details, Sessions, Organizations, and Agents, with a plan field, a computed project count, read-only roles, and the OAuth provider's grant revocation limit. Ban, unban, field edits, removal, and session revocation change only this in-memory fixture. Restart the playground to reset it. The real Better Auth fixture is `packages/auth/test/console.test.ts`.
 
 Auth opens on Overview. The fixture has 30 days of sign-ins and sign-ups, sign-in methods, and recent events across all Activity groups. Activity supports subject user IDs and cursor pagination. User panels include their recent events. To check both pages without event storage, restart with `VITEHUB_PLAYGROUND_AUTH_EVENTS=off pnpm exec vp run console:dev`. Database totals remain visible and both pages show the setup snippet. Omit the variable to restore events.
