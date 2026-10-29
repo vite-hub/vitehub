@@ -17,6 +17,7 @@ export type ConsoleDiagnosticCode =
   | "CONSOLE_LOOPBACK_ONLY"
   | "CONSOLE_MANAGER_REQUIRED"
   | "CONSOLE_MCP_AUTHORIZATION_FAILED"
+  | "CONSOLE_MCP_KEY_INVALID"
   | "CONSOLE_MCP_SIGNED_OUT"
   | "CONSOLE_MCP_UNREACHABLE"
   | "CONSOLE_NOT_FOUND"
@@ -132,6 +133,12 @@ const consoleDiagnostics = /*#__PURE__*/ defineDiagnostics({
       "The OAuth sign-in with the MCP server failed.",
       "Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration.",
       `${consoleGuide}#connect-to-mcp-servers`,
+      "docs",
+    ),
+    CONSOLE_MCP_KEY_INVALID: code(
+      "VITEHUB_CONSOLE_MCP_KEY is not 32 random bytes, so the Console cannot seal MCP connections.",
+      "Set VITEHUB_CONSOLE_MCP_KEY to 32 random bytes as base64 or hex, such as the output of openssl rand -base64 32.",
+      `${consoleGuide}#what-the-mcp-client-keeps`,
       "docs",
     ),
     CONSOLE_REQUEST_INVALID: code(

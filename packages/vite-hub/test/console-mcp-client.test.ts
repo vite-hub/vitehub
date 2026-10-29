@@ -7,13 +7,15 @@ import { join } from "node:path"
 import { Server } from "@modelcontextprotocol/sdk/server/index.js"
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js"
 import { CallToolRequestSchema, ErrorCode, GetPromptRequestSchema, ListPromptsRequestSchema, ListResourcesRequestSchema, ListToolsRequestSchema, McpError, ReadResourceRequestSchema } from "@modelcontextprotocol/sdk/types.js"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { importSealKey } from "@vite-hub/env/seal"
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest"
 
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { isConsoleMcpClientEnabled, resolveConsoleSectionIds } from "../src/console/runtime/sections.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { resetConsoleMcp } from "../src/console/runtime/server/mcp-client.ts"
+import { kvConsoleMcpRecords } from "../src/console/runtime/server/mcp-client-store.ts"
 import { consoleMcpClientOperations } from "../src/console/runtime/server/mcp-client-operations.ts"
 import { installConsoleOperations } from "../src/console/runtime/server/operation-contributions.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -21,6 +23,19 @@ import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import type { ConsoleMcpConnection, ConsoleMcpConnectResult, ConsoleMcpOutcome, ConsoleMcpOverview, ConsoleMcpPage } from "../src/console/runtime/mcp-client.ts"
+
+/** The app's default KV store, for `VITEHUB_CONSOLE_MCP_KEY`. Each value is a copy, as a real store keeps. */
+const kvValues = vi.hoisted(() => new Map<string, unknown>())
+const kv = vi.hoisted(() => ({
+  del: async (key: string) => [undefined, kvValues.delete(key)] as const,
+  get: async (key: string) => [undefined, kvValues.has(key) ? structuredClone(kvValues.get(key)) : null] as const,
+  keys: async (base = "") => [undefined, [...kvValues.keys()].filter(key => key.startsWith(base))] as const,
+  set: async (key: string, value: unknown) => {
+    kvValues.set(key, structuredClone(value))
+    return [undefined, undefined] as const
+  },
+}))
+vi.mock("@vite-hub/kv", () => ({ kv }))
 
 const people: Record<string, { email: string, name: string }> = {
   lucia: { email: "lucia@example.com", name: "Lucía" },
@@ -206,6 +221,8 @@ afterAll(async () => {
 
 afterEach(() => {
   offersOfflineAccess = false
+  delete process.env.VITEHUB_CONSOLE_MCP_KEY
+  kvValues.clear()
   resetConsoleMcp()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
@@ -351,6 +368,52 @@ describe("MCP client section", () => {
     const other = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" }, undefined, lucia)
     expect(other.value.authorizationUrl).toBeDefined()
     expect(seen.mcpCookies).toEqual([])
+  })
+
+  it("keeps connections sealed in KV with VITEHUB_CONSOLE_MCP_KEY, so they outlive a restart", async () => {
+    install()
+    process.env.VITEHUB_CONSOLE_MCP_KEY = Buffer.alloc(32, 7).toString("base64")
+    const registrations = seen.registrations
+    // A sign-in that starts before a restart, or on another instance of the app, finishes after it.
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { server: "/mcp" })
+    const callback = await signIn(started.value.authorizationUrl!, "maxi")
+    resetConsoleMcp()
+    const maxi = (await rpc<ConsoleMcpConnection>("mcp-client.complete", callback)).value
+    expect(maxi).toMatchObject({ identity: { name: "Maxi" }, status: "connected" })
+    resetConsoleMcp()
+    expect((await rpc<ConsoleMcpOutcome>("mcp-client.call", { id: maxi.id, tool: "whoami" })).value.result).toMatchObject({ content: [{ text: "Maxi", type: "text" }] })
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).value.connections.map(connection => connection.id)).toEqual([maxi.id])
+    // The client registration is kept too, so a sign-in after the restart registers no new client.
+    await connectAs("lucia", { prompt: "login" })
+    expect(seen.registrations - registrations).toBe(1)
+
+    // KV holds only sealed values. The keys do not name the owner.
+    const stored = JSON.stringify([...kvValues])
+    for (const token of issued) expect(stored).not.toContain(token)
+    expect(stored).not.toContain("maxi@example.com")
+    expect([...kvValues.keys()].every(key => /^vitehub:console:mcp-client:(?:clients:[0-9a-f]{32}|connections:[0-9a-f]{32}:mcp_[\w-]+)$/.test(key))).toBe(true)
+    await rpc("mcp-client.disconnect", { id: maxi.id })
+    expect([...kvValues.keys()].filter(key => key.endsWith(maxi.id))).toEqual([])
+  })
+
+  it("refuses a VITEHUB_CONSOLE_MCP_KEY that is not 32 bytes", async () => {
+    install()
+    process.env.VITEHUB_CONSOLE_MCP_KEY = "too-short"
+    expect((await rpc<ConsoleMcpOverview>("mcp-client.list")).failure).toMatchObject({ code: "CONSOLE_MCP_KEY_INVALID" })
+  })
+
+  it("binds each sealed record to its KV key and to the key that sealed it", async () => {
+    const connection = { auth: "bearer" as const, bearer: "fin_secret", createdAt: 1, id: "mcp_a", label: "A", labelled: false, owner: "user:a", sameOrigin: true, status: "connected" as const, url: `${origin}/mcp` }
+    const records = kvConsoleMcpRecords(kv, await importSealKey(new Uint8Array(32).fill(1)))
+    await records.save(connection)
+    expect(await records.connection("user:a", "mcp_a")).toEqual(connection)
+    const [name, value] = [...kvValues][0]!
+    expect(JSON.stringify(value)).not.toContain("fin_secret")
+    // A value copied under another id does not open, and neither does one read with another key.
+    kvValues.set(name.replace(/mcp_a$/, "mcp_b"), value)
+    expect(await records.connection("user:a", "mcp_b")).toBeUndefined()
+    expect(await kvConsoleMcpRecords(kv, await importSealKey(new Uint8Array(32).fill(2))).connection("user:a", "mcp_a")).toBeUndefined()
+    expect(await records.connections("user:a")).toEqual([connection])
   })
 
   it("asks for offline_access when the authorization server offers it, so the grant can be refreshed", async () => {
