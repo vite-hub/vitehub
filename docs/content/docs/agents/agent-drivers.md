@@ -68,6 +68,8 @@ The `model` value may also be a compatible AI SDK model or an invocation-time ca
 
 ## Use a provider-backed Driver
 
+To use a signed-in user's ChatGPT Plus or Pro plan, define a [ChatGPT Connection](/docs/connections/chatgpt) and set `driver: { kind: 'codex', gateway: chatgpt() }`, importing `chatgpt` from `vite-hub/gateways`. The CLI handles loopback sign-in; Connections handles registration and refresh. This flow never falls back to an API key. It requires a POSIX Node.js host and supports Codex only. Model Drivers on the same grant are a follow-up.
+
 The built-in Drivers reuse T3 Code's normalized Codex and Claude Code runtime while ViteHub owns Agent Definitions, Capabilities, Workspaces, Invocations, and public lifecycle events.
 
 Install only the provider packages selected by your Agent Definitions:
@@ -173,67 +175,23 @@ vitehub agent codex-home prune --home /var/lib/app/codex --max-age 14d --max-siz
 
 ### Route model requests through a gateway
 
-Set `gateway` to send the provider's model requests to an LLM proxy or gateway. Import a preset from `vite-hub/agent/gateways`. Like a Nuxt module, each preset reads its URL and key from the environment, so the code names only the gateway:
+Set `gateway` to send the provider's model requests through an LLM proxy or gateway. Use an [AI gateway](/docs/agents/ai-gateways) preset from `vite-hub/gateways`. It reads its URL and key from the environment, so the code names only the gateway:
 
 ```ts [server/agents/review/agent.ts]
 import { defineAgent } from 'vite-hub/agent'
-import { cliproxy, cloudflareAccess } from 'vite-hub/agent/gateways'
+import { cliproxy } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
     kind: 'codex',
     model: 'gpt-5.5',
-    // Reads CLIPROXY_URL, CLIPROXY_API_KEY, CF_ACCESS_CLIENT_ID, and CF_ACCESS_CLIENT_SECRET.
-    gateway: cliproxy({ headers: cloudflareAccess() }),
+    // Reads CLIPROXY_URL and CLIPROXY_API_KEY.
+    gateway: cliproxy(),
   },
 })
 ```
 
-```sh [.env]
-CLIPROXY_URL=https://proxy.example.com
-CLIPROXY_API_KEY=...
-CF_ACCESS_CLIENT_ID=...
-CF_ACCESS_CLIENT_SECRET=...
-```
-
-Pass a value to override its variable, for example `cliproxy({ url: 'https://proxy.example.com', apiKey: () => useServerEnv().proxyKey })`.
-
-Each preset knows the base URL that each Driver expects, so one gateway definition works for Codex and Claude Code:
-
-| Preset | Codex base URL | Claude Code base URL | Variables |
-| --- | --- | --- | --- |
-| `cliproxy()` | `<url>/v1` | `<url>` | `CLIPROXY_URL`, `CLIPROXY_API_KEY` |
-| `litellm()` | `<url>/v1` | `<url>` | `LITELLM_URL`, `LITELLM_API_KEY` |
-| `ollama()` | `<url>/v1` | `<url>` | `OLLAMA_URL` (default `http://localhost:11434`), `OLLAMA_API_KEY` (default `ollama`) |
-| `openrouter()` | `https://openrouter.ai/api/v1` | `https://openrouter.ai/api` | `OPENROUTER_API_KEY` |
-| `vercel()` | `https://ai-gateway.vercel.sh/codex/v1` | `https://ai-gateway.vercel.sh/claude-code` | `AI_GATEWAY_API_KEY`, then `VERCEL_OIDC_TOKEN` |
-| `openai()` | `https://api.openai.com/v1` | | `OPENAI_API_KEY` |
-| `anthropic()` | | `https://api.anthropic.com` | `ANTHROPIC_API_KEY` |
-
-`cloudflareAccess()` returns the `CF-Access-Client-Id` and `CF-Access-Client-Secret` headers for a gateway behind Cloudflare Access. It reads `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET`, or takes `{ clientId, clientSecret }`.
-
-Each value first reads its canonical name, `VITEHUB_` and the Server Env path in upper snake case, then the vendor name in the table. `cliproxy()` reads `VITEHUB_CLIPROXY_API_KEY`, then `CLIPROXY_API_KEY`, and `cloudflareAccess()` reads `VITEHUB_CLOUDFLARE_ACCESS_CLIENT_ID`, then `CF_ACCESS_CLIENT_ID`. See [Server Env variable names](/docs/env/configure).
-
-ViteHub finds the presets in Agent files and declares their variables in Server Env as `env.server.<preset>.<field>`, for example `env.server.cliproxy.apiKey`. The Console shows them, `useServerEnv()` types them, and an [Env provider](/docs/env/server-api#read-external-env-storage) can supply them. Your own declaration of a field wins. The values are optional: a server that hosts Agents without the gateway still starts. Without `hubEnv()`, presets read the host variables directly.
-
-`url` is the gateway origin. A trailing `/v1` is removed. Every preset accepts `apiKey` and `headers`. `apiKey` and each header value accept a string, a sealed Server Env value, or an invocation-time resolver that may return `undefined`. ViteHub reads values for each invocation. A missing URL, key, or header value fails the invocation with `AGENT_R0980`, `AGENT_R0977`, or `AGENT_R0978` and names the variable to set. A preset that does not serve the selected Driver fails at definition time with `AGENT_R0976`.
-
-Use `defineGateway()` for an endpoint without a preset:
-
-```ts
-import { defineGateway } from 'vite-hub/agent/gateways'
-
-export const gateway = defineGateway({
-  name: 'internal',
-  baseURL: { 'codex': 'https://llm.example.com/openai/v1', 'claude-code': 'https://llm.example.com/anthropic' },
-  apiKeyEnv: ['INTERNAL_LLM_KEY'],
-  auth: 'x-api-key',
-})
-```
-
-`auth` selects how the gateway receives the key. `'bearer'`, the default, sends `Authorization: Bearer <key>`. `'x-api-key'` sends `x-api-key: <key>`.
-
-`apiKeyEnv` reads host variables, not Server Env. Use `apiKey: () => useServerEnv().internal.key` when the key is declared in Server Env. A `baseURL` entry can also be a resolver, so the URL can come from Server Env for each invocation.
+[AI gateways](/docs/agents/ai-gateways) lists the presets, the variables they read, and `defineAiGateway()` for other endpoints. A gateway without a base URL for the selected Driver fails at definition time with `AGENT_R0976`.
 
 ViteHub converts the gateway to each provider's own configuration:
 
@@ -387,27 +345,27 @@ Install the client. It is an optional peer dependency, so Agents without `driver
 pnpm add advocaat
 ```
 
-Declare the `typesafe` Server Env group with `typesafeEnv()`. The Driver always reads this group name:
+The Driver asks through the [`typesafe()` AI gateway](/docs/agents/ai-gateways), which reads `TYPESAFE_API_KEY`. Set `gateway` to ask through Vercel AI Gateway or Cloudflare AI Gateway instead:
 
-```ts [vite.config.ts]
-import { defineConfig } from 'vite'
-import { vitehub } from 'vite-hub'
-import { typesafeEnv } from 'vite-hub/env'
+```ts [server/agents/labeller.ts]
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
+import { cloudflare } from 'vite-hub/gateways'
 
-export default defineConfig({
-  env: {
-    server: {
-      typesafe: typesafeEnv(),
-    },
+export default defineAgent({
+  driver: {
+    ask: { spam: ask.if('Is it spam?') },
+    // Reads TYPESAFE_API_KEY, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_AI_GATEWAY_ID.
+    gateway: cloudflare(),
   },
-  plugins: [vitehub()],
 })
 ```
 
 Build the questions with `ask`:
 
 ```ts [server/agents/labeller.ts]
-import { ask, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
@@ -437,7 +395,8 @@ Jev reads the Invocation `data` when a caller sets it, else the prompt text, els
 
 ```ts [server/agents/labeller.ts]
 import { useServerEnv } from '#vitehub/env/server'
-import { ask, defineAgent } from 'vite-hub/agent'
+import { defineAgent } from 'vite-hub/agent'
+import { ask } from 'vite-hub/gateways'
 
 export default defineAgent({
   driver: {
@@ -461,14 +420,9 @@ export default defineAgent({
 
 State, instructions, and criteria accept JSON values. Root numbers and booleans become text for the `advocaat` Entry contract. Numbers and booleans inside objects or arrays stay native. Score legends retain the original level descriptions.
 
-`driver.ask` accepts only `ask` and `capacity`. Missing `advocaat`, a missing `typesafe` group, and a missing API key fail the Invocation with a diagnostic before any request. With `typesafeEnv({ provider: 'vercel' })`, the key is `AI_GATEWAY_API_KEY`. On Vercel, `VERCEL_OIDC_TOKEN` also works.
+`driver.ask` accepts only `ask`, `capacity`, and `gateway`. A `gateway` that cannot answer Jev questions, such as `cliproxy()`, fails at definition time with `AGENT_R1013`. The gateway retries transient provider failures, and a missing `advocaat`, a missing key, or a rejected key fails the Invocation with a `GATEWAYS_` code; see [AI gateway errors](/docs/agents/ai-gateways#errors).
 
-Jev questions do not change state, so ViteHub retries a failed request up to two times when the provider answers 408, 429, 500, 502, 503, or 504, or when the network fails. Other failures stop the Invocation at once:
-
-| Code | When | `status` | Also on the error |
-| --- | --- | --- | --- |
-| `AGENT_R1009` | The provider rejected the key with 401 or 403. The key is missing, expired, or not allowed. The `fix` names the variable to set. | `503` | `providerStatus`, `requestId`, `cause` |
-| `AGENT_R1010` | The provider still failed after three attempts. | `502` | `providerStatus`, `requestId`, `cause` | The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev.
+The Console and `vitehub agent info` show the Driver kind as `ask`. When an ask Driver Agent uses [`llmGate()`](/docs/agents/capabilities/llm-gate) or [`llmRoute()`](/docs/agents/capabilities/llm-route) without a `model`, the decision also uses Jev, through their own `gateway` option or `typesafe()`.
 
 Each question is a step in the Invocation trace, so the journal and the Console show what Jev was asked and what it answered:
 

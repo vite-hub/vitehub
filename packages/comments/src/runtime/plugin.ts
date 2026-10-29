@@ -2,13 +2,14 @@ import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { commentsHintCookie, commentsHintQuery } from "../page.ts"
+import { commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRoute } from "../page.ts"
 import { commentsMcpTools } from "./mcp.ts"
 
 import type { Comments } from "../index.ts"
 import type { CommentsDatabase } from "../store.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
-export interface CommentsPluginOptions {
+export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
@@ -25,12 +26,13 @@ export function installedComments(): Comments | undefined {
   return value === undefined ? undefined : value as Comments
 }
 
-/**
- * Whether a request asks for comment mode: the `?comments` query or the hint cookie that the session route sets. The
- * page tools skip paths under `/_vitehub` and `/api/` before they call it.
- */
-export function wantsCommentMode(request: Request): boolean {
-  if (new URL(request.url).searchParams.has(commentsHintQuery)) return true
+/** Whether a request asks for comment mode: the `?comments` query or the hint cookie that the session route sets. */
+export function wantsCommentMode(request: Request, base = ""): boolean {
+  const url = new URL(request.url)
+  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
+  const path = url.pathname.slice(base.length)
+  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
+  if (url.searchParams.has(commentsHintQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${commentsHintCookie}=1`))
 }
@@ -40,16 +42,17 @@ export function wantsCommentMode(request: Request): boolean {
  * of requests in comment mode. Pages without the hint are returned unchanged.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
+  const base = commentsApiRoute(new URL(options.overlay, "http://localhost").href).slice(0, -commentsRoute.length)
   return (nitroApp) => {
     const database = options.database()
     if (database) installComments(options.comments, { database })
     else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
-    registerViteHubMcpTools("comments", commentsMcpTools(options.comments))
+    registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
 
     // The page tools add the overlay script to HTML pages of requests in comment mode.
-    registerViteHubPageTool(nitroApp, { id: "comments", script: options.overlay, wants: wantsCommentMode })
+    registerViteHubPageTool(nitroApp, { id: "comments", script: options.overlay, wants: request => wantsCommentMode(request, base) })
     installViteHubPageTools(nitroApp)
   }
 }

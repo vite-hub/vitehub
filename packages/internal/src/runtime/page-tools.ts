@@ -73,12 +73,13 @@ export function scriptNonce(headers: Headers): string | undefined {
 /**
  * Inserts the script tags of `tools` before `</body>` of a streamed HTML body, or at its end when it has none. The
  * page then varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other
- * responses, and a call without tools, return the response unchanged.
+ * responses, and a call without tools, return the response unchanged. `policyHeaders` supplies the effective CSP
+ * when the host keeps it separately from the returned Response.
  */
-export function injectPageScripts(response: Response, tools: readonly ViteHubPageTool[]): Response {
+export function injectPageScripts(response: Response, tools: readonly ViteHubPageTool[], policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (tools.length === 0 || !response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tags = scriptTags(tools, scriptNonce(response.headers))
+  const tags = scriptTags(tools, scriptNonce(policyHeaders))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -165,6 +166,12 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request) response.body = injectPageScripts(response.body, wantedTools(nitroApp, request))
+    if (request) {
+      // H3 preserves Node response headers unless the returned Response replaces them.
+      const headers = new Headers(response.body.headers)
+      const policy = event.node?.res?.getHeader?.("content-security-policy")
+      if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+      response.body = injectPageScripts(response.body, wantedTools(nitroApp, request), headers)
+    }
   }])
 }

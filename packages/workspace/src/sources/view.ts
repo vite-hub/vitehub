@@ -2,7 +2,7 @@ import { workspaceError } from "../core/errors.ts"
 import { defaultWorkspaceHistoryRef, historyConflict, normalizeHistoryRef } from "../core/history.ts"
 import { copyJsonFileMetadata } from "../core/file-metadata.ts"
 import { createWorkspaceGlobMatcher } from "../core/glob.ts"
-import { contentStreamToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
+import { contentStreamToBytes, contentToBytes, decodeFile, isExcludedWorkspacePath, normalizeWorkspacePath, sha256 } from "../core/path.ts"
 import { createWorkspaceWritePolicy } from "../core/rules.ts"
 import { searchText } from "../core/search.ts"
 import { createSourceContext, normalizeWorkspaceSources, sourceMountContainsPath, sourceMountIntersectsPath, workspaceSourceRequestDescriptorPath } from "./config.ts"
@@ -74,7 +74,7 @@ class WorkspaceSourceWriteGrant {
 export type { WorkspaceSourceWriteGrant }
 
 export interface WorkspaceSourceView {
-  requireHistoryGrants(history: WorkspaceStoreHistory): (grants: readonly WorkspaceSourceWriteGrant[], options: Parameters<WorkspaceStoreHistory["commit"]>[0]) => ReturnType<WorkspaceStoreHistory["commit"]>
+  requireHistoryGrants(history: WorkspaceStoreHistory, apply?: WorkspaceStoreHistory["commit"]): (grants: readonly WorkspaceSourceWriteGrant[], options: Parameters<WorkspaceStoreHistory["commit"]>[0]) => ReturnType<WorkspaceStoreHistory["commit"]>
   readFile<TOptions extends ReadFileOptions | undefined = undefined>(path: string, options?: TOptions): Promise<ReadFileResult<TOptions>>
   writeFile(path: string, content: WorkspaceContent, options?: WriteFileOptions): Promise<string>
   /** Rejects Source-backed paths. Returns a write grant bound to the normalized path. */
@@ -751,20 +751,24 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
   }
 
   return {
-    requireHistoryGrants(history) {
+    requireHistoryGrants(history, apply = options => history.commit(options)) {
       return async (grants, options) => {
         return await withWorkspaceStoreMutation(store, async () => {
           const ref = normalizeHistoryRef(options.ref)
           const head = await history.head({ ref })
           if ((head?.id ?? null) !== options.ifHead) throw historyConflict(ref, options.ifHead, head?.id ?? null)
-          const previous = head ? await history.open(head.id) : undefined
+          const forkRef = head || options.startFrom ? undefined : await history.forksFrom?.(ref)
+          const startId = head?.id ?? options.startFrom ?? (forkRef ? (await history.head({ ref: forkRef }))?.id : undefined)
+          const previous = startId ? await history.open(startId) : undefined
           const entries = new Map<string, WorkspaceEntry>()
           for (const entry of previous ? await previous.list("", { recursive: true }) : []) {
             if (entry.type === "file") entries.set(entry.path, entry)
           }
-          const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await sha256(await previous!.readFile(path, { encoding: "binary" }))
-          const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">) =>
-            digest === await sha256(file.content) &&
+          // Digests of a revision view are the digests of the Store's history. The working tree lists SHA-256 digests.
+          const historyDigest = async (content: string | Uint8Array) => history.digest ? await history.digest(contentToBytes(content)) : await sha256(content)
+          const digestOf = async (path: string, entry: WorkspaceEntry) => entry.digest ?? await historyDigest(await previous!.readFile(path, { encoding: "binary" }))
+          const sameFile = async (file: WorkspaceFile, digest: string, entry: Pick<WorkspaceEntry, "mediaType" | "metadata">, compute: (content: string | Uint8Array) => Promise<string> = historyDigest) =>
+            digest === await compute(file.content) &&
             (file.mediaType === undefined || entry.mediaType === file.mediaType) &&
             (file.metadata === undefined || JSON.stringify(entry.metadata) === JSON.stringify(file.metadata))
           // The next state of one path: a put file, a deletion, or the unchanged head entry.
@@ -795,12 +799,12 @@ export function createWorkspaceSourceView(definition: WorkspaceDefinition, store
               const file = next(entry.path)
               const digest = entry.digest ?? await sha256((await store.readFile(entry.path))!.content)
               const unchanged = file && ("content" in file
-                ? await sameFile(file, digest, entry)
+                ? await sameFile(file, digest, entry, sha256)
                 : await digestOf(entry.path, file) === digest && file.mediaType === entry.mediaType && JSON.stringify(file.metadata) === JSON.stringify(entry.metadata))
               if (!unchanged) await assertWritableCurrentPath(entry.path)
             }
           }
-          return await history.commit({ ...options, ref })
+          return await apply({ ...options, ref, startFrom: head ? options.startFrom : startId })
         })
       }
     },

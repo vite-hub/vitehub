@@ -1,7 +1,13 @@
 {
-  "include": [
-    "server/**/*.ts",
-    "src/**/*.ts",
-    ".vitehub/types/**/*.d.ts"
-  ]
+  "extends": ["vite-hub/tsconfig"],
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["server/**/*.ts", "vite.config.ts"]
 }

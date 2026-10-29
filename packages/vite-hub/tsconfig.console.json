@@ -8,6 +8,14 @@
   "include": [
     "src/console/runtime/components/invocation/**/*.ts",
     "src/console/ui.ts",
+    "src/comments-overlay/loader-core.ts",
+    "src/comments-overlay/loader.ts",
+    "src/comments-overlay/markdown-lite.ts",
+    "src/comments-overlay/overlay.ts",
+    "src/comments-overlay/shim.ts",
+    "src/comments-overlay/virtual.d.ts",
+    "test/comments-overlay-loader.test.ts",
+    "test/comments-overlay-mount.test.ts",
     "test/console-invocation-views/**/*.ts"
   ],
   "exclude": ["dist", "node_modules"]

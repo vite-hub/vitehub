@@ -164,6 +164,25 @@ describe("installViteHubPageTools on Nitro 3", () => {
 })
 
 describe("installViteHubPageTools on Nitro 2", () => {
+  it.each([undefined, "script-src 'nonce-response'"])("uses Node's CSP only when the returned Response has none (%s)", async (responsePolicy) => {
+    const app = nitro2App()
+    registerViteHubPageTool(app, comments)
+    registerViteHubPageTool(app, pill)
+    installViteHubPageTools(app)
+    const respond = app.handlers.get("beforeResponse")![0] as (event: unknown, response: { body?: unknown }) => void
+    const headers = new Headers({ "content-type": "text/html" })
+    if (responsePolicy) headers.set("content-security-policy", responsePolicy)
+    const response = { body: new Response("<body>Page</body>", { headers }) }
+    respond({ node: {
+      req: { url: "/?comments&pill", headers: {} },
+      res: { getHeader: (name: string) => name === "content-security-policy" ? "script-src 'strict-dynamic' 'nonce-node'" : undefined },
+    } }, response)
+    const nonce = responsePolicy ? "response" : "node"
+    const tags = [commentsTag, pillTag].map(tag => tag.replace(" data-vitehub", ` nonce="${nonce}" data-vitehub`)).join("")
+    expect(await response.body.text()).toBe(`<body>Page${tags}</body>`)
+    expect(response.body.headers.get("cache-control")).toBe("private, no-store")
+  })
+
   it("isolates both hooks per app while sharing registrations and installation across bundled owners", async () => {
     const appA = nitro2App()
     const appB = nitro2App()

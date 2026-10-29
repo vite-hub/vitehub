@@ -1,5 +1,10 @@
 # `@vite-hub/email`
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Femail&icon=npm)](https://www.npmjs.com/package/@vite-hub/email)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Femail&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/email)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/email` connects declaratively configured provider drivers to ViteHub runtime delivery, normalized errors, Dynamic Markdown, and deterministic test capture.
 
 Applications that install the `vite-hub` framework distribution can use `vite-hub/email`, `vite-hub/email/server`, and `vite-hub/email/markdown`. Import built-in provider drivers from `@vite-hub/email/drivers/*`; test utilities and direct Vite Integration control stay on this owner package.
@@ -150,7 +155,7 @@ hubEmail({
 
 `limit` defaults to `50` and accepts 1 to 1000. `outbox: false` disables the outbox. A restart clears it. Header and metadata values with secret names, and credentials in delivery errors, are redacted. Message bodies are kept as rendered.
 
-Read the outbox from a running Vite + Nitro Development Server, or render a template without sending it:
+Read the outbox from a running Development Server, or render a template without sending it. The commands run the `email.outbox-list`, `email.outbox-show`, `email.outbox-clear`, and `email.preview` operations, which the Console and agents can also run:
 
 ```bash
 pnpm vitehub email outbox list
@@ -158,6 +163,8 @@ pnpm vitehub email outbox show outbox-1 --html
 pnpm vitehub email outbox clear
 pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
 ```
+
+`email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`).
 
 Application code can select its generated outbox identity through the public server export:
 

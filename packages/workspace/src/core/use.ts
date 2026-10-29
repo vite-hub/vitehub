@@ -14,7 +14,7 @@ import type { ExecutionBudget } from "@vite-hub/runtime"
 import { workspaceError } from "./errors.ts"
 import { historyConflict, normalizeHistoryRef, requireWorkspaceHistory, validateHistoryMessage } from "./history.ts"
 import { appendWorkspaceFile, copyWorkspacePath } from "../fs-ops.ts"
-import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern } from "./path.ts"
+import { normalizeSafeWorkspacePath, normalizeSafeWorkspacePattern, sha256 } from "./path.ts"
 import { useRegisteredWorkspace } from "./registry.ts"
 import { createWorkspace } from "./workspace.ts"
 import { attachWorkspaceSourceRequestExecution, getWorkspaceSourceRequestExecution } from "../sources/request-execution.ts"
@@ -295,6 +295,22 @@ function createLazyWorkspace(name: WorkspaceName, definition?: WorkspaceDefiniti
   const workspace = {
     name,
     history: {
+      digest: async bytes => {
+        const history = (await resolveWorkspace()).history
+        return history?.digest ? await history.digest(bytes) : await sha256(bytes)
+      },
+      forksFrom: async ref => await (await resolveWorkspace()).history?.forksFrom?.(ref),
+      pullRequests: async options => await (await resolveWorkspace()).history?.pullRequests?.(options) ?? [],
+      merge: async options => {
+        const history = (await resolveWorkspace()).history
+        if (!history?.merge) throw workspaceError("[vitehub] This Workspace Store cannot merge refs.")
+        return await history.merge(options)
+      },
+      openPullRequest: async options => {
+        const history = (await resolveWorkspace()).history
+        if (!history?.openPullRequest) throw workspaceError("[vitehub] This Workspace Store cannot open pull requests.")
+        return await history.openPullRequest(options)
+      },
       head: async options => await requireWorkspaceHistory(await resolveWorkspace()).head(options),
       list: async options => await requireWorkspaceHistory(await resolveWorkspace()).list(options),
       refs: async () => await requireWorkspaceHistory(await resolveWorkspace()).refs(),

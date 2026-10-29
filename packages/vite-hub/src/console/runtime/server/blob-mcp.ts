@@ -1,8 +1,15 @@
+import * as v from "valibot"
+import type { OperationRegistry } from "@vite-hub/internal/operations"
 import type { ViteHubMcpTool } from "@vite-hub/internal/runtime/mcp-tools"
-import { listConsoleBlobs } from "./blob.get.ts"
-import { mcpListQuery, mcpListSchema, mcpResult } from "./mcp-input.ts"
+import { mcpListInput, mcpListOperation, mcpListSchema, mcpResult } from "./mcp-input.ts"
+import { consoleRequestError } from "./request.ts"
 
-export function blobMcpTools(): ViteHubMcpTool[] {
+const pageSchema = v.object({
+  blobs: v.array(v.object({ pathname: v.string(), size: v.optional(v.number()), contentType: v.optional(v.string()), uploadedAt: v.string() })),
+  cursor: v.optional(v.string()), hasMore: v.boolean(), limit: v.number(), prefix: v.string(), store: v.string(), stores: v.array(v.string()),
+})
+
+export function blobMcpTools(registry: OperationRegistry): ViteHubMcpTool[] {
   return [{
     name: "blob_list_objects",
     title: "List Blob objects",
@@ -11,11 +18,13 @@ export function blobMcpTools(): ViteHubMcpTool[] {
     annotations: { readOnlyHint: true },
     inputSchema: mcpListSchema(250),
     async call(input) {
-      const page = await listConsoleBlobs(mcpListQuery(input, 250))
-      return mcpResult({
-        ...page,
-        blobs: page.blobs.map(({ pathname, size, contentType, uploadedAt }) => ({ pathname, size, contentType, uploadedAt })),
-      })
+      const result = await mcpListOperation(registry, "blob", mcpListInput(input, 250, 100))
+      if (!result.ok) {
+        if (["BLOB_STORE_NOT_FOUND", "BLOB_DISABLED", "BLOB_INVALID_INPUT"].includes(result.code)) throw consoleRequestError(result.status, result.message)
+        return { text: "Blob listing failed.", isError: true }
+      }
+      // Parse an allowlist so URLs, custom metadata, and HTTP metadata cannot reach the Agent.
+      return mcpResult(v.parse(pageSchema, result.value))
     },
   }]
 }

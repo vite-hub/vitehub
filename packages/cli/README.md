@@ -1,5 +1,10 @@
 # @vite-hub/cli
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fcli&icon=npm)](https://www.npmjs.com/package/@vite-hub/cli)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fcli&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/cli)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/cli` runs the development commands contributed by a ViteHub project's active Vite plugins. It loads the local Vite or Nuxt config, combines their command namespaces, and adds the built-in `inspect` and `provision` namespaces.
 
 ## Choose the package
@@ -39,7 +44,7 @@ pnpm vitehub --help
 Every project includes `inspect` and `provision`. Other namespaces appear when their Vite integrations are active.
 Each CLI invocation resolves every active plugin's CLI contributor once. Commands and Provision Steps use that contribution for the invocation; the next invocation resolves it again.
 
-The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored.
+The CLI owns the `inspect` namespace. Plugin command contributions with that name are ignored. Generated operations cannot use the built-in `inspect` or `provision` namespaces: registry creation rejects them. Set the operation's `cli.namespace` to another name.
 
 ```txt
 Usage: vitehub <namespace> <feature> [args...]

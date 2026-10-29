@@ -859,6 +859,39 @@ describe("schedule provider output", () => {
     await expect(readFile(join(outputRoot, "config.json"), "utf8")).resolves.toBe(unrelatedConfig)
   })
 
+  describe.each([false, true])("Vercel config cleanup with stale Schedule crons %s", (hasStaleCron) => {
+    it.each([
+      ["reordered default keys", '{"version":3,"routes":[{"handle":"filesystem"},{"dest":"/__server","src":"/(.*)"}]}', true],
+      ["equivalent numeric version", '{"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/__server"}],"version":3.0}', true],
+      ["reordered routes", '{"routes":[{"src":"/(.*)","dest":"/__server"},{"handle":"filesystem"}],"version":3}', false],
+      ["extra nested property", '{"routes":[{"handle":"filesystem","custom":null},{"src":"/(.*)","dest":"/__server"}],"version":3}', false],
+      ["own __proto__ property", '{"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/__server"}],"version":3,"__proto__":{}}', false],
+      ["nested constructor property", '{"routes":[{"handle":"filesystem","constructor":{}},{"src":"/(.*)","dest":"/__server"}],"version":3}', false],
+      ["nested toString property", '{"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/__server","toString":"custom"}],"version":3}', false],
+      ["string version", '{"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/__server"}],"version":"3"}', false],
+      ["negative zero version", '{"routes":[{"handle":"filesystem"},{"src":"/(.*)","dest":"/__server"}],"version":-0}', false],
+    ])("removes only the default config for %s", async (_name, source, removable) => {
+      const rootDir = await createTempProject("vitehub-schedule-vercel-config-equality-")
+      const outputRoot = join(rootDir, ".vercel", "output")
+      const configFile = join(outputRoot, "config.json")
+      const configSource = hasStaleCron
+        ? `${source.slice(0, -1)},"crons":[{"path":"/api/vitehub/schedules/vercel/stale","schedule":"0 0 * * *"}]}`
+        : source
+      await mkdir(outputRoot, { recursive: true })
+      await writeFile(configFile, configSource, "utf8")
+
+      await generateProviderOutputs({ clientOutDir: "dist/client", definitions: [], rootDir })
+
+      if (removable) {
+        expect(existsSync(join(rootDir, ".vercel"))).toBe(false)
+      }
+      else {
+        const expected = hasStaleCron ? `${JSON.stringify(JSON.parse(source), null, 2)}\n` : source
+        await expect(readFile(configFile, "utf8")).resolves.toBe(expected)
+      }
+    })
+  })
+
   it("removes stale Deno and Cloudflare output when no static schedules remain", async () => {
     const rootDir = await createTempProject("vitehub-schedule-output-empty-cleanup-")
     const cloudflareRoot = createDefaultCloudflareOutputRoot(rootDir)

@@ -16,6 +16,7 @@ import {
   sandboxRequirementSignal,
 } from "./requirements.ts";
 import { createSandboxSession, type RuntimeSession } from "./session.ts";
+import { shellQuote } from "./shell-quote.ts";
 import { sandboxErrorDiagnostics } from "../error-diagnostics.ts"
 
 interface RemoteRuntimeOptions {
@@ -279,10 +280,6 @@ function assertRemoteInput(input: SandboxRuntimeInput, runtime: string) {
     throw sandboxErrorDiagnostics.SANDBOX_R0122({ message: `[vitehub] ${runtime} cannot mount a host Sandbox cwd; use Workspace instead.` });
   if (input.plan.state.length)
     throw sandboxErrorDiagnostics.SANDBOX_R0123({ message: `[vitehub] ${runtime} does not provide durable Sandbox Home state.` });
-}
-
-export function shellQuote(value: string) {
-  return `'${value.replaceAll("'", `'"'"'`)}'`;
 }
 
 export async function collectProcessOutput(

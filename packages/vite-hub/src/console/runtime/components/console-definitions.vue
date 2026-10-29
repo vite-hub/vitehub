@@ -4,20 +4,24 @@ import { useRoute, useRouter } from "vue-router";
 
 import type { ConsoleContributedSection, ConsoleDefinitionSummary, ConsoleRecord, ConsoleSectionContent } from "../definitions";
 import { requestConsole } from "../client/request";
+import { loadConsoleNavigation } from "../client/sections";
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../client/schedule-run";
 import type { ConsoleScheduleRunView } from "../client/schedule-run";
 import { parseConsoleSectionContent } from "../definitions";
+import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
 import { consoleInitials } from "../client/presence";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePropertyList from "./console-property-list.vue";
+import ConsoleRateLimit from "./console-rate-limit.vue";
 import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
 import ConsoleStatus from "./console-status.vue";
+import ConsoleWorkflowActions from "./console-workflow-actions.vue";
 import ConsoleValue from "./console-value.vue";
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics";
 
@@ -27,9 +31,13 @@ const props = defineProps<{
   /** Descriptor of the contributed section. The owner package defines it. */
   details: ConsoleContributedSection;
   kvBase: string;
+  /** Route of the Rate Limits operations. Only the Rate Limits section reads and resets counters. */
+  rateLimitBase?: string;
   scheduleRunBase?: string;
   searchBase: string;
   sectionsBase: string;
+  /** Console route of the `workflow.*` operations. Set on the Workflows section. */
+  workflowBase?: string;
 }>();
 
 interface ConsoleSectionEntry {
@@ -49,6 +57,7 @@ const runningSchedule = ref<string>();
 let request: AbortController | undefined;
 
 const section = computed(() => props.details.id);
+const sectionReadOnly = ref(false);
 const sectionDetails = computed(() => props.details);
 const catalogView = computed(() => props.details.view.kind === "definition-catalog");
 const recordColumns = computed(() => props.details.view.kind === "record-table" ? props.details.view.columns : []);
@@ -71,8 +80,11 @@ const selectedDefinition = computed(() =>
 const selectedRecord = computed(() => records.value.find((row) => row.id === selectedName.value));
 // Records with a link get a last column that opens it, such as a comment thread on its page.
 const recordLinks = computed(() => records.value.some((row) => row.link));
+// The Console lists the operations that run app code and that this request may run. `console.invoke` off or a read-only
+// grant leaves them out, so the page offers no action that the server would refuse.
+const registeredOperations = ref<readonly string[]>([]);
 const canRunSelected = computed(() =>
-  Boolean(props.scheduleRunBase && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
+  Boolean(props.scheduleRunBase && registeredOperations.value.includes("schedule.run") && (selectedDefinition.value?.runnable || selectedRecord.value?.runnable)),
 );
 const selectedRun = computed(() =>
   selectedName.value ? scheduleRuns.value.get(selectedName.value) : undefined,
@@ -195,12 +207,17 @@ function selectDefinition(name: string): void {
 }
 
 onMounted(() => {
+  void isConsoleSectionReadOnly(props.sectionsBase, section.value).then((value) => { sectionReadOnly.value = value; });
   rememberConsoleSection(section.value);
   selectedName.value = queryValue() ?? selectedName.value;
   void loadDefinitions();
+  void loadConsoleNavigation(props.sectionsBase).then((navigation) => {
+    registeredOperations.value = navigation?.operations ?? [];
+  });
 });
 
 watch(section, (current) => {
+  void isConsoleSectionReadOnly(props.sectionsBase, current).then((value) => { sectionReadOnly.value = value; });
   rememberConsoleSection(current);
   scheduleRuns.value.clear();
   content.value = undefined;
@@ -303,7 +320,7 @@ onBeforeUnmount(() => request?.abort());
     >
       <ConsolePageHeader :title="(catalogView && selectedEntry?.id) || sectionDetails.label" :toggle="catalogView">
         <template #right>
-          <span class="hidden text-xs text-dimmed sm:inline">Read-only</span>
+          <span v-if="!rateLimitBase && !workflowBase" class="hidden text-xs text-dimmed sm:inline">Read-only</span>
           <UButton
             v-if="canRunSelected && catalogView"
             icon="i-lucide-play"
@@ -418,6 +435,8 @@ onBeforeUnmount(() => request?.abort());
             </div>
           </header>
           <ConsolePropertyList v-if="selectedDefinition.fields.length" title="Configuration" :items="selectedDefinition.fields" />
+          <ConsoleRateLimit v-if="rateLimitBase" :base="rateLimitBase" :name="selectedDefinition.name" :read-only="sectionReadOnly" />
+          <ConsoleWorkflowActions v-if="workflowBase && selectedDefinition" :base="workflowBase" :can-resume="registeredOperations.includes('workflow.resume')" :can-start="registeredOperations.includes('workflow.start')" :workflow="selectedDefinition.name" />
           <p class="flex gap-2 rounded-md bg-elevated/50 px-3 py-2.5 text-xs leading-relaxed text-pretty text-muted">
             <UIcon name="i-lucide-info" class="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
             <ConsoleSetupHint :hint="{ message: sectionDetails.view.notice }" />

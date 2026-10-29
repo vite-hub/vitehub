@@ -77,6 +77,24 @@ async function render(props: Record<string, unknown>, inspected: ConnectionInspe
 }
 
 describe("Console Connection details", () => {
+  it("shows ChatGPT plan details and a CLI command instead of a website sign-in", async () => {
+    const plan = connection({
+      credential: "chatgpt", name: "chatgpt", provider: "chatgpt", status: "connected",
+      account: { id: "account-1", email: "ada@example.com" },
+      expiresAt: "2026-10-27T20:00:00.000Z",
+      chatgpt: { clientId: "oaiapp_test", hostId: "urn:uuid:test-host", plan: "enabled" },
+      scopes: { declared: ["chatgpt.tokens.use.direct"], granted: ["chatgpt.tokens.use.direct"], missing: [] },
+    })
+    const root = await render({ connection: plan }, plan)
+    expect(root.textContent).toContain("ChatGPT plan")
+    expect(root.textContent).toContain("ada@example.com")
+    expect(root.textContent).toContain("urn:uuid:test-host")
+    expect(root.textContent).toContain("chatgpt.tokens.use.direct")
+    expect(root.textContent).toContain("vitehub connections connect chatgpt")
+    expect(root.querySelector('time[datetime="2026-10-27T20:00:00.000Z"]')).not.toBeNull()
+    expect(root.querySelector('a[href*="/connect/"]')).toBeNull()
+  })
+
   it("opens the key field after the row action Set key", async () => {
     const key = connection({ credential: "api-key", name: "posthog", provider: "posthog" })
     const root = await render({ connection: key, keyForm: true }, key)

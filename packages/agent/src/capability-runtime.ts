@@ -813,18 +813,7 @@ function capabilityDataEqual(left: unknown, right: unknown, seen = new WeakMap<o
   const rightPrototype = Object.getPrototypeOf(right)
   if (Array.isArray(left) !== Array.isArray(right) || leftPrototype !== rightPrototype) return false
   if (!Array.isArray(left) && !isPlainObjectPrototype(leftPrototype)) return Object.is(left, right)
-  const leftKeys = Reflect.ownKeys(left)
-  const rightKeys = Reflect.ownKeys(right)
-  if (leftKeys.length !== rightKeys.length || leftKeys.some((key, index) => key !== rightKeys[index])) return false
-  return leftKeys.every(key => {
-    const leftDescriptor = Object.getOwnPropertyDescriptor(left, key)
-    const rightDescriptor = Object.getOwnPropertyDescriptor(right, key)
-    if (!leftDescriptor || !rightDescriptor) return false
-    if ("value" in leftDescriptor || "value" in rightDescriptor) {
-      return "value" in leftDescriptor && "value" in rightDescriptor && capabilityDataEqual(leftDescriptor.value, rightDescriptor.value, seen)
-    }
-    return leftDescriptor.get === rightDescriptor.get && leftDescriptor.set === rightDescriptor.set
-  })
+  return compareCapabilityProperties(left, right, seen)
 }
 
 function ruleConflictBase(pattern: string): string {

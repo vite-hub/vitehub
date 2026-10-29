@@ -21,7 +21,10 @@ if (!Number.isSafeInteger(pid) || pid <= 0) {
 async function readStatus(): Promise<"accepting" | "drained" | "draining" | "failed" | "invalid" | "unavailable"> {
   try {
     const response = await fetch(statusUrl, { signal: AbortSignal.timeout(5_000) })
-    if (!response.ok) return "unavailable"
+    if (!response.ok) {
+      await response.body?.cancel()
+      return "unavailable"
+    }
     const body: unknown = await response.json()
     // SAFETY: The status endpoint response is validated before its value is used.
     const status = body && hasRuntimeType(body, "object") ? (body as { status?: unknown }).status : undefined
