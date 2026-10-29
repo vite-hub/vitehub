@@ -4,13 +4,15 @@ import { createInterface } from "node:readline/promises"
 import { findViteHubDevServerUrl } from "@vite-hub/internal/cli"
 import { resolveViteHubProjectRoot } from "@vite-hub/internal/build/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
+import { resolveViteHubDispatchKey, signViteHubDispatch } from "@vite-hub/internal/dispatch"
+import { isSecretInspectionKey, redactInspectionText, redactedInspectionValue } from "@vite-hub/internal/inspect"
 import { callOperation, collectOperationContributions, createOperationRegistry, operationCall, operationCliPath, operationInputJsonSchema, operationsOf, parseOperationInput } from "@vite-hub/internal/operations"
 import { resolve } from "pathe"
 
 import { cliErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { ViteHubCliCommandNamespace, ViteHubCliContext, ViteHubCliFeature } from "@vite-hub/internal/cli"
-import type { AnyOperation, OperationFailure } from "@vite-hub/internal/operations"
+import type { AnyOperation, OperationFailure, OperationResult } from "@vite-hub/internal/operations"
 
 type JsonSchema = Record<string, unknown>
 
@@ -336,11 +338,72 @@ function acceptedRoots(rootDir: string): string[] {
  * else `VITEHUB_DEV_SERVER_URL`. There is no guess: another project may use port 5173.
  */
 function resolveTarget(parsed: ParsedCall, context: ViteHubCliContext): { target: string } | { failure: OperationFailure } {
-  if (parsed.url) return { target: parsed.url }
+  if (parsed.url) {
+    let base: URL
+    try {
+      base = new URL(parsed.url)
+    }
+    catch {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must be a URL." })) }
+    }
+    const local = base.hostname === "localhost" || base.hostname === "127.0.0.1" || base.hostname === "[::1]"
+    if (base.protocol !== "https:" && !(local && base.protocol === "http:")) {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must use HTTPS, except for localhost." })) }
+    }
+    if (base.username || base.password || base.search || base.hash) {
+      return { failure: failureOf(cliErrorDiagnostics.CLI_R0003({ message: "--url must not contain credentials, a query, or a fragment." })) }
+    }
+    return { target: parsed.url }
+  }
   const found = findViteHubDevServerUrl(acceptedRoots(context.rootDir), context.env)
   if (found) return { target: found }
   const error = cliErrorDiagnostics.CLI_R0005({ message: `No dev server is running for ${context.rootDir}.` })
   return { failure: failureOf(error, 503) }
+}
+
+/**
+ * Posts a signed dispatch to the route of an operation on a deployed app. Returns undefined when no dispatch key is set,
+ * so the command falls back to the RPC with Console credentials.
+ */
+async function callDispatch(operation: string, route: string, url: string, input: unknown, context: ViteHubCliContext, timeout: number | undefined): Promise<OperationResult | undefined> {
+  const base = new URL(url)
+  let key: string | undefined
+  try {
+    key = await resolveViteHubDispatchKey(context.env)
+  }
+  catch (error) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0003({ message: error instanceof Error ? error.message : String(error) })), ok: false }
+  }
+  if (!key) return undefined
+  if (!base.pathname.endsWith("/")) base.pathname = `${base.pathname}/`
+  const target = new URL(route.slice(1), base)
+  const body = JSON.stringify(input ?? {})
+  const actor = context.env.VITEHUB_ACTOR || context.env.USER || context.env.USERNAME || undefined
+  const headers = new Headers({ accept: "application/json", "content-type": "application/json", ...await signViteHubDispatch({ actor, body, key, operation }) })
+  if (context.env.CF_ACCESS_CLIENT_ID) headers.set("cf-access-client-id", context.env.CF_ACCESS_CLIENT_ID)
+  if (context.env.CF_ACCESS_CLIENT_SECRET) headers.set("cf-access-client-secret", context.env.CF_ACCESS_CLIENT_SECRET)
+  let response: Response
+  let text: string
+  try {
+    response = await (context.fetch ?? fetch)(target.href, { body, headers, method: "POST", redirect: "manual", signal: AbortSignal.timeout(timeout ?? 30_000) })
+    text = await response.text()
+  }
+  catch (error) {
+    return { ...failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request to ${target.origin} failed: ${redactInspectionText(error instanceof Error ? error.message : String(error))}` }), 502), ok: false }
+  }
+  let json: unknown
+  try {
+    // Share inspection's secret-key policy without its output size limits.
+    json = text ? JSON.parse(text, (key, value: unknown) => isSecretInspectionKey(key) ? redactedInspectionValue : typeof value === "string" ? redactInspectionText(value) : value) : undefined
+  }
+  catch {
+    json = undefined
+  }
+  if (response.ok && json !== undefined) return { ok: true, value: json }
+  const message = Reflect.get(Object(json), "message")
+  const failure = failureOf(cliErrorDiagnostics.CLI_R0006({ message: `The signed request failed with HTTP ${response.status}${typeof message === "string" && message ? `: ${message}` : "."}` }), response.status)
+  if (response.status === 401) failure.fix = "Set VITEHUB_DISPATCH_KEY to the key of the app (`vitehub secret derive vitehub:dispatch` prints it), and keep the clock of this machine correct."
+  return { ...failure, ok: false }
 }
 
 function featureOf(operation: AnyOperation): ViteHubCliFeature {
@@ -383,7 +446,8 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
         confirmed = true
       }
       // The server parses the original input once and verifies confirmation against that result.
-      const result = await callOperation({
+      const dispatch = operation.cli?.dispatch && parsed.url ? await callDispatch(operation.name, operation.cli.dispatch, parsed.url, parsed.input, context, parsed.timeout) : undefined
+      const result = dispatch ?? await callOperation({
         confirmed,
         env: context.env,
         ...(context.fetch ? { fetch: context.fetch } : {}),
@@ -394,7 +458,7 @@ function featureOf(operation: AnyOperation): ViteHubCliFeature {
       if (!result.ok) return writeFailure(result, parsed, context)
       const format = operation.cli?.format as ((output: unknown) => string) | undefined
       const output = !parsed.json && format ? format(result.value) : `${JSON.stringify(result.value ?? null, null, 2)}\n`
-      context.stdout.write(output.endsWith("\n") ? output : `${output}\n`)
+      context.stdout.write(output)
       return 0
     },
     usage: usageOf(operation, flags),
@@ -408,6 +472,7 @@ export function createOperationNamespaces(operations: readonly AnyOperation[]): 
     const { namespace: name } = operationCliPath(operation)
     const namespace = namespaces.get(name) ?? { description: `Run the ${name} operations of the app.`, features: [], name }
     namespace.features.push(featureOf(operation))
+    if (operation.cli?.default) namespace.defaultFeature = operationCliPath(operation).command
     namespaces.set(name, namespace)
   }
   return [...namespaces.values()]
@@ -426,6 +491,7 @@ export function mergeOperationNamespaces(written: readonly ViteHubCliCommandName
       continue
     }
     for (const feature of namespace.features) if (!existing.features.some(candidate => candidate.name === feature.name)) existing.features.push(feature)
+    if (namespace.defaultFeature && !existing.defaultFeature) existing.defaultFeature = namespace.defaultFeature
   }
   return merged
 }

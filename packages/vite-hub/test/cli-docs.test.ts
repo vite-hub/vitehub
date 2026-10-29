@@ -10,6 +10,7 @@ import { createDbCliContributor } from "@vite-hub/database/cli";
 import { hubEmail } from "@vite-hub/email/vite";
 import { hubEnv } from "@vite-hub/env/vite";
 import { hubKv } from "@vite-hub/kv/vite";
+import { hubQueue } from "@vite-hub/queue/vite";
 import { hubRateLimit } from "@vite-hub/rate-limit/vite";
 import { hubWorkflow } from "@vite-hub/workflow/vite";
 import { hubSchedule } from "@vite-hub/schedule/vite";
@@ -19,6 +20,8 @@ import { describe, expect, it } from "vitest";
 import { createSandboxCliNamespace } from "../src/sandbox-cli.ts";
 import { createConsoleCliNamespace } from "../src/console/cli.ts";
 import { viteHubTypesPlugin } from "../src/internal/types.ts";
+import { consoleOperations } from "../src/console/runtime/server/operations.ts";
+import { taskOperations } from "../src/task/operations.ts";
 import { viteHubTaskPlugin } from "../src/task/vite.ts";
 
 const repoRoot = fileURLToPath(new URL("../../..", import.meta.url));
@@ -75,11 +78,16 @@ describe("CLI documentation contract", () => {
       hubEnv(),
       emailPlugin,
       hubKv(),
+      hubQueue(),
       hubRateLimit(),
       schedulePlugin,
       workflowPlugin,
       workspacePlugin,
       viteHubTaskPlugin(),
+      // The task plugin contributes these only for an app that has tasks.
+      { vitehub: { operations: [{ export: "taskOperations", load: async () => taskOperations, module: "vite-hub/_internal/task/operations" }] } },
+      // The Console plugin contributes every Console operation; the reference documents the Database ones.
+      { vitehub: { operations: [{ export: "consoleOperations", load: async () => consoleOperations.filter((operation) => operation.name.startsWith("databases.")), module: "vite-hub/console/server" }] } },
       typesPlugin,
     ];
     const loadConfig = async () => ({ plugins, root: repoRoot });
