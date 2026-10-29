@@ -16,15 +16,18 @@ const tokenVersion = "v1"
 // Domain separation: the key may sign other Content values later.
 const tokenPurpose = "vitehub.content.preview"
 const tokenPattern = /^v1\.(\d{1,12})\.([\w-]{43})$/
+// A frame token signs one document with its own purpose and shape, so it never passes as a cookie token or the reverse.
+const frameTokenVersion = "f1"
+const frameTokenPurpose = "vitehub.content.preview.frame"
+const frameTokenPattern = /^f1\.(\d{1,12})\.([\w-]{1,1400})\.([\w-]{43})$/
 
 /**
  * Marks a preview frame request: the search parameter of the page URL and the form field that carries
  * `{ token, documents }` as JSON. The parameter alone grants nothing.
  */
 export const contentPreviewFrameParameter = "vitehub-content-preview"
-/** The largest preview frame form, in bytes. It carries whole Markdown documents. */
+/** The largest preview frame form, in bytes. It carries a whole Markdown document. */
 const maximumFrameBytes = 1024 * 1024
-const maximumFrameDocuments = 20
 
 type HmacKey = Awaited<ReturnType<typeof crypto.subtle.importKey>>
 
@@ -45,6 +48,12 @@ export interface ContentPreviewOptions {
   maxAge?: number
 }
 
+/** The one document that a preview frame token lets a page read as a draft. */
+export interface ContentPreviewFrameOptions extends ContentPreviewOptions {
+  collection: string
+  id: string
+}
+
 /** A document that a preview frame shows in place of its stored draft, such as edits that were not saved yet. */
 export interface ContentPreviewDocument {
   collection: string
@@ -52,6 +61,16 @@ export interface ContentPreviewDocument {
   data: Record<string, unknown>
   /** The Markdown body. JSON and YAML documents have none. */
   body?: string
+}
+
+/**
+ * The current preview frame request: the document its token signs, and the version on screen that the frame posted
+ * for it, if any.
+ */
+export interface ContentPreviewFrame {
+  collection: string
+  id: string
+  document?: ContentPreviewDocument
 }
 
 export interface ContentPreviewToken {
@@ -70,12 +89,13 @@ export interface ContentPreviewCookie {
 /**
  * Draft preview for one Content runtime. A request with a valid preview cookie reads the `draft` ref through every
  * Content read: `/api/content/**`, `content.get()`, `list()`, `navigation()`, `search()`, and collection `get()`/`list()`.
+ * A preview frame request reads the draft of one document only; see {@link ContentPreview.sign}.
  */
 export interface ContentPreview {
   /**
    * Sign a preview token and set it as an `HttpOnly`, `SameSite=Strict` cookie on the event response. This is trusted
    * server API: check `content.can({ user, collection, action: "read" })` before calling it. The token previews every
-   * collection of this runtime until it expires.
+   * collection of this runtime until it expires. A preview frame token from `sign()` never sets or acts as this cookie.
    */
   enable(event: ContentPreviewEvent, options?: ContentPreviewOptions): Promise<ContentPreviewCookie>
   /** Clear the preview cookie. Later requests read `published` again. */
@@ -87,19 +107,16 @@ export interface ContentPreview {
    */
   run<TResult>(event: ContentPreviewEvent, callback: () => TResult | Promise<TResult>): Promise<TResult>
   /**
-   * Sign a token for a preview frame, without a cookie. This is trusted server API: check
-   * `content.can({ user, collection, action: "read" })` before calling it. See {@link defineContentPreviewPlugin}.
+   * Sign a preview frame token for one document, without a cookie. This is trusted server API: check
+   * `content.can({ user, collection, id, action: "read" })` before calling it. In a frame request with this token,
+   * collection `get()` and `list()` without `ref` or `revision` read the draft of that document only, or the version
+   * the frame posted for it. Every other read is published. See {@link defineContentPreviewPlugin}.
    */
-  sign(options?: ContentPreviewOptions): Promise<ContentPreviewToken>
-  /** Whether Content reads in the current request use the `draft` ref. */
+  sign(options: ContentPreviewFrameOptions): Promise<ContentPreviewToken>
+  /** Whether Content reads in the current request use the `draft` ref: true with a preview cookie, false in a frame. */
   active(): boolean
-  /**
-   * The document that the current preview frame request shows in place of the stored draft, if any. Collection
-   * `get()` and `list()` read it; nothing stores it.
-   */
-  document(collection: string, id: string): ContentPreviewDocument | undefined
-  /** Every document of one collection that the current preview frame request shows in place of its stored draft. */
-  documents(collection: string): ContentPreviewDocument[]
+  /** The current preview frame request, or undefined outside one. */
+  frame(): ContentPreviewFrame | undefined
 }
 
 type HeaderBag = { get?: unknown, append?: unknown, set?: unknown, [name: string]: unknown }
@@ -286,6 +303,31 @@ function tokenMessage(expires: number): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(`${tokenPurpose}.${tokenVersion}.${expires}`)
 }
 
+function frameTokenMessage(expires: number, scope: string): Uint8Array<ArrayBuffer> {
+  return new TextEncoder().encode(`${frameTokenPurpose}.${frameTokenVersion}.${expires}.${scope}`)
+}
+
+function encodeScope(collection: string, id: string): string {
+  return base64url(new TextEncoder().encode(JSON.stringify([collection, id])).buffer)
+}
+
+function decodeScope(value: string): { collection: string, id: string } | undefined {
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder().decode(fromBase64url(value)))
+    if (!Array.isArray(parsed) || parsed.length !== 2) return
+    const [collection, id] = parsed
+    return String(collection) === collection && collection && String(id) === id && id ? { collection, id } : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+function unexpired(expires: number): boolean {
+  const now = Date.now()
+  return expires * 1000 > now && expires * 1000 <= now + (maximumMaxAge + 60) * 1000
+}
+
 /** Return the expiry in seconds of a valid, unexpired token, or undefined. The HMAC check is constant-time. */
 async function verifyToken(key: HmacKey, token: string): Promise<number | undefined> {
   const match = tokenPattern.exec(token)
@@ -294,9 +336,19 @@ async function verifyToken(key: HmacKey, token: string): Promise<number | undefi
   const signature = fromBase64url(match[2]!)
   if (signature.byteLength !== 32) return
   if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, tokenMessage(expires))) return
-  const now = Date.now()
-  if (expires * 1000 <= now || expires * 1000 > now + (maximumMaxAge + 60) * 1000) return
-  return expires
+  return unexpired(expires) ? expires : undefined
+}
+
+/** Return the expiry and document of a valid, unexpired frame token, or undefined. The HMAC check is constant-time. */
+async function verifyFrameToken(key: HmacKey, token: string): Promise<{ expires: number, collection: string, id: string } | undefined> {
+  const match = frameTokenPattern.exec(token)
+  if (!match) return
+  const expires = Number(match[1])
+  const signature = fromBase64url(match[3]!)
+  if (signature.byteLength !== 32) return
+  if (!await globalThis.crypto.subtle.verify("HMAC", key, signature, frameTokenMessage(expires, match[2]!))) return
+  const scope = decodeScope(match[2]!)
+  return scope && unexpired(expires) ? { expires, ...scope } : undefined
 }
 
 function cookie(value: string, maxAge: number, secure: boolean): string {
@@ -331,18 +383,17 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
   // Proof that one request carried a valid token. Only this runtime issues and checks it.
   const previewGrant = defineGrant("vitehub.content.preview", (expires: number) => expires)
   type Grant = ReturnType<typeof previewGrant.issue>
-  interface State { grant: Grant, documents: ReadonlyMap<string, ContentPreviewDocument> }
+  /** A cookie grant reads every draft. A frame grant reads the draft of its one document. */
+  interface State { grant: Grant, frame?: ContentPreviewFrame }
   const scope = createScope<State>(options.enabled)
   const resolved = new WeakMap<object, Promise<Grant | undefined>>()
-  const noDocuments: ReadonlyMap<string, ContentPreviewDocument> = new Map()
-  const documentKey = (collection: string, id: string) => `${collection}\u0000${id}`
 
   function current(): State | undefined {
     const state = scope.getStore()
     return state && previewGrant.check(state.grant) !== undefined ? state : undefined
   }
 
-  async function sign(signOptions: ContentPreviewOptions, method: string): Promise<{ maxAge: number, expires: number, token: string }> {
+  async function sign(signOptions: ContentPreviewOptions, method: string, scope?: string): Promise<{ maxAge: number, expires: number, token: string }> {
     requireEnabled(method)
     const maxAge = signOptions.maxAge ?? defaultMaxAge
     if (!Number.isSafeInteger(maxAge) || maxAge < minimumMaxAge || maxAge > maximumMaxAge) {
@@ -351,11 +402,15 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
     const key = await signingKey()
     if (!key) throw contentErrorDiagnostics.CONTENT_R0010({ message: missingKeyMessage })
     const expires = Math.floor(Date.now() / 1000) + maxAge
-    const signature = await globalThis.crypto.subtle.sign("HMAC", key, tokenMessage(expires))
-    return { maxAge, expires, token: `${tokenVersion}.${expires}.${base64url(signature)}` }
+    if (scope === undefined) {
+      const signature = await globalThis.crypto.subtle.sign("HMAC", key, tokenMessage(expires))
+      return { maxAge, expires, token: `${tokenVersion}.${expires}.${base64url(signature)}` }
+    }
+    const signature = await globalThis.crypto.subtle.sign("HMAC", key, frameTokenMessage(expires, scope))
+    return { maxAge, expires, token: `${frameTokenVersion}.${expires}.${scope}.${base64url(signature)}` }
   }
 
-  async function grantForToken(token: string): Promise<Grant | undefined> {
+  async function frameForToken(token: string): Promise<{ grant: Grant, collection: string, id: string } | undefined> {
     let key: HmacKey | undefined
     try {
       key = await signingKey()
@@ -364,8 +419,8 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
       return
     }
     if (!key) return
-    const expires = await verifyToken(key, token)
-    return expires === undefined ? undefined : previewGrant.issue(expires)
+    const verified = await verifyFrameToken(key, token)
+    return verified && { grant: previewGrant.issue(verified.expires), collection: verified.collection, id: verified.id }
   }
 
   function requireEnabled(method: string): void {
@@ -405,8 +460,16 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
       appendResponseHeader(event, "cache-control", "private, no-store", "set")
       return { setCookie, expiresAt: new Date(expires * 1000) }
     },
-    async sign(signOptions = {}) {
-      const { expires, token } = await sign(signOptions, "sign")
+    async sign(signOptions) {
+      const { collection, id } = isObject(signOptions) ? signOptions : {}
+      if (String(collection) !== collection || !collection || String(id) !== id || !id) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() requires { collection, id }: the one document the frame previews." })
+      }
+      const scope = encodeScope(collection, id)
+      if (!frameTokenPattern.test(`${frameTokenVersion}.0.${scope}.${"A".repeat(43)}`)) {
+        throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] content.preview.sign() received a collection and id that are too long." })
+      }
+      const { expires, token } = await sign(signOptions, "sign", scope)
       return { token, expiresAt: new Date(expires * 1000) }
     },
     disable(event) {
@@ -428,7 +491,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
           resolved.set(event, pending)
         }
         const grant = await pending
-        if (grant) state = { grant, documents: noDocuments }
+        if (grant) state = { grant }
       }
       if (!state) return await callback()
       markPrivate(event)
@@ -438,22 +501,23 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
       return privateResponse(result)
     },
     active() {
-      return current() !== undefined
+      const state = current()
+      return state !== undefined && state.frame === undefined
     },
-    document(collection, id) {
-      return current()?.documents.get(documentKey(collection, id))
-    },
-    documents(collection) {
-      return [...current()?.documents.values() ?? []].filter(document => document.collection === collection)
+    frame() {
+      return current()?.frame
     },
   }
   frames.set(preview, {
     async run(form, callback) {
       if (!options.enabled) return
-      const grant = await grantForToken(form.token)
-      if (!grant) return
-      const documents = new Map(form.documents.map(document => [documentKey(document.collection, document.id), document]))
-      return { result: await scope.run({ grant, documents }, callback) }
+      const verified = await frameForToken(form.token)
+      if (!verified) return
+      const { grant, collection, id } = verified
+      // The token signs one document: a form that posts any other document is refused, not partly applied.
+      if (form.document && (form.document.collection !== collection || form.document.id !== id)) return
+      const frame: ContentPreviewFrame = form.document ? { collection, id, document: form.document } : { collection, id }
+      return { result: await scope.run({ grant, frame }, callback) }
     },
   })
   return preview
@@ -461,7 +525,7 @@ export function createContentPreview(options: { enabled: boolean }): ContentPrev
 
 interface ContentPreviewFrameForm {
   token: string
-  documents: ContentPreviewDocument[]
+  document?: ContentPreviewDocument
 }
 
 /** Runs a preview frame request with the grant of its token. Undefined when the token is not valid. */
@@ -489,17 +553,13 @@ export function parseContentPreviewFrameForm(text: string): ContentPreviewFrameF
     return
   }
   if (!isPlainRecord(parsed) || String(parsed.token) !== parsed.token) return
-  const documents = parsed.documents ?? []
-  if (!Array.isArray(documents) || documents.length > maximumFrameDocuments) return
-  const result: ContentPreviewDocument[] = []
-  for (const document of documents) {
-    if (!isPlainRecord(document) || !isPlainRecord(document.data)) return
-    const { collection, id, body } = document
-    if (String(collection) !== collection || !collection || String(id) !== id || !id) return
-    if (body !== undefined && String(body) !== body) return
-    result.push(body === undefined ? { collection, id, data: document.data } : { collection, id, data: document.data, body })
-  }
-  return { token: parsed.token, documents: result }
+  const document = parsed.document
+  if (document === undefined) return { token: parsed.token }
+  if (!isPlainRecord(document) || !isPlainRecord(document.data)) return
+  const { collection, id, body } = document
+  if (String(collection) !== collection || !collection || String(id) !== id || !id) return
+  if (body !== undefined && String(body) !== body) return
+  return { token: parsed.token, document: body === undefined ? { collection, id, data: document.data } : { collection, id, data: document.data, body } }
 }
 
 function forbidden(message: string): Response {
@@ -577,10 +637,12 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * cached functions neither read nor write an entry. Requests without the cookie pass straight through.
  *
  * It also serves preview frames, such as the side browser of the Console. A frame posts a form to the page URL with
- * `?vitehub-content-preview`, and the form field of the same name holds `{ token, documents }` as JSON: a token from
- * `content.preview.sign()` and documents to show in place of their stored drafts. The page runs as a GET request
- * without the parameter, with the draft ref, and with those documents in collection `get()` and `list()`. Nothing is
- * stored, and the response is `private, no-store`. A form from another site, or without a valid token, gets 403.
+ * `?vitehub-content-preview`, and the form field of the same name holds `{ token, document? }` as JSON: a token from
+ * `content.preview.sign({ collection, id })` and, optionally, the version of that document to show in place of its
+ * stored draft. The page runs as a GET request without the parameter. Collection `get()` and `list()` without `ref` or
+ * `revision` read that one document as a draft; every other read is published. Nothing is stored, and the response is
+ * `private, no-store`. A form from another site, without a valid frame token, or with a document that the token does
+ * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token.
  * ViteHub generates this plugin for `server/content.ts`.
  */
 export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
@@ -588,7 +650,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     const preview = content.preview
     if (!preview || !isObject(nitroApp)) return
     // ViteHub routes Nitro's cache module through this check (nitroCacheBypass); the grant scope is the request's.
-    const removeCacheBypass = addCacheBypass(() => preview.active())
+    const previewing = () => preview.active() || preview.frame() !== undefined
+    const removeCacheBypass = addCacheBypass(previewing)
     const hooks = nitroApp.hooks
     if (isObject(hooks) && hooks.hook instanceof Function) {
       const dispose = () => removeCacheBypass()
@@ -665,7 +728,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
       const hooks = nitroApp.hooks
       if (isObject(hooks) && hooks.hook instanceof Function) {
         Reflect.apply(hooks.hook, hooks, ["beforeResponse", (event: ContentPreviewEvent) => {
-          if (preview.active()) markPrivate(event)
+          if (previewing()) markPrivate(event)
         }])
       }
       return

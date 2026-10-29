@@ -92,7 +92,7 @@ The editor reports every 15 seconds while the tab is visible and every 60 second
 
 For a collection with a `url`, the window button in the editor header opens the page in a side browser next to the editor, as in an IDE. The editor keeps its own header, and the side browser has its own toolbar with the address, **Draft** or **Published**, **Desktop** or **Mobile**, **Reload**, and **Open in a new tab**. Drag the divider, or focus it and use the arrow keys, to resize it; <kbd>Home</kbd> and <kbd>End</kbd> make the preview widest or narrowest. On a phone the preview covers the editor, and **Editor** goes back.
 
-- **Draft** renders the fields and body on screen through your own routes, before they save, with a [preview frame](/docs/content/preview#preview-frames). Nothing is stored and the public site does not change.
+- **Draft** renders the fields and body on screen through your own routes, before they save, with a [preview frame](/docs/content/preview#preview-frames). Only this document shows as a draft; the rest of the page, such as other posts and settings, shows its published version. Nothing is stored and the public site does not change.
 - **Published** loads the page as a guest sees it. It changes only when someone publishes.
 - **Click to edit.** Elements with [`contentField()`](/docs/content/server-api#field-addresses) attributes select their field in the editor. In **Draft**, top-level text fields, such as the title, change in place: <kbd>Enter</kbd> ends the edit and <kbd>Esc</kbd> puts the text back. Focusing a field in the editor outlines it in the page.
 
@@ -104,7 +104,7 @@ The editing menu in the header switches between **Collaborative** and **Local on
 
 - **Collaborative** edits the shared draft: it saves as you type, in the live session where Realtime is on.
 - **Local only** keeps your edits in this tab. They never save, never reach the live session, and nobody else sees them. A reload keeps them; closing the tab asks first. The Draft view shows them as **Local draft**.
-- **Apply to shared draft** saves them over the shared draft they started from. When someone saved the shared draft since, nothing is saved: a comparison opens with **Overwrite with mine**, **Discard mine**, and **Keep editing locally**.
+- **Apply to shared draft** saves them over the shared draft they started from. Edits you make while it saves stay local, on top of the saved version. When someone saved the shared draft since, nothing is saved: a comparison opens with **Overwrite with mine**, **Discard mine**, and **Keep editing locally**.
 - **Discard** drops them. Switching back to Collaborative with local edits asks to apply or discard them first.
 - **Publish shared draft** publishes the shared draft, never the local edits. It shows what would go live first, and refuses when the shared draft changed while you reviewed it. When the site also changed, the comparison shows that shared draft next to the site: **Keep the shared draft** and **Use the site version** save only it, and refuse when either one changed again while you compared. Your local edits stay in the tab until you apply them.
 

@@ -273,7 +273,7 @@ describe("content preview", { timeout: 30_000 }, () => {
     }
   })
 
-  it("renders a preview frame form with its documents in place of the drafts, and stores nothing", async () => {
+  it("renders a preview frame form with its document in place of the draft, and stores nothing", async () => {
     const { content, posts } = await setup()
     const app = new H3()
       .get("/blog/hello", async event => ({
@@ -287,30 +287,122 @@ describe("content preview", { timeout: 30_000 }, () => {
       }))
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
     defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ maxAge: 120 })
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello", maxAge: 120 })
     const frame = (form: unknown, headers: Record<string, string> = { "sec-fetch-site": "same-origin", origin: "https://site.test" }) => nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
       body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify(form) }),
     }))
 
-    const response = await frame({ token, documents: [{ collection: "posts", id: "hello", data: { title: "On screen" }, body: "# Typed" }] })
+    const response = await frame({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" }, body: "# Typed" } })
     expect(response.status).toBe(200)
     expect(response.headers.get("cache-control")).toBe("private, no-store")
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
+    // The draft-only post "new" stays out of the list: the token signs "hello" only.
     expect(await response.json()).toEqual({
       url: "https://site.test/blog/hello",
       method: "GET",
       get: "On screen",
       body: "# Typed",
-      list: ["On screen", "New"],
+      list: ["On screen"],
       published: "Published",
       stored: "Draft",
     })
-    // The same form without documents renders the stored draft.
-    expect(await (await frame({ token })).json()).toMatchObject({ get: "Draft", list: ["Draft", "New"] })
+    // The same form without a document renders the stored draft of "hello".
+    expect(await (await frame({ token })).json()).toMatchObject({ get: "Draft", list: ["Draft"] })
     expect((await posts.get("hello", { ref: "draft" }))?.data.title).toBe("Draft")
     expect((await posts.get("hello"))?.data.title).toBe("Published")
+  })
+
+  it("lets a frame token read the draft of its one document, and no other draft through any read", async () => {
+    vi.stubEnv("VITEHUB_CONTENT_KEY", key)
+    const workspace = await historyWorkspace()
+    const content = defineContent({
+      workspace,
+      collections: {
+        posts: documents({ path: "posts/**/*.md", fields: { title: z.string() } }),
+        pages: documents({ path: "pages/**/*.md", fields: { title: z.string() } }),
+      },
+      logger: false,
+    })
+    cleanup.push(() => content.dispose())
+    const posts = content.collection("posts")
+    const pages = content.collection("pages")
+    // A: the post the editor may read. B: another post. C: a page in another collection. Each has a private draft.
+    await posts.save("a", { data: { title: "A published" }, body: "A" })
+    await posts.save("b", { data: { title: "B published" }, body: "B" })
+    await pages.save("c", { data: { title: "C published" }, body: "C" })
+    await content.publish()
+    await posts.save("a", { data: { title: "A draft" }, body: "A" })
+    await posts.save("b", { data: { title: "B draft" }, body: "B secret" })
+    await posts.save("b-unpublished", { data: { title: "B unpublished" }, body: "B" })
+    await pages.save("c", { data: { title: "C draft" }, body: "C secret" })
+    await pages.save("c-unpublished", { data: { title: "C unpublished" }, body: "C" })
+
+    const contentApi = new H3().all("/api/content/**", defineContentHandler(content))
+    const app = new H3()
+      .get("/page", async () => ({
+        active: content.preview.active(),
+        a: (await posts.get("a"))?.data.title,
+        b: (await posts.get("b"))?.data.title,
+        bUnpublished: (await posts.get("b-unpublished"))?.data.title ?? null,
+        c: (await pages.get("c"))?.data.title,
+        cUnpublished: (await pages.get("c-unpublished"))?.data.title ?? null,
+        posts: (await posts.list()).items.map(item => item.data.title),
+        page: (await posts.page({ query: {} })).items.map(item => item.id),
+        pages: (await pages.list()).items.map(item => item.data.title),
+        raw: (await posts.raw("b"))?.text.includes("B secret"),
+        hub: (await content.get("/posts/b"))?.data.title,
+        hubList: (await content.list(["posts", "pages"])).map(item => item.path).sort(),
+        navigation: JSON.stringify(await content.navigation(["posts", "pages"])).includes("unpublished"),
+        search: JSON.stringify(await content.search(["posts", "pages"], "secret")).includes("secret"),
+        api: await titleOf(await contentApi.request("/api/content/get/posts/b")),
+      }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "a" })
+    const frame = (form: unknown) => nitroApp.fetch(new Request(`https://site.test/page?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: "https://site.test" },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify(form) }),
+    }))
+    const published = {
+      active: false,
+      b: "B published",
+      bUnpublished: null,
+      c: "C published",
+      cUnpublished: null,
+      pages: ["C published"],
+      raw: false,
+      hub: "B published",
+      hubList: ["/pages/c", "/posts/a", "/posts/b"],
+      navigation: false,
+      search: false,
+      api: "B published",
+    }
+
+    const posted = await frame({ token, document: { collection: "posts", id: "a", data: { title: "A on screen" }, body: "A" } })
+    expect(posted.status).toBe(200)
+    expect(await posted.json()).toEqual({ ...published, a: "A on screen", posts: ["A on screen", "B published"], page: ["a", "b"] })
+    expect(await (await frame({ token })).json()).toEqual({ ...published, a: "A draft", posts: ["A draft", "B published"], page: ["a", "b"] })
+
+    // A forged document for B or C is refused whole, and its token does not reveal their stored drafts either.
+    for (const document of [
+      { collection: "posts", id: "b", data: { title: "Forged" } },
+      { collection: "posts", id: "b-unpublished", data: { title: "Forged" } },
+      { collection: "pages", id: "c", data: { title: "Forged" } },
+      { collection: "pages", id: "a", data: { title: "Forged" } },
+    ]) {
+      expect((await frame({ token, document })).status).toBe(403)
+    }
+    // A form field other than `document` carries nothing into the page.
+    expect(await (await frame({ token, documents: [{ collection: "posts", id: "b", data: { title: "Forged" } }] })).json()).toMatchObject({ a: "A draft", b: "B published" })
+    // A token signed for B cannot be moved to A by editing its document part.
+    const other = (await content.preview.sign({ collection: "posts", id: "b" })).token.split(".")
+    const moved = [other[0], other[1], token.split(".")[2], other[3]].join(".")
+    expect((await frame({ token: moved })).status).toBe(403)
+    // A frame token in the preview cookie previews nothing.
+    expect(await titleOf(await contentApi.request("/api/content/get/posts/a", { headers: { cookie: `${contentPreviewCookieName}=${token}` } }))).toBe("A published")
   })
 
   it("refuses preview frames without a valid token or from another site", async () => {
@@ -319,20 +411,24 @@ describe("content preview", { timeout: 30_000 }, () => {
     const app = new H3().get("/blog/hello", handler)
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
     defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign()
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
     const post = (form: string, headers: Record<string, string> = {}) => nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
       body: form,
     }))
     const field = (value: unknown) => new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify(value) }).toString()
-    const [version, expires, signature] = token.split(".")
-    const forged = `${version}.${Number(expires) + 600}.${signature}`
+    const [version, expires, scope, signature] = token.split(".")
+    const forged = `${version}.${Number(expires) + 600}.${scope}.${signature}`
+    const cookieToken = tokenOf(await previewCookie(content))
 
     expect((await post(field({ token: forged }))).status).toBe(403)
     expect((await post(field({ token: "garbage" }))).status).toBe(403)
     expect((await post("not a form")).status).toBe(403)
-    expect((await post(field({ token, documents: [{ collection: "posts", id: "hello", data: [] }] }))).status).toBe(403)
+    expect((await post(field({ token, document: { collection: "posts", id: "hello", data: [] } }))).status).toBe(403)
+    // A server-wide cookie token is not a frame token, and a frame token is not a cookie token.
+    expect((await post(field({ token: cookieToken }))).status).toBe(403)
+    expect((await post(field({ token: `v1.${expires}.${signature}` }))).status).toBe(403)
     expect((await post(field({ token }), { "sec-fetch-site": "cross-site" })).status).toBe(403)
     expect((await post(field({ token }), { origin: "https://evil.test" })).status).toBe(403)
     // A cookie does not stand in for the form token.
@@ -345,11 +441,13 @@ describe("content preview", { timeout: 30_000 }, () => {
     // The parameter on a GET grants nothing.
     const page = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`))
     expect(page.headers.get("cache-control")).toBeNull()
+    vi.useFakeTimers({ now: Date.now() + 3601_000, toFake: ["Date"] })
+    expect((await post(field({ token }), { "sec-fetch-site": "same-origin" })).status).toBe(403)
   })
 
   it("renders preview frames on Nitro 2 as a GET of the page", async () => {
     const { content, posts } = await setup()
-    const { token } = await content.preview.sign()
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
     const seen: Array<{ method: string, url: string, title: unknown }> = []
     const nitroApp = {
       h3App: {
@@ -360,7 +458,7 @@ describe("content preview", { timeout: 30_000 }, () => {
       hooks: { hook: () => undefined },
     }
     defineContentPreviewPlugin(content)(nitroApp)
-    const body = new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, documents: [{ collection: "posts", id: "hello", data: { title: "On screen" } }] }) }).toString()
+    const body = new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" } } }) }).toString()
     const request = Object.assign((async function* () {
       yield new TextEncoder().encode(body)
     })(), { method: "POST", url: `/blog/hello?lang=en&${contentPreviewFrameParameter}`, headers: { host: "site.test", "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" } })
@@ -371,7 +469,7 @@ describe("content preview", { timeout: 30_000 }, () => {
 
   it("checks a Nitro 2 frame Origin against the public protocol, from TLS or a proxy, and never from Origin", async () => {
     const { content } = await setup()
-    const { token } = await content.preview.sign()
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
     const rendered = vi.fn()
     const nitroApp = { h3App: { handler: rendered }, hooks: { hook: () => undefined } }
     defineContentPreviewPlugin(content)(nitroApp)

@@ -722,9 +722,10 @@ export interface ViteHubConsoleDocumentActions {
   /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
   get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
   /**
-   * Signs a short token for the side browser of the editor. The page at the document URL renders the posted documents
-   * in place of their drafts: it receives a form POST to `url?parameter` whose `parameter` field holds
-   * `{ token, documents }` as JSON. Check read access to the document first.
+   * Signs a short token for the side browser of the editor, for this one document. The page at the document URL renders
+   * the posted version of it in place of its draft: it receives a form POST to `url?parameter` whose `parameter` field
+   * holds `{ token, document }` as JSON. Every other read of the page stays published. Check read access to the
+   * document first.
    */
   preview(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPreview>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */

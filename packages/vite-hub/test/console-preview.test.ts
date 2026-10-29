@@ -33,13 +33,13 @@ describe("console preview", () => {
     expect(consolePreviewUrl(undefined, "https://site.test")).toBeUndefined()
   })
 
-  it("posts the token and documents in the form body, never in the URL", () => {
+  it("posts the token and the document in the form body, never in the URL", () => {
     const url = new URL("https://site.test/blog/hello?lang=en")
     const action = consolePreviewFormAction(url, "vitehub-content-preview")
     expect(action).toBe("https://site.test/blog/hello?lang=en&vitehub-content-preview=")
-    expect(action).not.toContain("v1.")
-    const value = consolePreviewFormValue("v1.1.sig", [{ collection: "posts", id: "hello", data: { title: "Local" }, body: "# Hi" }])
-    expect(JSON.parse(value)).toEqual({ token: "v1.1.sig", documents: [{ collection: "posts", id: "hello", data: { title: "Local" }, body: "# Hi" }] })
+    expect(action).not.toContain("f1.")
+    const value = consolePreviewFormValue("f1.1.scope.sig", { collection: "posts", id: "hello", data: { title: "Local" }, body: "# Hi" })
+    expect(JSON.parse(value)).toEqual({ token: "f1.1.scope.sig", document: { collection: "posts", id: "hello", data: { title: "Local" }, body: "# Hi" } })
   })
 
   it("matches contentField() marks of the edited document only", () => {

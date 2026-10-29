@@ -1013,19 +1013,34 @@ async function applyLocal(ifDigest: string | null = localBase.value): Promise<vo
   const roomFor = Boolean(liveDefinition && hasBody.value && !liveFallback.value);
   if (!roomFor && !(await session.claim())) return;
   applyingLocal.value = true;
+  // Typing goes on during the request. Only this version is applied; later edits stay local and in session storage.
+  const sent: Version = { body: draft.value.body, data: compact(draft.value.data) };
   try {
     const saved = await props.client.save(props.collection.name, props.documentId, {
-      body: draft.value.body,
-      data: compact(draft.value.data),
+      ...sent,
       ifDigest,
       session: consoleTabSession,
       ...(roomFor ? { live: true } : {}),
     });
-    endLocal();
-    accept(saved);
+    await bodyEditor.value?.commit();
+    const editedDuringApply = draft.value.body !== sent.body || stableConsoleJSON(compact(draft.value.data)) !== stableConsoleJSON(sent.data);
+    if (editedDuringApply) {
+      // Stay in Local only, now on top of the saved shared draft, so the newer edits are neither lost nor shared.
+      takeState(saved);
+      showSavedIssues(saved);
+      localExitOpen.value = false;
+      localConflict.value = undefined;
+      localBase.value = saved.digest;
+      localStart.value = { body: saved.body, data: clone(saved.data) };
+      keepLocal();
+    }
+    else {
+      endLocal();
+      accept(saved);
+    }
     savedAt.value = new Date().toISOString();
     notifyChanged();
-    toast.show({ title: "Local edits saved to the shared draft" });
+    toast.show({ title: editedDuringApply ? "Local edits saved to the shared draft. Edits made since stay local." : "Local edits saved to the shared draft" });
     if (revisions.value.length || historyOpen.value || panel.value === "history") void loadRevisions();
   }
   catch (error) {

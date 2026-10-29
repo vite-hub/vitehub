@@ -620,8 +620,8 @@ export const createContentConsoleActions: ViteHubConsoleDocumentActionsFactory =
       if (!content.preview) throw failure(404, "CONTENT_PREVIEW_UNAVAILABLE", "This Content runtime has no draft preview.")
       const preview = content.preview
       return await attempt(async () => {
-        // A short token: the editor asks again before it expires. It reads drafts of the frame's page only.
-        const { token, expiresAt } = await preview.sign({ maxAge: previewMaxAge })
+        // A short token for this document only: the editor asks again before it expires. The rest of the page reads published.
+        const { token, expiresAt } = await preview.sign({ collection: collection.name, id, maxAge: previewMaxAge })
         return { parameter: contentPreviewFrameParameter, token, expiresAt: expiresAt.toISOString() }
       })
     },

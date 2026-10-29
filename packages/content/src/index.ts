@@ -62,7 +62,7 @@ import type { ContentCollectionsRuntime, ContentHistorySource } from "./collecti
 import type { ContentSessions } from "./sessions.ts"
 export { contentSource } from "./content-source.ts"
 export { contentKeyVariable, contentPreviewCookieName, contentPreviewFrameParameter, defineContentPreviewPlugin } from "./preview.ts"
-export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
+export type { ContentPreview, ContentPreviewCookie, ContentPreviewDocument, ContentPreviewEvent, ContentPreviewFrame, ContentPreviewFrameOptions, ContentPreviewHost, ContentPreviewOptions, ContentPreviewToken } from "./preview.ts"
 export { contentScheduleOverdueMs, contentSchedulesRef } from "./defaults.ts"
 export type {
   ContentDocumentSchedule,
@@ -429,7 +429,7 @@ export function defineContent<
         // SAFETY: Each definition was checked with isContentCollectionDefinition() above.
         collections: Object.fromEntries(collectionEntries),
         defaultRef: () => preview.active() ? "draft" : "published",
-        previewDocuments: (collection: string) => preview.documents(collection),
+        previewFrame: () => preview.frame(),
         live,
         ...(presetDefaults.publish ? { publish: presetDefaults.publish } : {}),
       })

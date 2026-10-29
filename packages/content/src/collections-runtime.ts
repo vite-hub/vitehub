@@ -548,10 +548,11 @@ export interface ContentCollectionsOptions {
   /** The ref that `get()` and `list()` read without `ref`: `draft` inside a preview request, otherwise `published`. */
   defaultRef?: () => ContentRef
   /**
-   * Documents that the current preview frame request shows in place of their stored drafts. Reads of the `draft` ref
-   * without `ref` or `revision` return them.
+   * The one document that the current preview frame request reads as a draft, and the version on screen that the
+   * frame posted for it. `get()` and `list()` of its collection without `ref` or `revision` read it; the rest of the
+   * request reads `defaultRef()`.
    */
-  previewDocuments?: (collection: string) => ReadonlyArray<{ id: string, data: Record<string, unknown>, body?: string }>
+  previewFrame?: () => { collection: string, id: string, document?: { data: Record<string, unknown>, body?: string } } | undefined
   /** `false` keeps one editor at a time even where live editing is installed. */
   live?: "auto" | false
   /** `pr` publishes through a pull request on a Store that has them. Defaults to `commit`. */
@@ -713,7 +714,7 @@ const contentPublishes = new AsyncLocalStorage<true>()
 export function createContentCollections(options: ContentCollectionsOptions): ContentCollectionsRuntime {
   const workspaceName = options.workspace
   const defaultRef = options.defaultRef ?? (() => "published" as const)
-  const previewDocuments = options.previewDocuments ?? (() => [])
+  const previewFrame = options.previewFrame ?? (() => undefined)
   const texts = new BoundedCache<string>(32 * 1024 * 1024, text => text.length * 2)
   const revisions = new BoundedCache<Promise<OpenedRevision>>(16)
   const publishListeners: Array<(collections: string[]) => Promise<void> | void> = []
@@ -1323,37 +1324,54 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return query
     }
 
+    /** The document of this collection that the current preview frame reads as a draft, for a read without `ref` or `revision`. */
+    function framed(options: ContentReadOptions): { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } } | undefined {
+      if (options.ref !== undefined || options.revision !== undefined) return
+      const frame = previewFrame()
+      if (frame?.collection !== name) return
+      try {
+        return { id: frame.id, path: pathFor(frame.id), document: frame.document }
+      }
+      catch {
+        // A signed id outside the collection previews nothing.
+        return undefined
+      }
+    }
+
     /**
-     * The documents a preview frame shows in place of their stored drafts, read like stored files. Only reads of the
-     * draft without `ref` or `revision` use them. A document that cannot be read as a file is left out.
+     * The draft of the framed document: the version the frame posted, read like a stored file, else the stored draft.
+     * A posted version that cannot be read as a file falls back to the stored draft.
      */
-    async function previewed(options: ContentReadOptions, opened: OpenedRevision | undefined): Promise<Map<string, IndexedDocument>> {
-      const result = new Map<string, IndexedDocument>()
-      if (options.ref !== undefined || options.revision !== undefined || !opened || opened.revision.ref !== "draft") return result
-      for (const document of previewDocuments(name)) {
+    async function frameDraft(target: { id: string, path: string, document?: { data: Record<string, unknown>, body?: string } }): Promise<IndexedDocument | null> {
+      const opened = (await refState("draft")).opened
+      if (!opened) return null
+      const updatedAt = (await updatedAtMap(opened)).get(target.path) ?? null
+      if (target.document) {
         try {
-          const path = pathFor(document.id)
-          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(document.data)), format === "markdown" ? document.body ?? "" : "", format)
+          const text = renderDocumentFile(inFieldOrder(normalizeFrontmatter(target.document.data)), format === "markdown" ? target.document.body ?? "" : "", format)
           const parsed = await parseText(text)
-          if (parsed.malformed) continue
-          const entry = { path, digest: await sha256(text) }
-          result.set(document.id, documentOf(document.id, entry, parsed, opened.revision, (await updatedAtMap(opened)).get(path) ?? null))
+          if (!parsed.malformed) return documentOf(target.id, { path: target.path, digest: await sha256(text) }, parsed, opened.revision, updatedAt)
         }
         catch {
-          // An id outside the collection or fields that are not data stay out of the page.
+          // Fields that are not data render the stored draft.
         }
       }
-      return result
+      const digest = opened.files.get(target.path)
+      if (digest === undefined) return null
+      const entry = { path: target.path, digest }
+      const parsed = await parseEntry(opened, entry)
+      return listable(opened, parsed) ? documentOf(target.id, entry, parsed, opened.revision, updatedAt) : null
     }
 
     async function list(options: ContentListOptions = {}): Promise<ContentPage> {
       const state = await refState(assertRef(options.ref, defaultRef()))
       const stored = state.opened ? await index(state.opened) : []
-      const overrides = await previewed(options, state.opened)
-      const items = overrides.size
-        ? [...stored.filter(item => !overrides.has(item.id)), ...overrides.values()].sort((left, right) => left.id.localeCompare(right.id))
+      const target = framed(options)
+      const draftItem = target && await frameDraft(target)
+      const items = target
+        ? [...stored.filter(item => item.id !== target.id), ...draftItem ? [draftItem] : []].sort((left, right) => left.id.localeCompare(right.id))
         : stored
-      const digest = `${name}:${state.revision?.id ?? "empty"}${[...overrides.values()].map(item => `:${item.id}@${item.digest}`).join("")}`
+      const digest = `${name}:${state.revision?.id ?? "empty"}${target ? `:${target.id}@${draftItem?.digest ?? "none"}` : ""}`
       const listed = defineCollection({
         source: array(() => ({ digest, items }), {
           defaultLimit: listDefaultLimit,
@@ -1382,9 +1400,9 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
     async function get(id: string, options: ContentReadOptions = {}): Promise<IndexedDocument | null> {
       const path = pathFor(id)
+      const target = framed(options)
+      if (target?.path === path) return await frameDraft(target)
       const opened = await openFor("get", options)
-      const override = (await previewed(options, opened)).get(id)
-      if (override) return override
       const digest = opened?.files.get(path)
       if (!opened || digest === undefined) return null
       const entry = { path, digest }

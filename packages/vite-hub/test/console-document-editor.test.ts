@@ -18,7 +18,12 @@ vi.mock("vue-router", () => ({
   useRoute: () => ({ query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
-vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({
+  default: { name: "ConsoleMarkdownEditor", props: ["modelValue"], emits: ["update:modelValue"], setup: (_props: unknown, { expose }: { expose: (exposed: object) => void }) => {
+    expose({ commit: async () => undefined })
+    return () => null
+  } },
+}))
 vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/presence")>(),
   useConsoleDocumentPresence: () => ({
@@ -309,5 +314,123 @@ describe("Publish shared draft from Local only, when the site changed too", () =
     expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ data: privateEdit, ifDigest: compared }))
     expect(store.shared.data).toEqual(privateEdit)
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+})
+
+/** The value of a form control. Browser types stay out of this test program. */
+const valueOf = (element: unknown): unknown => Reflect.get(Object(element), "value")
+
+/** A deferred result, so a test can type while a request is in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+describe("Apply local edits while the person keeps typing", () => {
+  const markdown: ConsoleDocumentCollection = { ...collection, format: "markdown", path: "posts/*.md" }
+  const shared: ConsoleDocument = { ...draft, conflict: undefined, body: "Shared body", data: { title: "Shared" }, digest: "shared-1", path: "posts/hello.md" }
+  const applied = { body: "Applied body", data: { title: "Applied title" } }
+  const typed = { body: "Typed during apply", data: { title: "Typed title" } }
+
+  async function openLocal() {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: shared.body, data: shared.data }, version: applied })
+    const request = deferred<ConsoleDocument>()
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      save: vi.fn((_collection: string, _id: string, _input: { body?: string, data?: Record<string, unknown>, ifDigest?: string | null }) => request.promise),
+    }
+    const mount = () => {
+      const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: markdown, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } } })
+      wrappers.push(wrapper)
+      return wrapper
+    }
+    const wrapper = mount()
+    await flushPromises()
+    await wrapper.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenCalledOnce()
+    // The person keeps typing in the title and the body while the save is in flight.
+    await wrapper.get("textarea").setValue(typed.data.title)
+    wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).vm.$emit("update:modelValue", typed.body)
+    await flushPromises()
+    return { client, request, wrapper, mount }
+  }
+
+  function sentEdits(client: Awaited<ReturnType<typeof openLocal>>["client"]) {
+    return client.save.mock.calls.map(([, , input]) => ({ body: input.body, data: input.data }))
+  }
+
+  it("saves only the version it sent, and keeps later edits local, stored, and unsaved", async () => {
+    const { client, request, wrapper, mount } = await openLocal()
+    request.resolve({ ...shared, ...structuredClone(applied), digest: "shared-2" })
+    await flushPromises()
+
+    expect(sentEdits(client)).toEqual([applied])
+    expect(valueOf(wrapper.get("textarea").element)).toBe(typed.data.title)
+    expect(wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe(typed.body)
+    expect(wrapper.text()).toContain("Local edits · not saved")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ base: "shared-2", start: applied, version: typed })
+
+    // A reload opens the same local edits.
+    wrapper.unmount()
+    const reloaded = mount()
+    await flushPromises()
+    expect(valueOf(reloaded.get("textarea").element)).toBe(typed.data.title)
+    expect(reloaded.text()).toContain("Local edits · not saved")
+
+    // The next Apply sends them over the shared draft that the first one saved.
+    client.save.mockResolvedValueOnce({ ...shared, ...structuredClone(typed), digest: "shared-3" })
+    await reloaded.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-2" }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  it("keeps every edit local after a failed save", async () => {
+    const { client, request, wrapper } = await openLocal()
+    request.reject(new ConsoleRequestError(500, "Server Error", { code: "INTERNAL" }))
+    await flushPromises()
+    expect(sentEdits(client)).toEqual([applied])
+    expect(valueOf(wrapper.get("textarea").element)).toBe(typed.data.title)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ base: "shared-1", start: { body: shared.body, data: shared.data }, version: typed })
+    expect(wrapper.text()).toContain("Local edits · not saved")
+  })
+
+  it("keeps every edit local after a conflict, and overwrites only with the latest edits on request", async () => {
+    const { client, request, wrapper } = await openLocal()
+    const theirs = { ...shared, data: { title: "Someone else" }, digest: "shared-other" }
+    client.get.mockResolvedValue(structuredClone(theirs))
+    request.reject(conflictError())
+    await flushPromises()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(typed)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: typed })
+    client.save.mockResolvedValueOnce({ ...theirs, ...structuredClone(typed), digest: "shared-3" })
+    await wrapper.get('[data-label="Overwrite with mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-other" }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  it("leaves Local only when nothing changed during the save", async () => {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: shared.body, data: shared.data }, version: applied })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      save: vi.fn(async () => ({ ...shared, ...structuredClone(applied), digest: "shared-2" })),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: markdown, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+    expect(wrapper.text()).not.toContain("Local edits · not saved")
+    expect(valueOf(wrapper.get("textarea").element)).toBe(applied.data.title)
   })
 })

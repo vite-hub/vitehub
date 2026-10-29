@@ -60,8 +60,10 @@ const failure = ref<string>();
 const loading = ref(false);
 const frameStack = ref<HTMLElement>();
 let frameCount = 0;
+/** Counts renders. A render that waited on the token stops when a newer render, or unmount, started meanwhile. */
+let generation = 0;
 let renderTimer: ReturnType<typeof setTimeout> | undefined;
-let token: ConsoleDocumentPreview | undefined;
+let token: { document: string, value: ConsoleDocumentPreview } | undefined;
 /** The element edited in place. The page does not render again until it loses focus. */
 let editing: HTMLElement | undefined;
 let renderPending = false;
@@ -71,10 +73,12 @@ const draft = computed(() => view.value === "draft");
 const label = computed(() => (view.value === "published" ? "Published" : props.local ? "Local draft" : "Draft"));
 
 async function freshToken(): Promise<ConsoleDocumentPreview> {
-  // Ask again a minute before the token expires.
-  if (token && Date.parse(token.expiresAt) - Date.now() > 60_000) return token;
-  token = await props.client.preview(props.collection.name, props.documentId);
-  return token;
+  // A token signs one document. Ask again a minute before it expires.
+  const document = JSON.stringify([props.collection.name, props.documentId]);
+  if (token?.document === document && Date.parse(token.value.expiresAt) - Date.now() > 60_000) return token.value;
+  const value = await props.client.preview(props.collection.name, props.documentId);
+  token = { document, value };
+  return value;
 }
 
 /** Loads the page into a new frame. The shown frame stays until the new one loads. */
@@ -85,26 +89,31 @@ async function render(): Promise<void> {
     return;
   }
   renderPending = false;
+  const run = ++generation;
   failure.value = undefined;
   loading.value = true;
-  const key = ++frameCount;
-  const name = frameName(key);
   let form: { action: string, field: string, value: string } | undefined;
   if (draft.value) {
     try {
       const current = await freshToken();
-      form = { action: consolePreviewFormAction(props.url, current.parameter), field: current.parameter, value: consolePreviewFormValue(current.token, [props.document]) };
+      if (run !== generation) return;
+      form = { action: consolePreviewFormAction(props.url, current.parameter), field: current.parameter, value: consolePreviewFormValue(current.token, props.document) };
     }
     catch (error) {
+      if (run !== generation) return;
       loading.value = false;
       failure.value = consoleErrorMessage(error, "The Console could not open the preview.");
       return;
     }
   }
+  const key = ++frameCount;
+  const name = frameName(key);
   // Keep the shown frame and the newest one. Older frames that did not load yet are dropped.
   frames.value = [...frames.value.filter(frame => frame.key === shown.value), form ? { key, name } : { key, name, src: props.url.href }];
   if (!form) return;
   await nextTick();
+  // A form whose frame is gone would open a new window, so a newer render or unmount stops it here.
+  if (run !== generation || !frameStack.value?.querySelector(`iframe[name="${name}"]`)) return;
   // A form POST into a new frame replaces its first blank page, so it adds no history entry.
   const element = document.createElement("form");
   element.method = "post";
@@ -280,7 +289,7 @@ async function openInTab(): Promise<void> {
     const input = document.createElement("input");
     input.type = "hidden";
     input.name = current.parameter;
-    input.value = consolePreviewFormValue(current.token, [props.document]);
+    input.value = consolePreviewFormValue(current.token, props.document);
     element.append(input);
     document.body.append(element);
     element.submit();
@@ -299,12 +308,16 @@ function onRadioKeydown(event: KeyboardEvent, select: (next: "first" | "last" | 
   void nextTick(() => group?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus());
 }
 
-watch(() => [view.value, props.url.href, props.reloads], () => void render(), { immediate: true });
+// Each source compares by value: a save gives the editor a new URL object for the same page, which renders nothing.
+watch([view, () => props.url.href, () => props.reloads], () => void render(), { immediate: true });
 watch(() => JSON.stringify(props.document), () => {
   if (draft.value) scheduleRender();
 });
 watch(() => props.highlight, () => applyHighlight());
-onBeforeUnmount(() => clearTimeout(renderTimer));
+onBeforeUnmount(() => {
+  generation++;
+  clearTimeout(renderTimer);
+});
 </script>
 
 <template>

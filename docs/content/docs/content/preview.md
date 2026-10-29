@@ -36,9 +36,9 @@ export default defineEventHandler(event => content.preview.disable(event))
 | `content.preview.enable(event, { maxAge? })` | Appends the preview cookie to the response and returns `{ setCookie, expiresAt }`. `maxAge` is in seconds: default 3600 (one hour), from 60 to 86400. |
 | `content.preview.disable(event)` | Appends a cookie that expires now. Returns `{ setCookie, expiresAt: null }`. |
 | `content.preview.run(event, callback)` | Runs `callback` in preview when the event carries a valid cookie. Otherwise it runs unchanged. |
-| `content.preview.active()` | `true` inside a preview request. |
-| `content.preview.sign({ maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames), without a cookie. Check `content.can()` first, as for `enable()`. |
-| `content.preview.document(collection, id)` | The document that the current preview frame shows in place of its stored draft, or `undefined`. |
+| `content.preview.active()` | `true` inside a request with a valid preview cookie, where every read uses `draft`. `false` in a preview frame. |
+| `content.preview.sign({ collection, id, maxAge? })` | Returns `{ token, expiresAt }` for a [preview frame](#preview-frames) of that one document, without a cookie. Check `content.can({ user, collection, id, action: 'read' })` first. |
+| `content.preview.frame()` | In a preview frame request, `{ collection, id, document? }`: the document its token signs and the version on screen that the frame posted. Otherwise `undefined`. |
 
 `event` is an H3 event or a Web `Request`. A `Request` has no response, so set the returned `setCookie` header yourself.
 
@@ -77,11 +77,16 @@ const post = await content.collection('posts').get(id) // the document on screen
 return html`<h1 ${contentField('posts', post.id, 'title')}>${post.data.title}</h1>`
 ```
 
-The Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of the same name holds `{ token, documents }` as JSON: a token from `content.preview.sign()`, 15 minutes in the Console, and the documents on screen. The generated Nitro plugin checks the token and runs the page as a `GET` of its own URL, without the parameter:
+The Draft view posts a form to the page URL with `?vitehub-content-preview`. The form field of the same name holds `{ token, document? }` as JSON: a token from `content.preview.sign({ collection, id })`, 15 minutes in the Console, and the version of that document on screen. The Console signs it only after `content.can()` allows `read` of that document. The generated Nitro plugin checks the token and runs the page as a `GET` of its own URL, without the parameter.
 
-- `content.collection(name).get()` and `list()` without `ref` or `revision` return the posted documents in place of their stored drafts. Other documents read `draft`.
-- Nested requests in the same request, such as `/api/content/**` during SSR, keep the same scope. Comark reads, such as `content.get()` and `queryCollection()`, read the stored draft.
-- Nothing is stored. The response is `private, no-store` and `noindex`.
+A frame token reads the draft of its one document, and nothing else:
+
+- `content.collection(name).get(id)` and `list()` of that collection, without `ref` or `revision`, return the posted version of the signed document, or its stored draft when the form has none. Every other document in `list()` is `published`.
+- Every other read is `published`: other documents and collections, drafts that were never published, `raw()`, Comark reads such as `content.get()`, `content.list()`, `queryCollection()`, `navigation()`, and `search()`, and `/api/content/**`. A page that reads the signed document through Comark shows its published version.
+- An explicit `{ ref: 'draft' }` or `{ revision }` in your server code is trusted server API and reads what it names, as outside preview. Do not pass it from request input.
+- A form that posts any other document, or a token that is changed in any part, gets `403`. A frame token is not a preview cookie token, and a preview cookie token is not a frame token. Use `enable()` for a preview of the whole site.
+- Nested requests in the same request, such as `/api/content/**` during SSR, keep the frame scope; a preview cookie does not widen it.
+- Nothing is stored. The response is `private, no-store` and `noindex`, and Nitro's cache is bypassed.
 - A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. `Origin` must match the page URL with its protocol, which comes from `x-forwarded-proto` behind a proxy or from the TLS connection. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
 
 The Published view loads the page with a plain `GET`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.

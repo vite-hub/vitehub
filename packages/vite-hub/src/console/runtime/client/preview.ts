@@ -2,8 +2,8 @@ import { parseContentField } from "@vite-hub/content/client"
 
 /**
  * The side browser of the document editor. The site renders the page of a document with its own routes: a draft view
- * posts a form with a signed token and the document on screen to the page URL, and the published view loads the page
- * as guests do. The frame is on the Console origin, so the editor reads the rendered page directly and never needs
+ * posts a form with a token signed for that document and the version of it on screen to the page URL, and the
+ * published view loads the page as guests do. The rest of the page reads published content. The frame is on the Console origin, so the editor reads the rendered page directly and never needs
  * messages from it.
  */
 
@@ -44,9 +44,9 @@ export function consolePreviewFormAction(url: URL, parameter: string): string {
   return action.href
 }
 
-/** The form field value of a draft view. */
-export function consolePreviewFormValue(token: string, documents: readonly ConsolePreviewDocument[]): string {
-  return JSON.stringify({ token, documents })
+/** The form field value of a draft view: the token of one document and the version of it on screen. */
+export function consolePreviewFormValue(token: string, document: ConsolePreviewDocument): string {
+  return JSON.stringify({ token, document })
 }
 
 /**
