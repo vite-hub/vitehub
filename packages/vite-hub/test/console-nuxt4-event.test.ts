@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from "vitest"
 import { createConsoleAppAuthAccess } from "../src/console/auth.ts"
 import { handleCloudflareAccessConsoleRequest, verifyCloudflareAccessConsoleRequest } from "../src/console/auth-cloudflare-access.ts"
 import { writeConsoleNitroPlugin } from "../src/console/plugin.ts"
-import { consoleRpcMethods } from "../src/console/runtime/rpc.ts"
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import envManage from "../src/console/runtime/server/env-manage.ts"
@@ -54,9 +53,9 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     const rpc = new H3V1Event("/_vitehub/rpc/__call", { method: "POST" })
     expect("url" in rpc).toBe(false)
     await access.check(rpc)
-    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(rpc, [0], undefined, [0], { redirectToSignIn: false })
+    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(rpc, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
     await access.check(new H3V1Event("/api/_vitehub/console/status"))
-    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [1], undefined, [], { redirectToSignIn: false })
+    expect(requireAuthAccessRoutes).toHaveBeenLastCalledWith(expect.anything(), [1], undefined, [], { redirectToSignIn: false, reuse: true })
     // A route with a method matches only that method; any other Console path needs a session.
     await access.check(new H3V1Event("/api/_vitehub/console/status", { method: "POST" }))
     expect(requireSession).toHaveBeenCalledTimes(1)
@@ -73,7 +72,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     const { access, requireAuthAccessRoutes } = appAccess()
     const event = { req: new Request("https://app.example.com/_vitehub/rpc/__call", { method: "POST" }), url: new URL("https://app.example.com/_vitehub/rpc/__call") }
     await access.check(event)
-    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false })
+    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
   })
 
   it("guards the Cloudflare Access routes of an event with no url", async () => {
@@ -114,7 +113,7 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
     it("serves the Console RPC", async () => {
       installConsoleAccess({ mode: "open" })
       installConsoleSections("/nuxt4-rpc", ["kv"])
-      const response = await (consoleRpcHandler as unknown as (event: object) => Promise<Response>)(call({ input: {}, method: consoleRpcMethods.sections }))
+      const response = await (consoleRpcHandler as unknown as (event: object) => Promise<Response>)(call({ input: {}, operation: "sections.list" }))
       expect(response).toBeInstanceOf(Response)
       expect(response.status).toBe(200)
       expect(await response.json()).toEqual({ ok: true, value: { sections: ["kv"] } })
@@ -133,6 +132,8 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
       installConsoleAccess({ mode: "open" })
       const response = await (scheduleRun as unknown as (event: object) => Promise<Response>)(new H3V1Event("/_vitehub/schedules/run", { body: "{}", headers: { "content-type": "application/json" }, method: "POST" }))
       expect(response).toBeInstanceOf(Response)
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("signed dispatches only") })
     })
   })
 })

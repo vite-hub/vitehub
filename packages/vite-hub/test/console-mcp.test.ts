@@ -172,6 +172,27 @@ describe("ViteHub MCP", () => {
     expect(calls).toHaveLength(1)
   })
 
+  it.each(["read", "write", "all"] as const)("enforces %s Console grants when listing and calling tools", async (grant) => {
+    installConsoleAccess({ mode: "open", authorize: () => grant === "all" ? true : { sections: [grant === "read" ? "comments:read" : "comments"] } })
+    installConsoleSections("/mcp-test", ["comments"])
+    const reply = tool("comments_reply", "comments")
+    reply.annotations = { readOnlyHint: false }
+    const resolve = tool("comments_resolve_thread", "comments")
+    delete resolve.annotations
+    const tools = [tool("comments_list_threads", "comments"), tool("comments_get_thread", "comments"), reply, resolve]
+    registerViteHubMcpTools("comments", tools)
+    const permitted = grant === "read" ? tools.slice(0, 2) : tools
+
+    const list = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" })
+    expect.soft(list.body.result.tools.map((entry: { name: string }) => entry.name)).toEqual(permitted.map(entry => entry.name))
+    for (const entry of tools) {
+      const called = await rpc({ jsonrpc: "2.0", id: entry.name, method: "tools/call", params: { name: entry.name } })
+      if (permitted.includes(entry)) expect(called.body.result.isError).toBe(false)
+      else expect.soft(called.body.error).toMatchObject({ code: -32602 })
+    }
+    expect(calls).toHaveLength(permitted.length)
+  })
+
   it("answers the H3 1 events of Nuxt 4, which carry Node's request", async () => {
     installConsoleAccess({ mode: "open", authorize: () => ({ sections: ["comments"] }) })
     installConsoleSections("/mcp-test", ["comments"])

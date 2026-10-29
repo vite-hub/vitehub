@@ -1,8 +1,7 @@
 import { Diagnostic } from "nostics"
 
-import { consoleRpcHeader, consoleRpcMethods } from "../rpc"
+import { consoleRpcHeader } from "../rpc"
 
-import type { ConsoleRpcInput, ConsoleRpcMethod } from "../rpc"
 import { consoleDiagnostic, consoleDiagnosticAction, consoleStatusDiagnosticCode, isConsoleDiagnosticCode } from "../diagnostics"
 import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
@@ -131,29 +130,102 @@ function consoleRpcCallURL(path: string): string {
   return `${appBase}${consoleRpcCallPath}`
 }
 
-function consoleRpcCall(path: string): { agent?: string; id?: string; method: ConsoleRpcMethod } {
+interface ConsoleRoute {
+  /** Query keys that the operation takes as flags, with the value that means on. */
+  booleans?: Record<string, string>
+  lists?: string[]
+  numbers?: string[]
+  operation: string
+  strings?: string[]
+}
+
+// The Console views still ask for the former route paths. Each one maps to a named operation and its typed input.
+const consoleRoutes: Record<string, ConsoleRoute> = {
+  "agents": { operation: "agents.list" },
+  "blob": { booleans: { folded: "true", showVitehub: "true" }, numbers: ["limit"], operation: "blob.list", strings: ["cursor", "prefix", "store"] },
+  "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
+  "definitions": { operation: "definitions.list", strings: ["section"] },
+  "env": { booleans: { status: "1" }, operation: "env.get" },
+  "invocation-capabilities": { operation: "invocations.capabilities", strings: ["agent"] },
+  "invocations": { lists: ["id"], numbers: ["limit"], operation: "invocations.list", strings: ["agent", "capability", "cursor", "triggeredBy"] },
+  "sections": { operation: "sections.list" },
+  "search": { numbers: ["limit"], operation: "search.query", strings: ["cursor", "search"] },
+  "status": { operation: "status.get", strings: ["agent"] },
+  "logs": { operation: "logs.list", numbers: ["limit"], strings: ["text", "level", "service", "cursor"] },
+  "usage": { operation: "usage.get", strings: ["agent", "cursor", "search", "status", "window"] },
+}
+
+function first(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value
+}
+
+function inputFromQuery(route: ConsoleRoute, query: Record<string, string | string[]>): Record<string, unknown> {
+  const input: Record<string, unknown> = {}
+  for (const key of route.strings ?? []) {
+    const value = first(query[key])
+    if (value !== undefined) input[key] = value
+  }
+  for (const key of route.numbers ?? []) {
+    const value = first(query[key])
+    if (value !== undefined) input[key] = value.trim() !== "" && Number.isFinite(Number(value)) ? Number(value) : value
+  }
+  for (const key of route.lists ?? []) {
+    const value = query[key]
+    if (value !== undefined) input[key] = Array.isArray(value) ? value : [value]
+  }
+  for (const [key, on] of Object.entries(route.booleans ?? {})) {
+    const value = first(query[key])
+    if (value !== undefined) input[key] = value === on
+  }
+  return input
+}
+
+/** The named operation and typed input of one Console route call. */
+export function consoleOperationCall(path: string, call: { body?: unknown, method: "GET" | "POST", query: Record<string, string | string[]> }): { input: Record<string, unknown>, operation: string } {
   const url = new URL(path, "http://vitehub.local")
   const marker = url.pathname.lastIndexOf(consoleApiMarker)
-  const operation = marker === -1 ? "" : url.pathname.slice(marker + consoleApiMarker.length)
-  const agentInvocationMatch = /^agents\/([^/]+)\/invocations$/.exec(operation)
+  const route = marker === -1 ? "" : url.pathname.slice(marker + consoleApiMarker.length)
+  const body = record(call.body) ?? {}
+  const agentInvocationMatch = /^agents\/([^/]+)\/invocations$/.exec(route)
   if (agentInvocationMatch) {
-    return {
-      agent: agentInvocationMatch[1]!,
-      method: consoleRpcMethods.agentInvocations,
-    }
+    return { input: { ...body, agent: agentInvocationMatch[1]!, ...(first(call.query.agentRoute) === "encoded" ? { agentRoute: "encoded" } : {}) }, operation: "agents.invoke" }
   }
-  const workspaceMatch = /^invocations\/([^/]+)\/workspace$/.exec(operation)
-  if (workspaceMatch) return { id: decodeConsoleId(workspaceMatch[1]!), method: consoleRpcMethods.invocationWorkspace }
-  if (operation.startsWith("invocations/")) {
-    return {
-      id: decodeConsoleId(operation.slice("invocations/".length)),
-      method: consoleRpcMethods.invocation,
-    }
+  const workspaceMatch = /^invocations\/([^/]+)\/workspace$/.exec(route)
+  if (workspaceMatch) {
+    const input: Record<string, unknown> = { id: decodeConsoleId(workspaceMatch[1]!) }
+    for (const key of ["cursor", "path", "ref", "revision"]) if (first(call.query[key]) !== undefined) input[key] = first(call.query[key])
+    if (first(call.query.history) !== undefined) input.history = first(call.query.history) === "1"
+    return { input, operation: "invocations.workspace" }
   }
-  const key = operation.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase())
-  const method = Object.entries(consoleRpcMethods).find(([name]) => name === key)?.[1]
-  if (!method) throw new ConsoleRequestError(404, "Console operation not found.")
-  return { method }
+  if (route.startsWith("invocations/")) {
+    const id = decodeConsoleId(route.slice("invocations/".length))
+    if (call.method === "POST") {
+      if (body.action !== "cancel" && body.action !== "delete") throw new ConsoleRequestError(400, "Unsupported invocation action.")
+      return { input: { id }, operation: `invocations.${body.action}` }
+    }
+    const input: Record<string, unknown> = { id }
+    const count = first(call.query.observationCount)
+    if (count !== undefined) input.observationCount = count.trim() !== "" && Number.isFinite(Number(count)) ? Number(count) : count
+    if (first(call.query.observationCursor) !== undefined) input.observationCursor = first(call.query.observationCursor)
+    return { input, operation: "invocations.get" }
+  }
+  if (route === "documents" || route === "media") {
+    return { input: { action: first(call.query.action), ...(call.body === undefined ? {} : { body: call.body }), section: first(call.query.section) }, operation: `${route}.action` }
+  }
+  if (route === "kv") {
+    if (call.method === "POST") return { input: body, operation: "kv.get" }
+    return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
+  }
+  if (route === "workflow") {
+    // A POST names its operation: start a run, read it, cancel it, or resume a signal.
+    const { action, ...input } = body
+    if (action !== "start" && action !== "get" && action !== "cancel" && action !== "resume") throw new ConsoleRequestError(400, "Unsupported Workflow action.")
+    return { input, operation: `workflow.${action}` }
+  }
+  if (route === "schedule-run") return { input: body, operation: "schedule.run" }
+  const known = Object.hasOwn(consoleRoutes, route) ? consoleRoutes[route] : undefined
+  if (!known) throw new ConsoleRequestError(404, "Console operation not found.")
+  return { input: inputFromQuery(known, call.query), operation: known.operation }
 }
 
 /** A fetch failure known to originate at the network boundary. */
@@ -192,13 +264,23 @@ export async function requestConsole(
     if (value === undefined) continue
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
-  const call = consoleRpcCall(path)
-  const input: ConsoleRpcInput = { method: options.method ?? "GET", query }
-  if (call.agent !== undefined) input.agent = call.agent
-  if (call.id !== undefined) input.id = call.id
-  if (options.body !== undefined) input.body = options.body
+  const call = consoleOperationCall(path, { body: options.body, method: options.method ?? "GET", query })
+  return requestConsoleOperation(path, call.operation, call.input, options)
+}
+
+/**
+ * Call one named operation over the Console RPC. `path` is any Console API path of the app, such as the definitions
+ * route, and only locates the application mount.
+ */
+export async function requestConsoleOperation(
+  path: string,
+  operation: string,
+  input: Record<string, unknown>,
+  options: { keepalive?: boolean, signal?: AbortSignal } = {},
+): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
-  const requestBody = JSON.stringify({ method: call.method, input })
+  // The operation comes first so the server can find large calls within the first bytes.
+  const requestBody = JSON.stringify({ operation, input })
   let response: Response
   try {
     response = await fetch(consoleRpcCallURL(path), {

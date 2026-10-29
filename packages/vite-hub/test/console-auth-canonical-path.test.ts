@@ -44,7 +44,7 @@ describe("Console canonical authorization paths", () => {
     const event = kind === "H3 1" ? new H3V1Event("/_%76itehub/rpc/__call", { method: "POST" }) : kind === "H3 2" ? new H3Event(request) : request
     const { access, requireAuthAccessRoutes, requireSession } = appAccess()
     await access.check(event)
-    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false })
+    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(event, [0], undefined, [0], { redirectToSignIn: false, reuse: true })
     expect(requireSession).not.toHaveBeenCalled()
     expect((await handleCloudflareAccessConsoleRequest(event, () => ({ audience: "aud", teamDomain: "team.cloudflareaccess.com" })))?.status).toBe(401)
     expect(request.url).toContain("_%76itehub")
@@ -60,7 +60,7 @@ describe("Console canonical authorization paths", () => {
     app.use(router)
     const response = await toWebHandler(app)(new Request("https://app.example.com/_%76itehub%3Fignored"))
     expect(response.status).toBe(401)
-    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(expect.anything(), [0], undefined, [0], { redirectToSignIn: false })
+    expect(requireAuthAccessRoutes).toHaveBeenCalledWith(expect.anything(), [0], undefined, [0], { redirectToSignIn: false, reuse: true })
     expect(requireSession).not.toHaveBeenCalled()
   })
 

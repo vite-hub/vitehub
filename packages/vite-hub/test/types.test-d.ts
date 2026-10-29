@@ -76,8 +76,7 @@ describe("vite-hub public types", () => {
     vitehub({ email: true, preset: "cloudflare" })
     vitehub({ name: "my-app", preset: "cloudflare", blob: true, rateLimit: true })
     vitehub({ agent: true, database: true, preset: "node", workflow: true, workspace: true })
-    // @ts-expect-error Every environment chooses Console access explicitly.
-    vitehub({ console: true, preset: "node" })
+    vitehub({ auth: true, console: true, preset: "node" })
     // @ts-expect-error console.auth is required.
     vitehub({ console: {}, preset: "node" })
     vitehub({ console: false, preset: "node" })

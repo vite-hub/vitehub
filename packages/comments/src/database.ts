@@ -173,3 +173,5 @@ const scopeCounters = sqliteTable("vitehub_comment_scope_counters", {
  */
 // The keys carry the prefix too: ViteHub merges them into the app's Database schema, which may have its own `comments`.
 export const commentsSchema: { vitehubCommentThreads: CommentThreadsTable, vitehubComments: CommentsTable, vitehubCommentForge: CommentForgeTable, vitehubCommentScopeCounters: CommentScopeCountersTable } = { vitehubCommentThreads: commentThreads, vitehubComments: comments, vitehubCommentForge: commentForge, vitehubCommentScopeCounters: scopeCounters }
+
+export { commentThreads, commentMessages, commentCounters, commentsSchema as commentsOperationsSchema } from "./operations-core/database.ts"

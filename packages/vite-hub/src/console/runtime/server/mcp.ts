@@ -3,7 +3,7 @@ import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-req
 import { getViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 
-import { consoleAccessAllows, readConsoleAccessUser, withConsoleAccess } from "./access.ts"
+import { consoleAccessAllows, consoleAccessWrites, readConsoleAccessUser, withConsoleAccess } from "./access.ts"
 import { consoleRequestText } from "./request.ts"
 import { getConsoleSections } from "./sections.ts"
 
@@ -45,7 +45,9 @@ function rpcError(id: JsonRpcId, code: number, message: string, status = 200): R
 /** The tools that this Console user may call: their section is installed and in the user's Console access. */
 function allowedTools(access: ConsoleAccess): ViteHubMcpTool[] {
   const installed = getConsoleSections()
-  return getViteHubMcpTools().filter(tool => installed.includes(tool.section) && consoleAccessAllows(access, tool.section))
+  return getViteHubMcpTools().filter(tool => installed.includes(tool.section) && (
+    tool.annotations?.readOnlyHint === true ? consoleAccessAllows(access, tool.section) : consoleAccessWrites(access, tool.section)
+  ))
 }
 
 async function handleMcp(event: H3Event, access: ConsoleAccess): Promise<Response> {

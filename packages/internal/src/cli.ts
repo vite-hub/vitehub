@@ -1,3 +1,6 @@
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
+
 import { redactInspectionText, redactInspectionValue } from "./inspect.ts"
 import type { ProvisionStep } from "./provision.ts"
 
@@ -29,6 +32,8 @@ export type ViteHubCliSpawn = (
 export interface ViteHubCliContext extends ViteHubCliStreams {
   cwd: string
   env: NodeJS.ProcessEnv
+  /** Replaces `fetch` for commands that call a running app, so tests need no server. */
+  fetch?: typeof fetch
   rootDir: string
   spawn: ViteHubCliSpawn
 }
@@ -41,6 +46,8 @@ export interface ViteHubCliFeature {
 }
 
 export interface ViteHubCliCommandNamespace {
+  /** The feature that `vitehub <name>` runs when no feature is named. */
+  defaultFeature?: string
   description?: string
   features: ViteHubCliFeature[]
   name: string
@@ -426,4 +433,49 @@ export async function discoverViteHubDevServer<TDiscovery extends { root?: unkno
     return
   }
   return { discovery, url }
+}
+
+/** File in the project root where the running dev server tells commands where it listens. */
+export const viteHubDevServerFile = ".vitehub/dev-server.json"
+
+export interface ViteHubDevServerInfo {
+  /** The root of the project that the server runs. */
+  root: string
+  /** Where the server listens, such as `http://localhost:5173/`. */
+  url: string
+}
+
+export function writeViteHubDevServerFile(root: string, info: ViteHubDevServerInfo): void {
+  const file = join(root, viteHubDevServerFile)
+  mkdirSync(dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify(info)}\n`)
+}
+
+export function removeViteHubDevServerFile(root: string): void {
+  rmSync(join(root, viteHubDevServerFile), { force: true })
+}
+
+/** The dev server that runs in `root`, or undefined when there is no file or it is not valid. */
+export function readViteHubDevServerFile(root: string): ViteHubDevServerInfo | undefined {
+  try {
+    const value: unknown = JSON.parse(readFileSync(join(root, viteHubDevServerFile), "utf8"))
+    const url = isPlainObject(value) ? value.url : undefined
+    const served = isPlainObject(value) ? value.root : undefined
+    return typeof url === "string" && url && typeof served === "string" && served ? { root: served, url } : undefined
+  }
+  catch {
+    return undefined
+  }
+}
+
+/**
+ * Where a command finds the dev server of its project: the file that the server wrote in a project root, else
+ * `VITEHUB_DEV_SERVER_URL`. It never guesses a port, since another project may use it.
+ */
+export function findViteHubDevServerUrl(roots: readonly string[], env: NodeJS.ProcessEnv): string | undefined {
+  for (const root of roots) {
+    const file = readViteHubDevServerFile(root)
+    if (file && roots.some(candidate => candidate.replace(/\/+$/, "") === file.root.replace(/\/+$/, ""))) return file.url
+  }
+  return env[viteHubDevServerUrlEnv] || undefined
 }
