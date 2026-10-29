@@ -572,8 +572,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
       sections = sections.filter((section) => section !== "auth");
       if (appAuth) sections = insertConsoleSection(sections, "auth");
       resolvedAppAuth = appAuth
-      baseURL = config.base ?? "/"
-      applicationBase = viteHubPageToolsBase(config).base || "/"
+      baseURL = viteHubPageToolsBase(config).base || "/"
+      applicationBase = baseURL
       assertConsoleAccess(configured, { auth: appAuth, base: baseURL, sections })
       assertConsoleProductionAccess(configured, {
         auth: appAuth,
@@ -696,7 +696,7 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
             catalog: consoleBuildCatalogs.get(projectRoot!),
             consoleConfiguration: resolvedConsoleConfiguration,
             appAuth: resolvedAppAuth,
-            baseURL: config.base,
+            baseURL: viteHubPageToolsBase(config).base || "/",
             sections: [...sections],
             authConfig: inlineConsoleAuthConfig,
             handlers: consoleAuthHandlers,
@@ -715,8 +715,8 @@ export function consoleVitePlugin(options: ConsoleVitePluginOptions): Plugin {
         : undefined
       resolvedPlugins = config.plugins
       const previousConsoleAuthHandlers = consoleAuthHandlers
-      baseURL = config.base
-      applicationBase = viteHubPageToolsBase(config).base || "/"
+      baseURL = viteHubPageToolsBase(config).base || "/"
+      applicationBase = baseURL
       if (inlineConsoleAuthConfig && "provider" in inlineConsoleAuthConfig && inlineConsoleAuthConfig.provider === "github") {
         const callbackState = resolvedConfigState
         inlineConsoleAuthConfig = {
