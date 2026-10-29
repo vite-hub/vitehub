@@ -63,7 +63,11 @@ describe("overlay injection", () => {
     if (mount) expect(await page("http://site.test/outside?comments")).toBe("<html><body>Page</body></html>")
   })
 
-  it.each(["", "/portal"])("adds a nonced script in Nuxt's render:html hook under mount %s, and keeps the page out of shared caches", (mount) => {
+  it.each([
+    { mount: "", stripBase: false },
+    { mount: "/portal", stripBase: false },
+    { mount: "/portal", stripBase: true },
+  ])("adds a nonced script in Nuxt's render:html hook under mount $mount (base stripped: $stripBase), and keeps the page out of shared caches", ({ mount, stripBase }) => {
     let render: ((html: { bodyAppend: string[] }, context: unknown) => void) | undefined
     const nitroApp = { hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } }
     const warn = console.warn
@@ -74,13 +78,15 @@ describe("overlay injection", () => {
     const headers: Record<string, string> = {}
     const page = (url: string) => {
       const html = { bodyAppend: [] as string[] }
-      render!(html, { event: { node: { req: { url, headers: {} }, res: { setHeader: (name: string, value: string) => { headers[name] = value } } } } })
+      const req = { url: stripBase && url.startsWith(`${mount}/`) ? url.slice(mount.length) : url, originalUrl: stripBase ? url : undefined, headers: {} }
+      render!(html, { event: { node: { req, res: { setHeader: (name: string, value: string) => { headers[name] = value } } } } })
       return html.bodyAppend
     }
     expect(page(`${mount}/`)).toEqual([])
     expect(headers).toEqual({})
     expect(page(`${mount}/?comments`)).toEqual([`<script type="module" src="${overlay}" data-vitehub-page-tool="comments"></script>`])
     expect(page(`${mount}/_vitehub?comments`)).toEqual([])
+    expect(page(`${mount}/api/x?comments`)).toEqual([])
     if (mount) expect(page("/outside?comments")).toEqual([])
     expect(headers).toEqual({ "cache-control": "private, no-store" })
     const html = { bodyAppend: [] as string[] }
@@ -88,7 +94,11 @@ describe("overlay injection", () => {
     expect(html.bodyAppend[0]).toContain("nonce=\"n1\"")
   })
 
-  it.each(["", "/portal"])("adds the script to a page returned as a Response by a Nitro 2 route under mount %s", async (mount) => {
+  it.each([
+    { mount: "", stripBase: false },
+    { mount: "/portal", stripBase: false },
+    { mount: "/portal", stripBase: true },
+  ])("adds the script to a page returned as a Response by a Nitro 2 route under mount $mount (base stripped: $stripBase)", async ({ mount, stripBase }) => {
     let respond: ((event: unknown, response: { body?: unknown }) => void) | undefined
     const nitroApp = { hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }
     const warn = console.warn
@@ -98,7 +108,8 @@ describe("overlay injection", () => {
     console.warn = warn
     const send = (url: string, body: unknown, cookie = "") => {
       const response = { body }
-      respond!({ node: { req: { url, headers: { cookie } } } }, response)
+      const req = { url: stripBase && url.startsWith(`${mount}/`) ? url.slice(mount.length) : url, originalUrl: stripBase ? url : undefined, headers: { cookie } }
+      respond!({ node: { req } }, response)
       return response.body
     }
     const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })

@@ -1,4 +1,4 @@
-import { cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem } from "../cms-options.ts"
+import { cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "../cms-options.ts"
 import { contentErrorDiagnostics } from "../error-diagnostics.ts"
 import { defineContentPreset } from "../presets.ts"
 
@@ -16,9 +16,12 @@ export interface CmsPresetOptions {
   blob?: string
   /** Name of the Workspace that the preset adds. Defaults to `content`. */
   workspace?: string
-  /** Where documents live. `"blob-database"` is the default. `"github"` keeps them in a repository. */
+  /** Where documents live. `repo` selects `"github"`, which keeps them in a repository; otherwise `"blob-database"`. */
   store?: "blob-database" | "github"
-  /** GitHub store: the repository, as `owner/name`. Without it the store reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used. */
+  /**
+   * The repository, as `owner/name`. Setting it selects the GitHub store. A GitHub store without it (`store: "github"`)
+   * reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when first used.
+   */
   repo?: string
   /** GitHub store: the published branch. Defaults to `main`. */
   branch?: string
@@ -40,7 +43,7 @@ export interface CmsPresetOptions {
  * the app has no Database Definition, it adds the `default` Database. `defineContent({ extends: cms })` then uses
  * that Workspace.
  *
- * With `store: "github"` the Workspace is a GitHub repository instead: published content on one branch, drafts on
+ * With `repo` (or `store: "github"`) the Workspace is a GitHub repository instead: published content on one branch, drafts on
  * another, and no Blob store. The Database keeps editor sessions.
  */
 const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOptions>({
@@ -62,10 +65,11 @@ const cms: ContentPreset<CmsPresetOptions> = defineContentPreset<CmsPresetOption
       if (problem) throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset option ${JSON.stringify(key)} ${problem}` })
     }
     // The default `blob` is not something the app set, so a GitHub store does not see it.
-    const set = { ...options, blob: options.store === "github" && options.blob === "default" ? undefined : options.blob }
+    const github = cmsStoreOf(options) === "github"
+    const set = { ...options, blob: github && options.blob === "default" ? undefined : options.blob }
     const problem = cmsOptionsProblem(set)
     if (problem) throw contentErrorDiagnostics.CONTENT_R0006({ message: `[vitehub] Content cms preset ${problem}` })
-    return { workspace: options.workspace, ...(options.store === "github" && options.publish === "pr" ? { publish: "pr" as const } : {}) }
+    return { workspace: options.workspace, ...(github && options.publish === "pr" ? { publish: "pr" as const } : {}) }
   },
 })
 

@@ -4,8 +4,11 @@
   "description": "AI interface primitives for Vue and Nuxt.",
   "keywords": [
     "ai",
+    "ai-chat",
     "chat",
     "nuxt",
+    "nuxt-module",
+    "typescript",
     "vitehub",
     "vue"
   ],

@@ -3,11 +3,14 @@
   "version": "0.0.4",
   "description": "Unified shell runtimes for ViteHub.",
   "keywords": [
+    "bash",
+    "command-execution",
     "just-bash",
     "shell",
+    "typescript",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
