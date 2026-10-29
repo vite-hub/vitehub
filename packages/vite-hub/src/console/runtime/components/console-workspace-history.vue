@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import { consoleDateTime } from "../client/time";
+
 type WorkspaceRevision = {
   id: string;
   ref: string;
@@ -43,8 +45,7 @@ function revisionLabel(revision: WorkspaceRevision): string {
 }
 
 function revisionDate(revision: WorkspaceRevision): string {
-  const date = new Date(revision.createdAt);
-  return Number.isNaN(date.valueOf()) ? revision.createdAt : date.toLocaleString();
+  return consoleDateTime(revision.createdAt);
 }
 </script>
 

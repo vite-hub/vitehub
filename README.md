@@ -19,6 +19,11 @@
   <a href="https://vitehub.dev/docs">Docs</a>
 </p>
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=vite-hub&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=vite-hub&period=month&icon=npm)](https://www.npmjs.com/package/vite-hub)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 ## Server Primitives
 
 Use each primitive alone, or use them together in one app.

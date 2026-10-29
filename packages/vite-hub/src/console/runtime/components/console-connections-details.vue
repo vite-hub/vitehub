@@ -13,6 +13,7 @@ import {
 } from "../client/connections-management";
 import ConsoleConnectionsActivity from "./console-connections-activity.vue";
 import ConsoleConnectionsApprovals from "./console-connections-approvals.vue";
+import { consoleDateTime } from "../client/time";
 import ConsoleState from "./console-state.vue";
 
 const props = defineProps<{
@@ -148,7 +149,7 @@ onMounted(async () => {
           <dt class="text-muted">Connected</dt>
           <dd>
             <time :datetime="current.connectedAt" class="tabular-nums">{{
-              new Date(current.connectedAt).toLocaleString()
+              consoleDateTime(current.connectedAt)
             }}</time>
           </dd>
         </template>
@@ -156,26 +157,42 @@ onMounted(async () => {
           <dt class="text-muted">Refreshed</dt>
           <dd>
             <time :datetime="current.refreshedAt" class="tabular-nums">{{
-              new Date(current.refreshedAt).toLocaleString()
+              consoleDateTime(current.refreshedAt)
             }}</time>
           </dd>
         </template>
-        <template v-if="current.credential === 'oauth2'">
+        <template v-if="current.chatgpt">
+          <dt class="text-muted">Plan usage</dt>
+          <dd>{{ current.chatgpt.plan === 'enabled' ? 'Enabled' : 'Not enabled' }}</dd>
+          <dt class="text-muted">Host ID</dt>
+          <dd class="break-all font-mono text-xs">{{ current.chatgpt.hostId }}</dd>
+        </template>
+        <template v-if="current.expiresAt">
+          <dt class="text-muted">Token expires</dt>
+          <dd><time :datetime="current.expiresAt" class="tabular-nums">{{ consoleDateTime(current.expiresAt) }}</time></dd>
+        </template>
+        <template v-if="current.credential !== 'api-key'">
           <dt class="text-muted">Granted scopes</dt>
-          <dd class="break-all font-mono text-xs">
-            {{ current.scopes.granted.join(" ") || "None" }}
+          <dd>
+            <ul v-if="current.scopes.granted.length" class="grid gap-1 font-mono text-xs [overflow-wrap:anywhere]">
+              <li v-for="scope in current.scopes.granted" :key="scope">{{ scope }}</li>
+            </ul>
+            <span v-else>None</span>
           </dd>
           <dt class="text-muted">Missing scopes</dt>
-          <dd
-            :class="[
-              'break-all font-mono text-xs',
-              current.scopes.missing.length ? 'text-error' : undefined,
-            ]"
-          >
-            {{ current.scopes.missing.join(" ") || "None" }}
+          <dd>
+            <ul v-if="current.scopes.missing.length" class="grid gap-1 font-mono text-xs text-error [overflow-wrap:anywhere]">
+              <li v-for="scope in current.scopes.missing" :key="scope">{{ scope }}</li>
+            </ul>
+            <span v-else>None</span>
           </dd>
         </template>
       </dl>
+      <p v-if="current.credential === 'chatgpt'" class="text-sm text-muted">
+        Sign in from the app directory with
+        <code class="break-all">vitehub connections connect {{ current.name }}</code>, then reload.
+        For a remote host, sign in locally and import the grant over SSH.
+      </p>
       <div class="flex flex-wrap gap-2">
         <UButton
           v-if="current.credential === 'api-key'"
@@ -187,7 +204,7 @@ onMounted(async () => {
           @click="openKeyForm"
         />
         <UButton
-          v-else
+          v-else-if="current.credential !== 'chatgpt'"
           :label="
             current.status === 'disconnected' || current.status === 'revoked'
               ? 'Connect'

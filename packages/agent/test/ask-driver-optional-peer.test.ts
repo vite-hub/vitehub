@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest"
 import { fileURLToPath } from "node:url"
 
-import { ask } from "../src/ask.ts"
+import { ask } from "@vite-hub/gateways"
 import { askJev } from "../src/internal/ask-runtime.ts"
 import { hubAgent } from "../src/vite.ts"
 
@@ -12,7 +12,7 @@ vi.mock("advocaat", () => {
 describe("ask Driver without advocaat", () => {
   it("explains how to install the optional peer", async () => {
     await expect(askJev({}, "Win money", { spam: ask.if("Is it spam?") })).rejects.toMatchObject({
-      code: "AGENT_R0934",
+      code: "GATEWAYS_R0006",
       message: "[vitehub] TypeSafe Jev requests require the advocaat package. Install it with: pnpm add advocaat",
     })
   })
@@ -21,7 +21,7 @@ describe("ask Driver without advocaat", () => {
 describe("Agent Vite plugin", () => {
   it("keeps advocaat external only when the application does not install it", async () => {
     // SAFETY: The test calls the hook with the only plugin context member it uses.
-    const resolveId = hubAgent().resolveId as (...args: unknown[]) => Promise<unknown>
+    const resolveId = (hubAgent().resolveId as { handler: (...args: unknown[]) => Promise<unknown> }).handler
     const installed = { external: false, id: "/app/node_modules/advocaat/dist/index.mjs" }
 
     const agentImporter = "/app/node_modules/@vite-hub/agent/dist/internal/ask-runtime.js"

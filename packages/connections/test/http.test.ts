@@ -247,7 +247,7 @@ describe("createConnectionsHandler", () => {
 
   it("rejects approval counts when a store never terminates pagination", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => ({
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => ({
       approvals: [],
       nextCursor: `${before ?? "cursor"}-next`,
     }))
@@ -269,7 +269,7 @@ describe("createConnectionsHandler", () => {
 
   it("rejects approval counts when a store returns endlessly distinct pages", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => {
       const index = before ? Number(before) + 1 : 0
       return {
         approvals: [{
@@ -302,7 +302,7 @@ describe("createConnectionsHandler", () => {
 
   it("counts approval pages beyond the old pagination limit", async () => {
     const test = createTestRuntime()
-    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before } = {}) => {
+    const approvals = vi.spyOn(test.runtime, "approvals").mockImplementation(async ({ before }: Parameters<typeof test.runtime.approvals>[0] = {}) => {
       const index = before ? Number(before) + 1 : 0
       return {
         approvals: [{
@@ -595,9 +595,11 @@ describe("createConnectionsHandler", () => {
     );
 
     it("explains a cancelled authorization with its code, fix, and a way back", async () => {
-      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
-      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied&error_description=Call%20us`, {
-        headers: { cookie: "vitehub_connection_return=%2Fportal%2F_vitehub%2Fconnections" },
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      const flow = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: `${origin}/_vitehub/connections/callback` });
+      const response = await handler(new Request(`${origin}/_vitehub/connections/callback?error=access_denied&error_description=Call%20us&state=${flow.state}`, {
+        headers: { cookie: `vitehub_connection_state=${flow.state}; vitehub_connection_return=%2Fportal%2F_vitehub%2Fconnections` },
       }));
       const html = await response.text();
       expect(response.status).toBe(400);
@@ -612,20 +614,22 @@ describe("createConnectionsHandler", () => {
       expect(html).not.toContain("Call us");
     });
 
-    it("names a provider error code and a state mismatch", async () => {
-      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => createTestRuntime().runtime });
-      const provider = await handler(new Request(`${origin}/_vitehub/connections/callback?error=invalid_scope`));
+    it("requires state before reporting provider failures and consumes it", async () => {
+      const test = createTestRuntime();
+      const handler = createConnectionsHandler({ actor: () => "user:owner", runtime: () => test.runtime });
+      for (const error of ["invalid_scope", "<b>call</b>", "access_denied"]) {
+        const forged = await handler(new Request(`${origin}/_vitehub/connections/callback?error=${encodeURIComponent(error)}`));
+        expect(forged.status).toBe(400);
+        expect(await forged.text()).toContain("CONNECTIONS_STATE_MISMATCH");
+      }
+      const flow = await test.runtime.authorize({ actor: "user:owner", name: "mail", redirectUri: `${origin}/_vitehub/connections/callback` });
+      const callback = () => new Request(`${origin}/_vitehub/connections/callback?error=invalid_scope&state=${flow.state}`, { headers: { cookie: `vitehub_connection_state=${flow.state}` } });
+      const provider = await handler(callback());
       expect(provider.status).toBe(502);
-      expect(await provider.text()).toContain("The provider stopped the authorization with invalid_scope.");
-      const crafted = await handler(new Request(`${origin}/_vitehub/connections/callback?error=${encodeURIComponent("<b>call</b>")}`));
-      const craftedHtml = await crafted.text();
-      expect(craftedHtml).toContain("The provider stopped the authorization.");
-      expect(craftedHtml).not.toMatch(/<b>|&#60;b/);
-      const mismatch = await handler(new Request(`${origin}/_vitehub/connections/callback?code=code-1&state=state`));
-      expect(mismatch.status).toBe(400);
-      const html = await mismatch.text();
-      expect(html).toContain("CONNECTIONS_STATE_MISMATCH · 400");
-      expect(html).toContain("Start the connection again in this browser.");
+      expect(await provider.text()).toContain("CONNECTIONS_PROVIDER_FAILED");
+      const replay = await handler(callback());
+      expect(replay.status).toBe(400);
+      expect(await replay.text()).toContain("CONNECTIONS_INVALID_REQUEST");
     });
 
     it("explains an expired authorization with the runtime code", async () => {

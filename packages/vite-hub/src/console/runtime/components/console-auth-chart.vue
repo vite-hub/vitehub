@@ -9,7 +9,7 @@ const maximum = computed(() =>
   Math.max(1, ...days.value.flatMap((day) => [day.signIns, day.signUps])),
 );
 const dayLabel = (day: string) =>
-  new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric", timeZone: "UTC" }).format(
+  new Intl.DateTimeFormat("en", { month: "short", day: "numeric", timeZone: "UTC" }).format(
     new Date(`${day}T00:00:00Z`),
   );
 </script>
@@ -71,29 +71,32 @@ const dayLabel = (day: string) =>
     <p v-if="!analytics.totals.signIns && !analytics.totals.signUps" class="text-xs text-muted">
       No sign-ins or sign-ups recorded in this period.
     </p>
-    <details class="text-xs text-muted">
-      <summary class="w-fit cursor-pointer rounded-sm focus-visible:outline-primary">
-        Daily counts
+    <details class="group text-xs">
+      <summary class="inline-flex cursor-pointer items-center gap-1 rounded-sm text-muted select-none hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary">
+        <UIcon name="i-lucide-chevron-right" class="size-3.5 transition-transform group-open:rotate-90 motion-reduce:transition-none" aria-hidden="true" />
+        Show data table
       </summary>
-      <table class="mt-2 w-full text-left tabular-nums">
-        <caption class="sr-only">
-          Auth events by UTC day
-        </caption>
-        <thead>
-          <tr>
-            <th scope="col" class="py-1 font-medium">Date</th>
-            <th scope="col" class="font-medium">Sign-ins</th>
-            <th scope="col" class="font-medium">Sign-ups</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="day in days" :key="day.day">
-            <th scope="row" class="py-1 font-normal">{{ day.day }}</th>
-            <td>{{ day.signIns }}</td>
-            <td>{{ day.signUps }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div class="mt-2 max-h-64 overflow-y-auto rounded-md border border-default">
+        <table class="w-full text-xs">
+          <caption class="sr-only">
+            Auth events by UTC day
+          </caption>
+          <thead class="sticky top-0 bg-default text-left text-muted">
+            <tr>
+              <th scope="col" class="px-3 py-2 font-medium">Day (UTC)</th>
+              <th scope="col" class="px-3 py-2 text-right font-medium">Sign-ins</th>
+              <th scope="col" class="px-3 py-2 text-right font-medium">Sign-ups</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="day in days" :key="day.day" class="border-t border-default">
+              <th scope="row" class="px-3 py-1.5 text-left font-normal">{{ dayLabel(day.day) }}</th>
+              <td class="px-3 py-1.5 text-right tabular-nums text-highlighted">{{ day.signIns }}</td>
+              <td class="px-3 py-1.5 text-right tabular-nums text-highlighted">{{ day.signUps }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </details>
   </section>
 </template>

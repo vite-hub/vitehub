@@ -1,10 +1,10 @@
 # @vite-hub/database
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Drizzle" src="https://img.shields.io/badge/Drizzle-schema-16a34a?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-discovery-646cff?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Drizzle" src="https://comark-ui.onmax.me/badge.svg?label=Drizzle&amp;value=schema">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=discovery">
 </p>
 
 `@vite-hub/database` turns a colocated Drizzle schema into a generated `useDatabase()` lookup for server code.

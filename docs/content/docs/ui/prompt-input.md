@@ -116,7 +116,7 @@ Use the `footer-leading` slot for a model or profile picker. It renders after th
 
 - The input has the accessible name **Message**. Pass `aria-label` to change it.
 - The attachment button is named **Add attachment**. Each attachment has a **Remove** button with the file name.
-- The submit button is named **Send prompt**, **Stop response**, or **Retry prompt**, based on `status`.
+- The submit button is named **Send prompt**, **Stop response**, or **Retry prompt**, based on `status`. The `submitLabel` prop renames the button in `ready`; the [comment composer](/docs/ui/comments) uses it to say **Comment**, **Reply**, or **Save**.
 - Give custom buttons in the `actions` and `submit` slots their own accessible names.
 
 ## API Reference
@@ -137,6 +137,7 @@ Renders a `<form>` with a textarea, the attachments, and the attach and submit b
 | `multiple`    | `boolean`                                      | `true`    | Allows more than one attachment. When `false`, a new file replaces the current one. |
 | `filterFiles` | `(files: readonly File[]) => readonly File[]`  |           | Filters each batch of raw files before conversion.               |
 | `placeholder` | `string`                                       |           | Placeholder text of the input.                                   |
+| `submitLabel` | `string`                                       | `"Send prompt"` | Name of the submit button while `status` is `ready`. |
 
 Other attributes go to the root `<form>`.
 

@@ -7,7 +7,7 @@ import { createHash } from "node:crypto"
 import { once } from "node:events"
 import { Server as HttpServer } from "node:http"
 import { hostname, tmpdir } from "node:os"
-import { dirname, join, resolve } from "node:path"
+import { delimiter, dirname, join, resolve } from "node:path"
 
 import { describe, expect, it, vi } from "vitest"
 import { Diagnostic } from "nostics"
@@ -72,8 +72,11 @@ vi.mock("../src/internal/provider-launch-retry.ts", async importOriginal => ({
 }))
 
 import { appendLatestFinalText } from "../src/agent-output.ts"
-import { createProviderAgentAdapter, localWorkspaceHost } from "../src/provider-agent.ts"
-import { cliproxy, defineGateway, vercel } from "../src/gateways.ts"
+import { createProviderAgentAdapter, inspectAgentProvider, localWorkspaceHost } from "../src/provider-agent.ts"
+import { chatgpt, cliproxy, defineAiGateway, vercel } from "@vite-hub/gateways"
+import * as chatgptGateway from "../src/internal/chatgpt-gateway.ts"
+import { codexConfigArg } from "../src/internal/codex-launch-args.ts"
+import type { AiGatewayContext } from "@vite-hub/gateways"
 import { grantWorkspaceAccessScope } from "../src/access-runtime.ts"
 import { codexDriver, defineAgent, runAgent } from "../src/index.ts"
 import { readAgentWorkspaceDiff } from "../src/agent-workspace-runtime.ts"
@@ -104,7 +107,7 @@ function event(type: string, threadId: string, payload: Record<string, unknown>,
 function runtime(threadId: string, events: unknown[], options: {
   afterEvents?: () => Promise<void>
   onSendTurn?: (mcp: { authorizationHeader: string, endpoint: string } | undefined) => Promise<void>
-  onStartSession?: () => Promise<void>
+  onStartSession?: (input: { mcp?: { authorizationHeader: string, endpoint: string } }) => Promise<void>
   beforeEvent?: (index: number) => Promise<void>
   resumeCursor?: unknown
   turnResumeCursor?: unknown
@@ -130,8 +133,13 @@ function runtime(threadId: string, events: unknown[], options: {
       return { resumeCursor: options.turnResumeCursor, threadId, turnId: "turn-1" }
     }),
     startSession: vi.fn(async (input: { mcp?: typeof mcp }) => {
-      await options.onStartSession?.()
       mcp = input.mcp
+      await options.onStartSession?.(input)
+      // Model the launcher's consumption of the private thread configuration.
+      if (mcp?.endpoint === "http://127.0.0.1/vitehub-chatgpt-configuration") {
+        const configuration = JSON.parse(mcp.authorizationHeader).mcp
+        mcp = configuration ? { endpoint: configuration.url, authorizationHeader: configuration.http_headers.Authorization } : undefined
+      }
       return { resumeCursor: options.resumeCursor, threadId }
     }),
     stopSession: vi.fn(async () => undefined),
@@ -249,6 +257,289 @@ describe("Provider Agent Driver", () => {
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_BASE_URL")
     expect(lastRuntimeCall?.[0].environment).not.toHaveProperty("CLIPROXY_API_KEY")
     vi.unstubAllEnvs()
+  })
+
+  it("reports token expiry before starting a ChatGPT provider", async () => {
+    const runtimeCalls = createProviderRuntime.mock.calls.length
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "expired-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() - 1,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    try {
+      await expect(createProviderAgentAdapter({ provider: "codex", gateway: chatgpt() }).generate(context("thread-chatgpt-expired") as never)).rejects.toMatchObject({
+        code: "AGENT_R1024",
+        message: "The ChatGPT access token expired during this Invocation.",
+        fix: expect.stringContaining("new Invocation"),
+      })
+      expect(createProviderRuntime).toHaveBeenCalledTimes(runtimeCalls)
+    }
+    finally {
+      gateway.mockRestore()
+    }
+  })
+
+  it("reports ChatGPT as unavailable when installed Codex cannot be resolved", async () => {
+    const inspection = vi.spyOn(chatgptGateway, "inspectChatGPTGateway").mockResolvedValue({
+      agent: "assistant", provider: "codex", checkedAt: new Date().toISOString(), stale: false, authenticated: true, readiness: "ready",
+    })
+    resolveInstalledProviderExecutable.mockReturnValueOnce(undefined)
+    try {
+      await expect(inspectAgentProvider({ provider: "codex", gateway: chatgpt() }, context("thread-chatgpt-status") as never)).resolves.toMatchObject({
+        authenticated: true, readiness: "unavailable", reason: expect.stringContaining("@openai/codex"),
+      })
+    }
+    finally { inspection.mockRestore() }
+  })
+
+  it("excludes startup injection from both credential-bearing ChatGPT processes", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-startup-"))
+    const probe = join(root, "preload.cjs")
+    const marker = join(root, "preload-ran")
+    const executable = join(root, "codex.cjs")
+    const output = join(root, "environment.json")
+    const gitMarker = join(root, "git-ran")
+    if (process.platform !== "win32") {
+      await writeFile(join(root, "git"), `#!${process.execPath}\nrequire("node:fs").writeFileSync(${JSON.stringify(gitMarker)}, process.env.VITEHUB_CHATGPT_ACCESS_TOKEN || "ran")`)
+      await chmod(join(root, "git"), 0o700)
+    }
+    await writeFile(probe, `require("node:fs").writeFileSync(${JSON.stringify(marker)}, process.env.VITEHUB_CHATGPT_ACCESS_TOKEN || "ran")`)
+    await writeFile(executable, `require("node:fs").writeFileSync(${JSON.stringify(output)}, JSON.stringify(process.env)); require("node:child_process").spawnSync("git", ["--version"])`)
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "startup-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    resolveInstalledProviderExecutable.mockReturnValueOnce(executable)
+    const threadId = "thread-chatgpt-startup"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawnSync(String(options?.settings?.binaryPath), [], { env: options?.environment, encoding: "utf8" })
+        expect(launched.status, launched.stderr).toBe(0)
+      },
+    })
+    try {
+      await createProviderAgentAdapter({
+        provider: "codex", gateway: chatgpt(),
+        env: { NODE_OPTIONS: `--require=${probe}`, NODE_PATH: root, LD_PRELOAD: "", LD_LIBRARY_PATH: root, DYLD_INSERT_LIBRARIES: "", BASH_ENV: probe, PATH: root, PATHEXT: ".CALLER", T3_MCP_BEARER_TOKEN: "capability-token" },
+      }).generate(context(threadId) as never)
+      await expect(readFile(gitMarker, "utf8")).rejects.toThrow()
+      await expect(access(marker)).rejects.toThrow()
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      const environment = JSON.parse(await readFile(output, "utf8"))
+      expect(environment).toMatchObject({ VITEHUB_CHATGPT_ACCESS_TOKEN: "", VITEHUB_BROWSER_ACTIVE: "0", T3_MCP_BEARER_TOKEN: "" })
+      expect(environment.VITEHUB_CHATGPT_ACCESS_TOKEN).not.toBe("startup-test-token")
+      expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(environment.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(options?.environment?.PATHEXT).toBe(process.env.PATHEXT)
+      expect(options?.settings?.launchArgs).toContain(codexConfigArg("shell_environment_policy.set.PATH", JSON.stringify(root)))
+      for (const key of ["NODE_OPTIONS", "NODE_PATH", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES", "BASH_ENV"]) {
+        expect(options?.environment).not.toHaveProperty(key)
+        expect(environment).not.toHaveProperty(key)
+      }
+    }
+    finally {
+      gateway.mockRestore()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.runIf(process.platform === "linux")("keeps the ChatGPT grant out of same-user readable process environments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-proc-"))
+    const executable = join(root, "codex.cjs")
+    const ready = join(root, "ready.json")
+    const token = "proc-test-chatgpt-grant"
+    let inspectedEnvironment = ""
+    await writeFile(executable, `require("node:fs").writeFileSync(${JSON.stringify(ready)}, JSON.stringify({ pid: process.pid, launcher: process.ppid })); setInterval(() => {}, 1000)`)
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: token, api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    resolveInstalledProviderExecutable.mockReturnValueOnce(executable)
+    const threadId = "thread-chatgpt-proc"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession() {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const launched = spawn(String(options?.settings?.binaryPath), [], { env: options?.environment, stdio: "ignore" })
+        try {
+          let pids: { pid: number, launcher: number } | undefined
+          await vi.waitFor(async () => { pids = JSON.parse(await readFile(ready, "utf8")) })
+          // A separate command with a cleared environment can inspect both same-UID processes.
+          const peer = spawnSync(process.execPath, ["-e", `for (const pid of process.argv.slice(1)) process.stdout.write(require("node:fs").readFileSync("/proc/" + pid + "/environ"))`, String(pids!.pid), String(pids!.launcher)], {
+            env: { PATH: process.env.PATH, VITEHUB_CHATGPT_ACCESS_TOKEN: "" }, encoding: "utf8",
+          })
+          expect(peer.status, peer.stderr).toBe(0)
+          inspectedEnvironment = peer.stdout
+        }
+        finally {
+          const closed = once(launched, "close")
+          launched.kill("SIGTERM")
+          await closed
+        }
+      },
+    })
+    try {
+      await createProviderAgentAdapter({ provider: "codex", gateway: chatgpt() }).generate(context(threadId) as never)
+      expect(inspectedEnvironment).toContain("VITEHUB_CHATGPT_ACCESS_TOKEN=")
+      expect(inspectedEnvironment).not.toContain(token)
+      expect(createProviderRuntime.mock.lastCall?.[0].environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
+      expect(JSON.stringify(createProviderRuntime.mock.lastCall?.[0])).not.toContain(token)
+    }
+    finally {
+      gateway.mockRestore()
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
+  it.each([false, true])("closes the ChatGPT transport after a provider failure: %s", async (fail) => {
+    const token = "runtime-only-chatgpt-grant"
+    let authorization: string | undefined
+    const server = new HttpServer((request, response) => {
+      authorization = request.headers.authorization
+      response.writeHead(200, { "content-type": "text/event-stream" }).end("data: completed\n\n")
+    })
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Expected a test port")
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: token, api: `http://127.0.0.1:${address.port}/v1`, expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    let url = ""
+    let key = ""
+    const threadId = `thread-chatgpt-transport-${fail}`
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession(input) {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1] ?? ""
+        key = JSON.parse(input.mcp!.authorizationHeader).key
+        expect(key).not.toBe(token)
+        const response = await fetch(`${url}/responses`, { method: "POST", headers: { authorization: `Bearer ${key}` }, body: "{}" })
+        expect(await response.text()).toBe("data: completed\n\n")
+        if (fail) throw new Error("provider failed")
+      },
+    })
+    try {
+      const run = createProviderAgentAdapter({ provider: "codex", gateway: chatgpt() }).generate(context(threadId) as never)
+      if (fail) await expect(run).rejects.toThrow()
+      else await run
+      expect(authorization).toBe(`Bearer ${token}`)
+      await expect(fetch(`${url}/models`, { headers: { authorization: `Bearer ${key}` } })).rejects.toThrow()
+    }
+    finally {
+      gateway.mockRestore()
+      const closed = once(server, "close")
+      server.close()
+      server.closeAllConnections()
+      await closed
+    }
+  })
+
+  it.each([false, true])("passes ChatGPT and Capability authentication only through the private protocol pipe (tools: %s)", async (tools) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-chatgpt-pipe-"))
+    const executable = join(root, "codex.cjs")
+    const token = "pipe-test-durable-grant"
+    const received: string[] = []
+    const server = new HttpServer((request, response) => {
+      received.push(request.headers.authorization ?? "")
+      response.end("authorized")
+    })
+    server.listen(0, "127.0.0.1")
+    await once(server, "listening")
+    const address = server.address()
+    if (!address || typeof address === "string") throw new Error("Expected a test port")
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: token, api: `http://127.0.0.1:${address.port}/v1`, expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    resolveInstalledProviderExecutable.mockReturnValueOnce(executable)
+    const threadId = `thread-chatgpt-pipe-${tools}`
+    const provider = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+      async onStartSession(input) {
+        const options = createProviderRuntime.mock.lastCall?.[0]
+        const url = /base_url=\\"([^"\\]+)\\"/.exec(String(options?.settings?.launchArgs))?.[1]
+        const configuration = JSON.parse(input.mcp!.authorizationHeader)
+        expect(options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN).toBe("")
+        expect(options?.environment?.T3_MCP_BEARER_TOKEN).toBe("")
+        expect(JSON.stringify(options)).not.toContain(configuration.key)
+        await writeFile(executable, `
+          const { createInterface } = require("node:readline")
+          ;(async () => {
+            for await (const line of createInterface({ input: process.stdin })) {
+              const message = JSON.parse(line)
+              if (message.method === "initialize") continue
+              const config = message.params.config
+              const authorization = config["model_providers.openai_chatgpt_plan.http_headers"].Authorization
+              const response = await fetch(${JSON.stringify(url)} + "/responses", { method: "POST", headers: { authorization } })
+              const mcp = config.mcp_servers["t3-code"]
+              process.stderr.write(authorization.slice(7) + "\\n" + (mcp?.http_headers.Authorization.slice(7) || "") + "\\n")
+              console.log(JSON.stringify({ id: message.id, result: { status: response.status, authorization, mcp, environment: process.env } }))
+            }
+          })().catch(error => { console.error(error); process.exitCode = 1 })
+        `)
+        const launched = spawn(String(options?.settings?.binaryPath), [], { env: options?.environment, stdio: ["pipe", "pipe", "pipe"] })
+        let stdout = ""
+        let stderr = ""
+        launched.stdout.on("data", chunk => { stdout += chunk })
+        launched.stderr.on("data", chunk => { stderr += chunk })
+        launched.stdin.end([
+          { id: 1, method: "initialize", params: { clientInfo: {} } },
+          { id: 2, method: "thread/start", params: { config: { mcp_servers: { "t3-code": { url: input.mcp!.endpoint, http_headers: { Authorization: input.mcp!.authorizationHeader } } } } } },
+        ].map(message => JSON.stringify(message)).join("\n") + "\n")
+        expect(await once(launched, "close")).toEqual([0, null])
+        const result = JSON.parse(stdout).result
+        expect(result).toMatchObject({ status: 200, authorization: "Bearer [REDACTED]", environment: { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } })
+        expect(result.mcp).toEqual(tools ? { url: configuration.mcp.url, http_headers: { Authorization: "[REDACTED]" }, tools: { "release:check": { approval_mode: "approve" } } } : undefined)
+        expect(stderr.trim().split("\n")).toEqual(tools ? ["[REDACTED]", "[REDACTED]"] : ["[REDACTED]"])
+        expect(stdout + stderr).not.toContain(configuration.key)
+        expect(stdout + stderr).not.toContain(token)
+        expect((await fetch(`${url}/responses`, { method: "POST", headers: { authorization: `Bearer ${options?.environment?.VITEHUB_CHATGPT_ACCESS_TOKEN}` } })).status).toBe(401)
+      },
+    })
+    try {
+      await createProviderAgentAdapter({ provider: "codex", gateway: chatgpt(), permissions: "allow-edits-unattended" }).generate(context(threadId, tools ? {
+        tools: { "release:check": { execute: async () => "ok", inputSchema: z.object({}) } },
+      } : {}) as never)
+      expect(provider.startSession).toHaveBeenCalledOnce()
+      expect(received).toEqual([`Bearer ${token}`])
+    }
+    finally {
+      gateway.mockRestore()
+      await rm(root, { force: true, recursive: true })
+      await new Promise<void>((resolve) => { server.close(() => resolve()); server.closeAllConnections() })
+    }
+  })
+
+  it("passes managed Chromium settings to ChatGPT shell tools without exposing loaders to Codex", async () => {
+    const gateway = vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "browser-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    }))
+    const threadId = "thread-chatgpt-browser"
+    runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
+    const runContext = context(threadId)
+    provideBrowserRuntimeEnvironment(runContext.context as never, {
+      PATH: "/managed/bin", LD_LIBRARY_PATH: "/managed/lib", FONTCONFIG_PATH: "/managed/fonts",
+      AGENT_BROWSER_SESSION: "managed-session", VITEHUB_BROWSER_ACTIVE: "1",
+    })
+    try {
+      await createProviderAgentAdapter({
+        provider: "codex", gateway: chatgpt(),
+        env: { PATH: "/caller/bin", LD_LIBRARY_PATH: "/caller/lib", FONTCONFIG_PATH: "/caller/fonts" },
+      }).generate(runContext as never)
+      const options = createProviderRuntime.mock.lastCall?.[0]
+      for (const [key, value] of Object.entries({
+        LD_LIBRARY_PATH: "/managed/lib", FONTCONFIG_PATH: "/managed/fonts",
+        PATH: `/managed/bin${process.platform === "win32" ? ";" : ":"}/caller/bin`,
+      })) {
+        expect(options?.settings?.launchArgs).toContain(codexConfigArg(`shell_environment_policy.set.${key}`, JSON.stringify(value)))
+      }
+      expect(options?.environment?.PATH).toBe((process.env.PATH ?? "").split(delimiter).filter(Boolean).map(entry => resolve(entry)).join(delimiter))
+      expect(options?.environment).not.toHaveProperty("LD_LIBRARY_PATH")
+      expect(options?.environment).not.toHaveProperty("FONTCONFIG_PATH")
+      expect(options?.settings?.launchArgs).toContain(codexConfigArg("shell_environment_policy.set.VITEHUB_CHATGPT_ACCESS_TOKEN", '""'))
+    }
+    finally { gateway.mockRestore() }
   })
 
   it("adds the Agent forge access environment to the Driver environment", async () => {
@@ -467,8 +758,9 @@ describe("Provider Agent Driver", () => {
   it.each(["codex", "claude-code"] as const)("resolves %s gateway secrets with invocation purpose", async (provider) => {
     const threadId = "thread-gateway-purpose"
     runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })])
-    const apiKey = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "proxy-key" : undefined)
-    const header = vi.fn(({ purpose }: AgentProviderCredentialContext) => purpose === "invocation" ? "client-id" : undefined)
+    // The Agent passes its credential context to gateway resolvers, with the Invocation purpose.
+    const apiKey = vi.fn((context: AiGatewayContext) => Reflect.get(context, "purpose") === "invocation" ? "proxy-key" : undefined)
+    const header = vi.fn((context: AiGatewayContext) => Reflect.get(context, "purpose") === "invocation" ? "client-id" : undefined)
     await createProviderAgentAdapter({
       gateway: cliproxy({ url: "https://proxy.example", apiKey, headers: { "X-Client": header } }),
       provider,
@@ -540,7 +832,7 @@ describe("Provider Agent Driver", () => {
     const threadId = "thread-gateway-conflict"
     await expect(createProviderAgentAdapter({
       env: async () => ({ [variable]: "https://other.example" }),
-      gateway: defineGateway({ name: "proxy", baseURL: { "claude-code": "https://proxy.example" }, apiKey: "k" }),
+      gateway: defineAiGateway({ name: "proxy", baseURL: { "claude-code": "https://proxy.example" }, apiKey: "k" }),
       provider: "claude-code",
     }).generate(context(threadId) as never)).rejects.toThrow(`driver.gateway sets ${variable}`)
   })
@@ -631,7 +923,7 @@ describe("Provider Agent Driver", () => {
     try {
       await createProviderAgentAdapter({
         env: { SHORT_TOKEN: shortSecret },
-        gateway: defineGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
+        gateway: defineAiGateway({ name: "proxy", baseURL: { codex: "http://127.0.0.1:8317/v1" }, apiKey: "gateway-proxy-secret" }),
         launch: {
           args: ["-e", 'process.stderr.write(`runner failed token=${process.env.T3_MCP_BEARER_TOKEN} short=${process.env.SHORT_TOKEN} label=ordinary-value proxy=${process.env.VITEHUB_GATEWAY_API_KEY}\\n`);process.exit(5)'],
           command: process.execPath,
@@ -4759,7 +5051,7 @@ cli_auth_credentials_store = "keyring"
     expect(onExit).toHaveBeenCalledOnce()
   })
 
-  it("passes a managed browser PATH to provider Workspace commands", async () => {
+  it.each([false, true])("passes a managed browser PATH to provider Workspace commands with ChatGPT %s", async (useChatGPT) => {
     const threadId = "thread-provider-workspace-browser-path"
     const session = {
       close: vi.fn(async () => undefined),
@@ -4799,13 +5091,22 @@ cli_auth_credentials_store = "keyring"
       },
     })
 
-    await createProviderAgentAdapter({ provider: "codex" }).generate(runContext as never)
+    const gateway = useChatGPT ? vi.spyOn(chatgptGateway, "resolveChatGPTGateway").mockResolvedValue(chatgptGateway.chatgptCodexGateway({
+      accessToken: "workspace-test-token", api: "https://api.openai.com/v1", expiresAt: Date.now() + 60_000,
+      clientInfo: { name: "App", title: "App", version: "1" },
+    })) : undefined
+    try {
+      await createProviderAgentAdapter({ provider: "codex", ...(useChatGPT ? { gateway: chatgpt(), permissions: "allow-edits-unattended" as const } : {}), env: { DRIVER_COMMAND_VALUE: "custom" } }).generate(runContext as never)
+    }
+    finally { gateway?.mockRestore() }
     expect(session.exec).toHaveBeenCalledWith("agent-browser", [], expect.objectContaining({ env: expect.objectContaining({
       AGENT_BROWSER_SESSION: "managed",
       AGENT_BROWSER_SOCKET_DIR: "/managed/socket",
       VITEHUB_BROWSER_ACTIVE: "1",
       PATH: "/managed/bin:/caller/bin",
       LD_LIBRARY_PATH: "/managed/lib:/caller/lib",
+      DRIVER_COMMAND_VALUE: "custom",
+      ...(useChatGPT ? { VITEHUB_CHATGPT_ACCESS_TOKEN: "", T3_MCP_BEARER_TOKEN: "" } : {}),
       TMPDIR: expect.stringMatching(/vitehub-provider-tmp-/),
     }) }))
   })
@@ -4989,6 +5290,124 @@ cli_auth_credentials_store = "keyring"
     finally {
       await rm(root, { recursive: true, force: true })
     }
+  })
+
+  it.each([
+    { provider: "codex", instructions: "generated repair instructions", nativeOverride: false },
+    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: false },
+    { provider: "codex", instructions: "generated repair instructions".repeat(1400), nativeOverride: true },
+    { provider: "claude-code", instructions: "generated repair instructions", nativeOverride: false },
+  ] as const)("repairs conflicted $provider instruction files without committing generated instructions", async ({ provider, instructions, nativeOverride }) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-instructions-"))
+    const threadId = `thread-conflicted-instructions-${provider}`
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    try {
+      git("init", "-q", "-b", "target")
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@localhost")
+      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "original\n")
+      if (nativeOverride) await writeFile(join(root, "AGENTS.override.md"), "native override\n")
+      git("add", "-A"); git("commit", "-qm", "initial")
+      git("branch", "feature")
+      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "target instructions\n")
+      git("commit", "-qam", "target")
+      const base = git("rev-parse", "HEAD").trim()
+      git("checkout", "-q", "feature")
+      for (const name of ["AGENTS.md", "CLAUDE.md"]) await writeFile(join(root, name), "feature instructions\n")
+      git("commit", "-qam", "feature")
+      const head = git("rev-parse", "HEAD").trim()
+      const session = runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], {
+        async onSendTurn() {
+          expect(git("diff", "--name-only", "--diff-filter=U")).toBe("AGENTS.md\nCLAUDE.md\n")
+          for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+            expect(await readFile(join(root, name), "utf8")).toContain("<<<<<<<")
+            await writeFile(join(root, name), "resolved source instructions\n")
+          }
+          if (provider === "codex" && instructions.length < 32768) expect(launchedCodexDeveloperInstructions()).toBe(instructions)
+          else if (provider === "codex") expect(session.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining(instructions) }))
+          else expect(await readFile(join(root, ".claude/vitehub-system-prompt.md"), "utf8")).toBe(instructions)
+          if (nativeOverride) {
+            expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("native override\n")
+            await writeFile(join(root, "AGENTS.override.md"), "updated native override\n")
+          }
+          git("add", "-A"); git("commit", "-qm", "resolve instructions")
+          expect(git("rev-parse", "HEAD^1").trim()).toBe(head)
+          expect(git("rev-parse", "HEAD^2").trim()).toBe(base)
+          if (nativeOverride) expect(git("show", "HEAD:AGENTS.override.md")).toBe("updated native override\n")
+          else expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("AGENTS.override.md")
+          expect(git("ls-tree", "-r", "--name-only", "HEAD")).not.toContain("vitehub-system-prompt")
+        },
+      })
+      await createProviderAgentAdapter({
+        cwd: root,
+        instructions,
+        launch: async ({ command }) => {
+          await prepareGitHubRepairBase(root, { expectedHead: head, base })
+          return { command }
+        },
+        provider,
+      }).generate(context(threadId) as never)
+      for (const name of ["AGENTS.md", "CLAUDE.md"]) {
+        expect(await readFile(join(root, name), "utf8")).toBe("resolved source instructions\n")
+        expect(git("show", `HEAD:${name}`)).toBe("resolved source instructions\n")
+      }
+      if (nativeOverride) expect(await readFile(join(root, "AGENTS.override.md"), "utf8")).toBe("updated native override\n")
+      expect(git("status", "--porcelain")).toBe("")
+    } finally { await rm(root, { recursive: true, force: true }) }
+  })
+
+  it.each(["AGENTS.md", "AGENTS.override.md"])("invalidates a conflicted Codex session when preserved %s changes", async (file) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-conflicted-resume-"))
+    const threadId = `thread-conflicted-resume-${crypto.randomUUID()}`
+    const git = (...args: string[]) => {
+      const result = spawnSync("git", ["-C", root, ...args], { encoding: "utf8" })
+      if (result.status !== 0) throw new Error(result.stderr)
+      return result.stdout
+    }
+    try {
+      git("init", "-q", "-b", "target")
+      git("config", "user.name", "Test")
+      git("config", "user.email", "test@localhost")
+      await writeFile(join(root, "AGENTS.md"), "original\n")
+      await writeFile(join(root, "AGENTS.override.md"), "native override\n")
+      git("add", "-A"); git("commit", "-qm", "initial")
+      git("branch", "feature")
+      await writeFile(join(root, "AGENTS.md"), "target instructions\n")
+      git("commit", "-qam", "target")
+      const base = git("rev-parse", "HEAD").trim()
+      git("checkout", "-q", "feature")
+      await writeFile(join(root, "AGENTS.md"), "feature instructions\n")
+      git("commit", "-qam", "feature")
+      await prepareGitHubRepairBase(root, { expectedHead: git("rev-parse", "HEAD").trim(), base })
+      const messages = [
+        { parts: [{ text: "previous question", type: "text" }], role: "user" },
+        { parts: [{ text: "previous answer", type: "text" }], role: "assistant" },
+        { parts: [{ text: "continue", type: "text" }], role: "user" },
+      ]
+      const generate = () => createProviderAgentAdapter({
+        cwd: root,
+        instructions: "generated repair instructions".repeat(1400),
+        provider: "codex",
+        sessionStorePath: `.vitehub/${threadId}.sqlite`,
+      }).generate(context(threadId, { messages, prompt: "continue" }) as never)
+      const turn = (cursor: string) => runtime(threadId, [event("turn.completed", threadId, { state: "completed" }, { turnId: "turn-1" })], { turnResumeCursor: cursor })
+      turn("cursor-1")
+      await generate()
+      const unchanged = turn("cursor-2")
+      await generate()
+      expect(unchanged.startSession).toHaveBeenCalledWith(expect.objectContaining({ resumeCursor: "cursor-1" }))
+
+      await writeFile(join(root, file), "updated native instructions\n")
+      const changed = turn("cursor-3")
+      await generate()
+      expect(changed.startSession).toHaveBeenCalledWith(expect.not.objectContaining({ resumeCursor: expect.anything() }))
+      expect(changed.sendTurn).toHaveBeenCalledWith(expect.objectContaining({ input: expect.stringContaining("previous answer") }))
+      expect(await readFile(join(root, file), "utf8")).toBe("updated native instructions\n")
+    } finally { await rm(root, { recursive: true, force: true }) }
   })
 
   it.each(["codex", "claude-code"] as const)("keeps %s generated root checkout files out of Agent commits", async (provider) => {

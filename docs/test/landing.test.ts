@@ -136,6 +136,7 @@ describe("landing page", () => {
     );
 
     expect(landingPrimitives.map((primitive) => primitive.id)).toEqual([
+      "logs",
       "kv",
       "blob",
       "database",

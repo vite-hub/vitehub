@@ -1,0 +1,21 @@
+{
+  "name": "@vite-hub/env-schema-lab",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "prepare:types": "node prepare.mjs",
+    "build": "vp build --mode client && vp build",
+    "start": "node dist/server/server.js",
+    "typecheck": "node prepare.mjs && tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@vite-hub/env": "workspace:*",
+    "vite": "catalog:vite"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:tooling",
+    "typescript": "catalog:tooling",
+    "vite-plus": "catalog:tooling"
+  }
+}

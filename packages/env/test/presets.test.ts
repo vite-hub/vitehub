@@ -17,25 +17,15 @@ describe("typesafeEnv()", () => {
     vi.stubEnv("TYPESAFE_DEFAULT_MODEL", undefined)
     const typesafe = resolveTypesafe(undefined, { TYPESAFE_API_KEY: "ts-key" })
 
-    expect(typesafe).toMatchObject({ model: "jev-latest", provider: "typesafe" })
+    expect(typesafe).toMatchObject({ model: "jev-latest" })
     expect(typesafe).toHaveProperty("apiKey", expect.any(SecretEnv))
     expect(resolveTypesafe({ model: "jev-2" }, { TYPESAFE_API_KEY: "ts-key", TYPESAFE_DEFAULT_MODEL: "jev-3" }))
       .toMatchObject({ model: "jev-3" })
   })
 
-  it("leaves a missing TypeSafe API key for the ask Driver to diagnose", () => {
+  it("leaves a missing TypeSafe API key for Jev to diagnose", () => {
     vi.stubEnv("TYPESAFE_API_KEY", undefined)
-    expect(resolveTypesafe(undefined, {})).toMatchObject({ apiKey: undefined, provider: "typesafe" })
-  })
-
-  it("routes the Vercel provider through the AI Gateway key", () => {
-    vi.stubEnv("AI_GATEWAY_API_KEY", undefined)
-    vi.stubEnv("TYPESAFE_DEFAULT_MODEL", undefined)
-
-    expect(resolveTypesafe({ provider: "vercel" }, {})).toEqual({ apiKey: undefined, model: "typesafe-ai/jev", provider: "vercel" })
-    const typesafe = resolveTypesafe({ model: "typesafe-ai/jev-2", provider: "vercel" }, { AI_GATEWAY_API_KEY: "gateway-key" })
-    expect(typesafe).toMatchObject({ model: "typesafe-ai/jev-2", provider: "vercel" })
-    expect(typesafe).toHaveProperty("apiKey", expect.any(SecretEnv))
+    expect(resolveTypesafe(undefined, {})).toMatchObject({ apiKey: undefined })
   })
 
   it("describes the declarations without values", () => {
@@ -44,7 +34,6 @@ describe("typesafeEnv()", () => {
     expect(describeServerEnv(registry).entries).toEqual([
       { path: "env.server.typesafe.apiKey", canonicalName: "VITEHUB_TYPESAFE_API_KEY", source: "env", secret: true, required: false, hasDefault: false, type: "string" },
       { path: "env.server.typesafe.model", canonicalName: "VITEHUB_TYPESAFE_MODEL", source: "env", secret: false, required: true, hasDefault: true, type: "string" },
-      { path: "env.server.typesafe.provider", source: "literal", secret: false, required: false, hasDefault: false },
     ])
   })
 })

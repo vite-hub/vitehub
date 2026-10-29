@@ -10,7 +10,9 @@ import type { ConsoleNavigation } from "../client/sections";
 import type { ConsoleSectionId } from "../sections";
 import { consoleAppearanceKey, consoleAppearanceOptions, consoleAppearances } from "../client/appearance";
 import { useConsoleUpdate, watchConsoleBuild } from "../client/build";
-import { loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
+import { isConsoleSignInRequired } from "../client/request";
+import { consoleNavigationError, loadConsoleNavigation, resolveConsoleSectionDetails, subscribeConsoleNavigation } from "../client/sections";
+import { consoleSignInURL } from "../client/sign-in";
 import { decodeAgentRouteParam, resolveConsoleRouteName } from "../console-route";
 import { consoleGoToKey, consoleOverviewShortcut, consoleSectionShortcut, groupConsoleSections } from "../sections";
 import ConsoleMark from "./console-mark.vue";
@@ -27,6 +29,8 @@ const router = useRouter();
 const navigation = shallowRef<ConsoleNavigation>();
 const updateReady = useConsoleUpdate();
 const navigationFailed = ref(false);
+// Loading again cannot help without a session, so the rail offers no retry then. The page says how to sign in.
+const signedOut = ref(false);
 const signedIn = ref(false);
 const signingOut = ref(false);
 const signOutFailed = ref(false);
@@ -139,11 +143,24 @@ defineShortcuts(
 async function loadNavigation(): Promise<void> {
   navigationFailed.value = false;
   const result = await loadConsoleNavigation(props.sectionsBase);
-  if (!result) {
-    navigationFailed.value = true;
+  if (result) {
+    showNavigation(result);
     return;
   }
+  navigationFailed.value = true;
+  signedOut.value = isConsoleSignInRequired(consoleNavigationError(props.sectionsBase));
+}
+
+/**
+ * Shows the sections of a navigation that this rail or another part of the page loaded, such as the Overview after
+ * someone signed in. The account loads once, with the first navigation.
+ */
+function showNavigation(result: ConsoleNavigation): void {
+  const first = !navigation.value;
   navigation.value = result;
+  navigationFailed.value = false;
+  signedOut.value = false;
+  if (!first) return;
   if (result.auth === "cloudflare-access") void loadAccessIdentity();
   else if (result.auth) void loadAuthSession();
 }
@@ -171,7 +188,7 @@ async function consoleAuthClient(): Promise<ReturnType<typeof createAuthClient>>
       return Reflect.get(globalThis, Symbol.for("vitehub.console.auth.client")) as ReturnType<typeof createAuthClient> | undefined;
     })
     .catch(() => undefined)
-    .then((configured) => configured ?? createAuthClient({ basePath: authBase }));
+    .then((configured) => configured ?? createAuthClient({ basePath: document.querySelector('meta[name="vitehub-console-auth-base"]')?.getAttribute("content") || authBase }));
   return await authClientRequest;
 }
 
@@ -203,7 +220,7 @@ async function signOut(): Promise<void> {
     const authClient = await consoleAuthClient();
     const { error } = await authClient.signOut();
     if (error) throw error;
-    window.location.assign(signInURL);
+    window.location.assign(consoleSignInURL(window) ?? signInURL);
   } catch {
     userIdentity.value = undefined;
     signOutFailed.value = true;
@@ -215,9 +232,7 @@ onMounted(() => {
   window.addEventListener("keydown", trackGoToStart, true);
   window.addEventListener("focusin", invalidateGoToStart);
   window.addEventListener("blur", invalidateGoToStart);
-  unsubscribe = subscribeConsoleNavigation(props.sectionsBase, (value) => {
-    navigation.value = value;
-  });
+  unsubscribe = subscribeConsoleNavigation(props.sectionsBase, showNavigation);
   void loadNavigation();
   watchConsoleBuild(props.sectionsBase);
 });
@@ -249,7 +264,7 @@ onBeforeUnmount(() => {
       <template v-if="!navigation && !navigationFailed">
         <USkeleton v-for="index in 5" :key="index" class="my-px size-9 rounded-md" />
       </template>
-      <UTooltip v-if="navigationFailed && !navigation" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
+      <UTooltip v-if="navigationFailed && !navigation && !signedOut" text="Retry loading primitives" :content="{ side: 'right' }" :disabled="expanded">
         <PrimitiveRailItem label="Retry loading primitives" @click="loadNavigation">
           <UIcon name="i-lucide-refresh-cw" class="size-[1.125rem]" />
         </PrimitiveRailItem>

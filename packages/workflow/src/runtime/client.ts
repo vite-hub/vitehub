@@ -11,10 +11,12 @@ import { getWorkflowRuntimeConfig, getWorkflowRuntimeEvent, loadWorkflowDefiniti
 import type { ResolvedWorkflowOptions, WorkflowCreateOptions, WorkflowDeferOptions, WorkflowDefinition, WorkflowHandle, WorkflowHandler, WorkflowRun, WorkflowRunIdValue, WorkflowSignalResult, WorkflowStartOptions } from "../types.ts"
 import { workflowErrorDiagnostics } from "../error-diagnostics.ts"
 
-function getActiveWorkflowConfig(): false | ResolvedWorkflowOptions {
+function getActiveWorkflowConfig(): ResolvedWorkflowOptions {
   const config = getWorkflowRuntimeConfig()
   if (config === false) {
-    return false
+    throw createWorkflowError({
+      code: "WORKFLOW_DISABLED",
+    })
   }
 
   return config || normalizeWorkflowOptions(undefined, { hosting: "vercel" })!
@@ -166,11 +168,6 @@ export async function runWorkflow<TPayload = unknown>(
   options: WorkflowDeferOptions = {},
 ): Promise<WorkflowRun<TPayload, unknown>> {
   const config = getActiveWorkflowConfig()
-  if (config === false) {
-    throw createWorkflowError({
-      code: "WORKFLOW_DISABLED",
-    })
-  }
 
   const id = options.id || randomId("wrun")
   const definition = await loadRequiredWorkflowDefinition(name)
@@ -187,11 +184,6 @@ export async function runWorkflow<TPayload = unknown>(
 
 export async function getWorkflowRun(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
   const config = getActiveWorkflowConfig()
-  if (config === false) {
-    throw createWorkflowError({
-      code: "WORKFLOW_DISABLED",
-    })
-  }
 
   return await getWorkflowRuntimeAdapter(config).get({
     event: getWorkflowRuntimeEvent(),
@@ -202,11 +194,6 @@ export async function getWorkflowRun(name: string, id: string): Promise<Workflow
 
 export async function cancelWorkflow(name: string, id: string): Promise<WorkflowRun<unknown, unknown>> {
   const config = getActiveWorkflowConfig()
-  if (config === false) {
-    throw createWorkflowError({
-      code: "WORKFLOW_DISABLED",
-    })
-  }
 
   await loadRequiredWorkflowDefinition(name)
   return await getWorkflowRuntimeAdapter(config).cancel({
@@ -221,11 +208,6 @@ export async function resumeWorkflowSignal<TPayload = unknown>(token: string, pa
     throw workflowErrorDiagnostics.WORKFLOW_R0014({ message: "`resumeWorkflowSignal()` requires an opaque signal token." })
   }
   const config = getActiveWorkflowConfig()
-  if (config === false) {
-    throw createWorkflowError({
-      code: "WORKFLOW_DISABLED",
-    })
-  }
   return await getWorkflowRuntimeAdapter(config).resume(token, payload)
 }
 
