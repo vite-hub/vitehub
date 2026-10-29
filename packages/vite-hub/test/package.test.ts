@@ -139,6 +139,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/operations",
   "@vite-hub/comments/runtime/console",
+  "@vite-hub/comments/runtime/sqlite",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",
@@ -293,7 +294,10 @@ describe("framework package contract", () => {
       .sort();
     const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source));
 
-    expect(sourceForwarders).toEqual([...exportedForwarders].sort());
+    // This build helper is shared internally, without a public framework export.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
+      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
