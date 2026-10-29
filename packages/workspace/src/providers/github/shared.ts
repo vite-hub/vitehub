@@ -13,12 +13,14 @@ import type { ForgeFileChange, ForgeFileMode } from "@vite-hub/forge";
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env";
 
 import { workspaceConflict, workspaceError } from "../../core/errors.ts";
+import { workspaceErrorDiagnostics } from "../../error-diagnostics.ts";
 import { contentToBytes, normalizeSafeWorkspacePath, normalizeWorkspacePath } from "../../core/path.ts";
 
-import type { GitHubWorkspaceOption } from "../../core/types.ts";
+import type { GitHubWorkspaceOption, GitHubWorkspaceRefs } from "../../core/types.ts";
 
 export interface GitHubWorkspaceOptions {
   branch?: GitHubWorkspaceOption;
+  refs?: GitHubWorkspaceRefs;
   repo?: GitHubWorkspaceOption;
   repository?: GitHubWorkspaceOption;
   root?: GitHubWorkspaceOption;
@@ -62,6 +64,8 @@ export interface GitHubRepository {
 export interface GitHubWorkspaceStoreTarget {
   provider: "github";
   branch: string;
+  /** The `database` option, when the Store has one. */
+  database?: unknown;
   repository: string;
 }
 
@@ -207,7 +211,11 @@ export function requireGitHubOption(
   label: string,
   value: string | undefined,
 ): string {
-  if (!value) throw workspaceError(`[vitehub] GitHub workspace store requires ${label}.`);
+  if (!value) {
+    throw workspaceErrorDiagnostics.WORKSPACE_R0072({
+      message: `[vitehub] GitHub workspace store requires ${label}.${label === "a token" ? " Set VITEHUB_GITHUB_TOKEN or the token option." : label === "a repository" ? " Set the repository option or VITEHUB_WORKSPACE_GITHUB_REPOSITORY." : ""}`,
+    });
+  }
   return value;
 }
 
@@ -292,12 +300,25 @@ export function resolveGitHubRootOption(
   workspaceName: string,
   env: Record<string, string | undefined> = typeof process !== "undefined" ? process.env : {},
 ): string {
-  return resolveGitHubWorkspaceRoot(
-    resolveGitHubOption(options.root) ||
+  // An empty string is the repository root, so it is a value and not a missing option. A blank callback is missing.
+  const root = options.root === ""
+    ? ""
+    : resolveGitHubOption(options.root) ||
       readLocationEnv("VITEHUB_WORKSPACE_GITHUB_ROOT", env) ||
-      ".vitehub/workspaces/<workspace>",
-    workspaceName,
-  );
+      ".vitehub/workspaces/<workspace>";
+  return resolveGitHubWorkspaceRoot(root, workspaceName);
+}
+
+/** The branch names for the history refs `published` and `draft`, or undefined when there are none. */
+export function resolveGitHubRefsOption(options: GitHubWorkspaceOptions): GitHubWorkspaceRefs | undefined {
+  const refs = options.refs;
+  if (!refs) return undefined;
+  const published = refs.published?.trim() || undefined;
+  const draft = refs.draft?.trim() || undefined;
+  if (published && published === draft) {
+    throw workspaceError(`[vitehub] GitHub workspace store refs.published and refs.draft name the same branch: ${published}.`);
+  }
+  return published || draft ? { ...(published ? { published } : {}), ...(draft ? { draft } : {}) } : undefined;
 }
 
 export function resolveGitHubTokenOption(
@@ -332,7 +353,10 @@ export async function readGitHubFile(
     read = githubRequest(repository, async (provider, repo) => {
       // GitHub's Contents API truncates large files. Blob shas identify immutable bytes across repositories.
       return await forgeBlob(provider, repo, entry.sha);
-    }).then(bytes => {
+    }).then(async bytes => {
+      if (await gitBlobSha(bytes) !== entry.sha) {
+        throw workspaceError("[vitehub] GitHub workspace returned a malformed blob response.");
+      }
       // Different request scopes can finish the same blob; retain and count it only once.
       if (bytes.byteLength <= githubBlobFileLimit && !githubBlobs.has(entry.sha)) {
         for (const [sha, oldest] of githubBlobs) {
@@ -389,9 +413,26 @@ function isMissingRef(error: unknown): boolean {
   return status === 404 || status === 422;
 }
 
-/** The head of `branch`, or of the default branch when `branch` does not exist yet, and the files under `root`. */
+/** The head of `branch` right now, or null when it does not exist. */
+export async function readCurrentHead(repository: GitHubRepository, branch: string): Promise<string | null> {
+  try {
+    return await githubRequest(repository, async (provider, repo) => await provider.contents.resolveRef(repo, `heads/${branch}`), "commit") || null
+  }
+  catch (error) {
+    if (isMissingRef(error)) return null
+    throw error
+  }
+}
+
+/**
+ * The head of `branch` and the files under `root`. When `branch` does not exist yet, they come from `fork` if it
+ * exists, else from the default branch, and `branchExists` is false.
+ */
 export async function readGitHubBranchState(input: {
   branch: string;
+  /** A commit sha to start a missing branch from, instead of `fork` or the default branch. */
+  from?: string;
+  fork?: string;
   repository: GitHubRepository;
   root: string;
 }): Promise<GitHubBranchState> {
@@ -407,10 +448,14 @@ export async function readGitHubBranchState(input: {
   }
   catch (error) {
     if (!isMissingRef(error)) throw error;
-    const repository = await githubRequest(input.repository, async (provider, repo) => await provider.repos.get(repo), "repository");
-    if (!repository.defaultBranch) throw workspaceError("[vitehub] GitHub workspace returned a malformed repository response.");
-    refSha = await resolve(repository.defaultBranch);
     branchExists = false;
+    const forked = input.from ?? (input.fork ? await readCurrentHead(input.repository, input.fork) : null);
+    if (forked) refSha = forked;
+    else {
+      const repository = await githubRequest(input.repository, async (provider, repo) => await provider.repos.get(repo), "repository");
+      if (!repository.defaultBranch) throw workspaceError("[vitehub] GitHub workspace returned a malformed repository response.");
+      refSha = await resolve(repository.defaultBranch);
+    }
   }
   return {
     branchExists,

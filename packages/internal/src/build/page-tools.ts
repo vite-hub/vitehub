@@ -1,4 +1,5 @@
 import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsInlineScript, viteHubPageToolsMarker } from "../runtime/page-tools-shared.ts"
+import { VITEHUB_APP_BASE_URL } from "./vite.ts"
 
 import type { NitroServerKit } from "../nitro-kit.ts"
 
@@ -50,8 +51,8 @@ function readString(value: unknown, key: string): string | undefined {
 }
 
 /**
- * The app base of a Vite configuration. The base is ViteHub's `__VITEHUB_APP_BASE_URL__` constant when it is set, as
- * the Nuxt module sets it from `app.baseURL`, else the Vite `base`. The Nitro base is `nitro.baseURL`, else
+ * The app base of a Vite configuration. ViteHub's application-base config field or `__VITEHUB_APP_BASE_URL__` constant
+ * takes precedence over the Vite `base`; the Nuxt module sets both from `app.baseURL`. The Nitro base is `nitro.baseURL`, else
  * `NITRO_APP_BASE_URL`.
  */
 export function viteHubPageToolsBase(config: unknown, env: Record<string, string | undefined> = process.env): ViteHubPageToolsBase {
@@ -65,7 +66,7 @@ export function viteHubPageToolsBase(config: unknown, env: Record<string, string
     }
     catch {}
   }
-  const base = viteHubBasePath(appBase)
+  const base = viteHubBasePath(readString(config, VITEHUB_APP_BASE_URL) ?? appBase)
   const nitro: unknown = config !== null && typeof config === "object" ? Reflect.get(config, "nitro") : undefined
   const nitroBase = viteHubBasePath(readString(nitro, "baseURL") ?? env.NITRO_APP_BASE_URL)
   return { base, mount: nitroBase && (base === nitroBase || base.startsWith(`${nitroBase}/`)) ? base.slice(nitroBase.length) : base }

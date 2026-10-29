@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { installConsoleAccess } from "../src/console/runtime/server/access.ts"
 import pageSessionHandler from "../src/console/runtime/server/page-session.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsolePageTool } from "../src/console/runtime/server/page-tool.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
 
@@ -33,6 +34,7 @@ async function sessionTools(policy: ConsoleAccessPolicy | undefined, headers: Re
 afterEach(() => {
   Reflect.deleteProperty(globalThis, policyKey)
   Reflect.deleteProperty(globalThis, pageToolsKey)
+  for (const suffix of ["", ".root", ".registry", ".ambiguous-root"]) Reflect.deleteProperty(globalThis, Symbol.for(`vitehub.console.development${suffix}`))
   vi.unstubAllEnvs()
 })
 
@@ -44,7 +46,7 @@ describe("the Console page tool", () => {
     if (order === "comments-first") installViteHubPageTools(app)
     installConsolePageTool(app, { base: "/portal/" })
     if (order === "console-first") installViteHubPageTools(app)
-    for (const path of ["/portal/_vitehub", "/portal/_vitehub/", "/portal/_vitehub/comments", "/portal/api/data", "/_vitehub", "/api/data"]) {
+    for (const path of ["/portal/_vitehub", "/portal/_vitehub/", "/portal/_vitehub/comments", "/portal/api", "/portal/api/data", "/_vitehub", "/api/data"]) {
       const response = await app.fetch(new Request(`http://site.test${path}?vitehub`, { headers: { cookie: "vitehub-tools=1" } }))
       expect(await response.text()).toBe(html)
       expect(response.headers.get("cache-control")).toBeNull()
@@ -83,9 +85,9 @@ describe("the Console page tool", () => {
   })
 
   it("is allowed in local mode only on the development server", async () => {
-    vi.stubEnv("NODE_ENV", "production")
+    installConsoleDevelopment("/test/app", false)
     await expect(sessionTools({ mode: "local" })).resolves.toMatchObject({ body: { tools: [] } })
-    vi.stubEnv("NODE_ENV", "development")
+    installConsoleDevelopment("/test/app", true)
     await expect(sessionTools({ mode: "local" })).resolves.toMatchObject({ body: { tools: [{ id: "console" }] } })
   })
 
@@ -120,6 +122,24 @@ describe("the Console Nitro configuration", () => {
     }
   })
 
+  it("keeps page tools out of RPC-only development output", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-rpc-only-"))
+    try {
+      await writeFile(join(root, "package.json"), "{}\n")
+      const plugin = consoleVitePlugin({ rpcOnly: true, preset: "node", sections: [] })
+      const hook = plugin.config!
+      const handler = "handler" in hook ? hook.handler : hook
+      const config: { root: string, nitro?: { handlers: Array<{ route: string }>, publicAssets: Array<{ baseURL: string }> } } = { root }
+      await Reflect.apply(handler, {}, [config, { command: "serve", mode: "development" }])
+      expect(config.nitro?.handlers.some(handler => handler.route.includes("/page/session"))).toBe(false)
+      expect(config.nitro?.publicAssets.some(asset => asset.baseURL.includes("/_vitehub/"))).toBe(false)
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain("export default function viteHubConsolePlugin() {}")
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it.each([
     ["/portal/", "/portal"],
     ["https://site.test/portal/", "/portal"],
@@ -137,7 +157,7 @@ describe("the Console Nitro configuration", () => {
 
       expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: `${path}/_vitehub/page/session` })
       expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/page/assets` }))
-      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`installConsolePageTool(nitroApp, { base: ${JSON.stringify(base)} })`)
+      await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`installConsolePageTool(nitroApp, { base: ${JSON.stringify(path || "/")} })`)
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")

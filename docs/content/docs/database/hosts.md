@@ -191,3 +191,9 @@ Run `vitehub provision run --provider cloudflare` to resolve the D1 id into `.vi
 - The Console database browser and the Agent `db_query` guard are written for SQLite. With Postgres, the Agent tools run statements through Drizzle `execute()` and read the schema from `information_schema`.
 - Keep provider credentials in Server Env. Direct D1 HTTP access sends `CLOUDFLARE_API_TOKEN` only as the Cloudflare Bearer credential. Proxy access sends only its configured `cloudflare.http.authToken`.
 - Keep migrations, backups, and hosted database lifecycle in deployment workflows, not in route code.
+
+## Related guides
+
+Use the [Turso](/docs/guides/turso), [Neon Postgres](/docs/guides/neon-postgres),
+and [Cloudflare D1](/docs/guides/cloudflare-d1) guides for provider setup and
+verification steps.

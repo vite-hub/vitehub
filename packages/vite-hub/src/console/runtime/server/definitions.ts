@@ -14,6 +14,7 @@ function copyFields(fields: readonly ConsoleDefinitionField[]): ConsoleDefinitio
 }
 
 function copyContent(content: ConsoleSectionContent): ConsoleSectionContent {
+  if (content.kind === "operation-view") return { kind: "operation-view" }
   if (content.kind === "auth-management") return { kind: "auth-management" };
   if (content.kind === "document-editor") {
     // The build-time setup hints, such as a missing scheduled publish runner, stay; collections are read per request.
@@ -53,9 +54,12 @@ export function copyConsoleRecords(records: readonly ConsoleRecord[]): ConsoleRe
 function copySection(section: ConsoleContributedSection): ConsoleContributedSection {
   return {
     ...section,
-    view: section.view.kind === "record-table"
-      ? { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice }
-      : { kind: section.view.kind, notice: section.view.notice },
+    // SAFETY: An operation view holds only JSON, so the round trip copies it.
+    view: section.view.kind === "operation-view"
+      ? JSON.parse(JSON.stringify(section.view)) as typeof section.view
+      : section.view.kind === "record-table"
+        ? { columns: section.view.columns.map(column => ({ ...column })), kind: "record-table", notice: section.view.notice }
+        : { kind: section.view.kind, notice: section.view.notice },
   }
 }
 

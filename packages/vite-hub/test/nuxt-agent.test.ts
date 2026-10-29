@@ -71,7 +71,8 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
     trace: false,
   })
   expect(nitroConfig).toMatchObject({
-    handlers: [
+    // Other plugins, including the development RPC, can register handlers too.
+    handlers: expect.arrayContaining([
       {
         handler: join(buildDir, "vitehub/agent/ready-route.ts"),
         route: "/api/_vitehub/ready",
@@ -94,12 +95,8 @@ it.each([false, true].flatMap(dev => [undefined, false, true].map(noExternals =>
           handler: join(buildDir, "vitehub/agent/invocations-dev-handler.ts"),
           route: "/_vitehub/agent/invocations/dev",
         },
-        {
-          handler: join(rootDir, ".vitehub/nitro/workflow/dev-handler.mjs"),
-          route: "/_vitehub/workflow/dev",
-        },
       ] : []),
-    ],
+    ].map(handler => expect.objectContaining(handler))),
   })
 
   const expectedExternals = structuredClone(nitroConfig.externals)

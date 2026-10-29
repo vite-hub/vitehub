@@ -39,7 +39,7 @@ export function addConsolePageHandlers(
     { baseURL: mountPath(base, "/_vitehub/assets"), dir: assets, fallthrough: false, maxAge: 60 * 60 * 24 * 365 },
     ...(nitro.publicAssets ?? []).filter(asset => asset.dir !== assets),
   ]
-  addConsolePageToolRoutes(nitro, consoleRuntimeRoot)
+  addConsolePageToolRoutes(nitro, consoleRuntimeRoot, base)
 }
 
 /**
@@ -99,7 +99,7 @@ export function addConsoleRpcHandler(
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
     const handler: NitroHandler = { handler: registration.handler, route }
-    if (registration.suffix !== "/_vitehub/rpc/**") handler.method = "post"
+    if (registration.suffix !== "/_vitehub/rpc/**" && registration.suffix !== "/_vitehub/mcp") handler.method = "post"
     kit.addHandler(handler)
   }
 

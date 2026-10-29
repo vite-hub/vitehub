@@ -1,8 +1,5 @@
 import { resolve } from "node:path"
 
-import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
-
-import { blobMcpTools } from "./blob-mcp.ts"
 import { installConsoleBlobScope, resolveConsoleBlob } from "../../internal.ts"
 
 import type { BlobStorage } from "@vite-hub/blob"
@@ -14,7 +11,6 @@ export function installConsoleBlob(
   storage: BlobStorage,
   stores: readonly string[] = ["default"],
 ): ConsoleBlobInspection {
-  registerViteHubMcpTools("console-blob", blobMcpTools())
   const installedStores = [...new Set(stores.filter(store => store.length > 0))]
     .filter(store => store !== "default")
     .sort()
