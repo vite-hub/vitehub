@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import ConsoleSetupHint from "./console-setup-hint.vue";
-const snippet = `import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'
-import { useDatabase } from 'vite-hub/database/drizzle'
-
-export default defineAuth(() => {
-  const { db } = useDatabase('auth')
-  return {
-    // Keep your existing database adapter and auth options.
-    events: { store: createDatabaseAuthEventStore({ db }) },
-  }
-})`;
+// Vite's dependency scan reads a line of a Vue script that starts with `import … from "…"` as an import, even inside a
+// string, so the example is joined from lines.
+const snippet = [
+  "import { createDatabaseAuthEventStore, defineAuth } from 'vite-hub/auth'",
+  "import { useDatabase } from 'vite-hub/database/drizzle'",
+  "",
+  "export default defineAuth(() => {",
+  "  const { db } = useDatabase('auth')",
+  "  return {",
+  "    // Keep your existing database adapter and auth options.",
+  "    events: { store: createDatabaseAuthEventStore({ db }) },",
+  "  }",
+  "})",
+].join("\n");
 </script>
 
 <template>

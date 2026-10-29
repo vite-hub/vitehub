@@ -51,7 +51,7 @@ export interface CommentComponent {
  * reads the page, the element, the Vue components, and the browser; the server adds the build.
  */
 export interface CommentContext {
-  /** The page URL without the comment mode query and the hash. */
+  /** The page origin and pathname, without credentials, query parameters, or a hash. */
   url: string
   title?: string
   /** The Vue Router route pattern, such as `/blog/:id(.*)*`. */
@@ -129,8 +129,8 @@ export interface CommentThread {
 
 /**
  * - `read`: see pins and threads, and join the page room.
- * - `comment`: start threads, reply, and delete own comments.
- * - `resolve`: resolve, reopen, and delete any thread.
+ * - `comment`: start threads and reply; signed-in authors can delete their own comments.
+ * - `resolve`: resolve and reopen; signed-in users can delete any thread or comment.
  */
 export type CommentsAction = "read" | "comment" | "resolve"
 

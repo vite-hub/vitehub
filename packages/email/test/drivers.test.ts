@@ -235,6 +235,78 @@ describe("Resend Email driver", () => {
     expect(request).not.toHaveBeenCalled();
   });
 
+  it.each<[string, Pick<EmailMessage, "headers" | "metadata">, Record<string, string> | undefined]>([
+    ["neither field", {}, undefined],
+    ["empty headers", { headers: {} }, {}],
+    ["empty metadata", { metadata: {} }, {}],
+    ["both empty", { headers: {}, metadata: {} }, {}],
+    ["headers only", { headers: { "X-Trace-Id": "trace-1" } }, { "X-Trace-Id": "trace-1" }],
+    ["metadata only", { metadata: { Campaign: "welcome" } }, { "X-Metadata-Campaign": "welcome" }],
+    [
+      "headers with empty metadata",
+      { headers: { "X-Trace-Id": "trace-1" }, metadata: {} },
+      { "X-Trace-Id": "trace-1" },
+    ],
+    [
+      "metadata with empty headers",
+      { headers: {}, metadata: { Campaign: "welcome" } },
+      { "X-Metadata-Campaign": "welcome" },
+    ],
+    [
+      "headers and metadata",
+      { headers: { "X-Trace-Id": "trace-1" }, metadata: { Campaign: "welcome" } },
+      { "X-Trace-Id": "trace-1", "X-Metadata-Campaign": "welcome" },
+    ],
+    [
+      "metadata overriding an exact header key",
+      { headers: { "X-Metadata-Campaign": "custom" }, metadata: { Campaign: "metadata" } },
+      { "X-Metadata-Campaign": "metadata" },
+    ],
+    [
+      "case-sensitive keys and verbatim values",
+      {
+        headers: { "x-metadata-Campaign": "  custom  ", "X-Empty": "" },
+        metadata: { Campaign: 'Café "welcome"\nnext', campaign: "" },
+      },
+      {
+        "x-metadata-Campaign": "  custom  ",
+        "X-Empty": "",
+        "X-Metadata-Campaign": 'Café "welcome"\nnext',
+        "X-Metadata-campaign": "",
+      },
+    ],
+  ])("serializes payload headers for %s", async (_name, fields, headers) => {
+    const request = vi.fn(
+      async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
+        new Response(JSON.stringify({ id: "email-1" }), { status: 200 }),
+    );
+    const driver = resend({ apiKey: "re_secret", fetch: request });
+
+    await expect(
+      driver.send(
+        {
+          from: "hello@example.com",
+          subject: "Welcome",
+          text: "Hello",
+          to: "maxi@example.com",
+          ...fields,
+        },
+        context,
+      ),
+    ).resolves.toMatchObject({ data: { driver: "resend", id: "email-1" }, error: null });
+
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[1]?.body).toBe(
+      JSON.stringify({
+        from: "hello@example.com",
+        headers,
+        subject: "Welcome",
+        text: "Hello",
+        to: ["maxi@example.com"],
+      }),
+    );
+  });
+
   it("encodes string attachments as UTF-8 base64", async () => {
     const request = vi.fn(
       async (_input: Parameters<typeof fetch>[0], _init: RequestInit = {}) =>
@@ -1648,6 +1720,126 @@ describe("Cloudflare Email driver", () => {
     expect(Constructor).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
+
+  const unsupportedCloudflarePayloads = [
+    ["scheduledAt", "scheduled delivery"],
+    ["raw", "raw message payloads"],
+    ["idempotencyKey", "idempotency keys"],
+    ["template", "template payloads"],
+  ] as const;
+
+  it.each(unsupportedCloudflarePayloads)(
+    "rejects defined falsey %s values with the full diagnostic",
+    async (key, description) => {
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+
+      for (const value of ["", false, 0, null]) {
+        const input = Object.defineProperty({ ...message }, key, { value });
+        await expect(driver.send(input, context)).resolves.toMatchObject({
+          data: null,
+          error: {
+            code: "UNSUPPORTED",
+            driver: "cloudflare-email",
+            message: `Cloudflare Email does not support ${description}.`,
+          },
+        });
+      }
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(unsupportedCloudflarePayloads)(
+    "reads options in order and stops at %s before later payloads",
+    async (key, description) => {
+      const reads: string[] = [];
+      const input = { ...message };
+      const send = vi.fn();
+      const Constructor = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: Constructor });
+      const selected = unsupportedCloudflarePayloads.findIndex(([option]) => option === key);
+      for (const [index, [option]] of unsupportedCloudflarePayloads.entries()) {
+        Object.defineProperty(input, option, {
+          get() {
+            reads.push(option);
+            return index < selected ? undefined : "";
+          },
+        });
+      }
+      Object.defineProperty(input, "react", {
+        get() {
+          throw new Error("renderer must not be read");
+        },
+      });
+
+      await expect(driver.send(input, context)).resolves.toMatchObject({
+        data: null,
+        error: {
+          code: "UNSUPPORTED",
+          driver: "cloudflare-email",
+          message: `Cloudflare Email does not support ${description}.`,
+        },
+      });
+      expect(reads).toEqual(
+        unsupportedCloudflarePayloads.slice(0, selected + 1).map(([key]) => key),
+      );
+      expect(Constructor).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(unsupportedCloudflarePayloads)("returns a provider error when %s throws", async (key) => {
+    const cause = new Error("option getter failed");
+    const input = Object.defineProperty({ ...message }, key, {
+      get() {
+        throw cause;
+      },
+    });
+    const send = vi.fn();
+    const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() });
+
+    await expect(driver.send(input, context)).resolves.toMatchObject({
+      data: null,
+      error: {
+        cause,
+        code: "PROVIDER",
+        driver: "cloudflare-email",
+        message: "Cloudflare Email send failed.",
+      },
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [true, true, "CANCELLED", "Cloudflare Email send was cancelled."],
+    [false, true, "UNSUPPORTED", "Cloudflare Email does not support sandbox delivery."],
+    [false, false, "INVALID_OPTIONS", "Cloudflare Email owns the SuBjEcT header."],
+  ] as const)(
+    "preserves earlier diagnostics with aborted=%s and sandbox=%s",
+    async (aborted, sandbox, code, diagnostic) => {
+      const getter = vi.fn(() => {
+        throw new Error("option must not be read");
+      });
+      const input = Object.defineProperty(
+        { ...message, sandbox, headers: { SuBjEcT: "custom" } },
+        "scheduledAt",
+        { get: getter },
+      );
+      const send = vi.fn();
+      const driver = cloudflareEmail({ binding: { send }, EmailMessage: vi.fn() });
+
+      await expect(
+        driver.send(input, { ...context, signal: aborted ? AbortSignal.abort() : undefined }),
+      ).resolves.toMatchObject({
+        data: null,
+        error: { code, driver: "cloudflare-email", message: diagnostic },
+      });
+      expect(getter).not.toHaveBeenCalled();
+      expect(send).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects an already-aborted send before Cloudflare delivery", async () => {
     const controller = new AbortController();

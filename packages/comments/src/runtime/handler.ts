@@ -7,11 +7,13 @@ import { commentsErrors } from "../errors.ts"
 import { authorOf, guestFromHeaders } from "../identity.ts"
 import { commentsHintCookie, commentsPageScope, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { anchorSchema, bodySchema, contextSchema, describeIssue, mentionsSchema, pageSchema } from "../schema.ts"
+import { resolveCommentsUser } from "./session.ts"
 
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
+import type { CommentsSessionOptions } from "./session.ts"
 
 /** One field address, as `parseContentField()` from `@vite-hub/content/client` reads it. */
 export interface CommentsContentField {
@@ -42,13 +44,8 @@ export interface CommentsContent {
   collections(): readonly ContentCollectionLike[]
 }
 
-export interface CommentsHandlerOptions {
+export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
-  /**
-   * Reads the user of a request: the Console user when the app has the Console, else the ViteHub Auth session user.
-   * Omitted when the app has neither.
-   */
-  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -160,20 +157,13 @@ function leaseHolder(error: unknown): string {
 export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
   const { comments } = options
 
-  async function resolveUser(event: H3Event): Promise<CommentsUser | null> {
-    if (comments.options.identify) return await comments.options.identify({ event }) ?? null
-    if (!options.session) return null
-    try {
-      return await options.session(event) ?? null
-    }
-    catch {
-      return null
-    }
+  async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
+    return resolveCommentsUser(comments, event, options, action)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
-    const user = await resolveUser(event)
-    if (!await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
+    const user = await resolveUser(event, action)
+    if (user === false || !await comments.can({ user, action, thread })) return [commentsErrors.COMMENTS_FORBIDDEN({ action }), undefined]
     // A user writes as itself; without one, a guest that named itself, when the policy lets anonymous people act.
     const author = user ? authorOf(user) : guestFromHeaders(event.req.headers)
     return [undefined, { user, author, grant: actionGrant.issue({ action, threadId: thread?.id }) }]
@@ -213,7 +203,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     // Keep the app's own components: names without a project file, such as RouterView or a UI library's, are noise.
     // Without a file map, or when none matches, keep the three innermost names.
     const named = context.components?.map((component) => {
-      const files = options.components?.[component.name]
+      const files = options.components && Object.hasOwn(options.components, component.name) ? options.components[component.name] : undefined
       return files?.length ? { name: component.name, files: files.slice(0, 8) } : { name: component.name }
     })
     const own = named?.filter(component => component.files)
@@ -242,7 +232,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
-    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => comments.can({ user, action })))
+    const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
     const headers = new Headers()
     headers.append("set-cookie", read
       ? `${commentsHintCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
@@ -255,6 +245,21 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         content: Boolean(options.content),
       },
     }, { headers })
+  }
+
+  async function can(event: H3Event, user: CommentsUser | null | false, action: CommentsAction, thread?: CommentThread): Promise<boolean> {
+    if (user === false) return false
+    if (action !== "read" && await options.consoleSession?.(event, action).catch(() => false as const) === false) return false
+    return comments.can({ user, action, thread })
+  }
+
+  async function permissions(event: H3Event, user: CommentsUser | null, thread: CommentThread) {
+    const [comment, resolve] = await Promise.all((["comment", "resolve"] as const).map(action => can(event, user, action, thread)))
+    return { ...thread, can: { comment, resolve } }
+  }
+
+  async function respondThread(event: H3Event, user: CommentsUser | null, [error, thread]: Result<CommentThread>): Promise<Response> {
+    return error ? failure(error) : json({ data: await permissions(event, user, thread) })
   }
 
   /** A page thread. Threads of other scopes belong to the app's own UI, so this API does not show or change them. */
@@ -346,15 +351,16 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
 
     if (path === "/threads") {
       if (method === "GET") {
-        const [denied] = await access(event, "read")
+        const [denied, allowed] = await access(event, "read")
         if (denied) return failure(denied)
         const page = url.searchParams.get("page")
         const state = url.searchParams.get("status")
-        return respond(await comments.list({
+        const [error, threads] = await comments.list({
           scope: commentsPageScope,
           page: page ? normalizeCommentPage(page) : undefined,
           status: state === "open" || state === "resolved" ? state : undefined,
-        }))
+        })
+        return error ? failure(error) : json({ data: await Promise.all(threads.map(thread => permissions(event, allowed.user, thread))) })
       }
       if (method === "POST") {
         const parsed = v.safeParse(createBody, await readJson(event))
@@ -363,7 +369,23 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
         if (denied) return failure(denied)
         if (!allowed.author) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "comment" }))
         const { context, ...input } = parsed.output
-        return respond(await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
+        if (context) {
+          const origin = forwardedRequestOrigin(request)
+          const page = normalizeCommentPage(input.page)
+          let submitted: URL
+          try {
+            submitted = new URL(context.url)
+          }
+          catch {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Expected an absolute page URL." }))
+          }
+          if (submitted.origin !== origin || normalizeCommentPage(submitted.pathname) !== page) {
+            return failure(commentsErrors.COMMENTS_INVALID_INPUT({ issue: "context.url: Must match the request origin and thread page." }))
+          }
+          // Only the trusted origin and page are shared with thread readers, never query credentials or fragments.
+          context.url = `${origin}${page}`
+        }
+        return await respondThread(event, allowed.user, await writes.create(allowed.grant, { ...input, ...(context ? { context: completeContext(context) } : {}), author: allowed.author }))
       }
     }
 
@@ -383,24 +405,25 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
       if (method === "POST" && (action === "resolve" || action === "reopen")) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
-        if (action === "reopen") return respond(await writes.reopen(allowed.grant, id))
-        return respond(await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
+        if (action === "reopen") return await respondThread(event, allowed.user, await writes.reopen(allowed.grant, id))
+        return await respondThread(event, allowed.user, await writes.resolve(allowed.grant, id, allowed.author ?? { id: "anonymous", name: "Someone" }))
       }
       if (method === "DELETE" && action === "comments" && parts[3]) {
         const commentId = decodeURIComponent(parts[3])
         const comment = current.comments.find(candidate => candidate.id === commentId)
         if (!comment) return failure(commentsErrors.COMMENTS_NOT_FOUND({ id: commentId }))
         const [denied, allowed] = await access(event, "comment", current)
-        if (denied) return failure(denied)
-        if (comment.author.id === allowed.author?.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
-        // Someone else's comment: only people who may resolve delete it.
+        if (!denied && allowed.user && !allowed.user.guest && !comment.author.guest && comment.author.id === allowed.user.id) return respond(await writes.removeComment(allowed.grant, id, commentId))
+        // Resolve-only moderators may delete too. Guest IDs never prove ownership.
         const [cannot, resolver] = await access(event, "resolve", current)
         if (cannot) return failure(cannot)
+        if (!resolver.user || resolver.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.removeComment(resolver.grant, id, commentId))
       }
       if (method === "DELETE" && !action) {
         const [denied, allowed] = await access(event, "resolve", current)
         if (denied) return failure(denied)
+        if (!allowed.user || allowed.user.guest) return failure(commentsErrors.COMMENTS_FORBIDDEN({ action: "resolve" }))
         return respond(await writes.remove(allowed.grant, id))
       }
     }

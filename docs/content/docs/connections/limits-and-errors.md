@@ -142,3 +142,27 @@ See the `why` and `fix` fields in the error response.
 ### CONNECTIONS_UNKNOWN_ACTION
 
 See the `why` and `fix` fields in the error response.
+
+### CONNECTIONS_CHATGPT_IDENTITY
+
+The ID token failed signature, issuer, audience, expiry, nonce or account validation. Start a fresh `vitehub connections connect <name>` attempt.
+
+### CONNECTIONS_CHATGPT_REGISTRATION
+
+The callback client ID differs from the pending registration. Start a fresh sign-in. Keep each issued client ID with its account and host.
+
+### CONNECTIONS_CHATGPT_LOOPBACK
+
+ChatGPT plan usage needs an HTTP loopback callback on `127.0.0.1`. Run the CLI on the computer with your browser. For a VM, export and transfer the protected credential file, then import it there.
+
+### CONNECTIONS_CHATGPT_PERMISSION
+
+The grant lacks plan scopes. Connect again and allow plan usage. ViteHub does not fall back to an API key.
+
+### CONNECTIONS_CHATGPT_CLIENT
+
+Application code cannot use a ChatGPT grant with `useConnection().fetch()` or `.call()`. Set the Codex Driver gateway to `chatgpt()` from `vite-hub/gateways`.
+
+### CONNECTIONS_CHATGPT_TRANSFER
+
+The transfer file is invalid or the destination has an active or different account registration. Export a fresh file and import it into a disconnected Connection for the same account. Keep the file private.

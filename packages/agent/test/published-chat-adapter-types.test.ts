@@ -21,6 +21,7 @@ const packedPackages = [
   "connections",
   "env",
   "forge",
+  "gateways",
   "markdown-template",
   "rate-limit",
   "runtime",

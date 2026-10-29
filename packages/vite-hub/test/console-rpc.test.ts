@@ -1,5 +1,6 @@
 import { Readable } from "node:stream"
 
+import { defineHandler } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
@@ -9,7 +10,7 @@ import { installConsoleEnv } from "../src/console/runtime/server/env.ts"
 import { consoleInvocationsIdentityKey, consoleInvocationsIdentityRootKey, consoleInvocationsKey, consoleInvocationsRegistryKey, consoleInvocationsRootIdentityRegistryKey, consoleInvocationsRootKey, installConsoleInvocationFallback } from "../src/console/internal.ts"
 
 import { requestConsole } from "../src/console/runtime/client/request.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import consoleRpcHandler from "../src/console/runtime/server/rpc.ts"
 import { installConsoleProjectName, installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
@@ -39,7 +40,7 @@ describe("Console RPC", () => {
     const timestamp = "2026-08-23T12:00:00.000Z"
     await store.create({ id, createdAt: timestamp, updatedAt: timestamp, status: "completed", observations: [], traceId: "trace-rpc-encoded" })
     installConsoleInvocationFallback(defineAgentInvocations({ store }), process.cwd())
-    const response = await call(JSON.stringify({ method: consoleRpcMethods.invocation, input: { id } }))
+    const response = await call(JSON.stringify({ operation: "invocations.get", input: { id } }))
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toMatchObject({ ok: true, value: { invocation: { id } } })
   })
@@ -52,11 +53,11 @@ describe("Console RPC", () => {
       return inspectServerEnv({ token: { required: true, schema: { kind: "string" }, secret: true, source: { kind: "env", label: "env:RPC_TOKEN", name: "RPC_TOKEN", serializable: true } } }, event)
     })
     const request = Object.assign(new Request(callURL, {
-      body: JSON.stringify({ input: { query: { status: "1" } }, method: consoleRpcMethods.env }),
+      body: JSON.stringify({ input: { status: true }, operation: "env.get" }),
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
       method: "POST",
     }), { runtime: { name: "cloudflare", cloudflare: { context: { waitUntil: vi.fn(), passThroughOnException: vi.fn() }, env: { RPC_TOKEN: binding } } } })
-    const response = await consoleRpcHandler.fetch(request)
+    const response = await defineHandler(consoleRpcHandler).fetch(request)
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body).toMatchObject({ ok: true, value: { status: [{ status: "available", blocking: false }] } })
@@ -70,7 +71,7 @@ describe("Console RPC", () => {
     // A fresh module graph has no state from the first handler, like a second Worker isolate.
     const { default: secondHandler } = await import("../src/console/runtime/server/rpc.ts")
     expect(secondHandler).not.toBe(consoleRpcHandler)
-    const instances = [consoleRpcHandler, secondHandler]
+    const instances = [defineHandler(consoleRpcHandler), defineHandler(secondHandler)]
     let next = 0
     vi.stubGlobal("fetch", async (input: string | URL | Request, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(new URL(input, "http://vitehub.local"), init)
@@ -84,12 +85,12 @@ describe("Console RPC", () => {
     }
     expect(next).toBe(4)
     await expect(requestConsole("/api/_vitehub/console/definitions"))
-      .rejects.toMatchObject({ message: "A valid definition section is required.", name: "ConsoleRequestError", status: 400 })
+      .rejects.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("section"), name: "ConsoleRequestError", status: 400 })
   })
 
   it("reads the call from the H3 1 events of Nuxt 4, which carry Node's request", async () => {
     installConsoleSections("/console-rpc-nuxt4", ["env"])
-    const req = Object.assign(Readable.from([JSON.stringify({ method: consoleRpcMethods.sections, input: {} })]), {
+    const req = Object.assign(Readable.from([JSON.stringify({ operation: "sections.list", input: {} })]), {
       method: "POST",
       url: "/_vitehub/rpc/__call",
       headers: { host: "vitehub.local", "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -104,22 +105,22 @@ describe("Console RPC", () => {
 
   it("returns operation results and errors with no-store headers", async () => {
     installConsoleSections("/console-rpc-test", ["agents"])
-    const success = await call(JSON.stringify({ input: {}, method: consoleRpcMethods.sections }))
+    const success = await call(JSON.stringify({ input: {}, operation: "sections.list" }))
     expect(success.status).toBe(200)
     expect(success.headers.get("cache-control")).toBe("no-store")
     expect(success.headers.get("x-content-type-options")).toBe("nosniff")
     expect(success.headers.get("x-robots-tag")).toBe("noindex, nofollow")
     await expect(success.json()).resolves.toMatchObject({ ok: true, value: { sections: ["agents"] } })
 
-    const failure = await call(JSON.stringify({ method: consoleRpcMethods.definitions }))
+    const failure = await call(JSON.stringify({ operation: "definitions.list" }))
     expect(failure.status).toBe(400)
-    await expect(failure.json()).resolves.toMatchObject({ code: expect.any(String), message: "A valid definition section is required.", ok: false, status: 400 })
+    await expect(failure.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", fix: expect.stringContaining("--help"), message: expect.stringContaining("section"), ok: false, status: 400 })
   })
 
   it("preserves upstream search status messages in RPC errors", async () => {
     const response = await call(JSON.stringify({
-      input: { query: { search: "x".repeat(257) } },
-      method: consoleRpcMethods.search,
+      input: { search: "x".repeat(257) },
+      operation: "search.query",
     }))
     expect(response.status).toBe(400)
     await expect(response.json()).resolves.toMatchObject({
@@ -137,11 +138,11 @@ describe("Console RPC", () => {
       [handleConsoleRpcRequest(new Request("http://vitehub.local/_vitehub/rpc/__call/child", { body: "{}", headers: { [consoleRpcHeader]: "1" }, method: "POST" })), 404],
       [call("{"), 400],
       [call(JSON.stringify([])), 400],
-      [call(JSON.stringify({ method: "__proto__" })), 404],
-      [call(JSON.stringify({ method: "constructor" })), 404],
-      [call(JSON.stringify({ input: [], method: consoleRpcMethods.sections })), 400],
-      [call(JSON.stringify({ input: { query: { limit: 10 } }, method: consoleRpcMethods.sections })), 400],
-      [call(JSON.stringify({ input: { method: "DELETE" }, method: consoleRpcMethods.sections })), 400],
+      [call(JSON.stringify({ operation: "__proto__" })), 404],
+      [call(JSON.stringify({ operation: "constructor" })), 404],
+      [call(JSON.stringify({ input: [], operation: "sections.list" })), 400],
+      [call(JSON.stringify({ input: { limit: 10 }, operation: "sections.list" })), 400],
+      [call(JSON.stringify({ input: { method: "DELETE" }, operation: "sections.list" })), 400],
     ]
     for (const [pending, status] of cases) {
       const response = await pending
@@ -166,7 +167,7 @@ describe("Console RPC", () => {
   ])("rejects foreign browser calls before running an operation: %j", async (headers) => {
     for (const method of ["GET", "POST", "OPTIONS"]) {
       const response = await handleConsoleRpcRequest(new Request(callURL, {
-        body: method === "POST" ? JSON.stringify({ method: consoleRpcMethods.sections }) : undefined,
+        body: method === "POST" ? JSON.stringify({ operation: "sections.list" }) : undefined,
         headers,
         method,
       }))
@@ -184,7 +185,7 @@ describe("Console RPC", () => {
   ])("accepts same-origin evidence or the marker under a mounted Console path: %j", async (headers) => {
     installConsoleSections("/console-rpc-test", ["agents"])
     const response = await handleConsoleRpcRequest(new Request("https://vitehub.local/tools/_vitehub/rpc/__call", {
-      body: JSON.stringify({ method: consoleRpcMethods.sections }),
+      body: JSON.stringify({ operation: "sections.list" }),
       headers,
       method: "POST",
     }))
@@ -194,7 +195,7 @@ describe("Console RPC", () => {
 
   it("accepts browser same-origin metadata behind TLS termination", async () => {
     const response = await handleConsoleRpcRequest(new Request(callURL, {
-      body: JSON.stringify({ method: consoleRpcMethods.sections }),
+      body: JSON.stringify({ operation: "sections.list" }),
       headers: { origin: "https://vitehub.local", "sec-fetch-site": "same-origin" },
       method: "POST",
     }))
@@ -202,13 +203,13 @@ describe("Console RPC", () => {
   })
 
   it("limits the complete call body", async () => {
-    const oversized = await call(JSON.stringify({ input: { body: "x".repeat(16 * 1_024 * 1_024) }, method: consoleRpcMethods.agentInvocations }))
+    const oversized = await call(JSON.stringify({ input: { prompt: "x".repeat(16 * 1_024 * 1_024) }, operation: "agents.invoke" }))
     expect(oversized.status).toBe(413)
     await expect(oversized.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", docs: expect.stringMatching(/^https:\/\//), message: "Console request body exceeds the byte limit.", ok: false, status: 413 })
   })
 
   it("enforces the non-invocation limit on raw envelope bytes", async () => {
-    const envelope = JSON.stringify({ method: consoleRpcMethods.sections })
+    const envelope = JSON.stringify({ operation: "sections.list" })
     const body = envelope.padEnd(64 * 1_024, " ")
     expect((await call(body)).status).toBe(200)
     const response = await call(`${body} `)
@@ -219,7 +220,7 @@ describe("Console RPC", () => {
   it("cancels oversized ordinary envelopes before reading the remaining body", async () => {
     const encoder = new TextEncoder()
     const chunks = [
-      encoder.encode(JSON.stringify({ method: consoleRpcMethods.sections }).padEnd(32 * 1_024, " ")),
+      encoder.encode(JSON.stringify({ operation: "sections.list" }).padEnd(32 * 1_024, " ")),
       encoder.encode(" ".repeat(32 * 1_024)),
       encoder.encode(" "),
       encoder.encode(" ".repeat(32 * 1_024)),
@@ -246,26 +247,26 @@ describe("Console RPC", () => {
   })
 
   it("counts UTF-8 bytes for non-invocation envelopes", async () => {
-    const body = JSON.stringify({ input: { body: "é".repeat(40 * 1_024) }, method: consoleRpcMethods.sections })
+    const body = JSON.stringify({ input: { prompt: "é".repeat(40 * 1_024) }, operation: "sections.list" })
     expect(body.length).toBeLessThan(64 * 1_024)
     expect((await call(body)).status).toBe(413)
   })
 
-  it("keeps the invocation allowance for a method-only envelope", async () => {
-    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations })
+  it("keeps the invocation allowance for an operation-only envelope", async () => {
+    const envelope = JSON.stringify({ operation: "agents.invoke" })
     const response = await call(envelope.padEnd(80 * 1_024, " "))
-    expect(response.status).toBe(405)
-    await expect(response.json()).resolves.toMatchObject({ code: "CONSOLE_REQUEST_INVALID", message: "Method not allowed", ok: false, status: 405 })
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", ok: false, status: 400 })
   })
 
   it("keeps the larger allowance for invocation envelopes", async () => {
-    const response = await call(JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024), method: "POST" } }))
+    const response = await call(JSON.stringify({ operation: "agents.invoke", input: { prompt: "x".repeat(80 * 1_024) } }))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ message: "Missing Agent name.", ok: false, status: 400 })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022", message: expect.stringContaining("Invalid input for agents.invoke"), ok: false, status: 400 })
   })
 
   it("classifies invocation prefixes split across stream chunks", async () => {
-    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024), method: "POST" } })
+    const envelope = JSON.stringify({ operation: "agents.invoke", input: { prompt: "x".repeat(80 * 1_024) } })
     const bytes = new TextEncoder().encode(envelope)
     let offset = 0
     const body = new ReadableStream<Uint8Array>({
@@ -284,24 +285,24 @@ describe("Console RPC", () => {
       method: "POST",
     } as RequestInit))
     expect(response.status).toBe(400)
-    await expect(response.json()).resolves.toMatchObject({ message: "Missing Agent name." })
+    await expect(response.json()).resolves.toMatchObject({ code: "INTERNAL_R0022" })
   })
 
   it.each([
-    { input: { body: "x".repeat(80 * 1_024) }, method: consoleRpcMethods.agentInvocations },
-    { input: { method: consoleRpcMethods.agentInvocations, body: "x".repeat(80 * 1_024) }, method: consoleRpcMethods.sections },
+    { input: { prompt: "x".repeat(80 * 1_024) }, operation: "agents.invoke" },
+    { input: { prompt: "x".repeat(80 * 1_024) }, operation: "sections.list" },
   ])("requires a leading invocation method before allowing a large body", async (envelope) => {
     expect((await call(JSON.stringify(envelope))).status).toBe(413)
   })
 
-  it("rejects a duplicate method after a leading invocation method", async () => {
-    const invocation = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(80 * 1_024) } })
-    const duplicate = `${invocation.slice(0, -1)}, "method": ${JSON.stringify(consoleRpcMethods.sections)}}`
+  it("rejects a duplicate operation after a leading invocation operation", async () => {
+    const invocation = JSON.stringify({ operation: "agents.invoke", input: { prompt: "x".repeat(80 * 1_024) } })
+    const duplicate = `${invocation.slice(0, -1)}, "operation": ${JSON.stringify("sections.list")}}`
     expect((await call(duplicate)).status).toBe(400)
   })
 
   it("caps invocation bodies after selecting the larger allowance", async () => {
-    const envelope = JSON.stringify({ method: consoleRpcMethods.agentInvocations, input: { body: "x".repeat(16 * 1_024 * 1_024) } })
+    const envelope = JSON.stringify({ operation: "agents.invoke", input: { prompt: "x".repeat(16 * 1_024 * 1_024) } })
     expect((await call(envelope)).status).toBe(413)
   })
 })
