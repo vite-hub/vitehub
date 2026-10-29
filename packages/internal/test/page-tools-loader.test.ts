@@ -48,6 +48,10 @@ function pill() {
   }
 }
 
+function lazyControl(): HTMLButtonElement {
+  return document.querySelector("vitehub-tool")!.shadowRoot!.querySelector<HTMLButtonElement>("button")!
+}
+
 beforeEach(() => {
   sessionStorage.clear()
   vi.spyOn(console, "error").mockImplementation(() => {})
@@ -91,8 +95,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=4")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=4")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=5")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=5")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -223,6 +227,37 @@ describe("readViteHubPageSession", () => {
 })
 
 describe("lazy tools", () => {
+  it("isolates launch and retry controls from host button styles and leaves tools a fresh segment", async () => {
+    page("/?vitehub")
+    session({ tools: [{ ...consoleTool, lazy: true }] })
+    const style = document.createElement("style")
+    style.textContent = "button { display: none !important }"
+    document.body.append(style)
+    try {
+      const start = vi.fn((context: ViteHubPageToolContext) => {
+        context.bar.attachShadow({ mode: "open" }).append(document.createElement("button"))
+      })
+      const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue({ default: start })
+      await loadViteHubPageTools({ load })
+      const control = () => {
+        const segment = pill().element.querySelector("vitehub-tool")!
+        return (segment.shadowRoot ?? segment).querySelector("button")!
+      }
+      const launch = control()
+      expect(getComputedStyle(launch).display).not.toBe("none")
+      expect(launch.getRootNode()).toBeInstanceOf(ShadowRoot)
+      launch.click()
+      await vi.waitFor(() => expect(launch.textContent).toBe("Retry Console"))
+      expect(control()).toBe(launch)
+      expect(getComputedStyle(launch).display).not.toBe("none")
+      launch.click()
+      await vi.waitFor(() => expect(start).toHaveBeenCalledOnce())
+      expect(control()).not.toBe(launch)
+      expect(load).toHaveBeenCalledTimes(2)
+    }
+    finally { style.remove(); pill().exit.click() }
+  })
+
   it.each([false, true])("rolls back failed startup registrations (lazy: %s)", async (lazy) => {
     page("/?vitehub=console")
     session({ tools: [{ ...consoleTool, lazy }] })
@@ -247,7 +282,7 @@ describe("lazy tools", () => {
       expect(document.querySelector("vitehub-pill")).toBeNull()
       return
     }
-    document.querySelector<HTMLButtonElement>("vitehub-tool button")!.click()
+    lazyControl().click()
     await vi.waitFor(() => expect(document.querySelectorAll("vitehub-window")).toHaveLength(1))
     expect(signals[1]!.aborted).toBe(false)
     pill().exit.click()
@@ -292,7 +327,7 @@ describe("lazy tools", () => {
     const { load: modulesLoad, started } = modules()
     const load = vi.fn().mockRejectedValueOnce(new Error("offline")).mockImplementation(modulesLoad)
     await expect(loadViteHubPageTools({ load })).resolves.toEqual([lazyTool])
-    const retry = pill().element.querySelector<HTMLButtonElement>("vitehub-tool button")!
+    const retry = lazyControl()
     expect(retry.textContent).toBe("Retry Console")
     expect(retry.isConnected).toBe(true)
     retry.click()
@@ -308,7 +343,7 @@ describe("lazy tools", () => {
     const { load, started } = modules()
     await loadViteHubPageTools({ load })
     expect(load).not.toHaveBeenCalled()
-    const launch = document.querySelector<HTMLButtonElement>("vitehub-tool button")!
+    const launch = lazyControl()
     launch.click()
     launch.click()
     await vi.waitFor(() => expect(started).toHaveLength(1))
@@ -329,7 +364,7 @@ it("retries a lazy import and honors the editor exit guard", async () => {
     },
   })
   await loadViteHubPageTools({ load })
-  const launch = document.querySelector<HTMLButtonElement>("vitehub-tool button")!
+  const launch = lazyControl()
   launch.click()
   await vi.waitFor(() => expect(launch.textContent).toBe("Retry Console"))
   launch.click()
