@@ -231,6 +231,36 @@ describe("blob operations", () => {
     expect(folded.body).toMatchObject({ blobs: [], folders: ["docs"] })
   })
 
+  it.each([false, true])("counts folders toward a full provider page (with file: %s)", async withFile => {
+    const [error, object] = await blob.put("a.txt", "a")
+    expect(error).toBeNull()
+    const folders = withFile ? ["docs/"] : ["docs/", "images/"]
+    const list = vi.spyOn(blob, "list").mockResolvedValue([null, {
+      blobs: withFile ? [object!] : [], cursor: "next-page", folders, hasMore: true,
+    }])
+    try {
+      const result = await run({ folded: true, limit: 2, operation: "list" })
+      expect(result).toMatchObject({ status: 200, body: { cursor: "next-page", folders: folders.map(folder => folder.slice(0, -1)), hasMore: true, limit: 2 } })
+      expect(result.body.blobs).toHaveLength(withFile ? 1 : 0)
+      expect(list).toHaveBeenCalledExactlyOnceWith({ folded: true, limit: 2, prefix: "" })
+    }
+    finally { list.mockRestore() }
+  })
+
+  it("refills only the remaining entries after hiding a provider folder", async () => {
+    const list = vi.spyOn(blob, "list")
+      .mockResolvedValueOnce([null, { blobs: [], cursor: "page-2", folders: ["_vitehub/", "docs/"], hasMore: true }])
+      .mockResolvedValue([null, { blobs: [], cursor: "page-3", folders: ["images/"], hasMore: true }])
+    try {
+      await expect(run({ folded: true, limit: 2, operation: "list" })).resolves.toMatchObject({
+        status: 200, body: { blobs: [], cursor: "page-3", folders: ["docs", "images"], hasMore: true, limit: 2 },
+      })
+      expect(list).toHaveBeenCalledTimes(2)
+      expect(list).toHaveBeenNthCalledWith(2, { cursor: "page-2", folded: true, limit: 1, prefix: "" })
+    }
+    finally { list.mockRestore() }
+  })
+
   it("answers only to a call whose access includes the blob section", async () => {
     const call = (sections: "all" | readonly string[]) => runOperation(registry, "blob.put", { data: Buffer.from("x").toString("base64"), pathname: "guarded.txt" }, { access: { mode: "app", sections }, surface: "console", user: null })
     expect(await call(["kv"])).toMatchObject({ code: "INTERNAL_R0023", ok: false, status: 403 })

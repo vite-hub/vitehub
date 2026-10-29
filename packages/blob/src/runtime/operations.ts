@@ -240,9 +240,9 @@ export async function runBlobOperation(operation: "list" | "head" | "get" | "put
       let page = unwrap(await selected.storage.list(listOptions(input.cursor, limit)))
       const blobs = page.blobs.filter(object => visible(object.pathname))
       const folders = new Set((page.folders ?? []).filter(visible))
-      // Hidden objects can leave a page short. Fill it without passing the requested limit.
-      for (let pages = 1; input.showVitehub !== true && blobs.length < limit && page.hasMore && page.cursor && pages < maximumListPages; pages++) {
-        page = unwrap(await selected.storage.list(listOptions(page.cursor, limit - blobs.length)))
+      // Hidden entries can leave a page short. Count visible files and folders toward the requested limit.
+      for (let pages = 1; input.showVitehub !== true && blobs.length + folders.size < limit && page.hasMore && page.cursor && pages < maximumListPages; pages++) {
+        page = unwrap(await selected.storage.list(listOptions(page.cursor, limit - blobs.length - folders.size)))
         blobs.push(...page.blobs.filter(object => visible(object.pathname)))
         for (const folder of page.folders ?? []) if (visible(folder)) folders.add(folder)
       }

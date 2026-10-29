@@ -74,3 +74,22 @@ export const comments = createCommentsClient({
   query: { page: location.pathname },
 })
 ```
+
+## The overlay
+
+Nothing else to add: the pages of your app now have comments. `vitehub()` puts one `<script type="module">` tag, a loader of about 3 KB, into the HTML of every page. In `vite dev` and in the build it goes into `index.html`. Pages that your server renders get it from a Nitro middleware, which also covers the pages Nitro prerenders. Under Nuxt it goes in through the `render:html` hook.
+
+The loader asks the server `comments.session` with the visitor's cookie on allowed page loads and client-side navigation (see [Privacy](/docs/comments/operations/configure#content-security-policy-and-privacy) for the optional app-managed session marker). The answer is `{ user, canRead, canWrite }` and nothing else, and for a visitor who is not signed in it is `{ user: null, canRead: false, canWrite: false }` without running your `authorize` policy. Only when `canRead` is true does the loader download the overlay, about 160 KB (51 KB compressed). A visitor who is not signed in, or may not read comments, downloads nothing more, and sees nothing. If a later navigation finds that access has ended, the loader removes the overlay.
+
+That is one small `POST` per page load, for every visitor of the pages that get the overlay, anonymous ones included: a request of a few hundred bytes with no database access for a visitor who is not signed in. The loader asks again on client-side navigation. Limit the pages with `overlay.paths` and `overlay.exclude` if that is more than you want.
+
+Press `C` on a page, click a spot, and write. The toolbar at the bottom has the comment button, the list, and *Edit* when the page comes from the [Content](/docs/content) cms preset: the overlay asks `content.resolve` for the document at the page's URL and links to its editor in the Console. An app without Content has no such operation, so it has no Edit button. A visitor who may read but not write sees the threads without the writing tools.
+
+The overlay lives in a shadow root on an element with `data-comments-ui`, so your styles do not reach it and its styles do not reach your page. It follows the color scheme of the visitor (`prefers-color-scheme`). It follows client-side navigation too: `history.pushState`, `history.replaceState`, and `popstate` change the page that the threads belong to, and `/pricing` and `/pricing/` are one page. When the app is in dark mode (a `dark` class, `data-theme="dark"`, or `color-scheme: dark` on `<html>`) the overlay is dark; without a choice of the app it follows `prefers-color-scheme`. Comments show their text as Markdown for the small subset notes use: paragraphs, line breaks, `code`, bold, italics, and links.
+
+Turn it off, or limit it to some pages, in `vitehub()`:
+
+```ts [vite.config.ts]
+vitehub({ comments: { overlay: { paths: ['/docs/**'], exclude: ['/docs/internal/**'] } } })
+vitehub({ comments: { overlay: false } })
+```
