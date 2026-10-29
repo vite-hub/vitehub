@@ -82,7 +82,10 @@ export type AuthAccessAuthorizeResult = AccessAuthorizeResult
 export type AuthAccessAuthorize = AccessAuthorize
 
 /** The checked request, Session, and user that a guarded handler receives. Only Auth guards create it. */
-export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext>
+export type AuthAuthorization = Readonly<AuthAccessAuthorizationContext & {
+  /** `impersonatedBy` is the id of the administrator who opened this session as `user`. Better Auth's admin plugin sets it. */
+  session: AuthAccessAuthorizationContext["session"] & { impersonatedBy?: string | null }
+}>
 
 /** A server handler that runs only after an Auth guard accepts the request. */
 export type AuthGuardedHandler<TInput, TResult> = (input: TInput, authorization: AuthAuthorization) => TResult | Promise<TResult>

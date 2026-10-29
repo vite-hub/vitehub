@@ -7,6 +7,7 @@ import { consoleMountBase } from "./runtime/console-route.ts"
 import { consoleRequestURL } from "./runtime/server/request.ts"
 import { consoleAuthPath, consoleEventPath } from "./auth-path.ts"
 import { isConsoleDevelopmentBuild } from "./runtime/server/development.ts"
+import { consoleDiagnosticBody, isConsoleImpersonationRejection } from "./runtime/diagnostics.ts"
 
 export const consoleAuthBasePath = "/api/_vitehub/console/auth"
 
@@ -67,6 +68,110 @@ function consoleSignInDocument(message: string, actions: string, status = 200): 
       "x-robots-tag": "noindex, nofollow",
     },
     status,
+  })
+}
+
+const impersonatedSessionSchema = v.looseObject({
+  session: v.looseObject({ impersonatedBy: v.pipe(v.string(), v.minLength(1)), expiresAt: v.pipe(v.union([v.date(), v.string()]), v.transform(value => new Date(value))) }),
+  user: v.looseObject({ id: v.pipe(v.string(), v.minLength(1)), name: v.optional(v.string(), ""), email: v.optional(v.string(), "") }),
+})
+
+function remainingTime(expiresAt: Date): string {
+  const minutes = Math.max(1, Math.round((expiresAt.getTime() - Date.now()) / 60_000))
+  if (minutes < 60) return `${minutes} ${minutes === 1 ? "minute" : "minutes"}`
+  const hours = Math.round(minutes / 60)
+  return `${hours} ${hours === 1 ? "hour" : "hours"}`
+}
+
+/**
+ * The page that an impersonation session gets instead of the Console. It leads back to the administrator's own session
+ * through Better Auth's `stop-impersonating` endpoint, then opens the user in the Console.
+ */
+export function consoleImpersonationPage(input: {
+  user: { name: string, email: string }
+  expiresAt: Date
+  stopPath: string
+  consolePath: string
+  appPath: string
+}): Response {
+  const development = isConsoleDevelopmentBuild()
+  const name = input.user.name || input.user.email || "this user"
+  const nonce = crypto.randomUUID()
+  const literal = (value: string) => JSON.stringify(value).replaceAll("<", "\\u003c")
+  const script = `
+    const button = document.querySelector("button");
+    const error = document.querySelector("[role=alert]");
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Stopping…";
+      error.hidden = true;
+      try {
+        const response = await fetch(${literal(input.stopPath)}, {
+          method: "POST",
+          credentials: "same-origin",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        });
+        if (!response.ok) throw new Error("Stop failed");
+        window.location.assign(${literal(input.consolePath)});
+      } catch {
+        error.hidden = false;
+        button.disabled = false;
+        button.textContent = "Stop impersonating";
+      }
+    });
+  `
+  const page = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Viewing as ${escapeHTML(name)} · ViteHub Console</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+      body { min-height: 100dvh; margin: 0; display: grid; place-items: center; background: light-dark(#fafafa, #0a0a0a); color: light-dark(#171717, #f5f5f5); }
+      main { width: min(26rem, calc(100% - 3rem)); }
+      .state { display: inline-flex; align-items: center; gap: .375rem; margin: 0 0 1rem; padding: .125rem .5rem; border-radius: 999px; background: light-dark(#fef3c7, #422006); color: light-dark(#92400e, #fcd34d); font-size: .8125rem; font-weight: 500; }
+      .state::before { content: ""; width: .375rem; height: .375rem; border-radius: 999px; background: currentColor; }
+      h1 { margin: 0 0 .5rem; font-size: 1.5rem; font-weight: 600; line-height: 1.25; letter-spacing: -.01em; text-wrap: balance; overflow-wrap: anywhere; }
+      p { margin: 0 0 1.5rem; color: light-dark(#525252, #a3a3a3); line-height: 1.5; text-wrap: pretty; overflow-wrap: anywhere; }
+      .actions { display: flex; flex-wrap: wrap; gap: .75rem; }
+      button, a { min-height: 2.5rem; display: inline-flex; align-items: center; padding: 0 1rem; border-radius: .5rem; font: inherit; font-weight: 500; text-decoration: none; cursor: pointer; transition: transform 150ms ease-out; }
+      button { border: 1px solid transparent; background: light-dark(#171717, #f5f5f5); color: light-dark(#fff, #171717); }
+      a { border: 1px solid light-dark(#d4d4d4, #404040); background: transparent; color: inherit; }
+      button:not(:disabled):active, a:active { transform: scale(.96); }
+      button:disabled { opacity: .6; cursor: wait; }
+      button:focus-visible, a:focus-visible { outline: 2px solid #3b82f6; outline-offset: 3px; }
+      [role=alert] { margin: 1rem 0 0; color: light-dark(#b91c1c, #fca5a5); }
+      @media (prefers-reduced-motion: reduce) { button, a { transition: none; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="state">Impersonating</p>
+      <h1>Viewing the app as ${escapeHTML(name)}</h1>
+      <p>This browser uses the session of ${escapeHTML(input.user.email || name)}. The Console opens again after you stop impersonating. The session ends in about ${remainingTime(input.expiresAt)}.</p>
+      <div class="actions">
+        <button type="button">Stop impersonating</button>
+        <a href="${escapeHTML(input.appPath)}">Back to the app</a>
+      </div>
+      <p role="alert" hidden>Could not stop impersonating. Try again.</p>
+    </main>
+    <script nonce="${nonce}">${script}</script>
+  </body>
+</html>`
+  return new Response(page, {
+    headers: {
+      "cache-control": "no-store",
+      "content-security-policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors ${development ? "'self'" : "'none'"}`,
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+      "x-content-type-options": "nosniff",
+      "x-frame-options": development ? "SAMEORIGIN" : "DENY",
+      "x-robots-tag": "noindex, nofollow",
+    },
+    status: 403,
   })
 }
 
@@ -183,6 +288,20 @@ export function createConsoleAppAuthPages(resolveAuth: typeof getAuthForRequest)
       const mount = consoleMountBase(url.pathname)
       const page = `${mount}/_vitehub/sign-in`
       const authURL = new URL(context.baseURL)
+      if (denied && await isConsoleImpersonationRejection(denied)) {
+        const session = v.safeParse(impersonatedSessionSchema, await auth.api.getSession({ headers: request.headers }))
+        if (session.success) {
+          return consoleImpersonationPage({
+            user: session.output.user,
+            expiresAt: session.output.session.expiresAt,
+            stopPath: `${authURL.pathname.replace(/\/$/, "")}/admin/stop-impersonating`,
+            consolePath: `${mount}/_vitehub/auth/users?user=${encodeURIComponent(session.output.user.id)}`,
+            appPath: `${mount}/`,
+          })
+        }
+        // The impersonation ended after the check. The Console can open now.
+        return new Response(null, { headers: { "cache-control": "no-store", location: `${mount}/_vitehub` }, status: 303 })
+      }
       if (denied) {
         const diagnostic = v.safeParse(v.object({ code: v.literal("CONSOLE_ACCESS_DENIED") }), await denied.clone().json().catch(() => undefined))
         const response = diagnostic.success ? new Response("Forbidden.", { status: 403, headers: { "content-type": "text/plain" } }) : denied
@@ -376,6 +495,8 @@ export async function readConsoleSessionUser(auth: ConsoleSessionReader, request
 /** The app Auth access routes that protect the Console, and the Auth functions that check them. */
 export interface ConsoleAppAuthAccessOptions {
   getAuthForRequest: (request: Request, runtimeOptions: undefined, event: object) => ConsoleSessionReader
+  /** `console.impersonation`. An impersonation session then never opens the Console. */
+  impersonation?: boolean
   requireAuthAccessRoutes: (event: object, routeIndexes: number[], definition: undefined, requiredAuthorizeRouteIndexes: number[], options: { redirectToSignIn: false, reuse: true }) => Promise<Response | undefined>
   /** Rejects a request without a session. Used for a Console path that no access route matches. */
   requireSession: (event: object) => Promise<Response | undefined>
@@ -390,8 +511,25 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
   check: (event: object) => Promise<Response | undefined>
   user: (event: object) => Promise<ConsoleUser | undefined>
 } {
+  // One session read per request serves the impersonation check and the user reader.
+  const sessions = new WeakMap<object, Promise<unknown>>()
+  function readSession(event: object): Promise<unknown> {
+    let session = sessions.get(event)
+    if (!session) {
+      const request = toEventRequest(event)
+      session = options.getAuthForRequest(request, undefined, event).api.getSession({ headers: request.headers })
+      sessions.set(event, session)
+    }
+    return session
+  }
   return {
     async check(event) {
+      if (options.impersonation && v.is(impersonatedSessionSchema, await readSession(event))) {
+        return Response.json({ ...consoleDiagnosticBody("CONSOLE_IMPERSONATING"), ok: false, status: 403 }, {
+          headers: { "cache-control": "no-store", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, nofollow" },
+          status: 403,
+        })
+      }
       const request = toEventRequest(event)
       const path = consoleEventPath(event, request)
       const method = request.method.toUpperCase()
@@ -407,9 +545,9 @@ export function createConsoleAppAuthAccess(options: ConsoleAppAuthAccessOptions)
       const required = matched.filter(route => route.authorize).map(route => route.index)
       return options.requireAuthAccessRoutes(event, indexes, undefined, required, { redirectToSignIn: false, reuse: true })
     },
-    user(event) {
-      const request = toEventRequest(event)
-      return readConsoleSessionUser(options.getAuthForRequest(request, undefined, event), request)
+    async user(event) {
+      const session = v.safeParse(consoleSessionSchema, await readSession(event))
+      return session.success ? session.output.user : undefined
     },
   }
 }

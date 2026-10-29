@@ -106,6 +106,10 @@ Ban, unban, remove, role changes, field edits, session revocation, and impersona
 
 The client never receives session tokens, account passwords, access tokens, refresh tokens, or OAuth client secrets. Session revocation resolves the stored token on the server. Impersonation forwards only Better Auth's HttpOnly cookies and opens the app.
 
+Impersonation is off unless the host turns it on. The Console turns it on with `console.impersonation: true`. Server code passes `getAuthConsoleForRequest(request, event, { impersonation: true })`, and `inspect.stopImpersonating(request)` ends it. It also needs `events.store`, so that each start and stop is recorded. With it on, `describe(request)` returns `impersonation` with the session length and the user that the request's session impersonates, and `user(id, request)` returns whether Better Auth accepts that user as a target. See [Impersonate users](/docs/development/console#impersonate-users).
+
+With the admin plugin, Auth bounds every impersonation session, whoever starts it. The session never refreshes past its `impersonationSessionDuration`, and it cannot create OAuth, MCP, or device grants, API keys, passkeys, passwords, email changes, linked accounts, two-factor settings, one-time tokens, or another impersonation. Those requests return `403` with `IMPERSONATION_FORBIDDEN`. Grant and client reads, such as `/oauth2/get-consents`, still work.
+
 Better Auth OAuth Provider 1.7.7 has no admin endpoint that revokes one user's grant. Its consent-delete endpoint is owner-only and does not revoke issued tokens. The Console shows Revoke disabled with this reason. It does not impersonate users or delete token rows to bypass the provider.
 
 Session lists read the Better Auth session table. Sessions kept only in secondary storage cannot be enumerated. Set `session.storeSessionInDatabase: true` when using secondary storage to inspect those sessions.
