@@ -195,11 +195,12 @@ describe("the Console Nitro configuration", () => {
 })
 
 describe("the Console below a Nitro baseURL", () => {
-  it("leaves the base to Nitro, so the Console and the page tools are served once below it", async () => {
+  it.each([false, { server: "./console-auth.ts" }] as const)("leaves the base to Nitro, including MCP discovery with auth %j", async (auth) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      await writeFile(join(root, "console-auth.ts"), "export default {}")
+      const plugin = consoleVitePlugin({ console: { auth }, preset: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -209,7 +210,12 @@ describe("the Console below a Nitro baseURL", () => {
       const routes = config.nitro?.handlers.map(handler => handler.route)
       expect(routes).toContain("/_vitehub/**")
       expect(routes).toContain("/_vitehub/rpc/**")
+      expect(routes).toContain("/_vitehub/mcp")
       expect(routes).toContain("/_vitehub/page/session")
+      if (auth) {
+        expect(routes).toContain("/.well-known/oauth-protected-resource")
+        expect(routes).toContain("/.well-known/oauth-authorization-server")
+      }
       expect(routes?.some(route => route.startsWith("/portal/"))).toBe(false)
       expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     }

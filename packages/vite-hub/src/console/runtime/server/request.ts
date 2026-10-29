@@ -17,6 +17,7 @@ export interface ConsoleRequestEvent {
     req?: {
       headers?: Record<string, string | string[] | undefined>
       method?: string
+      originalUrl?: string
       socket?: { remoteAddress?: string, encrypted?: boolean }
       url?: string
       [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | string>
@@ -145,7 +146,8 @@ export function setConsoleResponseHeaders(event: ConsoleRequestEvent): void {
 }
 
 export function consoleRequestURL(event: ConsoleRequestEvent): URL {
-  const value = event.req?.url ?? event.node?.req?.url ?? "/"
+  // H3 1 strips a mounted base from url and retains the public path in originalUrl.
+  const value = event.node?.req?.originalUrl || event.req?.url || event.node?.req?.url || "/"
   const header = (name: string) => {
     for (const source of [event.req?.headers, event.headers, event.node?.req?.headers]) {
       if (!source) continue
