@@ -91,6 +91,8 @@ A frame token reads the draft of its one document, and nothing else:
 
 The Published view loads the page with a `GET` of `?vitehub-content-published`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
 
+On Nitro 3, a same-origin redirect of the page, such as a locale or canonical redirect, is followed in the server inside the frame scope, up to five times, and the frame shows the last page at the URL it posted to. A redirect to another origin goes back to the browser, without the frame scope. On Nitro 2 every redirect goes back to the browser, so its destination renders without the frame scope.
+
 Pages must allow a frame from their own origin: `frame-ancestors 'self'` or no `frame-ancestors`, and no `X-Frame-Options: DENY`. Data that the page fetches from the browser after it loads does not carry the frame scope: it reads `published`, or `draft` with a preview cookie.
 
 ## Published reads

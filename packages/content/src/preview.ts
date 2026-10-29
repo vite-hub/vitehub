@@ -694,6 +694,12 @@ function markNodeRedirects(event: ContentPreviewEvent): void {
       const headers = rest.find(isPlainRecord)
       const name = headers && Object.keys(headers).find(name => name.toLowerCase() === "location")
       if (headers && name && String(headers[name]) === headers[name]) headers[name] = publishedLocation(headers[name], event)
+      // Node also takes the headers as one flat list of names and values, which `getHeader()` cannot read back.
+      const raw = rest.find(Array.isArray)
+      for (let index = 0; raw && index < raw.length - 1; index += 2) {
+        const value: unknown = raw[index + 1]
+        if (String(raw[index]).toLowerCase() === "location" && String(value) === value) raw[index + 1] = publishedLocation(value, event)
+      }
       const location: unknown = response.getHeader instanceof Function ? Reflect.apply(response.getHeader, response, ["location"]) : undefined
       if (String(location) === location && response.setHeader instanceof Function) {
         Reflect.apply(response.setHeader, response, ["location", publishedLocation(location, event)])
@@ -769,6 +775,31 @@ function decodeChunks(chunks: Uint8Array[], size: number): string {
     offset += chunk.byteLength
   }
   return new TextDecoder().decode(joined)
+}
+
+/** How many same-origin redirects a preview frame follows in the server before it returns the redirect. */
+const maximumFrameRedirects = 5
+
+/**
+ * Runs a preview frame page and follows its same-origin redirects inside the frame scope, such as a locale or canonical
+ * redirect. The browser would follow them without the form, and so without the token and the document on screen. The
+ * frame shows the last page at the URL it posted to. A redirect to another origin, or past the limit, is returned.
+ */
+async function followFrameRedirects(first: Request, page: (url: URL) => Request, render: (request: Request) => unknown): Promise<unknown> {
+  let request = first
+  for (let hop = 0; ; hop++) {
+    const result = await render(request)
+    if (!isResponseLike(result) || !isRedirect(result.status) || hop === maximumFrameRedirects) return result
+    const location = result.headers.get("location")
+    if (location === null || !URL.canParse(location, request.url)) return result
+    const target = new URL(location, request.url)
+    if (target.origin !== new URL(first.url).origin) return result
+    result.body?.cancel().catch(() => undefined)
+    // A server never sees the fragment: the browser keeps it.
+    target.hash = ""
+    target.searchParams.delete(contentPreviewFrameParameter)
+    request = page(target)
+  }
 }
 
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
@@ -847,8 +878,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           const headers = new Headers(request.headers)
           headers.delete("content-type")
           headers.delete("content-length")
-          const page = new Request(url, { method: "GET", headers, signal: request.signal })
-          return await runFrame(blocked, body, () => scoped(page, () => Reflect.apply(fetch, nitroApp, [page, ...rest])))
+          const page = (target: URL) => new Request(target, { method: "GET", headers, signal: request.signal })
+          return await runFrame(blocked, body, () => followFrameRedirects(page(url), page, next => scoped(next, () => Reflect.apply(fetch, nitroApp, [next, ...rest]))))
         })()
       }
       return

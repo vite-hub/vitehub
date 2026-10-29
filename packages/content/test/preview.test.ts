@@ -316,6 +316,38 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect((await posts.get("hello"))?.data.title).toBe("Published")
   })
 
+  it("follows same-origin redirects of a Nitro 3 preview frame inside its scope", async () => {
+    const { content, posts } = await setup()
+    const app = new H3()
+      .get("/blog/old", () => Response.redirect("https://site.test/en/blog/hello", 301))
+      .get("/en/blog/hello", () => new Response(null, { status: 302, headers: { location: "../../blog/hello?lang=en#top" } }))
+      .get("/blog/away", () => Response.redirect("https://other.test/blog/hello", 302))
+      .get("/blog/loop", () => new Response(null, { status: 302, headers: { location: "/blog/loop" } }))
+      .get("/blog/hello", async event => ({ url: event.req.url, get: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id }))
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const frame = (path: string) => nitroApp.fetch(new Request(`https://site.test${path}?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: "https://site.test" },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" } } }) }),
+    }))
+
+    // A locale redirect, then a relative canonical one: the last page renders with the document on screen.
+    const followed = await frame("/blog/old")
+    expect(followed.status).toBe(200)
+    expect(followed.headers.get("cache-control")).toBe("private, no-store")
+    expect(await followed.json()).toEqual({ url: "https://site.test/blog/hello?lang=en", get: "On screen", frame: "hello" })
+    // A redirect to another origin goes back to the browser, private, and the token stays in the form.
+    const away = await frame("/blog/away")
+    expect(away.status).toBe(302)
+    expect(away.headers.get("location")).toBe("https://other.test/blog/hello")
+    expect(away.headers.get("cache-control")).toBe("private, no-store")
+    // A loop stops after five redirects.
+    const loop = await frame("/blog/loop")
+    expect(loop.status).toBe(302)
+  })
+
   it("lets a frame token read the draft of its one document, and no other draft through any read", async () => {
     vi.stubEnv("VITEHUB_CONTENT_KEY", key)
     const workspace = await historyWorkspace()
@@ -792,6 +824,9 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
       if (path === "/en") return res.writeHead(301, { Location: "/old" }).end()
       if (path === "/public") return res.writeHead(308, { location: "https://site.test/page" }).end()
       if (path === "/away") return res.writeHead(302, { location: "https://other.test/page" }).end()
+      // Node also takes the headers as one flat list of names and values.
+      if (path === "/raw") return res.writeHead(302, ["Location", "/page", "X-Hop", "raw"]).end()
+      if (path === "/raw-away") return res.writeHead(302, ["location", "https://other.test/page"]).end()
       res.setHeader("content-type", "application/json")
       res.end(JSON.stringify({ url: req.url, active: content.preview.active(), a: (await posts.get("a"))?.data.title, b: (await content.preview.run(event, async () => (await posts.get("b"))?.data.title)) }))
     }
@@ -810,7 +845,10 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
     expect(await location(`/public?${marked}`)).toBe("https://site.test/page")
     expect(await location(`/public?${marked}`, { "x-forwarded-host": "site.test", "x-forwarded-proto": "https" })).toBe(`https://site.test/page?${marked}`)
     expect(await location(`/away?${marked}`)).toBe("https://other.test/page")
+    expect(await location(`/raw?${marked}`)).toBe(`/page?${marked}`)
+    expect(await location(`/raw-away?${marked}`)).toBe("https://other.test/page")
     expect(await location("/en")).toBe("/old")
+    expect(await location("/raw")).toBe("/page")
     // fetch() follows the redirects with the cookie, as a browser does.
     const followed = await fetch(`${origin}/en?${marked}`, { headers: { cookie } })
     expect(followed.headers.get("cache-control")).toBe("private, no-store")
