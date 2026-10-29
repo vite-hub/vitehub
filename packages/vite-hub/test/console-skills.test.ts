@@ -9,11 +9,14 @@ import { installConsoleInvocationFallback } from "../src/console/internal.ts"
 import { requestConsole } from "../src/console/runtime/client/request.ts"
 import { handleConsoleRpcRequest } from "./support/console-rpc.ts"
 
+// Two-, four-, and three-byte UTF-8 sequences. The lone surrogate encodes as U+FFFD.
+const unicodeContent = "é🙂\ud800"
 function install() {
   const base = withColocatedAgentSkills(defineAgent({ driver: "codex", runtime: false, workspace: {} }), {
     reference: { content: "# Evidence\n", workspacePath: ".agents/skills/review/references/evidence.md" },
     binary: { content: new Uint8Array([0xff, 0]), workspacePath: ".agents/skills/review/logo.png" },
     large: { content: "x".repeat(512 * 1024 + 1), workspacePath: ".agents/skills/review/large.txt" },
+    unicode: { content: unicodeContent, workspacePath: ".agents/skills/review/unicode.md" },
   })
   const definition = agentWithSkills(base, { review: "# Review\n\nRead the evidence.\n" })
   const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
@@ -41,6 +44,7 @@ describe("Console bundled Skills", () => {
       { path: ".agents/skills/review/logo.png", size: 2 },
       { path: ".agents/skills/review/references/evidence.md", size: 11 },
       { path: ".agents/skills/review/SKILL.md", size: 29 },
+      { path: ".agents/skills/review/unicode.md", size: new TextEncoder().encode(unicodeContent).byteLength },
     ] } })
     expect(JSON.stringify(result)).not.toContain("Read the evidence")
   })
