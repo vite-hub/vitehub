@@ -134,6 +134,12 @@ describe("ViteHub MCP", () => {
       expect(result.body.error).toMatchObject({ code: -32602 })
     }
     expect(calls).toHaveLength(0)
+    // Since 2025-11-25, a schema failure is a tool error that the Agent reads. Arguments that are not an object stay a protocol error.
+    const latest = { headers: { "MCP-Protocol-Version": "2025-11-25" } }
+    const corrected = await rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: checked.name, arguments: { id: "t1", limit: 0 } } }, latest)
+    expect(corrected.body.result).toMatchObject({ isError: true, content: [{ type: "text", text: expect.stringContaining(`Invalid arguments for ${checked.name}`) }] })
+    expect((await rpc({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: checked.name, arguments: "bad" } }, latest)).body.error).toMatchObject({ code: -32602 })
+    expect(calls).toHaveLength(0)
     const input = { id: "t1", limit: 100, status: "resolved", resolved: false, nested: { names: ["Ada"] } }
     expect((await rpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: checked.name, arguments: input } })).body.result.isError).toBe(false)
     expect(calls[0]?.input).toEqual(input)
