@@ -101,6 +101,11 @@ export const redactedInspectionValue = "[redacted]"
 const secretKeyPattern = /secret|token|passw(?:or)?d|credential|api[-_\s]?key|private[-_\s]?key|authorization|cookie|signature|dsn|connection[-_\s]?string/i
 const secretValuePattern = /^(?:[a-z][a-z0-9+.-]*:\/\/[^/\s?#]*@|bearer\s)/i
 
+/** Whether an inspection field names a credential, regardless of its value. */
+export function isSecretInspectionKey(key: string): boolean {
+  return secretKeyPattern.test(key)
+}
+
 const embeddedUrlCredentialPattern = /\b([a-z][a-z0-9+.-]*:\/\/)[^/\s?#]*@/gi
 const embeddedCookiePattern = /\b([\w-]*cookie[\w-]*["']?\s*[:=]\s*)(?:"(?:\\[^\r\n]|[^"\\\r\n])*"(?:\s*;\s*[\w.-]+\s*=[^;\r\n]*)*|'(?:\\[^\r\n]|[^'\\\r\n])*'(?:\s*;\s*[\w.-]+\s*=[^;\r\n]*)*|[^\r\n]+?(?=\s*(?:;\s*[^;=\r\n/]+\s*(?:\r?\n|$)|&|\r?\n|$)))/gi
 const embeddedBearerPattern = /\bbearer\s+[^\s,;]+/gi
@@ -135,7 +140,7 @@ export function redactInspectionValue(value: unknown, key?: string): unknown {
   const seen = new WeakSet<object>()
   let remaining = 1000
   function visit(entry: unknown, entryKey?: string, depth = 0): unknown {
-    if (entryKey && secretKeyPattern.test(entryKey)) return redactedInspectionValue
+    if (entryKey && isSecretInspectionKey(entryKey)) return redactedInspectionValue
     if (--remaining < 0 || depth > 10) return "[truncated]"
     if (typeof entry === "string") {
       const text = entry.slice(0, 10_000)

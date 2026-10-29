@@ -986,7 +986,7 @@ describe.skipIf(process.env.VITEHUB_CONSUMER_CONTRACT !== "1")("published vite-h
       const server = await withDevServer("pnpm", ["exec", "nuxt", "dev", "--no-fork"], appDir, /Ready in/, async (origin) => {
         const page = await fetch(`${origin}/_vitehub`)
         const sections = await fetch(`${origin}/_vitehub/rpc/__call`, {
-          body: JSON.stringify({ method: "vitehub:console:sections" }),
+          body: JSON.stringify({ operation: "sections.list", input: {} }),
           headers: { "content-type": "application/json", "x-vitehub-console": "1" },
           method: "POST",
         })

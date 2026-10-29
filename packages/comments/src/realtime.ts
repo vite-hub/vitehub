@@ -22,20 +22,27 @@ function toRealtimeUser(user: CommentsUser): RealtimeUser {
  * that Comments resolves. Guests name themselves in the browser. ViteHub adds it as the `comments` definition when the
  * host has a room authority.
  */
-export function commentsRealtime(comments: Comments, options: { session?: (event: H3Event) => Promise<CommentsUser | null | undefined | false> } = {}): RealtimeDefinition {
+export function commentsRealtime(comments: Comments, options: {
+  /** Auth fallback, skipped when custom `identify` is configured. */
+  session?: (event: H3Event) => Promise<CommentsUser | null | undefined>
+  /** Console section access, checked before custom `identify` or Comments policies. */
+  consoleSession?: (event: H3Event) => Promise<CommentsUser | null | undefined | false>
+} = {}): RealtimeDefinition {
   // Realtime keeps only the id, name, email, and image of a user. Decide access in `identify`, with the whole user that
   // `authorize` policies read, such as a role, and answer `authorize` for the same request.
   const readers = new WeakMap<H3Event, boolean>()
   return {
     async identify({ event }) {
-      const session = await options.session?.(event).catch(() => null)
-      if (session === false) {
+      const consoleUser = await options.consoleSession?.(event).catch(() => false as const)
+      if (consoleUser === false) {
         readers.set(event, false)
         return null
       }
       const user = comments.options.identify
         ? await comments.options.identify({ event })
-        : session
+        : options.consoleSession
+          ? consoleUser
+          : await options.session?.(event).catch(() => null)
       readers.set(event, await comments.can({ user: user ?? null, action: "read" }))
       // Browser WebSockets carry no guest headers. Keep Console guests' browser identities in awareness instead of
       // binding them to the shared session fallback. Custom identify results, including guests, remain server-bound.

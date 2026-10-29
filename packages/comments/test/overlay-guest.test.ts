@@ -58,13 +58,13 @@ async function compose(user: CommentsSession["user"], realtime = false) {
 
 describe("Console guest comment authors", () => {
   it("lets Realtime generate a distinct identity for an unnamed Console guest", async () => {
-    await compose({ id: "guest:console", name: "Guest", guest: true }, true)
+    await compose(null, true)
     expect(connectRealtimeRoom).toHaveBeenCalledTimes(1)
     expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toBeUndefined()
   })
 
   it("rejoins the active room with the saved identity after the first name is entered", async () => {
-    const { requests, shadow, button } = await compose({ id: "guest:console", name: "Guest", guest: true }, true)
+    const { requests, shadow, button } = await compose(null, true)
     const initialRoom = vi.mocked(connectRealtimeRoom).mock.results[0]!.value
     shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!.value = "Ana García"
     button.click()
@@ -77,12 +77,12 @@ describe("Console guest comment authors", () => {
 
   it("uses the saved browser identity when a Console guest joins on a later page", async () => {
     const guest = saveGuest("Ana García")
-    await compose({ id: "guest:console", name: "Guest", guest: true }, true)
+    await compose(null, true)
     expect(vi.mocked(connectRealtimeRoom).mock.calls[0]![2]?.identity).toEqual({ id: `guest:${guest.id}`, name: "Ana García (guest)" })
   })
 
   it("saves the entered guest name and sends a distinct guest identity", async () => {
-    const { requests, shadow, button } = await compose({ id: "guest:console", name: "Guest", guest: true })
+    const { requests, shadow, button } = await compose(null)
     shadow.querySelector<HTMLInputElement>('input[aria-label="Your name"]')!.value = "  Ana García  "
     button.click()
     await vi.waitFor(() => expect(requests).toHaveLength(1))
@@ -95,7 +95,7 @@ describe("Console guest comment authors", () => {
   })
 
   it("requires a name from a new Console guest", async () => {
-    const { requests, shadow, button } = await compose({ id: "guest:console", name: "Guest", guest: true })
+    const { requests, shadow, button } = await compose(null)
     button.click()
     expect(requests).toHaveLength(0)
     expect(readGuest()).toBeUndefined()

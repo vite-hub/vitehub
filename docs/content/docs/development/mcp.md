@@ -8,7 +8,7 @@ icon: i-lucide-plug
 
 ViteHub MCP is an MCP server at `/_vitehub/mcp`. It gives an Agent, such as Claude Code or Codex, the tools of the Console sections that you may use. Today these are the [Comments](/docs/comments) tools: an Agent reads what the team said about a page, finds the code, then replies and resolves the thread.
 
-It comes with the [Console](/docs/development/console). There is nothing to turn on. Each request runs with the Console access of the person who connects, and `console.authorize` sections apply: a person without the `comments` section gets no Comments tools.
+It comes with the [Console](/docs/development/console). There is nothing to turn on. Each request runs with the Console access of the person who connects, and `console.authorize` sections apply: a person without the `comments` section gets no Comments tools. A `comments:read` grant lists and permits only `comments_list_threads` and `comments_get_thread`; replies and resolutions require the full `comments` grant.
 
 ## Connect an Agent
 

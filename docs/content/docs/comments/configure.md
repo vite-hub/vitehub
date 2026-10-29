@@ -132,17 +132,19 @@ export default defineConfig({
 
 See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
+A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and editing Content fields require the full `comments` grant as well as the Comments policy.
+
 When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. That sets the comment mode cookie, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
 
 | Console sign-in | Comment author |
 | --- | --- |
 | `auth: 'app'` or a Console Auth config | The signed-in Console user |
 | `provider: 'cloudflare-access'` | The email that Cloudflare Access checked |
-| `auth: false`, or the dev server without sign-in | A guest. The overlay asks for a display name. |
+| `auth: false`, or the dev server without sign-in | A guest (`user: null` in policies). The overlay asks for a display name when guest access is allowed. |
 
 ### Use your own login
 
-When the app does not use ViteHub Auth, return the user from `identify`. Return `null` for an anonymous request.
+Return the user from `identify` to use your own login. Return `null` for an anonymous request. When `identify` is configured, Comments does not read the ViteHub Auth session. Apps with the Console still check Console section access first.
 
 ```ts [server/comments.ts]
 import { getCookie } from 'h3'
@@ -342,7 +344,7 @@ Without the hint, the server returns each page unchanged: no script, no request,
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
 - A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
 
-The overlay is a custom element with its own shadow root. Your CSS does not change it, and its CSS does not change your page.
+The overlay is a custom element with a closed shadow root. Your CSS does not change it, and its CSS does not change your page.
 
 ## Mark Content fields
 
@@ -458,4 +460,4 @@ The Console serves [ViteHub MCP](/docs/development/mcp) at `/_vitehub/mcp`. An A
 
 An app with its own MCP server can register the same tools: `commentsMcpTools(comments)` from `vite-hub/comments/runtime` returns them with a JSON Schema and a `call(input, { user })` function each.
 
-Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. A session reader returning `false` denies access before `identify` or `authorize`. Otherwise `identify` takes precedence; without `identify`, the session reader in `commentsMcpTools(comments, { session })` is used, or `user` when no reader is supplied.
+Your server must authenticate `user` before calling a tool; pass `null` for an anonymous caller. Without an event, the tools use this user even when Comments defines `identify`. To use request-based Comments identity, pass `call(input, { user, event })` with the H3 request event. Pass Console access through `commentsMcpTools(comments, { consoleSession })`: a `false` result or a failed read denies access before `identify` or `authorize`. Otherwise `identify` takes precedence. Without `identify`, the Console reader is used, then the Auth reader in `{ session }` if no Console reader is supplied, or `user` when neither reader is supplied. Browser guest headers name an author only when `authorize` permits the anonymous caller.

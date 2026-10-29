@@ -28,12 +28,12 @@ function fakeLogin(user: CommentsUser | null): CommentsGitHubLogin & { handled: 
   }
 }
 
-async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"], base?: string } = {}) {
+async function setup(githubLogin: CommentsGitHubLogin, development = false, options: { identify?: DefineCommentsOptions["identify"], session?: CommentsHandlerOptions["session"], consoleSession?: CommentsHandlerOptions["consoleSession"], base?: string } = {}) {
   const comments = defineComments({ identify: options.identify })
   const database = await createDatabase()
   defineCommentsPlugin({ comments, database: () => database, overlay: "/overlay.js", development })({})
   const route = `${options.base ?? ""}/api/_vitehub/comments`
-  const app = new H3().all(`${route}/**`, createCommentsHandler({ comments, realtime: false, githubLogin, session: options.session }))
+  const app = new H3().all(`${route}/**`, createCommentsHandler({ comments, realtime: false, githubLogin, session: options.session, consoleSession: options.consoleSession }))
   const call = async (path: string, init: RequestInit = {}) => {
     const response = await app.fetch(new Request(`${origin}${route}${path}`, init))
     return { response, body: response.status === 204 ? undefined : await response.json() as { data?: any } }
@@ -101,7 +101,7 @@ describe("GitHub sign-in in the Comments API", () => {
   it("preserves Console denial without offering or consulting GitHub sign-in", async () => {
     const login = fakeLogin(ada(true))
     const user = vi.spyOn(login, "user")
-    const call = await setup(login, true, { session: async () => false })
+    const call = await setup(login, true, { consoleSession: async () => false })
     const { response, body } = await call("/session")
     expect(body!.data).toMatchObject({ user: null, can: { read: false, comment: false, resolve: false } })
     expect(body!.data).not.toHaveProperty("signIn")

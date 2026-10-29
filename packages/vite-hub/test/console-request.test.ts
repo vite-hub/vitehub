@@ -14,18 +14,18 @@ import {
 } from "../src/console/runtime/client/request.ts"
 import { consoleScheduleRunDescription, runConsoleScheduleDefinition } from "../src/console/runtime/client/schedule-run.ts"
 import { consoleNavigationError, createConsoleSectionLoader, loadConsoleNavigation } from "../src/console/runtime/client/sections.ts"
-import { consoleRpcHeader, consoleRpcMethods } from "../src/console/runtime/rpc.ts"
+import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 
 import type { ConsoleRpcResult } from "../src/console/runtime/rpc.ts"
 
 // Decode each stateless call and answer with the result that mocks.call returns.
 const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-  const payload: { input: unknown; method: string } = JSON.parse(String(init?.body))
+  const payload: { input: unknown; operation: string } = JSON.parse(String(init?.body))
   const signal = init?.signal ?? undefined
   const result = await new Promise<ConsoleRpcResult>((resolve, reject) => {
     signal?.throwIfAborted()
     signal?.addEventListener("abort", () => reject(signal.reason), { once: true })
-    Promise.resolve(mocks.call(payload.method, payload.input)).then(resolve, reject)
+    Promise.resolve(mocks.call(payload.operation, payload.input)).then(resolve, reject)
   })
   return Response.json(result, { status: result.ok ? 200 : result.status })
 })
@@ -45,9 +45,7 @@ describe("Console requests", () => {
     mocks.call.mockResolvedValue({ ok: true, value: { content: "hello" } })
     await expect(requestConsole("/workspace/api/_vitehub/console/invocations/run%20one/workspace?path=AGENTS.md"))
       .resolves.toEqual({ content: "hello" })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocationWorkspace, {
-      id: "run one", method: "GET", query: { path: "AGENTS.md" },
-    })
+    expect(mocks.call).toHaveBeenCalledWith("invocations.workspace", { id: "run one", path: "AGENTS.md" })
   })
 
   it.each(["", "/workspace"])("rejects malformed invocation ids before making an RPC request (%s)", async (suffix) => {
@@ -67,7 +65,7 @@ describe("Console requests", () => {
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledOnce()
     expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", {
-      body: JSON.stringify({ method: consoleRpcMethods.sections, input: { method: "GET", query: {} } }),
+      body: JSON.stringify({ operation: "sections.list", input: {} }),
       cache: "no-store",
       credentials: "same-origin",
       headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
@@ -89,10 +87,7 @@ describe("Console requests", () => {
       .resolves.toEqual({ sections: ["kv"] })
 
     expect(fetchMock).toHaveBeenCalledWith("/tenant/api/_vitehub/console/thing/_vitehub/rpc/__call", expect.any(Object))
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
-      method: "GET",
-      query: {},
-    })
+    expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
   it("retries only fetch-originated TypeErrors", async () => {
@@ -102,7 +97,7 @@ describe("Console requests", () => {
 
     const cyclic: Record<string, unknown> = {}
     cyclic.self = cyclic
-    const requestFailure = await requestConsole("/cyclic/api/_vitehub/console/sections", { body: cyclic }).catch(error => error)
+    const requestFailure = await requestConsole("/cyclic/api/_vitehub/console/kv", { body: cyclic, method: "POST" }).catch(error => error)
     expect(requestFailure).toBeInstanceOf(TypeError)
     expect(isRetryableConsoleRequestError(requestFailure)).toBe(false)
     expect(fetchMock).toHaveBeenCalledOnce()
@@ -147,10 +142,7 @@ describe("Console requests", () => {
     await expect(requestConsole("/first/api/_vitehub/console/sections"))
       .resolves.toEqual({ sections: ["kv"] })
     expect(fetchMock).toHaveBeenCalledWith("/first/_vitehub/rpc/__call", expect.objectContaining({ method: "POST", signal: undefined }))
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.sections, {
-      method: "GET",
-      query: {},
-    })
+    expect(mocks.call).toHaveBeenCalledWith("sections.list", {})
   })
 
   it("preserves URL query values and lets explicit options replace them", async () => {
@@ -160,14 +152,10 @@ describe("Console requests", () => {
       "/api/_vitehub/console/invocations?id=old-1&id=old-2&agent=old&limit=10&status=old",
       { query: { agent: ["selected"], limit: 20, status: [] } },
     )).resolves.toEqual({ invocations: [] })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocations, {
-      method: "GET",
-      query: {
-        agent: ["selected"],
-        id: ["old-1", "old-2"],
-        limit: "20",
-        status: [],
-      },
+    expect(mocks.call).toHaveBeenCalledWith("invocations.list", {
+      agent: "selected",
+      id: ["old-1", "old-2"],
+      limit: 20,
     })
   })
 
@@ -177,14 +165,21 @@ describe("Console requests", () => {
     await expect(requestConsole(
       "/api/_vitehub/console/invocations/run-1?observationCount=100&observationCursor=cursor-100",
     )).resolves.toEqual({ observations: [] })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocation, {
+    expect(mocks.call).toHaveBeenCalledWith("invocations.get", {
       id: "run-1",
-      method: "GET",
-      query: {
-        observationCount: "100",
-        observationCursor: "cursor-100",
-      },
+      observationCount: 100,
+      observationCursor: "cursor-100",
     })
+  })
+
+  it("keeps the owner code and details of a failed document action", async () => {
+    const details = { id: "hello", issues: [{ field: "title", message: "Required", path: [] }] }
+    mocks.call.mockResolvedValue({ code: "CONTENT_INVALID", details, message: "hello has invalid fields.", ok: false, status: 422 })
+
+    const failure = await requestConsole("/api/_vitehub/console/documents?action=save&section=content", { body: { id: "hello" }, method: "POST" }).catch(error => error)
+    expect(failure).toBeInstanceOf(ConsoleRequestError)
+    expect(failure).toMatchObject({ code: "CONTENT_INVALID", details, failureCode: "CONTENT_INVALID", status: 422 })
+    expect(mocks.call).toHaveBeenCalledWith("documents.action", { action: "save", body: { id: "hello" }, section: "content" })
   })
 
   it("preserves remote status and retries only transient request failures", async () => {
@@ -196,11 +191,7 @@ describe("Console requests", () => {
         name: "ConsoleRequestError",
         status: 502,
       })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.invocation, {
-      id: "selected",
-      method: "GET",
-      query: {},
-    })
+    expect(mocks.call).toHaveBeenCalledWith("invocations.get", { id: "selected" })
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(408))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(429))).toBe(true)
     expect(isRetryableConsoleRequestError(new ConsoleRequestError(502))).toBe(true)
@@ -215,11 +206,7 @@ describe("Console requests", () => {
       body: { key: "x".repeat(24_576), store: "default" },
       method: "POST",
     })).resolves.toEqual({ found: true })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.kv, {
-      body: { key: "x".repeat(24_576), store: "default" },
-      method: "POST",
-      query: {},
-    })
+    expect(mocks.call).toHaveBeenCalledWith("kv.get", { key: "x".repeat(24_576), store: "default" })
   })
 
   it("routes Agent invocation writes with the encoded Agent identity", async () => {
@@ -229,11 +216,10 @@ describe("Console requests", () => {
       body: { invokerProfileId: "person", prompt: "Test this Agent" },
       method: "POST",
     })).resolves.toEqual({ agent: "support/team", id: "invocation" })
-    expect(mocks.call).toHaveBeenCalledWith(consoleRpcMethods.agentInvocations, {
+    expect(mocks.call).toHaveBeenCalledWith("agents.invoke", {
       agent: "support%2Fteam",
-      body: { invokerProfileId: "person", prompt: "Test this Agent" },
-      method: "POST",
-      query: {},
+      invokerProfileId: "person",
+      prompt: "Test this Agent",
     })
   })
 
@@ -243,8 +229,8 @@ describe("Console requests", () => {
     await requestConsole("/base/api/_vitehub/console/schedule-run", { body: { name: "sync" }, method: "POST" })
     await requestConsole("/base/api/_vitehub/console/invocation-capabilities")
 
-    expect(mocks.call).toHaveBeenNthCalledWith(1, consoleRpcMethods.scheduleRun, { body: { name: "sync" }, method: "POST", query: {} })
-    expect(mocks.call).toHaveBeenNthCalledWith(2, consoleRpcMethods.invocationCapabilities, { method: "GET", query: {} })
+    expect(mocks.call).toHaveBeenNthCalledWith(1, "schedule.run", { name: "sync" })
+    expect(mocks.call).toHaveBeenNthCalledWith(2, "invocations.capabilities", {})
   })
 
   it("reports a Schedule run result and a run that did not start", async () => {
@@ -287,13 +273,13 @@ describe("Console requests", () => {
       })
     expect(mocks.call).toHaveBeenNthCalledWith(
       1,
-      consoleRpcMethods.kv,
-      expect.objectContaining({ query: { store: "cache" } }),
+      "kv.list",
+      { store: "cache" },
     )
     expect(mocks.call).toHaveBeenNthCalledWith(
       2,
-      consoleRpcMethods.kv,
-      expect.objectContaining({ query: { cursor: "next", store: "cache" } }),
+      "kv.list",
+      { cursor: "next", store: "cache" },
     )
   })
 
@@ -317,10 +303,8 @@ describe("Console requests", () => {
     })
     expect(mocks.call).toHaveBeenNthCalledWith(
       2,
-      consoleRpcMethods.kv,
-      expect.objectContaining({
-        query: { cursor: "next", limit: "50", prefix: "match", store: "cache" },
-      }),
+      "kv.list",
+      { cursor: "next", limit: 50, prefix: "match", store: "cache" },
     )
   })
 
@@ -371,6 +355,7 @@ describe("Console requests", () => {
     ).resolves.toEqual({
       auth: false,
       contributions: {},
+      operations: [],
       projectName: "console-host",
       scoped: false,
       sections: ["kv"],
@@ -378,12 +363,20 @@ describe("Console requests", () => {
     expect(mocks.call).toHaveBeenCalledTimes(1)
   })
 
+  it("keeps the names of the operations that run app code, for the pages to check", async () => {
+    mocks.call.mockResolvedValue({ ok: true, value: { operations: ["workflow.start", 7, "schedule.run"], sections: ["kv"] } })
+
+    await expect(
+      loadConsoleNavigation("/operations-navigation-test/api/_vitehub/console/sections"),
+    ).resolves.toMatchObject({ operations: ["workflow.start", "schedule.run"] })
+  })
+
   it("loads independent auth availability in the navigation response", async () => {
     mocks.call.mockResolvedValue({ ok: true, value: { auth: true, sections: ["kv"] } })
 
     await expect(
       loadConsoleNavigation("/auth-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: true, contributions: {}, scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: true, contributions: {}, operations: [], scoped: false, sections: ["kv"] })
   })
 
   it("preserves Cloudflare Access auth mode in the navigation response", async () => {
@@ -391,7 +384,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/cloudflare-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, scoped: false, sections: ["kv"] })
+    ).resolves.toEqual({ auth: "cloudflare-access", contributions: {}, operations: [], scoped: false, sections: ["kv"] })
   })
 
   it("keeps only valid contributed sections in the navigation response", async () => {
@@ -412,7 +405,7 @@ describe("Console requests", () => {
 
     await expect(
       loadConsoleNavigation("/contributions-navigation-test/api/_vitehub/console/sections"),
-    ).resolves.toEqual({ auth: false, contributions: { queues }, scoped: false, sections: ["kv", "queues"] })
+    ).resolves.toEqual({ auth: false, contributions: { queues }, operations: [], scoped: false, sections: ["kv", "queues"] })
   })
 
   it.each(["", "/admin"])("visits allowed sections under the app mount %s", async (mount) => {
