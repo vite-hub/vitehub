@@ -24,4 +24,6 @@ export function createConsoleMcpDiscoveryHandler(delegatedPaths: readonly string
   }
 }
 
-export default createConsoleMcpDiscoveryHandler()
+const consoleMcpDiscoveryHandler: (event: H3Event) => Promise<Response | undefined> = createConsoleMcpDiscoveryHandler()
+
+export default consoleMcpDiscoveryHandler
