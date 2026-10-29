@@ -82,7 +82,7 @@ The Draft view posts a form to the page URL with `?vitehub-content-preview`. The
 - `content.collection(name).get()` and `list()` without `ref` or `revision` return the posted documents in place of their stored drafts. Other documents read `draft`.
 - Nested requests in the same request, such as `/api/content/**` during SSR, keep the same scope. Comark reads, such as `content.get()` and `queryCollection()`, read the stored draft.
 - Nothing is stored. The response is `private, no-store` and `noindex`.
-- A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
+- A form without a valid token, or with `Sec-Fetch-Site` or `Origin` from another site, gets `403`. `Origin` must match the page URL with its protocol, which comes from `x-forwarded-proto` behind a proxy or from the TLS connection. The parameter on a `GET` grants nothing. The token travels in the form body, never in the URL.
 
 The Published view loads the page with a plain `GET`, as a guest sees it. Elements with `contentField()` attributes select their field in the editor, and top-level text fields change in place in the Draft view.
 

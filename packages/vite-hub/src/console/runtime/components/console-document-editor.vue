@@ -143,11 +143,16 @@ const revisionsLoadedAt = ref(Date.now());
 const preview = ref<{ current: ConsoleRawDocument | null, document: ConsoleRawDocument | null, revision: ConsoleDocumentRevision }>();
 const previewLoading = ref(false);
 const restoring = ref(false);
-/** The version on the site, when it changed after this draft started from it. `published` is its digest, or null when the site deleted it. */
-const siteConflict = ref<{ site: ConsoleDocument | null, published: string | null }>();
+/**
+ * The version on the site, when it changed after this draft started from it. `published` is its digest, or null when the
+ * site deleted it. In Local only, `shared` is the shared draft that Publish shared draft reviewed and compares instead.
+ */
+const siteConflict = ref<{ site: ConsoleDocument | null, published: string | null, shared?: ConsoleDocument }>();
 const siteConflictOpen = ref(false);
 const siteConflictLoading = ref(false);
 const siteConflictError = ref<string>();
+/** The reviewed shared draft that the open comparison is for, kept while the site read fails so Retry compares it again. */
+const siteConflictShared = ref<ConsoleDocument>();
 const resolvingSite = ref(false);
 const bodyEditor = ref<InstanceType<typeof ConsoleMarkdownEditor>>();
 const titleInput = ref<HTMLTextAreaElement>();
@@ -1072,7 +1077,7 @@ async function publishShared(): Promise<void> {
   if (!reviewed?.draft || publishing.value || props.documentId === undefined) return;
   if (reviewed.draft.conflict) {
     sharedPublishOpen.value = false;
-    await openSiteConflict();
+    await openSiteConflict(reviewed.draft);
     return;
   }
   publishing.value = true;
@@ -1385,17 +1390,25 @@ function onHeaderAction(action: HeaderAction | undefined): void {
   if (action === "site") void openSiteConflict();
 }
 
-/** Shows the version on the site next to the draft, so the person chooses before a publish erases either. */
-async function openSiteConflict(): Promise<void> {
+/**
+ * Shows the version on the site next to the draft, so the person chooses before a publish erases either. In Local only
+ * the comparison is with `shared`, the shared draft that was reviewed, and never with the local edits on screen.
+ */
+async function openSiteConflict(shared?: ConsoleDocument): Promise<void> {
   if (siteConflictLoading.value) return;
+  if (local.value && !shared) {
+    await openSharedPublish();
+    return;
+  }
   siteConflictOpen.value = true;
   siteConflict.value = undefined;
+  siteConflictShared.value = shared;
   siteConflictError.value = undefined;
   siteConflictLoading.value = true;
   try {
     const site = await props.client.get(props.collection.name, id.value, "published");
     // Only a successful read confirms the version (or its absence) that the person can acknowledge.
-    siteConflict.value = { site, published: site?.digest ?? null };
+    siteConflict.value = { site, published: site?.digest ?? null, ...(shared ? { shared } : {}) };
   }
   catch (error) {
     siteConflictError.value = `Couldn't load the site version. ${consoleErrorMessage(error, "Try again.")}`;
@@ -1413,6 +1426,15 @@ async function openSiteConflict(): Promise<void> {
 async function resolveSiteConflict(choice: "site" | "draft"): Promise<void> {
   const compared = siteConflict.value;
   if (!compared || !base.value || resolvingSite.value) return;
+  if (compared.shared) {
+    await resolveSharedSiteConflict(choice, compared.site, compared.published, compared.shared);
+    return;
+  }
+  // The local edits on screen are never a draft to keep here. Apply is the only way they save.
+  if (local.value) {
+    siteConflictOpen.value = false;
+    return;
+  }
   if (!(await session.claim())) return;
   clearTimeout(autosaveTimer);
   await bodyEditor.value?.commit();
@@ -1450,6 +1472,55 @@ async function resolveSiteConflict(choice: "site" | "draft"): Promise<void> {
   }
   finally {
     resolvingSite.value = false;
+  }
+}
+
+/**
+ * Resolves the site conflict of the reviewed shared draft in Local only. The save holds the site version or that shared
+ * draft as it was reviewed, never the local edits, and names both digests: a newer shared save or another site change
+ * fails it and the review opens again. The local edits stay in this tab; Apply then compares them with the new draft.
+ */
+async function resolveSharedSiteConflict(choice: "site" | "draft", site: ConsoleDocument | null, published: string | null, shared: ConsoleDocument): Promise<void> {
+  if (!local.value || props.documentId === undefined) return;
+  const source = choice === "site" && site ? site : shared;
+  // As in Apply: a live room holds the lease for everyone in it; otherwise this tab claims the lease for the save.
+  const roomFor = Boolean(liveDefinition && hasBody.value && !liveFallback.value);
+  if (!roomFor && !(await session.claim())) return;
+  resolvingSite.value = true;
+  try {
+    const saved = await props.client.save(props.collection.name, props.documentId, {
+      body: source.body,
+      data: compact(source.data),
+      ifDigest: shared.digest,
+      ifPublishedDigest: published,
+      session: consoleTabSession,
+      ...(roomFor ? { live: true } : {}),
+    });
+    takeState(saved);
+    siteConflictOpen.value = false;
+    siteConflict.value = undefined;
+    notifyChanged();
+    previewReloads.value++;
+    toast.show({ title: choice === "site" ? "The shared draft matches the site again. Your local edits are still here." : "Shared draft kept. Review it, then publish." });
+    if (choice === "draft") await openSharedPublish();
+  }
+  catch (error) {
+    if (isConsoleConflict(error)) {
+      siteConflictOpen.value = false;
+      siteConflict.value = undefined;
+      toast.error("The shared draft or the site changed while you compared. Review it again.");
+      await openSharedPublish();
+    }
+    else if (consoleLeaseHolder(error)) toast.error("Someone else is editing. Your local edits stay here. Try again when they stop.");
+    else toast.error(`Couldn't save. ${consoleErrorMessage(error, "Try again.")}`);
+  }
+  finally {
+    resolvingSite.value = false;
+    // Local edits need no lease: report as a viewer again, as when Local only started.
+    if (leaseMode.value === "editing") {
+      session.resume();
+      void session.refresh();
+    }
   }
 }
 
@@ -2241,22 +2312,27 @@ const menuItems = computed(() => [[
       <ConsoleLoading v-if="siteConflictLoading" label="Loading the site version…" />
       <div v-else-if="siteConflictError" class="grid justify-items-start gap-3">
         <p role="alert" class="text-sm text-muted">{{ siteConflictError }}</p>
-        <UButton variant="outline" label="Retry" @click="openSiteConflict" />
+        <UButton variant="outline" label="Retry" @click="openSiteConflict(siteConflictShared)" />
       </div>
       <div v-else-if="siteConflict" class="grid gap-3">
         <p class="text-xs text-muted">
           <span class="font-medium text-highlighted">Removed lines</span> are on the site,
-          <span class="font-medium text-highlighted">added lines</span> are your draft.
-          <template v-if="!siteConflict.site"> The site no longer has this {{ noun.toLowerCase() }}. Keep your draft to publish it again.</template>
+          <span class="font-medium text-highlighted">added lines</span> are {{ siteConflict.shared ? "the shared draft. Your local edits are not part of it" : "your draft" }}.
+          <template v-if="!siteConflict.site"> The site no longer has this {{ noun.toLowerCase() }}. Keep {{ siteConflict.shared ? "the shared" : "your" }} draft to publish it again.</template>
         </p>
-        <ConsoleDocumentDiff :before="siteConflict.site ? { body: siteConflict.site.body, data: siteConflict.site.data } : null" :after="{ body: draft.body, data: compact(draft.data) }" :format="collection.format" :name="fileName" />
+        <ConsoleDocumentDiff
+          :before="siteConflict.site ? { body: siteConflict.site.body, data: siteConflict.site.data } : null"
+          :after="siteConflict.shared ? { body: siteConflict.shared.body, data: compact(siteConflict.shared.data) } : { body: draft.body, data: compact(draft.data) }"
+          :format="collection.format"
+          :name="fileName"
+        />
       </div>
     </template>
     <template #footer>
       <div class="flex w-full flex-wrap justify-end gap-2">
         <UButton variant="ghost" label="Keep editing" @click="siteConflictOpen = false" />
         <UButton v-if="siteConflict?.site" variant="outline" label="Use the site version" :loading="resolvingSite" @click="resolveSiteConflict('site')" />
-        <UButton label="Keep my draft" :disabled="!siteConflict" :loading="resolvingSite" @click="resolveSiteConflict('draft')" />
+        <UButton :label="siteConflict?.shared ? 'Keep the shared draft' : 'Keep my draft'" :disabled="!siteConflict" :loading="resolvingSite" @click="resolveSiteConflict('draft')" />
       </div>
     </template>
   </UModal>

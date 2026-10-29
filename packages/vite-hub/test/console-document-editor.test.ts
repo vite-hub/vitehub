@@ -4,10 +4,14 @@ import { defineComponent, h, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
+import { readConsoleLocalDraft, writeConsoleLocalDraft } from "../src/console/runtime/client/preview"
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
 import ConsoleDocumentDiff from "../src/console/runtime/components/console-document-diff.vue"
 
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
+
+const claimLease = vi.hoisted(() => vi.fn(async () => true))
 
 vi.mock("vue-router", () => ({
   onBeforeRouteLeave: vi.fn(),
@@ -18,7 +22,7 @@ vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => (
 vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/presence")>(),
   useConsoleDocumentPresence: () => ({
-    claim: async () => true,
+    claim: claimLease,
     holder: ref(null),
     mayWrite: ref(true),
     mode: ref("free"),
@@ -65,7 +69,19 @@ const UModal = defineComponent({
 const wrappers: Array<{ unmount(): void }> = []
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
+  sessionStorage.clear()
+  claimLease.mockClear()
 })
+
+const stubs = {
+  ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
+  ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
+  UButton,
+  UModal,
+  UTooltip: { template: "<slot />" },
+  UFieldGroup: { template: "<slot />" },
+  UDropdownMenu: true, UEmpty: true, UFormField: true, UInputDate: true, UInputTime: true,
+}
 
 async function mountEditor(published: () => Promise<ConsoleDocument | null>, initial = draft) {
   const client = {
@@ -75,17 +91,7 @@ async function mountEditor(published: () => Promise<ConsoleDocument | null>, ini
   }
   const wrapper = shallowMount(ConsoleDocumentEditor, {
     props: { changes: 0, client, collection, documentId: "hello" },
-    global: {
-      stubs: {
-        ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
-        ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
-        UButton,
-        UModal,
-        UTooltip: { template: "<slot />" },
-        UFieldGroup: { template: "<slot />" },
-        UDropdownMenu: true, UEmpty: true, UFormField: true, UInputDate: true, UInputTime: true,
-      },
-    },
+    global: { stubs },
   })
   wrappers.push(wrapper)
   await flushPromises()
@@ -160,5 +166,148 @@ describe("Published conflict comparison", () => {
     await wrapper.get('[data-label="Keep my draft"]').trigger("click")
     await flushPromises()
     expect(client.save).toHaveBeenCalledWith("posts", "hello", expect.objectContaining({ data: draft.data, ifPublishedDigest: null }))
+  })
+})
+
+const conflictError = (ref?: "published") => new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: ref ? { ref, documents: [] } : {} })
+
+/**
+ * A store with the checks of the Content store: a save names the shared draft digest it replaces and, after a site
+ * change, the site digest it compared. A collection without a live room, so saves pass this tab's edit lease.
+ */
+function conflictStore() {
+  let version = 0
+  const store = {
+    site: { ...site, data: { title: "Site from Git" }, digest: "site-2" } as ConsoleDocument,
+    shared: { ...draft, data: { title: "Shared, saved by someone else" }, digest: "shared-2", conflict: { published: "site-1" } } as ConsoleDocument,
+    move(data: Record<string, unknown>) {
+      store.shared = { ...store.shared, data, digest: `shared-moved-${++version}` }
+    },
+  }
+  const client = {
+    ...createConsoleDocumentsClient("", "content"),
+    get: vi.fn(async (_collection: string, _id: string, ref?: "draft" | "published") => structuredClone(ref === "published" ? store.site : store.shared)),
+    save: vi.fn(async (_collection: string, _id: string, input: { data?: Record<string, unknown>, ifDigest?: string | null, ifPublishedDigest?: string | null, live?: boolean }) => {
+      if (input.ifDigest !== store.shared.digest) throw conflictError()
+      if (input.ifPublishedDigest !== undefined && input.ifPublishedDigest !== store.site.digest) throw conflictError()
+      store.shared = { ...store.shared, conflict: input.ifPublishedDigest === undefined ? store.shared.conflict : undefined, data: input.data ?? {}, digest: `shared-saved-${++version}` }
+      return structuredClone(store.shared)
+    }),
+    publish: vi.fn(async (_collection: string, documents: Array<{ digest: string | null, id: string }>) => {
+      if (documents[0]?.digest !== store.shared.digest) throw conflictError()
+      if (store.shared.conflict) throw conflictError("published")
+      store.site = { ...store.shared, conflict: undefined, state: "published" }
+      return { documents: [{ id: "hello" }] }
+    }),
+  }
+  return { store, client }
+}
+
+const privateEdit = { title: "PRIVATE local edit" }
+
+/** Opens the editor in Local only, with private edits that started from an older shared draft, then reviews Publish shared draft. */
+async function reviewSharedPublish() {
+  const { store, client } = conflictStore()
+  writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "", data: { title: "Shared start" } }, version: { body: "", data: privateEdit } })
+  const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "hello" }, global: { stubs } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+  await flushPromises()
+  // The review shows the shared draft. It also changed on the site, so Publish opens the comparison and publishes nothing.
+  expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: store.shared.data } })
+  await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+  await flushPromises()
+  expect(client.publish).not.toHaveBeenCalled()
+  return { store, client, wrapper }
+}
+
+function savedPrivateData(client: ReturnType<typeof conflictStore>["client"]): boolean {
+  return client.save.mock.calls.some(([, , input]) => input.data?.title === privateEdit.title)
+}
+
+describe("Publish shared draft from Local only, when the site changed too", () => {
+  it("compares the reviewed shared draft, never the private edits", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toEqual(expect.objectContaining({ before: { body: "", data: store.site.data }, after: { body: "", data: store.shared.data } }))
+    expect(wrapper.text()).toContain("Your local edits are not part of it")
+    expect(wrapper.find('[data-label="Keep my draft"]').exists()).toBe(false)
+    expect(wrapper.find('[data-label="Keep the shared draft"]').exists()).toBe(true)
+    expect(client.save).not.toHaveBeenCalled()
+  })
+
+  it("keeps the shared draft with the lease and both digests, then publishes it, and the private edits stay in the tab", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    const reviewed = store.shared
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    expect(claimLease).toHaveBeenCalled()
+    expect(client.save).toHaveBeenCalledOnce()
+    const [, , input] = client.save.mock.calls[0]!
+    expect(input).toMatchObject({ data: reviewed.data, ifDigest: reviewed.digest, ifPublishedDigest: "site-2" })
+    expect(input).not.toHaveProperty("live")
+    // The review opens again with the kept shared draft, and publishing it now succeeds.
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: reviewed.data } })
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.publish).toHaveBeenLastCalledWith("posts", [{ digest: store.shared.digest, id: "hello" }])
+    expect(store.site.data).toEqual(reviewed.data)
+    expect(savedPrivateData(client)).toBe(false)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+    expect(wrapper.find('header [data-label="Publish shared draft"]').exists()).toBe(true)
+  })
+
+  it("uses the site version for the shared draft only", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Use the site version"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenCalledOnce()
+    expect(client.save.mock.calls[0]![2]).toMatchObject({ data: { title: "Site from Git" }, ifDigest: "shared-2", ifPublishedDigest: "site-2" })
+    expect(store.shared.data).toEqual({ title: "Site from Git" })
+    expect(savedPrivateData(client)).toBe(false)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+  })
+
+  it("saves nothing when the person keeps editing", async () => {
+    const { wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Keep editing"]').trigger("click")
+    await flushPromises()
+    expect(client.save).not.toHaveBeenCalled()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+  })
+
+  it.each([
+    ["a newer shared save", (store: ReturnType<typeof conflictStore>["store"]) => store.move({ title: "Shared, saved again" })],
+    ["another site change", (store: ReturnType<typeof conflictStore>["store"]) => { store.site = { ...store.site, digest: "site-3" } }],
+  ])("overwrites nothing after %s while comparing, and reviews again", async (_name, race) => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    race(store)
+    const before = structuredClone(store.shared)
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save.mock.settledResults[0]?.type).toBe("rejected")
+    expect(store.shared).toEqual(before)
+    expect(wrapper.find('[data-label="Keep the shared draft"]').exists()).toBe(false)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: store.shared.data } })
+    expect(savedPrivateData(client)).toBe(false)
+  })
+
+  it("saves the private edits only through Apply, after its own comparison with the newer shared draft", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-label="Cancel"]').trigger("click")
+    await wrapper.get('[data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    // The private edits started from shared-1, so Apply refuses and compares first.
+    expect(client.save.mock.settledResults.at(-1)?.type).toBe("rejected")
+    expect(store.shared.data.title).not.toBe(privateEdit.title)
+    // Only an explicit choice in that comparison saves them, over the exact shared draft it showed.
+    const compared = store.shared.digest
+    await wrapper.get('[data-label="Overwrite with mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ data: privateEdit, ifDigest: compared }))
+    expect(store.shared.data).toEqual(privateEdit)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
   })
 })

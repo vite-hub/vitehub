@@ -339,6 +339,9 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect((await post(field({}), { cookie: await previewCookie(content) })).status).toBe(403)
     expect(handler).not.toHaveBeenCalled()
     expect((await post(field({ token }), { "sec-fetch-site": "same-origin" })).status).toBe(200)
+    // A Web Request has a full URL, so a forwarded protocol does not change the origin it is checked against.
+    expect((await post(field({ token }), { "sec-fetch-site": "same-origin", origin: "https://site.test", "x-forwarded-proto": "http" })).status).toBe(200)
+    expect((await post(field({ token }), { "sec-fetch-site": "same-origin", origin: "http://site.test", "x-forwarded-proto": "http" })).status).toBe(403)
     // The parameter on a GET grants nothing.
     const page = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`))
     expect(page.headers.get("cache-control")).toBeNull()
@@ -364,6 +367,37 @@ describe("content preview", { timeout: 30_000 }, () => {
     await nitroApp.h3App.handler({ node: { req: request } })
     expect(seen).toEqual([{ method: "GET", url: "/blog/hello?lang=en", title: "On screen" }])
     expect(request.headers).not.toHaveProperty("content-type")
+  })
+
+  it("checks a Nitro 2 frame Origin against the public protocol, from TLS or a proxy, and never from Origin", async () => {
+    const { content } = await setup()
+    const { token } = await content.preview.sign()
+    const rendered = vi.fn()
+    const nitroApp = { h3App: { handler: rendered }, hooks: { hook: () => undefined } }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const body = new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token }) }).toString()
+    async function post(headers: Record<string, string>, encrypted: boolean) {
+      rendered.mockClear()
+      const request = Object.assign((async function* () {
+        yield new TextEncoder().encode(body)
+      })(), { method: "POST", url: `/blog/hello?${contentPreviewFrameParameter}`, socket: { encrypted }, headers: { host: "site.test", "sec-fetch-site": "same-origin", ...headers } })
+      const end = vi.fn()
+      await nitroApp.h3App.handler({ node: { req: request, res: { headersSent: false, setHeader: () => undefined, end } } })
+      return rendered.mock.calls.length === 1 ? 200 : end.mock.calls.length === 1 ? 403 : 0
+    }
+    // Direct TLS, and HTTPS that a reverse proxy ends before a plain HTTP socket.
+    expect(await post({ origin: "https://site.test" }, true)).toBe(200)
+    expect(await post({ origin: "https://site.test", "x-forwarded-proto": "https" }, false)).toBe(200)
+    expect(await post({ origin: "http://site.test" }, false)).toBe(200)
+    // Another site, another protocol, or another port is refused, whatever the Origin claims.
+    expect(await post({ origin: "https://evil.test" }, true)).toBe(403)
+    expect(await post({ origin: "https://evil.test", "x-forwarded-proto": "https" }, false)).toBe(403)
+    expect(await post({ origin: "http://site.test" }, true)).toBe(403)
+    expect(await post({ origin: "http://site.test", "x-forwarded-proto": "https" }, false)).toBe(403)
+    expect(await post({ origin: "https://site.test" }, false)).toBe(403)
+    expect(await post({ origin: "https://site.test", "x-forwarded-proto": "http" }, true)).toBe(403)
+    expect(await post({ origin: "https://site.test:8443" }, true)).toBe(403)
+    expect(await post({ origin: "https://site.test", "sec-fetch-site": "cross-site" }, true)).toBe(403)
   })
 
   it("sets and clears a secure, HttpOnly, SameSite=Strict cookie through an H3 event", async () => {

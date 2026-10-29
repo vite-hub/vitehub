@@ -106,7 +106,7 @@ The editing menu in the header switches between **Collaborative** and **Local on
 - **Local only** keeps your edits in this tab. They never save, never reach the live session, and nobody else sees them. A reload keeps them; closing the tab asks first. The Draft view shows them as **Local draft**.
 - **Apply to shared draft** saves them over the shared draft they started from. When someone saved the shared draft since, nothing is saved: a comparison opens with **Overwrite with mine**, **Discard mine**, and **Keep editing locally**.
 - **Discard** drops them. Switching back to Collaborative with local edits asks to apply or discard them first.
-- **Publish shared draft** publishes the shared draft, never the local edits. It shows what would go live first, and refuses when the shared draft changed while you reviewed it.
+- **Publish shared draft** publishes the shared draft, never the local edits. It shows what would go live first, and refuses when the shared draft changed while you reviewed it. When the site also changed, the comparison shows that shared draft next to the site: **Keep the shared draft** and **Use the site version** save only it, and refuse when either one changed again while you compared. Your local edits stay in the tab until you apply them.
 
 ## The body round-trips
 

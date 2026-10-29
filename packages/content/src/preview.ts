@@ -517,10 +517,15 @@ function crossSite(headers: unknown, url: URL): boolean {
   return origin !== undefined && origin !== "null" && origin !== url.origin
 }
 
-function frameUrl(value: unknown, headers: unknown): URL | undefined {
+/**
+ * The public URL of a frame request. A Node request URL is a path, so the origin comes from the Host header and the
+ * protocol from `secureRequest()`: `X-Forwarded-Proto` from a proxy, else the TLS socket. A cross-site form cannot set
+ * these headers, so `crossSite()` still refuses it. The `Origin` header is never used to build this URL.
+ */
+function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | undefined {
   if (String(value) !== value) return
   try {
-    return new URL(value, `http://${readHeader(headers, "host") ?? "localhost"}`)
+    return new URL(value, `${secure ? "https" : "http"}://${readHeader(headers, "host") ?? "localhost"}`)
   }
   catch {
     return undefined
@@ -605,7 +610,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
     if (nitroApp.fetch instanceof Function) {
       const fetch = nitroApp.fetch
       nitroApp.fetch = (request: unknown, ...rest: unknown[]) => {
-        const url = request instanceof Request ? frameUrl(request.url, request.headers) : undefined
+        const url = request instanceof Request ? frameUrl(request.url, request.headers, secureRequest(request)) : undefined
         if (!(request instanceof Request) || !isFrameRequest(request.method, url)) {
           return scoped(request, () => Reflect.apply(fetch, nitroApp, [request, ...rest]))
         }
@@ -629,7 +634,7 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
       h3App.handler = (event: unknown) => {
         const node = isObject(event) && isObject(event.node) ? event.node : undefined
         const request = isObject(node?.req) ? node.req : undefined
-        const url = frameUrl(request?.url, request?.headers)
+        const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
         if (!event || !request || !isFrameRequest(request.method, url) || !(Symbol.asyncIterator in request)) {
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
