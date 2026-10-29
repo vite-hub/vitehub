@@ -720,18 +720,60 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it.each(["open", "cloudflare-access", "rpc-only"] as const)("preserves application OAuth discovery routes with %s Console access", async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-discovery-"))
+    try {
+      const applicationHandlers = [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/**",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/**",
+      ].map((route, index) => ({ handler: `/application/discovery-${index}.js`, route }))
+      const plugin = consoleVitePlugin({
+        console: mode === "rpc-only" ? undefined : { auth: mode === "open" ? false : { provider: "cloudflare-access" } },
+        rpcOnly: mode === "rpc-only",
+        preset: "node",
+      })
+      const config = { base: "/early/", root, nitro: { handlers: [...applicationHandlers] }, vitehubCliDiscovery: true }
+      await callPluginHook(plugin.config, {}, [config, { command: mode === "rpc-only" ? "serve" : "build", mode: "production" }])
+      const resolved = { ...config, base: "/portal/" }
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
+
+      expect(resolved.nitro.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual(applicationHandlers)
+      expect(resolved.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/mcp" }))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
     const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
-    addConsoleRpcHandler(config, "/runtime", "/early/")
-    addConsoleRpcHandler(config, "/runtime", "/portal/")
+    addConsoleRpcHandler(config, "/runtime", "/early/", [], true)
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
+      "/**",
       "/portal/_vitehub/rpc/**",
       "/portal/_vitehub/env/manage",
       "/portal/_vitehub/channels/replay",
       "/portal/_vitehub/schedules/run",
       "/portal/_vitehub/mcp",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/**",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/**",
     ])
+  })
+
+  it("removes stale Console OAuth discovery routes when access no longer uses OAuth", () => {
+    const applicationHandler = { handler: "/application/openid.js", route: "/.well-known/openid-configuration" }
+    const config = { handlers: [applicationHandler] }
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
+    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/oauth-"))).toHaveLength(4)
+    addConsoleRpcHandler(config, "/runtime", "/portal/")
+    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual([applicationHandler])
+    expect(config.handlers.some(handler => handler.handler.endsWith("/mcp-discovery.js"))).toBe(false)
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
