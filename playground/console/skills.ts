@@ -34,6 +34,9 @@ Check loading, empty, and error states. Every icon button needs an accessible na
 `,
   ".agents/skills/interface-design/references/layout.md": "# Layout\n\nKeep the file tree beside the preview on wide screens. Stack the tree above the preview on narrow screens.\n\nUse one scroll area per pane. Long file names must not widen the page.\n",
   ".agents/skills/interface-design/references/accessibility.md": "# Accessibility\n\nEvery control needs an accessible name and visible keyboard focus.\n\nUse arrow keys to navigate the file tree and Enter to open a file.\n",
+  ".agents/skills/interface-design/references/patterns/navigation/keyboard-shortcuts-for-dense-administration-tools-and-command-palettes.md": "# Keyboard shortcuts for dense administration tools\n\nA deep folder and a long file name. The tree, the file header, and the page must stay inside the viewport.\n\nRead [the layout rules](../../layout.md) first.\n",
+  // A NUL byte marks binary content, so the playground answers as the real handler does for an image.
+  ".agents/skills/interface-design/assets/preview.png": "\u0089PNG\r\n\u001a\n\0",
   ".agents/skills/interface-design/scripts/check-contrast.ts": "export function contrastRatio(light: number, dark: number): number {\n  return (light + 0.05) / (dark + 0.05);\n}\n",
   ".agents/skills/code-review/SKILL.md": "---\nname: code-review\ndescription: Review changes against their intended behavior.\n---\n# Code review\n\nRead the diff and trace each changed behavior to its callers. Report findings with a location, evidence, and a concrete fix.\n\n## Check the result\n\nRun the smallest check that proves the changed behavior. Read references/review-checklist.md before reporting findings.\n",
   ".agents/skills/code-review/references/review-checklist.md": "# Review checklist\n\n- Check the public contract.\n- Trace changed callers.\n- Verify errors and interrupted requests.\n- Separate observed failures from untested concerns.\n",

@@ -579,7 +579,14 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
     const filePath = url.searchParams.get("path")
     if (filePath !== null) {
       const content = files[filePath]
-      json(response, content === undefined ? { error: "This file is not bundled with this Agent." } : { path: filePath, content, size: new TextEncoder().encode(content).byteLength }, content === undefined ? 404 : 200)
+      // The RPC bridge shows a failed body as its message, so failures answer with text, as the real handler words them.
+      const failure = content === undefined ? [404, "This file is not bundled with this Agent."] as const : content.includes("\0") ? [415, "Binary files cannot be previewed as text."] as const : undefined
+      if (failure) {
+        response.statusCode = failure[0]
+        response.setHeader("content-type", "text/plain; charset=utf-8")
+        response.end(failure[1])
+      }
+      else json(response, { path: filePath, content, size: new TextEncoder().encode(content).byteLength })
     }
     else json(response, { agents, agent, files: Object.entries(files).map(([path, content]) => ({ path, size: new TextEncoder().encode(content).byteLength })) })
     return true
