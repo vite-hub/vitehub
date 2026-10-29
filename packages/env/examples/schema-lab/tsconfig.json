@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node"],
+    "paths": {
+      "#vitehub/env/public": ["./.vitehub/env/public.d.ts"],
+      "#vitehub/env/server": ["./.vitehub/env/server.d.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", ".vitehub/types/**/*.d.ts"]
+}
