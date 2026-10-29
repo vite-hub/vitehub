@@ -19,3 +19,8 @@ The Cloudflare preset writes the Browser Run binding, a default `compatibility_d
 Cloudflare's Worker `quickAction()` requires remote mode during local development. Set `remote: true` when local Wrangler development must call Browser Run. This uses a Cloudflare account and network access.
 
 Install `@cloudflare/playwright` and `playwright-core` when you set `engine: 'chromium'`. Stateless actions and the default Kitesurf engine do not need these optional peers.
+
+## Related guides
+
+Use [Cloudflare Browser Run](/docs/guides/cloudflare-browser) for binding
+setup and a rendered HTML check.
