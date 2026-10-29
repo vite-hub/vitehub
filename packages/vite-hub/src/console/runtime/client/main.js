@@ -302,8 +302,14 @@ router.beforeEach(async (to) => {
     if (navigation) addContributedRoutes(navigation);
     return router.resolve(to.fullPath).matched.length > 0 ? to.fullPath : { name: "vitehub-console" };
   }
+});
+
+router.afterEach((to, _from, failure) => {
+  document.title = String(to.meta.title ?? "ViteHub Console");
   const section = to.meta.consoleSection;
-  if (!isConsoleSectionId(section)) return;
+  if (failure || !isConsoleSectionId(section)) return;
+  // The page shows at once. A section that this app does not have falls back to the Overview when the sections arrive.
+  // This runs after the navigation, so a sections answer that arrives before the page's code loads still finds it.
   void loadSections().then((installed) => {
     if (
       installed &&
@@ -313,10 +319,6 @@ router.beforeEach(async (to) => {
       void router.replace({ name: "vitehub-console" });
     }
   });
-});
-
-router.afterEach((to) => {
-  document.title = String(to.meta.title ?? "ViteHub Console");
 });
 deferLucideIcons();
 createApp(App)

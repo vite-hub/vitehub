@@ -527,6 +527,9 @@ describe("framework package contract", () => {
     );
     expect(consoleClientMain).toContain("void loadSections().then((installed) => {");
     expect(consoleClientMain).not.toContain("const installed = await loadSections()");
+    // The section check runs after the navigation commits, so a fast sections answer cannot miss the route it checks.
+    expect(consoleClientMain).toMatch(/router\.afterEach\(\(to, _from, failure\) => \{[\s\S]*?void loadSections\(\)\.then/);
+    expect(consoleClientMain).not.toMatch(/router\.beforeEach\([^]*?void loadSections\(\)[^]*?router\.afterEach/);
     const sessionInspector = readFileSync(
       `${packageRoot}/dist/console/runtime/components/console-session-inspector.vue`,
       "utf8",
