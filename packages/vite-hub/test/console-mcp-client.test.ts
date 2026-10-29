@@ -50,6 +50,7 @@ const issued: string[] = []
 let origin = ""
 /** Whether the authorization server lists `offline_access`, as Better Auth does. */
 let offersOfflineAccess = false
+let resourceScopes: string[] | undefined = ["openid", "profile", "email"]
 
 function base64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -103,7 +104,7 @@ const sessionPeople = new Map<string, string>()
 async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? "/", origin)
   if (url.pathname.startsWith("/.well-known/oauth-protected-resource")) {
-    return json(response, 200, { authorization_servers: [origin], resource: `${origin}/mcp`, resource_name: "Test Finance", scopes_supported: ["openid", "profile", "email"] })
+    return json(response, 200, { authorization_servers: [origin], resource: `${origin}/mcp`, resource_name: "Test Finance", ...(resourceScopes ? { scopes_supported: resourceScopes } : {}) })
   }
   if (url.pathname === "/.well-known/oauth-authorization-server") {
     return json(response, 200, {
@@ -223,6 +224,7 @@ afterEach(() => {
   offersOfflineAccess = false
   delete process.env.VITEHUB_CONSOLE_MCP_KEY
   kvValues.clear()
+  resourceScopes = ["openid", "profile", "email"]
   resetConsoleMcp()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
@@ -416,17 +418,22 @@ describe("MCP client section", () => {
     expect(await records.connections("user:a")).toEqual([connection])
   })
 
-  it("asks for offline_access when the authorization server offers it, so the grant can be refreshed", async () => {
+  it.each([
+    { name: "lists scopes", scopes: ["openid", "profile", "email"], expected: "openid profile email offline_access" },
+    { name: "omits scopes", scopes: undefined, expected: "offline_access" },
+    { name: "lists no scopes", scopes: [], expected: "offline_access" },
+  ])("asks for offline_access when the authorization server offers it and the resource $name", async ({ scopes, expected }) => {
     install()
     offersOfflineAccess = true
+    resourceScopes = scopes
     const registered = seen.registeredScopes.length
     const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { prompt: "login", server: "/mcp" })
     const authorization = new URL(started.value.authorizationUrl!).searchParams
-    expect(authorization.get("scope")).toBe("openid profile email offline_access")
+    expect(authorization.get("scope")).toBe(expected)
     // OpenID Connect asks for consent with offline_access. The Console keeps its own prompt.
     expect(authorization.getAll("prompt")).toEqual(["login consent"])
     // Better Auth allows only the scopes of the registration, so the registration asks for offline_access too.
-    expect(seen.registeredScopes.slice(registered)).toEqual(["openid profile email offline_access"])
+    expect(seen.registeredScopes.slice(registered)).toEqual([expected])
     const connection = (await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(started.value.authorizationUrl!, "maxi"))).value
     expect(connection).toMatchObject({ grant: { refreshable: true }, status: "connected" })
   })

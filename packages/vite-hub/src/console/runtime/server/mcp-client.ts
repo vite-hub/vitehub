@@ -457,8 +457,8 @@ export async function listConsoleMcp(caller: ConsoleMcpCaller, options: { shared
  */
 function signInScope(discovery: OAuthDiscoveryState, requested: string | undefined): string | undefined {
   const scope = requested || discovery.resourceMetadata?.scopes_supported?.join(" ")
-  if (!scope || scope.split(" ").includes("offline_access") || !discovery.authorizationServerMetadata?.scopes_supported?.includes("offline_access")) return scope
-  return `${scope} offline_access`
+  if (scope?.split(" ").includes("offline_access") || !discovery.authorizationServerMetadata?.scopes_supported?.includes("offline_access")) return scope
+  return scope ? `${scope} offline_access` : "offline_access"
 }
 
 /**
