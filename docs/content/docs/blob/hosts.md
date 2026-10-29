@@ -135,3 +135,9 @@ BLOB_BUCKET_NAME=vitehub-blob
 ```
 
 ViteHub reads MinIO credentials from runtime env and masks them in generated provider output. It accepts the Files SDK names `MINIO_ACCESS_KEY_ID` and `MINIO_SECRET_ACCESS_KEY`, plus Docker Compose aliases such as `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD`. `driver: 'minio'` defaults to path-style S3 requests, `us-east-1`, `http://localhost:9000`, and the `vitehub-blob` bucket. For production Docker deployments, use managed `s3` or a production S3-compatible store instead of a single-host Compose MinIO service.
+
+## Related guides
+
+Use [Cloudflare R2](/docs/guides/cloudflare-r2) or
+[private Vercel Blob storage](/docs/guides/vercel-blob) for configuration and
+file upload checks.
