@@ -611,12 +611,10 @@ function frameUrl(value: unknown, headers: unknown, secure: boolean): URL | unde
  * the same origin with it, such as a fetch from the page in the Published view. It only takes draft access away.
  */
 function publishedRequest(event: ContentPreviewEvent): boolean {
-  const parts = eventParts(event)
-  // An h3 v2 event has a URL object; a Request and a Node request have text.
-  const url = frameUrl(parts.url instanceof URL ? parts.url.href : parts.url, parts.headers, secureRequest(event))
+  const url = requestUrl(event)
   if (!url) return false
   if (url.searchParams.has(contentPreviewPublishedParameter)) return true
-  const referer = readHeader(parts.headers, "referer")
+  const referer = requestHeader(event, "referer")
   if (!referer) return false
   try {
     const from = new URL(referer)
@@ -624,6 +622,84 @@ function publishedRequest(event: ContentPreviewEvent): boolean {
   }
   catch {
     return false
+  }
+}
+
+function requestUrl(event: ContentPreviewEvent): URL | undefined {
+  const parts = eventParts(event)
+  // An h3 v2 event has a URL object; a Request and a Node request have text.
+  return frameUrl(parts.url instanceof URL ? parts.url.href : parts.url, parts.headers, secureRequest(event))
+}
+
+/**
+ * The `Location` of a redirect from a published request, with `?vitehub-content-published` added when the browser
+ * sends the preview cookie to it: the same host name as the request, from its URL or `X-Forwarded-Host`. The browser
+ * then follows the redirect with published reads too, and so does each later redirect. The rest of the URL stays as
+ * it is. A `Location` to another host, or one that has the parameter, is not changed.
+ */
+function publishedLocation(location: string, event: ContentPreviewEvent): string {
+  const url = requestUrl(event)
+  if (!url) return location
+  let target: URL
+  try {
+    target = new URL(location, url)
+  }
+  catch {
+    return location
+  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") return location
+  if (target.searchParams.has(contentPreviewPublishedParameter)) return location
+  const forwarded = requestHeader(event, "x-forwarded-host")?.split(",", 1)[0]?.trim()
+  const proxied = forwarded && URL.canParse(`http://${forwarded}`) ? new URL(`http://${forwarded}`).hostname : undefined
+  if (target.hostname !== url.hostname && target.hostname !== proxied) return location
+  const hash = location.indexOf("#")
+  const head = hash < 0 ? location : location.slice(0, hash)
+  const separator = !head.includes("?") ? "?" : /[?&]$/.test(head) ? "" : "&"
+  return `${head}${separator}${contentPreviewPublishedParameter}${hash < 0 ? "" : location.slice(hash)}`
+}
+
+function isRedirect(status: unknown): boolean {
+  return typeof status === "number" && status >= 300 && status < 400
+}
+
+/** A Web redirect response of a published request, with its `Location` marked by `publishedLocation()`. */
+function publishedRedirect<TResult>(result: TResult, event: ContentPreviewEvent): TResult {
+  if (!isResponseLike(result) || !isRedirect(result.status)) return result
+  const location = result.headers.get("location")
+  if (location === null) return result
+  const marked = publishedLocation(location, event)
+  if (marked === location) return result
+  try {
+    result.headers.set("location", marked)
+    return result
+  }
+  catch {
+    const copy = new Response(result.body, result)
+    copy.headers.set("location", marked)
+    // SAFETY: The copy is a Response, the same type as the result it replaces.
+    return copy as TResult
+  }
+}
+
+/**
+ * Marks the `Location` of a Node redirect of a published request as `publishedLocation()` does. Node writes the head
+ * of every response with `writeHead()`, also when h3 v1 calls `end()`, so this request's response marks it there.
+ */
+function markNodeRedirects(event: ContentPreviewEvent): void {
+  const response = eventParts(event).node
+  const writeHead = response?.writeHead
+  if (!response || !(writeHead instanceof Function)) return
+  response.writeHead = function (this: unknown, status: unknown, ...rest: unknown[]) {
+    if (isRedirect(status)) {
+      const headers = rest.find(isPlainRecord)
+      const name = headers && Object.keys(headers).find(name => name.toLowerCase() === "location")
+      if (headers && name && String(headers[name]) === headers[name]) headers[name] = publishedLocation(headers[name], event)
+      const location: unknown = response.getHeader instanceof Function ? Reflect.apply(response.getHeader, response, ["location"]) : undefined
+      if (String(location) === location && response.setHeader instanceof Function) {
+        Reflect.apply(response.setHeader, response, ["location", publishedLocation(location, event)])
+      }
+    }
+    return Reflect.apply(writeHead, this, [status, ...rest])
   }
 }
 
@@ -681,7 +757,9 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  *
  * A request with `?vitehub-content-published` in its URL, or in its same-origin `Referer`, reads `published` even with a
  * preview cookie, such as the Published view of the Console. Its nested runs do too. The page sees its URL with the
- * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed.
+ * parameter, the cookie stays as it is, the response is `private, no-store`, and Nitro's cache is bypassed. A redirect
+ * from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`, so the
+ * page the browser lands on reads `published` too. A redirect to another host is not changed.
  * ViteHub generates this plugin for `server/content.ts`.
  */
 export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroApp: unknown) => void {
@@ -699,8 +777,13 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
         Reflect.apply(hooks.hook, hooks, [name, dispose])
       }
     }
-    const scoped = (event: unknown, next: () => unknown): unknown =>
-      isObject(event) && (hasPreviewCookie(event) || publishedRequest(event)) ? preview.run(event, next) : next()
+    const scoped = (event: unknown, next: () => unknown): unknown => {
+      if (!isObject(event)) return next()
+      if (!publishedRequest(event)) return hasPreviewCookie(event) ? preview.run(event, next) : next()
+      // A redirect keeps the request published: the browser follows it with the cookie, but without this URL.
+      markNodeRedirects(event)
+      return preview.run(event, next).then(result => publishedRedirect(result, event))
+    }
     /** Checks a preview frame form and runs the page with its grant, or returns the 403 response. */
     async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
       if (blocked) return forbidden("A preview frame must come from this site.")

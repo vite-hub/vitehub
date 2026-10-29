@@ -4,7 +4,9 @@ import { join } from "node:path"
 import { createClient } from "@libsql/client"
 import { sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/libsql"
-import { H3 } from "h3"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
+import { H3, redirect } from "h3"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 
@@ -605,6 +607,13 @@ async function publishedSite() {
       run: await content.preview.run(event, async () => (await pages.get("c"))?.data.title),
       nested: await titleOf(await nitroApp.fetch(new Request("https://site.test/api/content/get/posts/b", { headers: { cookie } }))),
     }))
+    // A locale redirect to a relative path, then a canonical redirect that keeps its own query and fragment.
+    .get("/en", () => redirect("old"))
+    .get("/old", () => redirect("/page?lang=en#top", 301))
+    .get("/canonical", () => redirect("https://SITE.test/page"))
+    // A fetch() response has immutable headers.
+    .get("/frozen", () => Response.redirect("https://site.test/page", 307))
+    .get("/away", () => redirect("https://other.test/page?x=1"))
     .all("/api/content/**", defineContentHandler(content))
   nitroApp.h3 = app
   defineContentPreviewPlugin(content)(nitroApp)
@@ -635,6 +644,83 @@ describe("published reads with a whole-site preview cookie", { timeout: 30_000 }
     expect(await titleOf(await api("https://site.test/page"))).toBe("B draft")
     // Another origin cannot change what this site reads.
     expect(await titleOf(await api(`https://other.test/page?${contentPreviewPublishedParameter}`))).toBe("B draft")
+  })
+
+  it("keeps redirects of a published request published, and leaves redirects of the cookie session as they are", async () => {
+    const { cookie, nitroApp, drafts, published } = await publishedSite()
+    const marked = contentPreviewPublishedParameter
+    /** Follows redirects as a browser does: the cookie on every hop, and the Location resolved against the last URL. */
+    async function follow(url: string, headers: Record<string, string> = {}) {
+      const locations: Array<string | null> = []
+      for (;;) {
+        // A browser does not send the fragment.
+        const response = await nitroApp.fetch(new Request(url.split("#", 1)[0]!, { headers: { cookie, ...headers } }))
+        if (response.status < 300 || response.status >= 400) return { locations, url, body: await response.json() }
+        // Draft and published redirects alike depend on the cookie, so no cache keeps them.
+        expect(response.headers.get("cache-control")).toBe("private, no-store")
+        locations.push(response.headers.get("location"))
+        url = new URL(response.headers.get("location")!, url).href
+        if (url.startsWith("https://other.test")) return { locations, url, body: undefined }
+      }
+    }
+    expect(await follow(`https://site.test/en?${marked}`)).toEqual({
+      locations: [`old?${marked}`, `/page?lang=en&${marked}#top`],
+      url: `https://site.test/page?lang=en&${marked}#top`,
+      body: { ...published, url: `https://site.test/page?lang=en&${marked}` },
+    })
+    expect((await follow(`https://site.test/canonical?${marked}`)).locations).toEqual([`https://SITE.test/page?${marked}`])
+    const frozen = await follow(`https://site.test/frozen?${marked}`)
+    expect(frozen).toMatchObject({ locations: [`https://site.test/page?${marked}`], body: { ...published, url: `https://site.test/page?${marked}` } })
+    // A fetch() from the published page is published by its Referer, and so is the page it redirects to.
+    expect(await follow("https://site.test/old", { referer: `https://site.test/page?${marked}` })).toMatchObject({ locations: [`/page?lang=en&${marked}#top`], body: published })
+    // Another host gets the redirect unchanged.
+    expect(await follow(`https://site.test/away?${marked}`)).toEqual({ locations: ["https://other.test/page?x=1"], url: "https://other.test/page?x=1", body: undefined })
+    // The same cookie without the parameter previews the destination, with the redirects unchanged.
+    expect(await follow("https://site.test/en")).toEqual({
+      locations: ["old", "/page?lang=en#top"],
+      url: "https://site.test/page?lang=en#top",
+      body: { ...drafts, url: "https://site.test/page?lang=en" },
+    })
+  })
+
+  it("keeps Node redirects of a published request published on Nitro 2, with the host of a proxy", async () => {
+    const { content, posts, cookie } = await publishedSite()
+    const handler = async (event: { node: { req: import("node:http").IncomingMessage, res: import("node:http").ServerResponse } }) => {
+      const { req, res } = event.node
+      const path = req.url!.split("?", 1)[0]
+      // h3 v1 sendRedirect(): the status and Location, then end().
+      if (path === "/old") {
+        res.statusCode = 302
+        res.setHeader("location", "/page?lang=en#top")
+        return res.end("<meta http-equiv=\"refresh\" content=\"0; url=/page?lang=en\">")
+      }
+      if (path === "/en") return res.writeHead(301, { Location: "/old" }).end()
+      if (path === "/public") return res.writeHead(308, { location: "https://site.test/page" }).end()
+      if (path === "/away") return res.writeHead(302, { location: "https://other.test/page" }).end()
+      res.setHeader("content-type", "application/json")
+      res.end(JSON.stringify({ url: req.url, active: content.preview.active(), a: (await posts.get("a"))?.data.title, b: (await content.preview.run(event, async () => (await posts.get("b"))?.data.title)) }))
+    }
+    const nitroApp = { h3App: { handler }, hooks: { hook: () => undefined } }
+    defineContentPreviewPlugin(content)(nitroApp)
+    // SAFETY: The plugin replaced the handler with one that takes the same event.
+    const server = createServer((req, res) => void (nitroApp.h3App.handler as typeof handler)({ node: { req, res } }))
+    await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve))
+    cleanup.push(() => new Promise<void>(resolve => server.close(() => resolve())))
+    const origin = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const marked = contentPreviewPublishedParameter
+    const location = async (path: string, headers: Record<string, string> = {}) =>
+      (await fetch(`${origin}${path}`, { headers: { cookie, ...headers }, redirect: "manual" })).headers.get("location")
+    expect(await location(`/en?${marked}`)).toBe(`/old?${marked}`)
+    expect(await location(`/old?${marked}`)).toBe(`/page?lang=en&${marked}#top`)
+    expect(await location(`/public?${marked}`)).toBe("https://site.test/page")
+    expect(await location(`/public?${marked}`, { "x-forwarded-host": "site.test", "x-forwarded-proto": "https" })).toBe(`https://site.test/page?${marked}`)
+    expect(await location(`/away?${marked}`)).toBe("https://other.test/page")
+    expect(await location("/en")).toBe("/old")
+    // fetch() follows the redirects with the cookie, as a browser does.
+    const followed = await fetch(`${origin}/en?${marked}`, { headers: { cookie } })
+    expect(followed.headers.get("cache-control")).toBe("private, no-store")
+    expect(await followed.json()).toEqual({ url: `/page?lang=en&${marked}`, active: false, a: "A published", b: "B published" })
+    expect(await (await fetch(`${origin}/en`, { headers: { cookie } })).json()).toEqual({ url: "/page?lang=en", active: true, a: "A draft", b: "B draft" })
   })
 
   it("keeps a draft frame of A to its one document, even with the whole-site cookie and nested preview runs", async () => {

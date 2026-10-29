@@ -99,6 +99,7 @@ A browser with a preview cookie reads drafts on every page. A request with `?vit
 
 - Every Content read without `ref` or `revision` is `published`, and `content.preview.active()` is `false`. Nested requests and `content.preview.run()` calls in the same request stay `published`: the cookie does not widen them.
 - A request whose `Referer` is a page of the same origin with the parameter is `published` too, such as a `fetch()` from the page in the Published view. A page that sends no `Referer`, for example with `Referrer-Policy: no-referrer`, or a client-side navigation to a URL without the parameter, reads with the cookie again.
+- An HTTP redirect from it to the same host name, such as a canonical or locale redirect, gets the parameter in its `Location`. The rest of the URL stays as it is, so the page the browser lands on, and each later redirect, reads `published` too. The host comes from the request URL or `X-Forwarded-Host`. A redirect to another host is not changed and gets no token. A redirect from a page script or a `<meta http-equiv="refresh">` is not changed.
 - The cookie stays as it is: the response sets no cookie, and requests without the parameter preview the whole site as before.
 - The parameter only takes draft access away. It needs no token, and it never reads a draft or a posted document. A frame form needs its own token.
 - The page sees its URL with the parameter. The response is `private, no-store` and `noindex`, and Nitro's cache is bypassed, so the page shows the published content now, not a cached copy.
