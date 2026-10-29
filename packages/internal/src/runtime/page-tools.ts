@@ -169,12 +169,14 @@ export function scriptNonce(headers: Headers): string | undefined {
  * `index.html` Vite changed, gets no second one. The generated SPA inline check becomes the external loader, with
  * the response policy's nonce when present. This supports header or meta policies that allow same-origin external
  * scripts but block inline scripts. The page varies per person, so it drops `content-length` and sends
- * `cache-control: private, no-store`. Other responses return unchanged. `policyHeaders` supplies the effective CSP
- * when the host keeps it outside the Response.
+ * `cache-control: private, no-store`. Other responses return unchanged, including compressed HTML. `policyHeaders`
+ * supplies the effective CSP when the host keeps it outside the Response.
  */
 export function injectPageToolsLoader(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
+  const encoding = response.headers.get("content-encoding")
+  if (encoding && encoding.toLowerCase() !== "identity") return response
   const tag = loaderTag(base, scriptNonce(policyHeaders))
   const headers = new Headers(response.headers)
   headers.delete("content-length")

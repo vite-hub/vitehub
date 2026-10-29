@@ -139,6 +139,7 @@ const generatedRuntimeOwnerExports = new Set([
   "@vite-hub/blob/runtime/state",
   "@vite-hub/content/operations",
   "@vite-hub/comments/runtime/console",
+  "@vite-hub/comments/runtime/sqlite",
   "@vite-hub/database/runtime/agent",
   "@vite-hub/database/runtime/cloudflare-env",
   "@vite-hub/database/runtime/d1",
@@ -293,7 +294,10 @@ describe("framework package contract", () => {
       .sort();
     const exportedForwarders = new Set(manifestForwarders.map(({ source }) => source));
 
-    expect(sourceForwarders).toEqual([...exportedForwarders].sort());
+    // This build helper is shared internally, without a public framework export.
+    expect(sourceForwarderTargets(readFileSync(`${packageRoot}/src/nitro-plugin.ts`, "utf8")))
+      .toEqual(["@vite-hub/internal/build/included-nitro"]);
+    expect(sourceForwarders).toEqual([...exportedForwarders, "src/nitro-plugin.ts"].sort());
     expect(
       manifestEntries
         .filter(({ source }) => !exportedForwarders.has(source))
@@ -870,15 +874,20 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets).toHaveLength(2);
-      const publicAssetDir = Reflect.get(Object(publicAssets[0]), "dir");
-      if (String(publicAssetDir) !== publicAssetDir)
-        throw new TypeError("Expected a Console public asset path.");
+      expect(publicAssets).toHaveLength(3);
+      const [publicAssetDir, skillsDir] = publicAssets.map((asset) => Reflect.get(Object(asset), "dir"));
+      if (String(publicAssetDir) !== publicAssetDir || String(skillsDir) !== skillsDir)
+        throw new TypeError("Expected Console public asset paths.");
       expect(publicAssetDir).toContain("/dist/console/runtime/public/console");
       expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
+      // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
+      const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
+      expect(skillsIndex.skills.map((skill) => skill.name)).toEqual(["vitehub"]);
+      for (const file of skillsIndex.skills[0].files) expect(existsSync(`${skillsDir}/vitehub/${file}`), file).toBe(true);
+      expect(skillsIndex.skills[0].files).toContain("SKILL.md");
       // The page tools loader, so the `console` page tool works without Comments.
-      const loaderDir = Reflect.get(Object(publicAssets[1]), "dir");
-      expect(Reflect.get(Object(publicAssets[1]), "baseURL")).toBe("/_vitehub/page/assets");
+      const loaderDir = Reflect.get(Object(publicAssets[2]), "dir");
+      expect(Reflect.get(Object(publicAssets[2]), "baseURL")).toBe("/_vitehub/page/assets");
       expect(existsSync(`${String(loaderDir)}/loader.js`), String(loaderDir)).toBe(true);
     } finally {
       await rm(root, { recursive: true, force: true });

@@ -19,7 +19,8 @@ describe("agent-ready HTTP contracts", () => {
     expect(workspace).toContain("nuxt-agent-discovery@0.7.0: patches/nuxt-agent-discovery@0.7.0.patch");
     expect(config).toContain('routes: ["/", "/docs", "/docs/**", "/about", "/contact", "/privacy"]');
     expect(config).not.toContain("routeRules:");
-    expect(config).not.toContain("run_worker_first");
+    // Docus adds the negotiated routes to this list. Every page runs the Worker for canonical redirects.
+    expect(config).toContain('run_worker_first: ["/*", "!/_nuxt/*"]');
     expect(config).toContain("contentRawMarkdown: false");
   });
 

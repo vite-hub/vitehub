@@ -187,7 +187,7 @@ describe("the Console below a Nitro baseURL", () => {
       expect(routes).toContain("/_vitehub/rpc/**")
       expect(routes).toContain("/_vitehub/page/session")
       expect(routes?.some(route => route.startsWith("/portal/"))).toBe(false)
-      expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/page/assets"])
+      expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     }
     finally {
       await rm(root, { force: true, recursive: true })
