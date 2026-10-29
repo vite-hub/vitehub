@@ -1,8 +1,14 @@
 import { consoleD1Binding, consoleDatabaseUrl, resolveConsoleJournal, withDataDir, type ConsoleJournal } from "./storage-config.ts"
-import { dirname, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath } from "node:url"
+import { readFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import { findPackageJSON } from "node:module"
+import { dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
+import { parseJSONC, parseTOML } from "confbox"
 import { transform } from "esbuild"
+import { findNearestFile } from "pkg-types"
+import { writeFileIfChanged } from "@vite-hub/internal/definition-catalog"
 import { resolveNuxtServerDirs, resolveViteHubProjectRoot, VITEHUB_APP_BASE_URL, VITEHUB_GENERATED_ROOT, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS, type NuxtServerDirOptions } from "@vite-hub/internal/build/vite"
 import { removeViteHubDevServerFile, writeViteHubDevServerFile } from "@vite-hub/internal/cli"
 import { describeDeploymentPlanOutput } from "@vite-hub/internal/build/deployment-plan-output"
@@ -72,6 +78,17 @@ function configuredProjectRootOption(value: unknown): string | undefined {
   return value && typeof value === "object" && "projectRoot" in value && typeof value.projectRoot === "string"
     ? value.projectRoot
     : undefined
+}
+
+async function projectWranglerEnvAlias(rootDir: string): Promise<string | undefined> {
+  // Match Nitro's project-file discovery and parsing before adding our context-level default.
+  const configPath = await findNearestFile(["wrangler.json", "wrangler.jsonc", "wrangler.toml"], { startingFrom: rootDir }).catch(() => undefined)
+  if (!configPath) return undefined
+  const text = await readFile(configPath, "utf8")
+  const extension = extname(configPath)
+  const config: unknown = extension === ".toml" ? parseTOML(text) : extension === ".jsonc" ? parseJSONC(text) : JSON.parse(text)
+  const alias = isRecord(config) && isRecord(config.alias) ? config.alias["#vitehub/env/server"] : undefined
+  return typeof alias === "string" ? alias : undefined
 }
 
 function configuredScanDirs(value: unknown): string[] | undefined {
@@ -156,6 +173,7 @@ type NuxtLike = {
 }
 
 const agentVueComposables = ["useAgent", "useAgentInvocation", "useAgentInvocations", "useChat"]
+const h3RuntimeRoot = dirname(fileURLToPath(import.meta.resolve("h3/package.json")))
 const cloudflareTypes = fileURLToPath(new URL("./cloudflare-types.d.ts", import.meta.url))
 
 function emailTemplateResolver(root: string): Plugin {
@@ -203,11 +221,70 @@ const nitroCloudflareWorkersDev = {
   },
 }
 
+/** Keep ViteHub's H3 2 imports out of Nuxt 4's application-wide H3 1 alias. */
+function nitroViteHubH3(generatedRoots: string[]) {
+  const roots = generatedRoots.map(root => `${root.replaceAll("\\", "/").replace(/\/+$/, "")}/`)
+  const owners = new Map<string, boolean>()
+  return {
+    name: "vite-hub/nitro-h3",
+    resolveId(id: string, importer?: string) {
+      if (!/^h3(?:\/|$)/.test(id) || !importer) return
+      const path = importer.split("?", 1)[0]!.replaceAll("\\", "/")
+      if (!roots.some(root => path.startsWith(root))) {
+        const directory = dirname(path)
+        let owned = owners.get(directory)
+        if (owned === undefined) {
+          try {
+            const manifest = findPackageJSON(pathToFileURL(path), import.meta.url)
+            const pkg: unknown = manifest ? JSON.parse(readFileSync(manifest, "utf8")) : undefined
+            owned = isRecord(pkg) && (pkg.name === "vite-hub" || (typeof pkg.name === "string" && pkg.name.startsWith("@vite-hub/"))
+              || (pkg.name === "nitro" && typeof pkg.version === "string" && pkg.version.startsWith("3."))
+              || (pkg.name === "h3" && typeof pkg.version === "string" && pkg.version.startsWith("2.")))
+          }
+          catch { owned = false } // Virtual modules without a package retain the host's resolution.
+          owners.set(directory, owned)
+        }
+        if (!owned) return
+      }
+      return fileURLToPath(import.meta.resolve(id))
+    },
+  }
+}
+
+/** Node development uses request bindings without importing the production Cloudflare runtime. */
+async function writeCloudflareWorkersDevShim(buildDir: string): Promise<string> {
+  const file = join(buildDir, "vitehub/cloudflare-workers.dev.mjs")
+  await writeFileIfChanged(file, [
+    "const bindings = () => globalThis.__env__ ?? process.env",
+    "const read = key => bindings()[key] ?? process.env[key]",
+    "export const env = new Proxy({}, {",
+    "  get: (_, key) => read(key),",
+    "  has: (_, key) => key in bindings() || key in process.env,",
+    "  ownKeys: () => [...new Set([...Reflect.ownKeys(process.env), ...Reflect.ownKeys(bindings())])],",
+    "  getOwnPropertyDescriptor(_, key) {",
+    "    const descriptor = Object.getOwnPropertyDescriptor(bindings(), key) ?? Object.getOwnPropertyDescriptor(process.env, key)",
+    "    return descriptor && { configurable: true, enumerable: descriptor.enumerable, writable: true, value: read(key) }",
+    "  },",
+    "})",
+    "export async function waitUntil(promise) { if (globalThis.__wait_until__) return globalThis.__wait_until__(promise); await promise }",
+    "export function withEnv() { throw new Error('cloudflare.withEnv is not available in Node development.') }",
+    "class Unsupported { constructor() { throw new Error('This Cloudflare runtime class is not available in Node development.') } }",
+    "export { Unsupported as DurableObject, Unsupported as RpcTarget, Unsupported as WorkerEntrypoint, Unsupported as WorkflowEntrypoint }",
+    "",
+  ].join("\n"))
+  return file
+}
+
+function normalizeGeneratedNitroPlugins(config: Record<string, unknown>, root: string): void {
+  if (!Array.isArray(config.plugins)) return
+  config.plugins = config.plugins.map(plugin => typeof plugin === "string" && /^\.vitehub[\\/]/.test(plugin) && !isAbsolute(plugin) ? resolve(root, plugin) : plugin)
+}
+
 /** Nitro 2 runs user Rollup plugins before its own resolvers, so these see generated and cache imports first. */
-function installNitroBuildPlugins(config: Record<string, unknown>, dev = false): void {
+function installNitroBuildPlugins(config: Record<string, unknown>, generatedRoots: string[], dev = false): void {
   const rollupConfig = (config.rollupConfig ??= {}) as Record<string, unknown>
   const plugins = (rollupConfig.plugins ??= []) as Array<{ name?: string }>
-  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, ...dev ? [nitroCloudflareWorkersDev] : []]) {
+  for (const plugin of [nitroCacheBypass(), nitroFileUrlResolver, nitroViteHubH3(generatedRoots), ...dev ? [nitroCloudflareWorkersDev] : []]) {
     if (!plugins.some(candidate => candidate.name === plugin.name)) plugins.unshift(plugin)
   }
 }
@@ -1218,7 +1295,7 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
       throw viteHubErrorDiagnostics.VITE_HUB_B0011({ message: `[vitehub] Env projectRoot ${JSON.stringify(configuredEnvProjectRootOption)} conflicts with the installed Env Vite plugin.` })
     }
   }
-  const generatedAliases = {
+  const generatedAliases: Record<string, string> = {
     ...(options.env === false ? {} : createEnvImportAliases({ projectRoot: envProjectRoot })),
     ...(!nuxt.options.dev ? Object.fromEntries(Object.entries(emailTemplatePaths).map(([name, path]) => [
         `#vitehub/emails/${name}`,
@@ -1408,9 +1485,30 @@ const viteHubNuxtModule: ViteHubNuxtModule = async function viteHubNuxtModule(in
     const inline = Array.isArray(externals.inline) ? externals.inline : []
     // Facade exports, owner runtimes, and generated `.vitehub` modules must resolve generated aliases and virtual modules
     // inside Nitro. Nitro 2 development leaves every other absolute module to Node, which cannot read those aliases.
-    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub")])] }
+    config.externals = { ...externals, inline: externals.inline === true ? true : [...new Set([...inline, "vite-hub", "@vite-hub/", join(projectRoot, ".vitehub"), h3RuntimeRoot])] }
     installNitroRuntimeResolvers(config, replayPlugins)
-    installNitroBuildPlugins(config, nuxt.options.dev === true && plan.preset === "cloudflare")
+    normalizeGeneratedNitroPlugins(config, projectRoot)
+    installNitroBuildPlugins(config, [join(projectRoot, ".vitehub"), join(nuxt.options.buildDir, "vitehub")], nuxt.options.dev === true && plan.preset === "cloudflare")
+    if (nuxt.options.dev && plan.preset === "cloudflare") {
+      const alias = (config.alias ??= {}) as Record<string, string>
+      alias["cloudflare:workers"] ??= await writeCloudflareWorkersDevShim(nuxt.options.buildDir)
+    }
+    if (plan.preset === "cloudflare") {
+      const cloudflare = (config.cloudflare ??= {}) as Record<string, unknown>
+      const envServer = generatedAliases["#vitehub/env/server"]
+      if (envServer) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const alias = (wrangler.alias ??= {}) as Record<string, string>
+        const nitroEnvServer = (config.alias as Record<string, string> | undefined)?.["#vitehub/env/server"]
+        alias["#vitehub/env/server"] ??= await projectWranglerEnvAlias(typeof config.rootDir === "string" ? config.rootDir : rootDir) ?? nitroEnvServer ?? envServer
+      }
+      if (cloudflare.nodeCompat === true) {
+        const wrangler = (cloudflare.wrangler ??= {}) as Record<string, unknown>
+        const flags = Array.isArray(wrangler.compatibility_flags) ? wrangler.compatibility_flags : []
+        // Nitro 2 otherwise adds no_nodejs_compat_v2, which disables native Node imports used by Workspaces.
+        if (!flags.includes("no_nodejs_compat_v2")) wrangler.compatibility_flags = [...new Set([...flags, "nodejs_compat", "nodejs_compat_v2"])]
+      }
+    }
     if (emailPlugin && nuxt.options.dev) {
       installEmailTemplateResolver(config, join(projectRoot, ".vitehub/email/templates"))
     }
