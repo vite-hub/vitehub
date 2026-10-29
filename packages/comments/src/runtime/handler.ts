@@ -14,6 +14,7 @@ import { resolveCommentsUser } from "./session.ts"
 import type { Result, ResultError } from "@vite-hub/runtime"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
+import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentAuthor, CommentContext, CommentsAction, CommentsUser, CommentThread } from "../types.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
@@ -48,6 +49,11 @@ export interface CommentsContent {
 
 export interface CommentsHandlerOptions extends CommentsSessionOptions {
   comments: Comments
+  /**
+   * Sign in with GitHub, for apps without their own sign-in: people who are not signed in another way see **Sign in
+   * with GitHub** in the overlay. It works once the server has a GitHub OAuth client.
+   */
+  githubLogin?: CommentsGitHubLogin
   /** Inline edits of Content fields. Omitted when the app has no Content collections. */
   content?: { runtime: CommentsContent, parseField: (value: string) => CommentsContentField | undefined }
   /** Whether the page presence rooms run, because the host has a Realtime authority. */
@@ -158,7 +164,10 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   const { comments } = options
 
   async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
-    return resolveCommentsUser(comments, event, options, action)
+    return resolveCommentsUser(comments, event, {
+      ...options,
+      session: async request => await options.session?.(request) ?? await options.githubLogin?.user(request),
+    }, action)
   }
 
   async function access(event: H3Event, action: CommentsAction, thread?: CommentThread): Promise<Result<{ user: CommentsUser | null, author: CommentAuthor | undefined, grant: ActionGrant }, "COMMENTS_FORBIDDEN">> {
@@ -234,10 +243,19 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
   async function session(event: H3Event): Promise<Response> {
     const user = await resolveUser(event)
     const [read, comment, resolve] = await Promise.all((["read", "comment", "resolve"] as const).map(action => can(event, user, action)))
+    const github = options.githubLogin?.configured() ? options.githubLogin : undefined
+    const pathname = new URL(requestOf(event).url).pathname
+    const route = pathname.slice(0, pathname.indexOf(commentsRoute) + commentsRoute.length)
+    // People who are not signed in can sign in with GitHub, and a GitHub account that may not comment can switch.
+    const signIn = user !== false && !user && !comments.options.identify && github ? { provider: "github" as const, url: `${route}/auth/github` } : undefined
+    const signOut = user && user.github && github ? `${route}/auth/sign-out` : undefined
     return json({
       data: {
         user: user ? authorOf(user) : null,
+        ...(user && user.github ? { github: user.github } : {}),
         can: { read, comment, resolve },
+        ...(signIn ? { signIn } : {}),
+        ...(signOut ? { signOut } : {}),
         realtime: options.realtime,
         content: Boolean(options.content),
       },
@@ -352,6 +370,8 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     if (method !== "GET" && !sameOrigin(request)) return json({ error: { code: "COMMENTS_FORBIDDEN", why: "Comments requests must come from the site's own pages." } }, { status: 403 })
 
     if (method === "GET" && path === "/session") return await session(event)
+    // Better Auth checks the origin of its own POST routes.
+    if (path.startsWith("/auth/") && options.githubLogin) return await options.githubLogin.handle(event, path)
 
     if (path === "/threads") {
       if (method === "GET") {

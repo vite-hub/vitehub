@@ -7,6 +7,7 @@ import { hasViteHubPageToolsHint } from "@vite-hub/internal/runtime/page-tools"
 import { commentsSchema } from "../src/database.ts"
 import { createGitHubClient } from "../src/forge/github.ts"
 import { previewUrl, renderComment, renderSummary, unlinked } from "../src/forge/render.ts"
+import { forgetGitHubToken, rememberGitHubToken } from "../src/forge/tokens.ts"
 import { defineComments, installComments } from "../src/index.ts"
 import { createCommentsStore } from "../src/store.ts"
 import { ada, anchor, createComments, createDatabase, grace } from "./harness.ts"
@@ -166,6 +167,7 @@ describe("forge sync", () => {
   })
   afterEach(() => {
     vi.unstubAllEnvs()
+    forgetGitHubToken("ada")
     vi.restoreAllMocks()
   })
 
@@ -200,6 +202,19 @@ describe("forge sync", () => {
     expect(first!.body.startsWith("Cut off.\n\n**#⁠1** on")).toBe(true)
     expect(reply).toMatchObject({ token: "app-token" })
     expect(reply!.body).toContain("**Grace** replied on #⁠1:\n\n> Agreed.")
+  })
+
+  it("posts as a person who signed in with GitHub, with the token of their last request", async () => {
+    const github = fakeGitHub()
+    const comments = await forgeComments(github)
+    rememberGitHubToken("ada", "ada-signed-in")
+    const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Cut off.", author: ada })
+    await comments.reply(thread!.id, { body: "Agreed.", author: grace })
+    await comments.flush()
+    forgetGitHubToken("ada")
+    const [, first, reply] = [...github.comments.values()]
+    expect(first).toMatchObject({ token: "ada-signed-in" })
+    expect(reply).toMatchObject({ token: "app-token" })
   })
 
   it("attaches pending, posted, and failed forge state when looking up a comment", async () => {
@@ -407,9 +422,15 @@ describe("forge sync", () => {
     expect(github.bodies().some(body => body.includes("> Cut off."))).toBe(true)
   })
 
-  it.each(["summary", "comment"] as const)("adopts a %s whose create response was lost", async (kind) => {
+  it.each([
+    { kind: "summary", signedIn: false },
+    { kind: "comment", signedIn: false },
+    { kind: "summary", signedIn: true },
+    { kind: "comment", signedIn: true },
+  ] as const)("adopts a $kind whose create response was lost with signed-in token $signedIn", async ({ kind, signedIn }) => {
     const github = fakeGitHub()
-    const comments = await forgeComments(github, { token: () => "ada-token" })
+    if (signedIn) rememberGitHubToken("ada", "ada-token")
+    const comments = await forgeComments(github, signedIn ? {} : { token: () => "ada-token" })
     github.loseNextCreateResponse(kind)
     const [, thread] = await comments.create({ page: "/forecast", anchor, context: context(), body: "Before retry.", author: ada })
     await comments.flush()

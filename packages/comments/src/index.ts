@@ -19,6 +19,7 @@ import type {
   CommentMention,
   CommentsAuthorizeContext,
   CommentsErrorCode,
+  CommentsUser,
   CommentThread,
   CreateCommentThreadInput,
   DefineCommentsOptions as LiveCommentsOptions,
@@ -62,8 +63,8 @@ export interface Comments {
   /** Deletes every thread of a scope, such as when app code deletes the document that the scope names. */
   removeScope(scope: string): Promise<Result<{ removed: number }, Codes<"COMMENTS_NOT_INSTALLED">>>
   /**
-   * Whether the `authorize` policy allows an action. Without a policy, signed-in users may do everything. `scope`
-   * defaults to the thread's, else `"pages"`.
+   * Whether the `authorize` policy allows an action. Without a policy, see `defaultPolicy()`. `scope` defaults to the
+   * thread's, else `"pages"`.
    */
   can(context: Omit<CommentsAuthorizeContext, "scope"> & { scope?: string }): Promise<boolean>
   /**
@@ -80,15 +81,25 @@ export interface Comments {
   flush(): Promise<void>
 }
 
-const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync }>()
+/**
+ * The policy without `authorize`, for every action: a person signed in with GitHub needs push access to the repository
+ * of the build; any other signed-in user may; anonymous people may only on the development server, as guests.
+ * `development` comes from Vite's command in the generated Nitro plugin, and defaults to false.
+ */
+export function defaultPolicy(user: CommentsUser | null, development = false): boolean {
+  if (!user) return development
+  return user.github ? user.github.write : true
+}
+
+const runtimes = new WeakMap<Comments, { store: CommentsStore, forge?: ForgeSync, development: boolean }>()
 
 /**
  * Defines Comments for the app. A default export from `server/comments.ts` selects numbered, authorized Operations.
  * A named `comments` export selects the live-site API, overlay, and presence rooms.
  */
 export function defineComments(input?: DefineCommentsOptions): Comments & CommentsDefinition
-export function defineComments(input: LiveCommentsOptions): Comments & CommentsDefinition
-export function defineComments(input: CommentsDefinition): Comments & CommentsDefinition
+// Accept already-typed policies for either runtime without changing inline policy inference.
+export function defineComments<T>(input: T & (T extends LiveCommentsOptions | CommentsDefinition ? unknown : never)): Comments & CommentsDefinition
 export function defineComments(configuration: DefineCommentsOptions | LiveCommentsOptions | CommentsDefinition = {}): Comments & CommentsDefinition {
   // Each runtime calls only its own context variant; the shared factory stores both policies independently.
   const input = configuration as DefineCommentsOptions
@@ -229,7 +240,7 @@ export function defineComments(configuration: DefineCommentsOptions | LiveCommen
       return [undefined, { removed: removed.length }]
     },
     async can(context) {
-      if (!options.authorize) return context.user !== null
+      if (!options.authorize) return defaultPolicy(context.user, runtimes.get(comments)?.development)
       const scope = context.scope ?? context.thread?.scope ?? commentsPageScope
       return await options.authorize({ ...context, scope }) !== false
     },
@@ -255,12 +266,12 @@ export function defineComments(configuration: DefineCommentsOptions | LiveCommen
 
 /**
  * Connects a Comments definition to its Database. The generated Nitro plugin calls it when the server starts; call it
- * yourself only in tests or outside ViteHub.
+ * yourself only in tests or outside ViteHub. Only the Vite dev server enables `development`; it defaults to false.
  */
-export function installComments(comments: Comments, runtime: { database: CommentsDatabase }): void {
+export function installComments(comments: Comments, runtime: { database: CommentsDatabase, development?: boolean }): void {
   const store = createCommentsStore(runtime.database)
   const forge = comments.options.forge ? createForgeSync(comments.options.forge, { database: runtime.database, store }) : undefined
-  runtimes.set(comments, forge ? { store, forge } : { store })
+  runtimes.set(comments, { store, forge, development: runtime.development === true })
 }
 
 export { builtinCommentSubjects, defineCommentSubject } from "./operations-core/define.ts"

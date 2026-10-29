@@ -1,12 +1,23 @@
 ---
 title: Comments configuration
-description: Decide who can comment, let guests in, choose the Database, mention and notify people, turn comment mode on and off, and mark Content fields for edits in place.
+description: Decide who can comment, sign people in with GitHub, let guests in, choose where threads go, mention and notify people, turn comment mode on and off, and mark Content fields for edits in place.
 navigation.title: Configure
-navigation.order: 3
+navigation.order: 4
 icon: i-lucide-sliders-horizontal
 ---
 
-All options go to `defineComments()` in `server/comments.ts`. Every option is optional. The [Server API](/docs/comments/server-api#definecomments-options) lists them in one table.
+Comments works without configuration. Add `server/comments.ts` when you want to change who may comment, notify people, or post to pull requests. It exports `comments` from `defineComments()`, and every option is optional. The [Server API](/docs/comments/server-api#definecomments-options) lists them in one table.
+
+```ts [server/comments.ts]
+// With the comments() plugin. In a ViteHub app, import from 'vite-hub/comments'.
+import { defineComments } from '@vite-hub/comments'
+
+export const comments = defineComments({
+  authorize: ({ user }) => user?.github?.login !== 'a-bot',
+})
+```
+
+The `comments()` plugin has one option of its own, [`database`](#choose-the-database). Without `server/comments.ts`, it uses `defineComments()` with no options.
 
 ## Decide who can comment
 
@@ -32,11 +43,79 @@ export const comments = defineComments({
 
 `thread` is the thread that the action changes. It is `undefined` for reads and for new threads.
 
-Without `authorize`, signed-in users may do everything and anonymous requests may do nothing. The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth).
+Without `authorize`, the person decides:
+
+| Person | Without `authorize` |
+| --- | --- |
+| Signed in [with GitHub](#sign-in-with-github) | May do everything when they can push to the repository of the build. Nothing otherwise. |
+| Signed in another way: `identify`, the Console, or ViteHub Auth | May do everything. |
+| Not signed in, on the dev server | May do everything, as a guest under a name they type. |
+| Not signed in, in a production build | Nothing. |
+
+The default guest policy follows Vite's serve/build command. Production builds deny anonymous access regardless of the server's `NODE_ENV`.
+
+The user comes from `identify`, else from the [Console](#comment-as-the-console-team) when the app has one, else from the ViteHub Auth session when the app has [Auth](/docs/auth), else from [Sign in with GitHub](#sign-in-with-github).
 
 Every route of the Comments API checks the policy again. A user that `read` denies gets `403` with [`COMMENTS_FORBIDDEN`](/docs/comments/limits-and-errors#comments_forbidden), and the overlay does not open. Write requests must also come from a page of the same origin.
 
 The [runtime methods](/docs/comments/server-api#runtime-methods), such as `comments.create()`, are trusted server API. They do not call `authorize`. Call `comments.can()` first when a route acts for a user.
+
+### Sign in with GitHub
+
+An app without its own sign-in signs people in with a GitHub App. It is on when both are true:
+
+- The app has neither ViteHub Auth nor the Console, and `server/comments.ts` has no `identify`.
+- The server has `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET`.
+
+A person who may not read sees **Sign in with GitHub** in the overlay. GitHub sends them back to the same page, in comment mode. Signed in, they see their picture in the toolbar. Selecting it signs them out.
+
+[Get started](/docs/comments/get-started#let-your-team-sign-in-with-github) shows how to create the GitHub App. In short:
+
+| GitHub App setting | Value |
+| --- | --- |
+| Callback URL | `https://<your site>/api/_vitehub/comments/auth/callback/github`, one for each site. A GitHub App takes up to 10. |
+| Expire user authorization tokens | Off. Comments keeps the token in the session cookie and cannot store a renewed one. |
+| Webhook | Off |
+| Permissions | None more than the default. Add **Pull requests: Read and write** to [post as each person](#post-as-each-person). |
+| Installed on | The app's repository |
+
+| Server variable | Value |
+| --- | --- |
+| `VITEHUB_GITHUB_CLIENT_ID` | The App's **Client ID**. |
+| `VITEHUB_GITHUB_CLIENT_SECRET` | A client secret of the App. |
+| `VITEHUB_SECRET` | The [app secret](/docs/env/app-secret), at least 32 characters and the same on every server. Comments derives the key of its session cookies from it, for Comments alone. The dev server works without it. |
+
+On Cloudflare, Comments reads the variables from the Worker's bindings too.
+
+**Who gets in.** Comments asks GitHub whether the person can push to the repository of the build, and asks again every 5 minutes. It finds the repository the way [pull request posting](#post-comments-to-the-pull-request) does: `GITHUB_REPOSITORY`, the Vercel Git variables, Netlify's `REPOSITORY_URL`, else the GitHub `origin` remote of the checkout when you build. Set `GITHUB_REPOSITORY=owner/name` for the build when it finds none. Without a repository, nobody signed in with GitHub gets in, and the overlay says why.
+
+**What `authorize` gets.** The user has the GitHub account in `user.github`, so you can let in more or fewer people than the default:
+
+```ts [server/comments.ts]
+export const comments = defineComments({
+  authorize: ({ user, action }) => {
+    // Everyone who signs in may read. People who can push may comment and resolve.
+    if (user?.github) return action === 'read' || user.github.write
+    return false
+  },
+})
+```
+
+| Field | Value |
+| --- | --- |
+| `user.id` | Stable for the GitHub account, on every sign-in and server. |
+| `user.name`, `user.image` | The GitHub name, else the login, and the avatar. |
+| `user.github.login` | The GitHub username. |
+| `user.github.repository` | The repository of the build, `owner/name`, when Comments knows it. |
+| `user.github.write` | Whether they can push to it. |
+
+**The session.** There is no user table and no session table. The session, and the person's GitHub token, are in encrypted cookies whose names start with `vitehub_comments`. They last 7 days from sign-in. You cannot end one session from the server. Signing out removes the cookies from that browser only. To sign everyone out, change `VITEHUB_SECRET`.
+
+**Preview URLs.** GitHub sends people back only to a callback URL that the App lists. A host that gives each deployment its own URL, such as a Vercel or Netlify preview, cannot sign people in on those URLs. Use a stable URL for previews, such as a branch domain, and list it. Or use [your own login](#use-your-own-login).
+
+An OAuth App works too, for public repositories only. Comments asks it for the `read:user` and `user:email` scopes alone, so GitHub hides private repositories from it.
+
+Comments needs no email permission. When GitHub hides a person's email, Comments uses their GitHub noreply address, `<id>+<login>@users.noreply.github.com`.
 
 ### Comment as the Console team
 
@@ -128,7 +207,29 @@ export default defineEventHandler(async (event) => {
 
 ## Choose the Database
 
-Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+Where the threads go depends on the setup.
+
+### A SQLite file, with `comments()`
+
+The `comments()` plugin keeps threads in a SQLite file. It opens the file with Node's built-in `node:sqlite` and creates its tables when the server starts, so you install no driver and run no migration.
+
+```ts [vite.config.ts]
+export default defineConfig({
+  plugins: [comments({ database: 'file:./data/comments.sqlite' })],
+})
+```
+
+| `database` | Where threads go |
+| --- | --- |
+| Not set, `vite dev` | `.vitehub/data/comments.sqlite` in the project. The plugin adds a `.gitignore` next to it. |
+| Not set, production build | Nowhere. The server log says `Comments has no database in this build`, and the API answers [`COMMENTS_NOT_INSTALLED`](/docs/comments/limits-and-errors#comments_not_installed). |
+| `'file:./data/comments.sqlite'`, or a plain path | That file, relative to the directory that the server starts in. The directory is created. |
+
+Keep the file on a disk that survives deploys and restarts, such as a Docker volume, and run one server process with it. Hosts without such a disk, such as Vercel, Netlify, and Cloudflare Workers, need a ViteHub Database.
+
+### A ViteHub Database
+
+In a [ViteHub app](/docs/comments/with-vite-hub), Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
 
 To use another Database, give its name:
 
@@ -226,7 +327,7 @@ The API waits for `onComment` before it answers the browser. Keep it short, or s
 
 ## Turn comment mode on and off
 
-Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the person when `authorize` allows `read`. The route then sets the `vitehub-tools` cookie for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route clears the cookie and the loader stops. The cookie is only a hint. Every API request checks access again.
+Comments is a ViteHub page tool. Comment mode starts when a person opens the [Console](#comment-as-the-console-team), or on any page with the `?vitehub` query, such as `https://example.com/pricing?vitehub`. `?vitehub=comments` does the same. The page then loads the page tools loader, which calls `GET /_vitehub/page/session`. That route runs the visitor check of each page tool. Comments allows the overlay when `authorize` allows `read`, or when it can offer GitHub sign-in or account switching. The sign-in prompt grants no access to threads. The route then sets the `vitehub-tools` cookie for 30 days, so every other page of the site opens in comment mode too. When no tool allows the person, the route clears the cookie and the loader stops. The cookie is only a hint. Every API request checks access again.
 
 The close button in the toolbar ends comment mode. It turns the page tools off: it clears the cookie and removes the query.
 
@@ -344,7 +445,9 @@ It posts with a GitHub App installation: set `VITEHUB_GITHUB_APP_ID` and `VITEHU
 
 ### Post as each person
 
-The App posts a comment with its author's name: "**Ada** commented on the preview:". To post as the person, return their GitHub token from `token(author)`, such as the user token of their GitHub sign-in with [Auth](/docs/auth). GitHub then shows their account, with the App's badge when it is an App user token.
+The App posts a comment with its author's name: "**Ada** commented on the preview:". A person who [signed in with GitHub](#sign-in-with-github) posts as themselves, with no option: Comments uses the token of their sign-in. Give the sign-in App **Pull requests: Read and write**, or their comments go through the posting App. GitHub then shows their account, with the App's badge.
+
+With another sign-in, return their GitHub token from `token(author)`, such as the user token of their GitHub sign-in with [Auth](/docs/auth). `token` replaces the sign-in token.
 
 ```ts [server/comments.ts]
 import { defineComments } from 'vite-hub/comments'
@@ -358,7 +461,7 @@ export const comments = defineComments({
 })
 ```
 
-Guests always post through the App. When a token fails, the App posts the comment instead.
+Guests always post through the App. When a token fails, the App posts the comment instead. Comments keeps the sign-in token in memory for 10 minutes after the person's last request, because the post runs after the request ends. It forgets it when they sign out.
 
 ### When GitHub refuses
 

@@ -2,7 +2,7 @@
 title: Comments limits and errors
 description: Comment, mention, list, and refresh limits for Comments, and the fix for each error code.
 navigation.title: Limits and errors
-navigation.order: 7
+navigation.order: 8
 icon: i-lucide-circle-alert
 ---
 
@@ -37,6 +37,9 @@ Build errors throw when Vite reads the config. When the build cannot choose the 
 | Threads in the Console section | The 500 with the newest activity |
 | Page path | 1,024 characters, starting with `/` |
 | Guest name | 64 characters |
+| GitHub sign-in session | 7 days from sign-in |
+| GitHub push access | Checked again every 5 minutes |
+| GitHub App callback URLs | 10, so 10 sites can sign people in with one App |
 | Content field address | 512 characters |
 | Edited field value | 20,000 characters |
 | Thread refresh without presence | On tab focus, and every 30 seconds while the tab is visible |
@@ -48,6 +51,8 @@ Build errors throw when Vite reads the config. When the build cannot choose the 
 ### COMMENTS_NOT_INSTALLED
 
 The Comments runtime has no Database yet. ViteHub installs it from `server/comments.ts` when the server starts. Call the method from a server route or a Nitro plugin, not at import time. When the server log shows `Comments has no Database`, turn on a Database with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.
+
+With the `comments()` plugin, the server log shows `Comments has no database in this build` instead. A production build needs a file: set `comments({ database: 'file:./data/comments.sqlite' })`. See [Choose the Database](/docs/comments/configure#choose-the-database).
 
 ### COMMENTS_NOT_FOUND
 
@@ -62,6 +67,16 @@ The input of `create()` or `reply()`, or the body of an API request, is not vali
 The `authorize` policy of `defineComments()` denied the action for this user. `why` names the action: `read`, `comment`, or `resolve`. Sign in as a user that the policy allows, or change `authorize` in `server/comments.ts`. See [Decide who can comment](/docs/comments/configure#decide-who-can-comment).
 
 The API also returns this code for a `POST` or `DELETE` from another origin. Behind a proxy that ends TLS, set `X-Forwarded-Proto` and `X-Forwarded-Host`. See [Proxies that end TLS](/docs/comments/hosts#proxies-that-end-tls).
+
+### COMMENTS_SIGN_IN_OFF
+
+A request reached `/api/_vitehub/comments/auth/` on a server without the GitHub OAuth client. Set `VITEHUB_GITHUB_CLIENT_ID` and `VITEHUB_GITHUB_CLIENT_SECRET` on the server. See [Sign in with GitHub](/docs/comments/configure#sign-in-with-github).
+
+### COMMENTS_SIGN_IN_FAILED
+
+GitHub sign-in could not start. Check that the client ID and secret belong to the same GitHub App, and that `VITEHUB_SECRET` is set and at least 32 characters in production.
+
+When GitHub sends the person back with an error, such as a callback URL that the App does not list, the sign-in shows an error page at `/api/_vitehub/comments/auth/error`. Its `error` query names the cause. Add the site's callback URL to the App.
 
 ### COMMENTS_RESOLVED
 
