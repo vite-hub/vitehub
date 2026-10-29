@@ -175,10 +175,11 @@ Without a token, the Console first connects without credentials. When the server
 1. It reads the protected resource metadata that the `WWW-Authenticate` header names. Then it reads the metadata of the authorization server, with RFC 8414 or OpenID Connect discovery.
 2. It registers one public client through dynamic client registration (RFC 7591). All connections to that authorization server use this client.
 3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. When the authorization server sends `iss` (RFC 9207), the Console checks it.
+   The scope is the one that the `401` asked for, else the scopes of the protected resource metadata. When the authorization server lists `offline_access`, the Console adds it to the registration and to the sign-in, so the server can issue a refresh token. OpenID Connect then asks for consent at each sign-in (`prompt=consent`).
 4. When the MCP server rejects an access token, the Console uses the refresh token if it has one. Otherwise the connection shows **Signed out**, and **Sign in again** starts a new sign-in.
 5. **Disconnect** ends the MCP session. When the authorization server names a revocation endpoint, the Console also asks it to revoke the tokens (RFC 7009).
 
-The app's own `/mcp` usually has the app's Auth as its authorization server, on the same origin. That server sees the session of this browser, so a person who is signed in to the app does not sign in again. They approve the client once, and an authorization server that keeps approvals skips that step next time. The Console does not skip the approval. The approval is the app's record that the person allowed the client, and the app checks it on each request.
+The app's own `/mcp` usually has the app's Auth as its authorization server, on the same origin. That server sees the session of this browser, so a person who is signed in to the app does not sign in again. They approve the client. An authorization server that keeps approvals skips that step next time, unless the sign-in asks for `offline_access`. The Console does not skip the approval. The approval is the app's record that the person allowed the client, and the app checks it on each request.
 
 When a server has no OAuth, choose **Token** and paste a personal API key or another bearer token. The Console sends it in the `Authorization` header.
 

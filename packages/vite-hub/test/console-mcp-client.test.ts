@@ -28,11 +28,13 @@ const people: Record<string, { email: string, name: string }> = {
 }
 
 /** What the authorization server and the MCP server saw, so tests can check the protocol, not only the Console. */
-const seen = { grants: [] as string[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
+const seen = { grants: [] as string[], registeredScopes: [] as unknown[], registrations: 0, revoked: new Set<string>(), sessions: new Set<string>() }
 const codes = new Map<string, { challenge: string, person: string, redirectUri: string, resource: string | null }>()
 const tokens = new Map<string, string>()
 const issued: string[] = []
 let origin = ""
+/** Whether the authorization server lists `offline_access`, as Better Auth does. */
+let offersOfflineAccess = false
 
 function base64url(value: unknown): string {
   return Buffer.from(JSON.stringify(value)).toString("base64url")
@@ -98,13 +100,16 @@ async function handle(request: IncomingMessage, response: ServerResponse): Promi
       registration_endpoint: `${origin}/register`,
       response_types_supported: ["code"],
       revocation_endpoint: `${origin}/revoke`,
+      ...(offersOfflineAccess ? { scopes_supported: ["openid", "profile", "email", "offline_access"] } : {}),
       token_endpoint: `${origin}/token`,
       token_endpoint_auth_methods_supported: ["none"],
     })
   }
   if (url.pathname === "/register") {
     seen.registrations++
-    return json(response, 201, { ...JSON.parse(await body(request)), client_id: "client-1" })
+    const registration: Record<string, unknown> = JSON.parse(await body(request))
+    seen.registeredScopes.push(registration.scope)
+    return json(response, 201, { ...registration, client_id: "client-1" })
   }
   if (url.pathname === "/authorize") {
     // The browser signs in as the person in its cookie. `prompt=login` would show a sign-in form first.
@@ -187,6 +192,7 @@ afterAll(async () => {
 })
 
 afterEach(() => {
+  offersOfflineAccess = false
   resetConsoleMcp()
   installConsoleAccess({ mode: "open" })
   installConsoleOperations([])
@@ -306,6 +312,21 @@ describe("MCP client section", () => {
 
     // The browser never gets a token.
     for (const token of issued) expect(responses.join("\n")).not.toContain(token)
+  })
+
+  it("asks for offline_access when the authorization server offers it, so the grant can be refreshed", async () => {
+    install()
+    offersOfflineAccess = true
+    const registered = seen.registeredScopes.length
+    const started = await rpc<ConsoleMcpConnectResult>("mcp-client.connect", { prompt: "login", server: "/mcp" })
+    const authorization = new URL(started.value.authorizationUrl!).searchParams
+    expect(authorization.get("scope")).toBe("openid profile email offline_access")
+    // OpenID Connect asks for consent with offline_access. The Console keeps its own prompt.
+    expect(authorization.getAll("prompt")).toEqual(["login consent"])
+    // Better Auth allows only the scopes of the registration, so the registration asks for offline_access too.
+    expect(seen.registeredScopes.slice(registered)).toEqual(["openid profile email offline_access"])
+    const connection = (await rpc<ConsoleMcpConnection>("mcp-client.complete", await signIn(started.value.authorizationUrl!, "maxi"))).value
+    expect(connection).toMatchObject({ grant: { refreshable: true }, status: "connected" })
   })
 
   it("lists tools, reads resources, gets prompts, and returns server errors as results", async () => {
