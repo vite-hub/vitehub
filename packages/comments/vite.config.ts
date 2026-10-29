@@ -14,6 +14,10 @@ export default defineConfig({
       entry: [
         "src/anchor.ts",
         "src/client.ts",
+        "src/database/postgres.ts",
+        "src/operations.ts",
+        "src/rpc.ts",
+        "src/server.ts",
         "src/testing.ts",
         "src/database.ts",
         "src/index.ts",

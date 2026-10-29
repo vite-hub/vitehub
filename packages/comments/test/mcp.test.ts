@@ -23,6 +23,25 @@ async function setup(options: DefineCommentsOptions = {}) {
 }
 
 describe("Comments MCP tools", () => {
+  it.each([true, false])("preserves action-aware Console grants after session reconciliation: %s", async (readOnly) => {
+    const authorize = vi.fn(() => true)
+    const comments = await createComments({ authorize })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Hi", author: ada })
+    const consoleAuthorize = vi.fn(async ({ kind }: { kind?: "read" | "write" }) => !readOnly || kind !== "write")
+    const consoleSession = commentsConsoleSession({ authorize: consoleAuthorize, user: async () => ada, identify: async () => ada })
+    const tools = commentsMcpTools(comments, { consoleSession })
+    const inputs = [{}, { id: thread!.id }, { id: thread!.id, body: "Fixed" }, { id: thread!.id }]
+    for (const [index, tool] of tools.entries()) {
+      const result = await tool.call(inputs[index]!, { user: ada, event: event() })
+      expect(result.isError).toBe(readOnly && index >= 2 ? true : undefined)
+    }
+    expect(consoleAuthorize.mock.calls.map(([context]) => context.kind)).toEqual(["read", "read", "write", "write"])
+    expect(authorize).toHaveBeenCalledTimes(readOnly ? 2 : 4)
+    const [, after] = await comments.get(thread!.id)
+    expect(after?.comments).toHaveLength(readOnly ? 1 : 2)
+    expect(after?.status).toBe(readOnly ? "open" : "resolved")
+  })
+
   it.each([false, true])("preserves Console denial before Comments policies, with custom identity: %s", async (customIdentity) => {
     const identify = vi.fn(() => ada)
     const authorize = vi.fn(() => true)

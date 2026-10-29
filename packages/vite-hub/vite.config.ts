@@ -115,6 +115,10 @@ export default defineConfig({
         to: "dist/console/runtime/components",
       },
       {
+        from: "src/console/runtime/components/console-operation-view.vue",
+        to: "dist/console/runtime/components",
+      },
+      {
         from: "src/console/runtime/components/console-workflow-actions.vue",
         to: "dist/console/runtime/components",
       },
@@ -341,6 +345,7 @@ export default defineConfig({
       "src/console/runtime/client/media-uploads.ts",
       "src/console/runtime/client/presence.ts",
       "src/console/runtime/client/publish.ts",
+      "src/console/runtime/client/operation-view.ts",
       "src/console/runtime/client/problem.ts",
       "src/console/runtime/client/schedule-run.ts",
       "src/console/runtime/client/schema-form.ts",
@@ -397,6 +402,7 @@ export default defineConfig({
         delete exports["./console/runtime/client/env-status"];
         delete exports["./console/runtime/client/format"];
         delete exports["./console/runtime/client/live"];
+        delete exports["./console/runtime/client/operation-view"];
         delete exports["./console/runtime/client/media"];
         delete exports["./console/runtime/client/media-library"];
         delete exports["./console/runtime/client/media-uploads"];

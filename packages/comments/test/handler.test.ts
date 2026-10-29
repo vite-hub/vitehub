@@ -69,6 +69,40 @@ async function setup(input: { user?: CommentsUser | null, options?: DefineCommen
 }
 
 describe("Comments API", () => {
+  it.each([true, false])("preserves Console read-only access across HTTP routes: %s", async (readOnly) => {
+    const user = { id: "ada", name: "Ada", role: "editor" }
+    const session = commentsConsoleSession({
+      authorize: async ({ kind }: { event: unknown, kind?: "read" | "write" }) => !readOnly || kind !== "write",
+      user: async () => user,
+      identify: async () => user,
+    })
+    const authorize = vi.fn(({ user }: { user: CommentsUser | null }) => user?.role === "editor")
+    const content = fakeContent()
+    const { comments, call } = await setup({ consoleSession: session, content, options: { identify: undefined, authorize } })
+    const [, thread] = await comments.create({ page: "/", anchor, body: "Existing", author: user })
+    const [, deletable] = await comments.create({ page: "/", anchor, body: "Delete this comment", author: user })
+    const current = await call("/session")
+    const list = await call("/threads?page=/")
+    expect(list.response.status).toBe(200)
+    expect((await call("/people?q=ad")).response.status).toBe(200)
+    for (const [path, init] of [
+      ["/threads", { method: "POST", json: { page: "/", anchor, body: "New" } }],
+      [`/threads/${thread!.id}/comments`, { method: "POST", json: { body: "Reply" } }],
+      [`/threads/${thread!.id}/resolve`, { method: "POST" }],
+      [`/threads/${thread!.id}/reopen`, { method: "POST" }],
+      ["/fields", { method: "POST", json: { field: "about#hero.title", value: "Edit", ifDigest: "d1" } }],
+      [`/threads/${deletable!.id}/comments/${deletable!.comments[0]!.id}`, { method: "DELETE" }],
+      [`/threads/${thread!.id}`, { method: "DELETE" }],
+    ] as const) {
+      expect((await call(path, init)).response.status, path).toBe(readOnly ? 403 : 200)
+    }
+    expect(current.body.data).toMatchObject({ user: { id: "ada", name: "Ada" }, can: { read: true, comment: !readOnly, resolve: !readOnly } })
+    expect(list.body.data[0].can).toEqual({ comment: !readOnly, resolve: !readOnly })
+    expect(authorize).toHaveBeenCalledWith(expect.objectContaining({ user }))
+    expect(content.saves).toHaveLength(readOnly ? 0 : 1)
+    if (readOnly) expect((await comments.get(thread!.id))[1]).toMatchObject({ status: "open", comments: [{ body: "Existing" }] })
+  })
+
   it.each([{ id: "custom", name: "Custom" }, null])("skips the Auth session when custom identify returns %j", async (user) => {
     const session = vi.fn(async () => { throw new Error("Auth unavailable") })
     const identify = vi.fn(() => user)
