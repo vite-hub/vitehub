@@ -73,7 +73,9 @@ let canonical: string | undefined;
 let loading = 0;
 let loadVersion = 0;
 let pending: ReturnType<typeof setTimeout> | undefined;
+let flushing: Promise<void> | undefined;
 let flushVersion = 0;
+let committing = 0;
 
 const live = props.live;
 const components = computed(() => consoleEditorComponents(props.components));
@@ -181,8 +183,20 @@ const { editor, getMarkdown, setContent } = useComarkEditor({
   },
 });
 
-async function flush(): Promise<void> {
+function flush(): Promise<void> {
+  if (!flushing) {
+    flushing = writeMarkdown().finally(() => {
+      flushing = undefined;
+      // An edit may have arrived while the preceding snapshot was being serialized.
+      if (pending) void flush();
+    });
+  }
+  return flushing;
+}
+
+async function writeMarkdown(): Promise<void> {
   const version = flushVersion;
+  if (pending) clearTimeout(pending);
   pending = undefined;
   if (hydrating.value || lossy.value) return;
   const markdown = await getMarkdown();
@@ -200,9 +214,16 @@ function schedule(): void {
 
 /** Writes pending rich-text edits to the model now, for example before a save. A live room saves on its own. */
 async function commit(): Promise<void> {
-  if (!pending || live) return;
-  clearTimeout(pending);
-  await flush();
+  if (live || (!pending && !flushing)) return;
+  committing++;
+  setEditable();
+  try {
+    do { await flush(); } while (pending || flushing);
+  }
+  finally {
+    committing--;
+    setEditable();
+  }
 }
 
 /** Loads Markdown without an update or an undo step, then records how the editor serializes it. */
@@ -288,7 +309,7 @@ watch(() => props.active, (active) => {
 });
 
 function setEditable(): void {
-  editable.value = !props.disabled && !lossy.value && !hydrating.value;
+  editable.value = !committing && !props.disabled && !lossy.value && !hydrating.value;
   editor.value?.setEditable(editable.value, false);
 }
 
