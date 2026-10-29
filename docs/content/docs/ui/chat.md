@@ -1,6 +1,7 @@
 ---
 title: Chat
 description: Render an AI SDK message list that follows streaming output and keeps the reader's scroll position.
+seo.title: Chat message list component for Vue
 navigation.order: 20
 navigation.group: Chat
 icon: i-ph-chat-circle-text-light

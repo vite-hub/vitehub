@@ -32,3 +32,8 @@ KV inspection represents `bigint` values, including nested values, as decimal st
 KV prefixes are conventions, not relational models. Move data to Database when you need constraints, joins, migrations, history, or complex queries.
 
 Do not build coordination locks on top of basic `kv.get()` and `kv.set()`. The atomic methods cover single-use reads and counters; they are not a general compare-and-swap API.
+
+## Related guides
+
+Use [Upstash Redis for ViteHub KV](/docs/guides/upstash-redis) for hosted REST
+configuration and a persistence check.

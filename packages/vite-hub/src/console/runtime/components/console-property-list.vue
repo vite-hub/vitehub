@@ -23,7 +23,7 @@ withDefaults(defineProps<{
       <span v-if="count" class="font-normal text-dimmed tabular-nums">{{ items.length }}</span>
     </h3>
     <dl v-if="items.length" class="divide-y divide-default border-y border-default">
-      <div v-for="item in items" :key="item.label" class="grid gap-1 py-2.5 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)] sm:gap-4">
+      <div v-for="(item, index) in items" :key="`${index}:${item.label}`" class="grid gap-1 py-2.5 sm:grid-cols-[minmax(0,9rem)_minmax(0,1fr)] sm:gap-4">
         <dt class="truncate text-[13px] text-muted" :title="item.label">{{ item.label }}</dt>
         <dd class="min-w-0 break-words text-highlighted" :class="item.mono ? 'font-mono text-xs leading-5' : 'text-[13px]'">
           <slot name="value" :item="item"><ConsoleValue :value="item.value" /></slot>
