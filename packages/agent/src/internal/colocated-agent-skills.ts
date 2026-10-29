@@ -101,15 +101,18 @@ export function agentWithSkills<Agent extends object>(agent: Agent, skills: Reco
   return resolved
 }
 
-/** Read the bundled files that discovery and Agent layers will materialize at startup. */
-export function inspectAgentSkillFiles(agent: object): { path: string, content: Uint8Array }[] {
+/**
+ * List the bundled files that discovery and Agent layers will materialize at startup.
+ * `read()` returns a copy of one file, so a caller can check `size` before it copies the content.
+ */
+export function inspectAgentSkillFiles(agent: object): { path: string, size: number, read: () => Uint8Array }[] {
   const sources: unknown = Reflect.get(agent, colocatedAgentSkillsSymbol)
   if (!isRuntimeRecord(sources)) return []
   return Object.values(sources).flatMap((source: unknown) => {
     if (!isRuntimeRecord(source) || !hasRuntimeType(source.workspacePath, "string")) return []
     const content = hasRuntimeType(source.content, "string")
       ? new TextEncoder().encode(source.content)
-      : source.content instanceof Uint8Array ? source.content.slice() : undefined
-    return content ? [{ path: source.workspacePath, content }] : []
+      : source.content instanceof Uint8Array ? source.content : undefined
+    return content ? [{ path: source.workspacePath, size: content.byteLength, read: () => content.slice() }] : []
   }).sort((left, right) => left.path.localeCompare(right.path))
 }

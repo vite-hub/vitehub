@@ -49,6 +49,10 @@ describe("Console bundled Skills", () => {
     vi.stubGlobal("fetch", (input: string, init?: RequestInit) => handleConsoleRpcRequest(new Request(new URL(input, "http://vitehub.local"), init)))
     await expect(requestConsole("/api/_vitehub/console/skills", { query: { agent: "reviewer", path: ".agents/skills/review/SKILL.md" } })).resolves.toEqual({ path: ".agents/skills/review/SKILL.md", content: "# Review\n\nRead the evidence.\n", size: 29 })
   })
+  it("opens the first Agent that bundles Skills when no Agent is chosen", async () => {
+    install()
+    expect(await (await call()).json()).toMatchObject({ ok: true, value: { agent: "reviewer", agents: ["empty", "reviewer"] } })
+  })
   it("returns an honest empty catalog for an Agent without bundled Skills", async () => {
     install()
     expect(await (await call({ agent: "empty" })).json()).toMatchObject({ ok: true, value: { agent: "empty", files: [] } })
