@@ -23,6 +23,7 @@ import type {
   ContentDevDiffResult,
   ContentDevListResult,
   ContentDevPublishResult,
+  ContentDevRemoveResult,
   ContentDevRevisionsResult,
   ContentDevSaveResult,
   ContentDevSchedulesResult,
@@ -148,6 +149,42 @@ function guard(content: ContentOperationsRuntime, context: OperationContext): Gu
       const allowed = await Promise.all(list.map(id => can("read", collection, id)))
       return new Set(list.filter((_id, index) => allowed[index]))
     },
+  }
+}
+
+/** An Agent tool or an MCP client: a model decides the call, for the person it works for. */
+function modelSurface(context: OperationContext): boolean {
+  return context.surface === "agent" || context.surface === "mcp"
+}
+
+/** The `lease` write option. A model may not take over a document that a person is editing, unless the developer allowed it. */
+function leaseOption(lease: "override" | undefined, context: OperationContext): Pick<ContentWriteOptions, "lease"> {
+  if (lease === undefined) return {}
+  if (modelSurface(context) && !context.overrideLeases) {
+    throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Tell the person you work for who is editing it, and try again after they finish. A developer allows overrides with operations({ overrideLeases: true })." })
+  }
+  return { lease }
+}
+
+/**
+ * Run a write. For a model, a held lease names the person and says to wait, because the runtime error tells a
+ * developer how to override it.
+ */
+async function write<T>(context: OperationContext, work: () => Promise<T>): Promise<T> {
+  try {
+    return await attempt(work)
+  }
+  catch (error) {
+    if (!modelSurface(context) || errorCode(error) !== "CONTENT_LEASE_HELD") throw error
+    const details: unknown = Reflect.get(Object(error), "details")
+    const holder: unknown = Reflect.get(Object(details), "holder")
+    const user: unknown = Reflect.get(Object(holder), "user")
+    const name: unknown = Reflect.get(Object(user), "name") ?? Reflect.get(Object(user), "id")
+    const document = `${String(Reflect.get(Object(details), "collection"))}/${String(Reflect.get(Object(details), "id"))}`
+    throw new ContentOperationError(409, "CONTENT_LEASE_HELD", `${String(name) === name ? name : "Someone"} is editing Content document ${JSON.stringify(document)}. Nothing was saved.`, {
+      details,
+      fix: "Tell the person you work for, and try again after they finish.",
+    })
   }
 }
 
@@ -515,27 +552,80 @@ const save = defineOperation({
   kind: "write",
   maxRequestBytes: 1024 * 1024 + 64 * 1024,
   name: "content.save",
-  run: async (input, context): Promise<ContentDevSaveResult> => attempt(async () => {
+  run: async (input, context): Promise<ContentDevSaveResult> => write(context, async () => {
     const content = await contentRuntime()
     const access = guard(content, context)
     const collection = content.collection(input.collection)
     const id = documentId(collection, input.id, "save")
     await access.allow("write", collection.name, id)
-    if (input.lease === "override" && context.surface === "agent" && !context.overrideLeases) {
-      throw new ContentOperationError(403, "CONTENT_FORBIDDEN", "An Agent may not take over a document that a person is editing.", { fix: "Create the capability with operations({ overrideLeases: true }) if Agents may write over an edit lease." })
-    }
+    const lease = leaseOption(input.lease, context)
     const parsed = parseDocumentFile(input.text, collection.format)
     if (!("frontmatter" in parsed)) {
       throw new ContentOperationError(422, "CONTENT_INVALID", `Content document ${JSON.stringify(`${collection.name}/${id}`)} cannot be read as ${collection.format}.`, { details: { collection: collection.name, id, issues: parsed.issues } })
     }
-    const options: ContentWriteOptions = { metadata: metadata(context) }
+    const options: ContentWriteOptions = { metadata: metadata(context), ...lease }
     if (input.ifDigest !== undefined) options.ifDigest = input.ifDigest
     if (input.message !== undefined) options.message = input.message
-    if (input.lease !== undefined) options.lease = input.lease
-    const document = await collection.save(id, { body: parsed.body, data: parsed.frontmatter }, options)
-    const result: ContentDevSaveResult = { collection: document.collection, digest: document.digest, id: document.id, path: document.path, revision: document.revision }
-    if (document.issues?.length) result.issues = document.issues
-    return result
+    return saveResult(await collection.save(id, { body: parsed.body, data: parsed.frontmatter }, options))
+  }),
+  section: "content",
+})
+
+function saveResult(document: { collection: string, digest: string, id: string, issues?: ContentFieldIssue[] | undefined, path: string, revision: string }): ContentDevSaveResult {
+  const result: ContentDevSaveResult = { collection: document.collection, digest: document.digest, id: document.id, path: document.path, revision: document.revision }
+  if (document.issues?.length) result.issues = document.issues
+  return result
+}
+
+const remove = defineOperation({
+  cli: { command: "rm", positional: ["collection", "id"] },
+  description: "Delete one document from the draft, pinned to the draft digest that you read. The next publish deletes it from the site. Fails while someone else holds the edit lease.",
+  input: v.strictObject({
+    collection: text,
+    id: optionalText,
+    ifDigest: text,
+    lease: v.optional(v.literal("override")),
+    message: optionalText,
+  }),
+  kind: "destructive",
+  name: "content.remove",
+  run: async (input, context): Promise<ContentDevRemoveResult> => write(context, async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const collection = content.collection(input.collection)
+    const id = documentId(collection, input.id, "remove")
+    await access.allow("write", collection.name, id)
+    const options: ContentWriteOptions = { ifDigest: input.ifDigest, metadata: metadata(context), ...leaseOption(input.lease, context) }
+    if (input.message !== undefined) options.message = input.message
+    await collection.remove(id, options)
+    return { collection: collection.name, id }
+  }),
+  section: "content",
+})
+
+const restore = defineOperation({
+  cli: { command: "restore", positional: ["collection", "id"] },
+  description: "Save the version of one document from an earlier revision as its draft. Publishes nothing. Pass ifDigest, the current draft digest or null, to restore only over what you read.",
+  input: v.strictObject({
+    collection: text,
+    id: optionalText,
+    ifDigest: v.optional(digest),
+    lease: v.optional(v.literal("override")),
+    message: optionalText,
+    revision: text,
+  }),
+  kind: "write",
+  name: "content.restore",
+  run: async (input, context): Promise<ContentDevSaveResult> => write(context, async () => {
+    const content = await contentRuntime()
+    const access = guard(content, context)
+    const collection = content.collection(input.collection)
+    const id = documentId(collection, input.id, "restore")
+    await access.allow("write", collection.name, id)
+    const options: ContentWriteOptions = { metadata: metadata(context), ...leaseOption(input.lease, context) }
+    if (input.ifDigest !== undefined) options.ifDigest = input.ifDigest
+    if (input.message !== undefined) options.message = input.message
+    return saveResult(await collection.restore(id, input.revision, options))
   }),
   section: "content",
 })
@@ -673,4 +763,4 @@ const sitemap = defineOperation({
 })
 
 /** The Content operations. The Console, `vitehub content`, and agents call them. `content.can()` is the policy. */
-export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, publish, schedule, unschedule, schedules, sitemap]
+export const contentOperations: readonly AnyOperation[] = [collections, list, resolveDocument, show, status, diff, revisions, save, remove, restore, publish, schedule, unschedule, schedules, sitemap]

@@ -95,9 +95,40 @@ export const comments = defineComments({
 
 The server does not verify a guest name or ID. They are display data, never proof of ownership. Guests cannot delete comments or threads, even when the policy allows `resolve`. Sign in to delete your own comments, or ask a signed-in moderator with `resolve` permission.
 
+## Comments in your own UI
+
+The overlay and the Console show threads of the `pages` scope: the ones people pin on the app's pages. App code can also keep comments on its own records, such as a document, and show them in its own UI. Give those threads a scope of their own. The overlay, the Console, and [ViteHub MCP](/docs/development/mcp) never show or change them.
+
+```ts [server/api/docs/[id]/comments.post.ts]
+import { defineEventHandler, getRouterParam, readBody } from 'h3'
+import { comments } from '../../../comments'
+import { canComment, requireUser } from '../../../utils/docs'
+
+export default defineEventHandler(async (event) => {
+  const user = await requireUser(event)
+  const id = getRouterParam(event, 'id')!
+  if (!await canComment(user, id)) throw new Error('You cannot comment on this document.')
+  const { body, quote } = await readBody<{ body: string, quote: string }>(event)
+  const [error, thread] = await comments.create({
+    scope: `doc:${id}`,
+    page: `/docs/${id}`,
+    metadata: { kind: 'text', quote },
+    body,
+    author: { id: user.id, name: user.name },
+  })
+  if (error) throw error
+  return thread
+})
+```
+
+- `metadata` keeps what your UI needs, such as where the comment sits in the document: at most 50 keys with string, number, boolean, or `null` values.
+- Threads are numbered 1, 2, 3, … in their scope. Deleting threads or a whole scope never reuses those numbers. `getByNumber('doc:42', 3)` finds "#3".
+- `removeScope('doc:42')` deletes every thread of the document, for example when the document goes away.
+- The runtime methods are trusted server API, so check access in your route. When you call `comments.can()`, `authorize` gets the `scope` too.
+
 ## Choose the Database
 
-Comments adds two tables, `vitehub_comment_threads` and `vitehub_comments`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
+Comments adds three tables, `vitehub_comment_threads`, `vitehub_comments`, and `vitehub_comment_scope_counters`, to a Database at build time. Without the `database` option, it uses the Database named `default`, else the only Database. `vitehub({ database: true })` gives an app without a Database Definition a `default` Database. The [CMS preset](/docs/content/cms-preset) of Content adds one too.
 
 To use another Database, give its name:
 
@@ -110,6 +141,39 @@ export const comments = defineComments({
 ViteHub reads the name from the file without running it, so write it as a string literal. The build fails with `DATABASE_INVALID_CONTRIBUTION_TARGET` when the named Database does not exist, or when the app has several Databases and none is named `default`. The tables use SQLite, so the Database must be SQLite, libSQL, or D1.
 
 Run `vitehub db generate` and `vitehub db migrate` after you add `server/comments.ts` or change `database`. See [Apply migrations](/docs/database/configure#apply-migrations).
+
+## Upgrade existing Comments
+
+Fresh databases can apply the generated Comments schema directly. Existing databases need a data migration before the new unique index is created. Schema generation cannot infer this backfill.
+
+1. Stop Comments writes while you migrate, including writes from older app instances. Back up the database.
+2. Run `vitehub db generate --name comments_scopes`. Edit the new SQL migration in the Database's migrations directory before applying it. Keep the generated snapshot and journal.
+3. If the migration adds `scope` and `number`, place this backfill **after both `ALTER TABLE` statements and before `CREATE UNIQUE INDEX vitehub_comment_threads_number`**. Keep Drizzle's `--> statement-breakpoint` separators. Skip this backfill if the database already has numbered threads; those numbers must not change.
+
+```sql [scope-number-backfill.sql]
+UPDATE `vitehub_comment_threads`
+SET `number` = (
+  SELECT count(*) FROM `vitehub_comment_threads` AS `earlier`
+  WHERE `earlier`.`scope` = `vitehub_comment_threads`.`scope`
+    AND (`earlier`.`created_at` < `vitehub_comment_threads`.`created_at`
+      OR (`earlier`.`created_at` = `vitehub_comment_threads`.`created_at`
+        AND `earlier`.`id` <= `vitehub_comment_threads`.`id`))
+);
+--> statement-breakpoint
+```
+
+4. The generated migration also creates `vitehub_comment_scope_counters`. After that table exists and thread numbers are filled, append this statement. This step also applies to apps that already have scoped, numbered threads and are adding the counter table.
+
+```sql [scope-counter-backfill.sql]
+INSERT INTO `vitehub_comment_scope_counters` (`scope`, `last_number`)
+SELECT `scope`, max(`number`) FROM `vitehub_comment_threads` GROUP BY `scope`
+ON CONFLICT (`scope`) DO UPDATE SET `last_number` = max(`last_number`, excluded.`last_number`);
+--> statement-breakpoint
+```
+
+5. Run `vitehub db migrate --dry-run` to check the order, then `vitehub db migrate` against the app's Database before starting the new app version. Verify that every existing thread has a positive number and that `(scope, number)` is unique.
+
+The counter survives thread deletion and `removeScope()`. Do not delete its rows when deleting application records. If an older scoped version already deleted its highest-numbered threads, their numbers cannot be recovered from the remaining rows. Before reopening writes, restore each affected counter to at least the highest number ever issued from your backup or audit history.
 
 ## Mention people
 
@@ -175,11 +239,35 @@ The close button in the toolbar ends comment mode. It clears the cookie and remo
 
 Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one `<script type="module">` before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. Paths under `/_vitehub` and `/api` never get the overlay.
 
-- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook.
+- Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
 - A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the overlay in the browser when it finds the query or the cookie.
-- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders.
+- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the overlay. Use the query on a page that the server renders, or serve the prerendered files through a route.
 
-The overlay is a custom element with a closed shadow root. Your CSS does not change it, and its CSS does not change your page.
+A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
+
+```ts [server/middleware/pages.ts]
+import { defineEventHandler } from 'h3'
+import { wantsCommentMode } from 'vite-hub/comments/runtime'
+
+export default defineEventHandler(async (event) => {
+  const { request, env } = event.context.cloudflare
+  if (request.method !== 'GET') return
+  let assetRequest = request
+  if (wantsCommentMode(request)) {
+    const headers = new Headers(request.headers)
+    headers.delete('if-none-match')
+    headers.delete('if-modified-since')
+    assetRequest = new Request(request, { headers })
+  }
+  const file = await env.ASSETS.fetch(assetRequest)
+  // The overlay goes into this response for people in comment mode. Everyone else gets the file unchanged.
+  if (file.status !== 404) return file
+})
+```
+
+Comment-mode requests remove cache validators before fetching the asset. Otherwise the binding can return a bodyless `304`, and the browser reuses a cached page without the overlay. Requests without the comment hint retain their validators.
+
+The overlay is a custom element with a shadow root. Your CSS does not change it, and its CSS does not change your page.
 
 ## Mark Content fields
 
@@ -227,7 +315,7 @@ A pin on an element with a Content field, or inside one, stores the field addres
 
 ## Triage in the Console
 
-The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity: page, first comment, author, replies, status, and last update. A thread's **Open on page** field is its `?comments#comment-<id>` link. Reply and resolve on the page, where the context is.
+The Console has a Comments section at `/_vitehub/comments`. It lists the 500 threads with the newest activity, open threads first: first comment, page, author, replies, status, and last activity. Select a thread to read its comments in order, with the page context under them. **Open on page** opens its `?comments#comment-<id>` link in a new tab. Reply and resolve on the page, where the context is.
 
 `vitehub inspect` lists the Comments route, the `comments` Realtime Definition when presence runs, and the tables in the Database.
 

@@ -54,10 +54,10 @@ export function scriptNonce(headers: Headers): string | undefined {
 }
 
 /** Inserts the overlay script before `</body>` of a streamed HTML body, or at its end when it has none. */
-export function injectOverlay(response: Response, src: string): Response {
+export function injectOverlay(response: Response, src: string, policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = scriptTag(src, scriptNonce(response.headers))
+  const tag = scriptTag(src, scriptNonce(policyHeaders))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -92,6 +92,23 @@ export function injectOverlay(response: Response, src: string): Response {
   return new Response(response.body.pipeThrough(transform), { headers, status: response.status, statusText: response.statusText })
 }
 
+/** The parts of an H3 1 event that the Nitro 2 hooks read. */
+interface Nitro2Event {
+  web?: { request?: Request }
+  node?: {
+    req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
+    res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
+  }
+}
+
+/** The Web request of an H3 1 event. Only the path, query, and headers matter for comment mode. */
+function nitro2Request(event: Nitro2Event): Request | undefined {
+  const node = event.node?.req
+  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
+  const path = node?.originalUrl || node?.url
+  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
+}
+
 /**
  * The Nitro plugin of Comments. It connects the definition to its Database, and adds the overlay script to HTML pages
  * of requests in comment mode. Pages without the hint are returned unchanged.
@@ -116,20 +133,30 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       })
       return
     }
-    // Nitro 2 with Nuxt: the HTML render hook.
+    // Nitro 2 with Nuxt: the HTML render hook for rendered pages, and the response hook for the pages that a route
+    // returns as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
     const hooks: unknown = Reflect.get(nitroApp, "hooks")
     const hook: unknown = hooks !== null && typeof hooks === "object" ? Reflect.get(hooks, "hook") : undefined
-    if (hook instanceof Function) {
-      Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: { web?: { request?: Request }, node?: { req?: { url?: string, headers?: Record<string, string> }, res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown } } } }) => {
-        const node = context.event.node?.req
-        const request = context.event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
-        if (!request || !wantsCommentMode(request, base)) return
-        const res = context.event.node?.res
-        const policy = res?.getHeader?.("content-security-policy")
-        html.bodyAppend.push(scriptTag(options.overlay, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
-        // As on the fetch path: a page with the overlay must never reach a shared cache.
-        res?.setHeader?.("cache-control", "private, no-store")
-      }])
-    }
+    if (!(hook instanceof Function)) return
+    Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
+      const request = nitro2Request(context.event)
+      if (!request || !wantsCommentMode(request, base)) return
+      const res = context.event.node?.res
+      const policy = res?.getHeader?.("content-security-policy")
+      html.bodyAppend.push(scriptTag(options.overlay, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
+      // As on the fetch path: a page with the overlay must never reach a shared cache.
+      res?.setHeader?.("cache-control", "private, no-store")
+    }])
+    Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
+      if (!(response.body instanceof Response)) return
+      const request = nitro2Request(event)
+      if (request && wantsCommentMode(request, base)) {
+        // H3 preserves Node response headers unless the returned Response replaces them.
+        const headers = new Headers(response.body.headers)
+        const policy = event.node?.res?.getHeader?.("content-security-policy")
+        if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+        response.body = injectOverlay(response.body, options.overlay, headers)
+      }
+    }])
   }
 }
