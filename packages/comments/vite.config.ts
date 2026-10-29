@@ -8,10 +8,13 @@ export default defineConfig({
       tsconfig: "tsconfig.build.json",
       deps: {
         alwaysBundle: [/^@vite-hub\/internal/],
+        neverBundle: ["nostics"],
         onlyBundle: false,
       },
       entry: [
         "src/anchor.ts",
+        "src/client.ts",
+        "src/testing.ts",
         "src/database.ts",
         "src/index.ts",
         "src/realtime.ts",
