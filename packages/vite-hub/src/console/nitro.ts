@@ -59,18 +59,25 @@ export function addConsoleRpcHandler(
   consoleRuntimeRoot: string,
   base?: string,
   sections: readonly string[] = [],
+  oauth = false,
 ): void {
   const kit = createNitroServerKit(nitro)
   // SAFETY: The Console only adds Nitro handlers with string handler and route fields.
   const handlers = kit.config.handlers as NitroHandler[]
-  const registrations = [
+  const registrations: Array<{ absolute?: true, handler: string, method?: "get" | "post", middleware?: true, suffix: string }> = [
     { suffix: "/_vitehub/rpc/**", handler: join(consoleRuntimeRoot, "server/rpc.js") },
-    { suffix: "/_vitehub/auth/manage", handler: join(consoleRuntimeRoot, "server/auth-manage.js") },
-    { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js") },
-    { suffix: "/_vitehub/channels/replay", handler: join(consoleRuntimeRoot, "server/channel-replay.js") },
-    { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js") },
-    // ViteHub MCP: the tools of the sections that the Console user may use, such as Comments.
+    { suffix: "/_vitehub/auth/manage", handler: join(consoleRuntimeRoot, "server/auth-manage.js"), method: "post" },
+    { suffix: "/_vitehub/env/manage", handler: join(consoleRuntimeRoot, "server/env-manage.js"), method: "post" },
+    { suffix: "/_vitehub/channels/replay", handler: join(consoleRuntimeRoot, "server/channel-replay.js"), method: "post" },
+    { suffix: "/_vitehub/schedules/run", handler: join(consoleRuntimeRoot, "server/schedule-run.js"), method: "post" },
+    // The MCP endpoint answers every method itself. Its OAuth metadata lives at the origin root, where clients look.
     { suffix: "/_vitehub/mcp", handler: join(consoleRuntimeRoot, "server/mcp.js") },
+    { absolute: true, suffix: "/**", handler: join(consoleRuntimeRoot, "server/mcp-discovery.js"), middleware: true },
+    { absolute: true, suffix: "/.well-known/oauth-protected-resource", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
+    { absolute: true, suffix: "/.well-known/oauth-protected-resource/**", handler: join(consoleRuntimeRoot, "server/mcp-metadata.js"), method: "get" },
+    // Better Auth serves its authorization server metadata below its own base path. MCP clients ask at the origin root.
+    { absolute: true, suffix: "/.well-known/oauth-authorization-server", handler: join(consoleRuntimeRoot, "server/mcp-authorization-server.js"), method: "get" },
+    { absolute: true, suffix: "/.well-known/oauth-authorization-server/**", handler: join(consoleRuntimeRoot, "server/mcp-authorization-server.js"), method: "get" },
   ]
   const ownedHandlers = new Set(registrations.map(registration => registration.handler))
   const ownedSuffixes = new Set(registrations.map(registration => registration.suffix))
@@ -81,9 +88,11 @@ export function addConsoleRpcHandler(
   handlers.splice(0, handlers.length, ...retainedHandlers)
 
   for (const registration of registrations) {
+    // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.
+    if (registration.absolute && !oauth) continue
     if (registration.suffix === "/_vitehub/auth/manage" && !sections.includes("auth")) continue;
-    const route = mountPath(base, registration.suffix)
-    const conflict = retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
+    const route = registration.absolute ? registration.suffix : mountPath(base, registration.suffix)
+    const conflict = !registration.middleware && retainedHandlers.find(candidate => candidate.route === route && candidate.handler !== registration.handler)
     if (conflict) {
       const message =
         registration.suffix === "/_vitehub/rpc/**"
@@ -92,8 +101,9 @@ export function addConsoleRpcHandler(
       throw viteHubErrorDiagnostics.VITE_HUB_R0040({ message })
     }
     const handler: NitroHandler = { handler: registration.handler, route }
-    if (registration.suffix !== "/_vitehub/rpc/**" && registration.suffix !== "/_vitehub/mcp") handler.method = "post"
-    kit.addHandler(handler)
+    if (registration.method) handler.method = registration.method
+    if (registration.middleware) handler.middleware = true
+    kit.addHandler(handler, registration.middleware ? "start" : "end")
   }
 
   // SAFETY: The kit preserves the caller's Nitro handler array while adding the Console routes.

@@ -155,6 +155,7 @@ The core raises these codes:
 | `INTERNAL_R0026` | The server parsed a destructive call that the generated CLI command did not confirm. Review the call and pass `--yes`. |
 | `INTERNAL_B0048` | Two operations have the same name. |
 | `INTERNAL_B0049` | Two operations are the same CLI command. |
+| `INTERNAL_B0050` | Two operations are the same [MCP](/docs/development/mcp) tool name, such as `content.publish` and `content_publish`. |
 
 ## Access
 

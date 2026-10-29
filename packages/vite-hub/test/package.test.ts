@@ -817,7 +817,7 @@ describe("framework package contract", () => {
     expect(manifest.dependencies).not.toHaveProperty("@googleapis/drive");
   });
 
-  it("configures Nitro with Console files from the distributed package", async () => {
+  it("configures distributed Console files without OAuth discovery for open access", async () => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-distributed-console-"));
     try {
       await writeFile(join(root, "package.json"), "{}\n", "utf8");

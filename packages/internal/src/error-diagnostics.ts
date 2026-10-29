@@ -89,6 +89,10 @@ export const internalErrorDiagnostics = /*#__PURE__*/ defineDiagnostics({
       fix: "Set `cli: { namespace, command }` on one of the two operations.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
     },
+    INTERNAL_B0050: {
+      fix: "Rename one of the two operations, or set `mcp: false` on it. MCP tool names replace every character outside letters, digits, `_`, and `-` with `_`.",
+      why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
+    },
     INTERNAL_R0025: {
       fix: "Start `vite dev` in the project that you run the command from, or pass `--url` of that server.",
       why: ({ message }: { message?: unknown }) => message === undefined ? "" : String(message),
