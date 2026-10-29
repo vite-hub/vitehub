@@ -1,9 +1,9 @@
 import { runInNewContext } from "node:vm"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { toWorkflowDevRunView } from "../src/runtime/dev.ts"
+import { toWorkflowRunView } from "../src/runtime/operations.ts"
 import type { WorkflowRun } from "../src/types.ts"
 
-describe("workflow dev cross realm response probe", () => {
+describe("workflow run view cross realm response probe", () => {
   afterEach(() => vi.unstubAllGlobals())
 
   it("reads a response created by another realm", async () => {
@@ -28,7 +28,7 @@ describe("workflow dev cross realm response probe", () => {
       result: foreignResponse,
       metadata: { response: foreignResponse },
     } satisfies WorkflowRun
-    const view = await toWorkflowDevRunView(run, "probe")
+    const view = await toWorkflowRunView(run, "probe")
     expect(view.result).toEqual({ ok: true })
     expect(view.metadata).toEqual({ response: { response: { status: 201, statusText: "Created" } } })
   })
@@ -47,7 +47,7 @@ describe("workflow dev cross realm response probe", () => {
       status: "completed",
       result: spoofedResponse,
     } satisfies WorkflowRun
-    const view = await toWorkflowDevRunView(run, "probe")
+    const view = await toWorkflowRunView(run, "probe")
     expect(view.result).toEqual({ body: '{"ok":true}', status: 201, statusText: "Created" })
   })
 })
