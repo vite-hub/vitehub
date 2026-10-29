@@ -79,8 +79,8 @@ export interface OperationContext {
   /** Operations set a success status here, such as 202 for an accepted call. */
   response?: { status?: number }
   /**
-   * An agent may pass `lease: "override"` to `content.save` only when the developer allowed it. Defaults to false, so a
-   * model cannot take over a document that a person is editing.
+   * An agent or an MCP client may pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`
+   * only when the developer allowed it. Defaults to false, so a model cannot take over a document that a person is editing.
    */
   overrideLeases?: boolean
   /**

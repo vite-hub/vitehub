@@ -11,10 +11,12 @@ import { parseConsoleSectionContent } from "../definitions";
 import { isConsoleSectionReadOnly } from "../client/read-only";
 import { rememberConsoleSection } from "../sections";
 import { consoleStatusValue } from "../client/format";
+import { consoleInitials } from "../client/presence";
 import ConsoleFrame from "./console-frame.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsolePropertyList from "./console-property-list.vue";
 import ConsoleRateLimit from "./console-rate-limit.vue";
+import ConsoleRelativeTime from "./console-relative-time.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
 import ConsoleState from "./console-state.vue";
@@ -76,6 +78,8 @@ const selectedDefinition = computed(() =>
   definitions.value.find((definition) => definition.name === selectedName.value),
 );
 const selectedRecord = computed(() => records.value.find((row) => row.id === selectedName.value));
+// Records with a link get a last column that opens it, such as a comment thread on its page.
+const recordLinks = computed(() => records.value.some((row) => row.link));
 // The Console lists the operations that run app code and that this request may run. `console.invoke` off or a read-only
 // grant leaves them out, so the page offers no action that the server would refuse.
 const registeredOperations = ref<readonly string[]>([]);
@@ -356,6 +360,7 @@ onBeforeUnmount(() => request?.abort());
                     <th v-for="column in recordColumns" :key="column.key" class="h-9 whitespace-nowrap px-3 text-xs font-medium text-muted" scope="col">
                       {{ column.label }}
                     </th>
+                    <th v-if="recordLinks" class="w-12 px-3" scope="col"><span class="sr-only">Link</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -377,6 +382,22 @@ onBeforeUnmount(() => request?.abort());
                         {{ row.cells[column.key] || row.id }}
                       </button>
                       <ConsoleValue v-else :value="row.cells[column.key] || ''" />
+                    </td>
+                    <td v-if="recordLinks" class="px-2 text-end">
+                      <UTooltip v-if="row.link" :text="row.link.label">
+                        <UButton
+                          class="relative"
+                          :aria-label="`${row.link.label}: ${recordTitle(row)}`"
+                          :to="row.link.href"
+                          external
+                          target="_blank"
+                          rel="noopener"
+                          color="neutral"
+                          icon="i-lucide-arrow-up-right"
+                          size="xs"
+                          variant="ghost"
+                        />
+                      </UTooltip>
                     </td>
                   </tr>
                 </tbody>
@@ -449,7 +470,36 @@ onBeforeUnmount(() => request?.abort());
               @click="runSelectedSchedule"
             />
           </div>
-          <ConsolePropertyList title="Fields" :items="selectedRecord.fields" />
+          <UButton
+            v-if="selectedRecord.link"
+            class="justify-self-start"
+            :to="selectedRecord.link.href"
+            external
+            target="_blank"
+            rel="noopener"
+            :label="selectedRecord.link.label"
+            trailing-icon="i-lucide-arrow-up-right"
+            color="neutral"
+            size="sm"
+            variant="outline"
+          />
+          <section v-if="selectedRecord.activity?.length" class="grid gap-3" aria-label="Activity">
+            <h3 class="flex items-center gap-2 text-xs font-medium text-highlighted">
+              Activity
+              <span class="font-normal text-dimmed tabular-nums">{{ selectedRecord.activity.length }}</span>
+            </h3>
+            <ol class="grid gap-4">
+              <li v-for="(entry, index) in selectedRecord.activity" :key="index" class="grid grid-cols-[1.5rem_minmax(0,1fr)] gap-x-3 gap-y-0.5">
+                <UAvatar :text="consoleInitials(entry.author)" :alt="entry.author" size="xs" class="row-span-2" />
+                <p class="flex min-w-0 items-baseline gap-2">
+                  <span class="truncate text-[13px] font-medium text-highlighted">{{ entry.author }}</span>
+                  <span class="shrink-0 text-xs text-muted"><ConsoleRelativeTime :value="entry.at" /></span>
+                </p>
+                <p class="whitespace-pre-wrap break-words text-[13px] leading-relaxed text-pretty text-default">{{ entry.text }}</p>
+              </li>
+            </ol>
+          </section>
+          <ConsolePropertyList :title="selectedRecord.activity?.length ? 'Details' : 'Fields'" :items="selectedRecord.fields" />
         </article>
       </template>
     </USlideover>

@@ -41,7 +41,7 @@ Available namespaces:
   blob        Read and write blobs of the Blob stores of the app, on the dev server or on a deployed app.
   channels    External Channel registration workflows.
   conversations  Export Channel conversations.
-  content     Inspect, edit, publish, and schedule Content documents in the running dev server or a deployed app.
+  content     Inspect, edit, delete, restore, publish, and schedule Content documents in the running dev server or a deployed app.
   db          Database development workflows.
   kv          Read and write keys of the KV stores of the app, on the dev server or on a deployed app.
   queue       List Queue Definitions and send a job to one.
@@ -87,6 +87,8 @@ Available namespaces:
 | `vitehub content diff` | Available | Content Package | Print a unified diff of one document from published to draft. |
 | `vitehub content revisions` | Available | Content Package | List the revisions of one document, newest first. |
 | `vitehub content edit` | Available | Content Package | Edit one draft in `$EDITOR` or save it from a file. Honours edit leases unless `--override-lease`. |
+| `vitehub content rm` | Available | Content Package | Delete one draft after confirmation, pinned to its digest. The next publish deletes it from the site. |
+| `vitehub content restore` | Available | Content Package | Save the version of a document from `--revision` as its draft, pinned to the draft digest that it read. Publishes nothing. |
 | `vitehub content publish` | Available | Content Package | Publish the listed draft documents in one revision after confirmation, pinned to their digests. |
 | `vitehub content schedule` | Available | Content Package | Publish the listed draft documents at a later time, pinned to their digests. |
 | `vitehub content scheduled` | Available | Content Package | List pending, overdue, and failed schedules. |
