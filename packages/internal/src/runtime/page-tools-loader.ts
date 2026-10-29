@@ -213,6 +213,12 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
                 for (const [id, other] of windows) if (id !== tool.id) other.hide()
                 remember(tool.id, true)
                 window.show()
+              }, destroy() {
+                if (windows.get(tool.id) === retained) {
+                  windows.delete(tool.id)
+                  remember(tool.id, false)
+                }
+                window.destroy()
               } }
               windows.set(tool.id, retained)
               return retained

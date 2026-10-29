@@ -45,7 +45,7 @@ describe("mounted page tools", () => {
       const pageURL = `https://site.test${mount}/guide?vitehub`
       const html = await (await app.fetch(new Request(pageURL))).text()
       const src = /src="([^"]+)"/.exec(html)?.[1]
-      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=6`)
+      expect(src).toBe(`${mount}/_vitehub/page/assets/loader.js?v=7`)
       const fetch = vi.fn(async (path: string, init?: RequestInit) => app.fetch(new Request(new URL(path, pageURL), init)))
       const executeLoader = async (url: string) => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))
