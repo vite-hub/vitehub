@@ -17,10 +17,10 @@ async function skillsHandler(event: ConsoleRequestEvent): Promise<ConsoleSkills 
   const agents = getConsoleAgents()
   // Without a chosen Agent, open the first one that bundles Skills.
   const agent = query.get("agent") ?? agents.find(name => skillFiles(name).length) ?? agents[0]
-  if (agent === undefined) return { agents: [...agents], files: [] }
-  if (!agents.includes(agent)) throw consoleRequestError(404, "Agent not found.")
-  const files = skillFiles(agent)
   const path = query.get("path")
+  if (agent === undefined && path === null) return { agents: [...agents], files: [] }
+  if (agent === undefined || !agents.includes(agent)) throw consoleRequestError(404, "Agent not found.")
+  const files = skillFiles(agent)
   if (path !== null) {
     const file = files.find(file => file.path === path)
     if (!file) throw consoleRequestError(404, "This file is not bundled with this Agent.")

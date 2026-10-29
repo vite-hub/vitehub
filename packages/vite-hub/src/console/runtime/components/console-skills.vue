@@ -12,6 +12,7 @@ import ConsoleState from "./console-state.vue";
 import ConsoleSkillTree from "./console-skill-tree.vue";
 import ConsoleSkillFilePreview from "./console-skill-file.vue";
 
+const skillFile = /(?:^|\/)SKILL\.md$/;
 const props = defineProps<{
   agentsBase: string;
   definitionsBase: string;
@@ -35,12 +36,18 @@ let fileRequest: AbortController | undefined;
 const agent = computed(() => v.is(v.string(), route.query.agent) ? route.query.agent : undefined);
 const path = computed(() => v.is(v.string(), route.query.path) ? route.query.path : undefined);
 const paths = computed(() => catalog.value?.files.map(file => file.path) ?? []);
-const skillCount = computed(() => paths.value.filter(path => /(?:^|\/)SKILL\.md$/.test(path)).length);
+const skillCount = computed(() => paths.value.filter(path => skillFile.test(path)).length);
 const selectedAgent = computed(() => agent.value ?? catalog.value?.agent);
 /** A binary or oversized file has no text preview, and a retry cannot change that. */
 const noPreview = computed(() =>
   fileFailed.value instanceof ConsoleRequestError && (fileFailed.value.status === 413 || fileFailed.value.status === 415)
     ? fileFailed.value.message
+    : undefined,
+);
+/** An Agent from an old link can be gone. Without its catalog there is no selector, so offer the default Agent. */
+const failedActions = computed(() =>
+  agent.value && failed.value instanceof ConsoleRequestError && failed.value.status === 404
+    ? [{ label: "Open the default Agent", onClick: () => void router.replace({ query: {} }) }]
     : undefined,
 );
 function plural(count: number, word: string) {
@@ -95,13 +102,12 @@ async function loadCatalog() {
     if (controller.signal.aborted) return;
     catalog.value = result;
     agents.value = result.agents;
-    if (!path.value) {
-      const first = result.files.find(file => /(?:^|\/)SKILL\.md$/.test(file.path)) ?? result.files[0];
-      if (first) {
-        // The watcher opens this file. The URL then names the Agent of this catalog, so the catalog does not load again.
-        await router.replace({ query: { ...route.query, agent: result.agent, path: first.path } });
-        return;
-      }
+    // The URL names the Agent and the file, so links, Back, and Refresh keep this catalog.
+    const selected = path.value ?? (result.files.find(file => skillFile.test(file.path)) ?? result.files[0])?.path;
+    if (agent.value !== result.agent || path.value !== selected) {
+      // The watcher opens the file. The URL then names the Agent of this catalog, so the catalog does not load again.
+      await router.replace({ query: { ...route.query, agent: result.agent, path: selected } });
+      return;
     }
     void loadFile();
   } catch (cause) {
@@ -134,15 +140,15 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
         </ConsolePageHeader>
       </template>
       <template #body>
-        <ConsoleState v-if="failed" :error="failed" title="Could not load Skills" :retry="loadCatalog" />
+        <ConsoleState v-if="failed" :error="failed" title="Could not load Skills" :retry="loadCatalog" :actions="failedActions" />
         <div v-else-if="loading && !catalog" class="skills-browser" aria-busy="true">
           <div class="skills-browser__tree grid content-start gap-2.5 p-3 sm:p-4">
-            <USkeleton class="mb-1.5 h-8 w-full" />
-            <USkeleton v-for="index in 7" :key="index" class="h-4" :class="index % 3 ? 'w-3/4' : 'w-1/2'" />
+            <USkeleton class="mb-1.5 h-8 w-full animate-none" />
+            <USkeleton v-for="index in 7" :key="index" class="h-4 animate-none" :class="index % 3 ? 'w-3/4' : 'w-1/2'" />
           </div>
           <div class="hidden content-start gap-3 px-10 py-7 sm:grid">
-            <USkeleton class="mb-2 h-6 w-1/3" />
-            <USkeleton v-for="index in 6" :key="index" class="h-4" :class="index % 3 === 0 ? 'w-2/3' : 'w-full'" />
+            <USkeleton class="mb-2 h-6 w-1/3 animate-none" />
+            <USkeleton v-for="index in 6" :key="index" class="h-4 animate-none" :class="index % 3 === 0 ? 'w-2/3' : 'w-full'" />
           </div>
         </div>
         <ConsoleState
@@ -168,8 +174,8 @@ onBeforeUnmount(() => { catalogRequest?.abort(); fileRequest?.abort(); });
             <ConsoleState v-else-if="fileFailed" :error="fileFailed" title="Could not open this file" :retry="loadFile" />
             <ConsoleSkillFilePreview v-else-if="file" :key="file.path" :file="file" :paths="paths" />
             <div v-else-if="fileLoading" class="mx-auto grid w-full max-w-[75ch] content-start gap-3 px-4 py-7 sm:px-10">
-              <USkeleton class="mb-2 h-6 w-1/3" />
-              <USkeleton v-for="index in 6" :key="index" class="h-4" :class="index % 3 === 0 ? 'w-2/3' : 'w-full'" />
+              <USkeleton class="mb-2 h-6 w-1/3 animate-none" />
+              <USkeleton v-for="index in 6" :key="index" class="h-4 animate-none" :class="index % 3 === 0 ? 'w-2/3' : 'w-full'" />
             </div>
             <p v-else class="p-4 text-sm text-muted">Select a file to preview it.</p>
           </div>

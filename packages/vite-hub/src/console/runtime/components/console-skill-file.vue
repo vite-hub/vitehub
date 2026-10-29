@@ -11,6 +11,8 @@ import "./console-session.css";
 const props = defineProps<{ file: ConsoleSkillFile; paths: readonly string[] }>();
 const raw = ref(false);
 const markdown = computed(() => /\.md$/i.test(props.file.path));
+// A final newline ends the last line. It does not start another one.
+const lines = computed(() => props.file.content ? props.file.content.split("\n").length - (props.file.content.endsWith("\n") ? 1 : 0) : 0);
 const route = useRoute();
 const { copy: copyContent, copied, isSupported: clipboardSupported } = useClipboard({ source: () => props.file.content });
 const copyError = ref(false);
@@ -40,9 +42,11 @@ const SkillLink = defineComponent({
           hash = target.hash;
         }
       } catch { /* Keep malformed links as text links. */ }
-      return path && props.paths.includes(path) && !link.href.startsWith("#")
+      if (path === undefined || link.href.startsWith("#")) return h("a", { ...attrs, href: link.href }, slots.default?.());
+      // A relative link to a file outside the bundle would open a Console page, so it stays text.
+      return props.paths.includes(path)
         ? h(RouterLink, { ...attrs, to: { query: { ...route.query, path }, hash } }, slots)
-        : h("a", { ...attrs, href: link.href }, slots.default?.());
+        : h("span", { ...attrs, title: "This file is not bundled with this Agent." }, slots.default?.());
     };
   },
 });
@@ -70,7 +74,7 @@ const SkillLink = defineComponent({
     </div>
     <footer class="flex min-h-8 flex-wrap items-center justify-between gap-x-4 border-t border-default px-3 py-1 text-xs text-muted sm:px-4">
       <span>Bundled file · Read only</span>
-      <span class="tabular-nums">{{ file.content.split('\n').length }} lines · {{ consoleBytes(file.size) }}</span>
+      <span class="tabular-nums">{{ lines }} {{ lines === 1 ? "line" : "lines" }} · {{ consoleBytes(file.size) }}</span>
     </footer>
   </section>
 </template>
