@@ -1,3 +1,5 @@
+import { commentsErrorDiagnostics } from "./client-errors.ts"
+
 import type {
   CommentCreateInput,
   CommentDeleteInput,
@@ -32,7 +34,7 @@ export interface CommentsClientOptions {
   transport: CommentsTransport
   /** The signed-in user. The UI uses it for the "mine" filter and to know which messages the user may edit. */
   user?: CommentUser
-  /** What `refresh()` lists. For example `{ page: "/pricing" }`. */
+  /** What `refresh()` lists. For example `{ page: "/pricing" }`. Without an explicit limit, loads all pages. */
   query?: CommentListQuery
   /** Refresh when the window gets focus and the transport cannot push updates. Default `true`. */
   refreshOnFocus?: boolean
@@ -136,7 +138,31 @@ export function createCommentsClient(options: CommentsClientOptions): CommentsCl
     status = "loading"
     notify()
     try {
-      const list = await transport.list(query)
+      const requested = { ...query }
+      const pageSize = requested.limit ?? 200
+      let list: CommentThread[] = []
+      let previousSnapshot: string | undefined
+      for (let scan = 0; ; scan++) {
+        list = []
+        let before = requested.before
+        let pages = 0
+        while (true) {
+          const page = await transport.list({ ...requested, limit: pageSize, ...(before ? { before } : {}) })
+          if (current !== generation) return threads
+          pages++
+          list.push(...page)
+          if (requested.limit !== undefined || page.length < pageSize) break
+          const last = page.at(-1)!
+          before = { id: last.id, updatedAt: last.updatedAt }
+        }
+        if (requested.limit !== undefined || (pages === 1 && previousSnapshot === undefined)) break
+        // Updates can move threads across a cursor. Replace the cache only after two complete scans agree.
+        const snapshot = JSON.stringify(list)
+        if (snapshot === previousSnapshot) break
+        // A busy list must not cause unlimited requests or publish an incomplete cache. Keep the old cache on error.
+        if (scan === 2) throw commentsErrorDiagnostics.COMMENTS_R0015()
+        previousSnapshot = snapshot
+      }
       // A newer refresh, or a query change, makes this answer stale.
       if (current !== generation) return threads
       const next = new Map<string, CommentThread>()

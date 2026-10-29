@@ -1,12 +1,12 @@
 import { text } from "../identity.ts"
 
 import type { H3Event } from "h3"
-import type { CommentsUser } from "../types.ts"
+import type { CommentsAction, CommentsUser } from "../types.ts"
 
 /** The parts of `consoleRealtimeAccess()` from `vite-hub/console/sections` that Comments reads. */
 export interface CommentsConsoleAccess {
   identify(context: { event: unknown }): Promise<{ id: string, name?: string, email?: string, image?: string } | null>
-  authorize(context: { event: unknown }): Promise<boolean>
+  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
   user(context: { event: unknown }): Promise<Record<string, unknown> | null>
 }
 
@@ -16,9 +16,9 @@ export interface CommentsConsoleAccess {
  * A Console without accounts, such as `console: { auth: false }` or the dev server, stays anonymous to policies.
  * Guest authors name themselves in the overlay; their browser display data never becomes a policy user.
  */
-export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H3Event) => Promise<CommentsUser | null | false> {
-  return async (event) => {
-    if (!await access.authorize({ event })) return false
+export function commentsConsoleSession(access: CommentsConsoleAccess): (event: H3Event, action?: CommentsAction) => Promise<CommentsUser | null | false> {
+  return async (event, action = "read") => {
+    if (!await access.authorize({ event, kind: action === "read" ? "read" : "write" })) return false
     const user = await access.user({ event })
     const id = text(user?.id) ?? text(user?.email)
     if (user && id) return { ...user, id }

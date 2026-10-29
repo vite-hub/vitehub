@@ -50,11 +50,29 @@
       "require": "./dist/database.js",
       "default": "./dist/database.js"
     },
+    "./database/postgres": {
+      "types": "./dist/database/postgres.d.ts",
+      "import": "./dist/database/postgres.js",
+      "require": "./dist/database/postgres.js",
+      "default": "./dist/database/postgres.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./realtime": {
       "types": "./dist/realtime.d.ts",
       "import": "./dist/realtime.js",
       "require": "./dist/realtime.js",
       "default": "./dist/realtime.js"
+    },
+    "./rpc": {
+      "types": "./dist/rpc.d.ts",
+      "import": "./dist/rpc.js",
+      "require": "./dist/rpc.js",
+      "default": "./dist/rpc.js"
     },
     "./runtime": {
       "types": "./dist/runtime/index.d.ts",
@@ -74,6 +92,12 @@
       "require": "./dist/runtime/console.js",
       "default": "./dist/runtime/console.js"
     },
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "import": "./dist/server.js",
+      "require": "./dist/server.js",
+      "default": "./dist/server.js"
+    },
     "./testing": {
       "types": "./dist/testing.d.ts",
       "import": "./dist/testing.js",
@@ -91,17 +115,19 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/comments#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/comments#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/comments#build && vp test"
   },
   "dependencies": {
+    "@standard-schema/spec": "catalog:runtime",
+    "@valibot/to-json-schema": "catalog:runtime",
     "nostics": "catalog:runtime",
+    "valibot": "catalog:runtime",
     "@vite-hub/auth": "workspace:*",
     "@vite-hub/realtime": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
     "drizzle-orm": "catalog:database",
-    "h3": "catalog:unjs",
-    "valibot": "catalog:runtime"
+    "h3": "catalog:unjs"
   },
   "devDependencies": {
     "@types/node": "catalog:tooling",
