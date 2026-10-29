@@ -873,12 +873,17 @@ describe("framework package contract", () => {
         expect(handler).toContain("/dist/console/runtime/server/");
         expect(existsSync(handler), handler).toBe(true);
       }
-      expect(publicAssets).toHaveLength(1);
-      const publicAssetDir = Reflect.get(Object(publicAssets[0]), "dir");
-      if (String(publicAssetDir) !== publicAssetDir)
-        throw new TypeError("Expected a Console public asset path.");
+      expect(publicAssets).toHaveLength(2);
+      const [publicAssetDir, skillsDir] = publicAssets.map((asset) => Reflect.get(Object(asset), "dir"));
+      if (String(publicAssetDir) !== publicAssetDir || String(skillsDir) !== skillsDir)
+        throw new TypeError("Expected Console public asset paths.");
       expect(publicAssetDir).toContain("/dist/console/runtime/public/console");
       expect(existsSync(publicAssetDir), publicAssetDir).toBe(true);
+      // The skills CLI reads this index from `<app>/_vitehub/.well-known/skills/index.json`.
+      const skillsIndex: { skills: Array<{ name: string, files: string[] }> } = JSON.parse(readFileSync(`${skillsDir}/index.json`, "utf8"));
+      expect(skillsIndex.skills.map((skill) => skill.name)).toEqual(["vitehub"]);
+      for (const file of skillsIndex.skills[0].files) expect(existsSync(`${skillsDir}/vitehub/${file}`), file).toBe(true);
+      expect(skillsIndex.skills[0].files).toContain("SKILL.md");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

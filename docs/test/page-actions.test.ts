@@ -125,21 +125,18 @@ describe("docs page actions", () => {
     expect(guide).toMatch(/```json \[\.cursor\/mcp\.json\]\n\s*\{\n\s*"mcpServers": \{/);
   });
 
-  it("installs only the ViteHub skill from the site URL for each documented agent", () => {
+  it("installs only the ViteHub skill from the documented site and app URLs", () => {
     const guide = read("content/docs/getting-started/ai-resources/agent-instructions-skills.md");
     const commands = [...guide.matchAll(/npx skills add (\S+) --skill (\S+) --agent (\S+)/g)];
 
-    expect(commands.map((match) => match[3])).toEqual([
-      "claude-code",
-      "cursor",
-      "github-copilot",
-      "windsurf",
-      "codex",
+    expect(commands.map((match) => match.slice(1))).toEqual([
+      ["https://vitehub.dev", "vitehub", "claude-code"],
+      ["https://vitehub.dev", "vitehub", "cursor"],
+      ["https://vitehub.dev", "vitehub", "github-copilot"],
+      ["https://vitehub.dev", "vitehub", "windsurf"],
+      ["https://vitehub.dev", "vitehub", "codex"],
+      ["http://localhost:3000/_vitehub", "vitehub", "claude-code"],
     ]);
-    for (const [, source, skill] of commands) {
-      expect(source).toBe("https://vitehub.dev");
-      expect(skill).toBe("vitehub");
-    }
     expect(read("skills/vitehub/SKILL.md")).toMatch(/^---\nname: vitehub\n/);
   });
 });
