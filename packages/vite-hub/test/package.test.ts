@@ -115,6 +115,8 @@ const lowLevelOwnerExports = new Set([
   "@vite-hub/blob/config",
   "@vite-hub/blob/errors",
   "@vite-hub/blob/served",
+  "@vite-hub/comments/client",
+  "@vite-hub/comments/testing",
   "@vite-hub/sandbox/ssh",
   "@vite-hub/database/config",
   "@vite-hub/env/seal",

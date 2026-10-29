@@ -130,7 +130,7 @@ async function checkMentions(who: Caller, body: string, ids: readonly string[] |
     const person = found.get(mentioned)
     if (!person) throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `The mentioned user ${JSON.stringify(mentioned)} does not exist.` }), 400)
     const name = person.name ?? person.id
-    if (!new RegExp(`(^|\\s)@${escapeRegExp(name)}(?=$|[\\s.,;:!?)])`, "i").test(body)) {
+    if (!new RegExp(`(^|[^\\p{L}\\p{N}\\p{M}_])@${escapeRegExp(name)}(?=$|[^\\p{L}\\p{N}\\p{M}_])`, "iu").test(body)) {
       throw fail(commentsErrorDiagnostics.COMMENTS_R0007({ message: `The text does not name @${name}, but the comment mentions ${name}.` }), 400)
     }
     people.push(person)

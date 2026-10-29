@@ -8,7 +8,7 @@ icon: i-ph-chat-circle-light
 
 `CommentLayer` puts Figma-style comments on a page. Press `C`, click a spot, write, and press `Enter`. A numbered pin with your avatar stays there, and the team replies in its thread.
 
-The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and `createRpcTransport()` from `@vite-hub/comments/rpc` talks to the server half. See [Comments](/docs/comments).
+The parts show state and call a transport. They do not own storage or access. The transport is the seam to the server: `@vite-hub/comments/testing` has `createMemoryTransport()` for tests and examples, and `createRpcTransport()` from `@vite-hub/comments/rpc` connects to the [Comments Operations server](/docs/comments/operations/get-started). The built-in live-site overlay uses a separate thread and anchor format.
 
 ## Installation
 
@@ -209,12 +209,14 @@ The handlers may return a promise. The thread waits for it. A reply clears its b
 
 One message of a thread. The first message is the comment, and the rest are replies. Its author can edit it in place and delete it. Renders a `div` with `data-slot="comment-reply"`. The body is [Markdown](/docs/ui/markdown). The edit box closes after `onEdit` has succeeded. On a failure it stays open with the text and the error.
 
+Edit and Delete are shown when their respective handlers are supplied. An unchanged edit keeps existing mention IDs even when the mentioned person's name is unavailable. For changed text, supply mentioned people through `people` so the composer can check which names remain.
+
 #### Props
 
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | `message` | `CommentMessage` | Required | The message. |
-| `editable` | `boolean` | `false` | Show Edit and Delete. |
+| `editable` | `boolean` | `false` | Show Edit and Delete when their respective handlers are supplied. |
 | `compact` | `boolean` | `false` | Clamp the body to three lines, without actions. |
 | `confirmDelete` | `boolean` | `false` | Ask before Delete. A thread sets it on the first message. |
 | `people` | `CommentUser[]` | `[]` | People whose `@name` the message may hold, so an edit keeps their mentions. |

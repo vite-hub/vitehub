@@ -19,6 +19,12 @@ import {
   useComments,
 } from "../src/index.ts";
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+
 const ana: CommentUser = { id: "ana", name: "Ana Ruiz" };
 const ben: CommentUser = { id: "ben", name: "Ben Soto" };
 const pricing = { id: "/pricing", kind: "page" };
@@ -484,6 +490,32 @@ describe("pins and threads", () => {
     expect(wrapper.get("[data-slot=comment-layer]").attributes("data-active")).toBeUndefined();
   });
 
+  it("closes a thread from its empty reply on Esc and restores focus to the pin", async () => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    const field = wrapper.get("[data-slot=comment-thread] textarea");
+    (field.element as HTMLTextAreaElement).focus();
+
+    await field.trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]:not([data-preview])").exists()).toBe(false);
+    expect(document.activeElement).toBe(wrapper.get("[data-slot=comment-pin]").element);
+  });
+
+  it("protects an unsent edit when Esc cancels an empty reply", async () => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    const edit = wrapper.get("[data-slot=comment-reply] textarea");
+    await edit.setValue("Unsent edit");
+
+    await wrapper.get("[data-slot=comment-thread] > [data-slot=comment-composer] textarea").trigger("keydown", { key: "Escape" });
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-thread]:not([data-preview])").exists()).toBe(true);
+    expect((edit.element as HTMLTextAreaElement).value).toBe("Unsent edit");
+    expect(wrapper.get("[data-slot=comment-reply] [data-slot=comment-composer]").attributes("data-shake")).toBe("shake");
+  });
+
   it("shows live changes that the transport pushes", async () => {
     const { client, transport, wrapper } = await layer();
     await transport.as(ben).create({ anchor: { kind: "element", selector: "#cta", x: 0, y: 0 }, body: "From Ben", subject: pricing });
@@ -537,6 +569,26 @@ describe("deep link", () => {
 });
 
 describe("list and filters", () => {
+  it.each(["draft", "reply", "edit"])("protects an unsent %s when keyboard activation changes scope", async (kind) => {
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    if (kind === "draft") await drop(wrapper);
+    else {
+      await wrapper.get("[data-slot=comment-pin]").trigger("click");
+      if (kind === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    }
+    const selector = kind === "edit" ? "[data-variant=edit] textarea" : "textarea";
+    await wrapper.get(selector).setValue("Keep this text");
+    const scopes = wrapper.findAll("[data-slot=comment-list-scope]");
+    (scopes[1]!.element as HTMLElement).focus();
+    // Keyboard activation emits click without the pointerdown handled by the outside guard.
+    await scopes[1]!.trigger("click", { detail: 0 });
+    await flushPromises();
+    expect(wrapper.get(selector).element).toHaveProperty("value", "Keep this text");
+    expect(scopes[0]!.attributes("aria-pressed")).toBe("true");
+    expect(document.activeElement).toBe(wrapper.get(selector).element);
+  });
+
   const threads = [
     thread(1),
     thread(2, { author: ben, messages: [{ ...thread(2).messages[0]!, author: ben }] }),
@@ -840,6 +892,58 @@ describe("thread actions", () => {
     expect((field.element as HTMLTextAreaElement).value).toBe("");
   });
 
+  it("keeps text typed while a reply is being sent", async () => {
+    const request = pending();
+    const onReply = vi.fn().mockReturnValue(request.promise);
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { onReply, thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    const field = wrapper.get("textarea");
+    await field.setValue("First reply");
+    await field.trigger("keydown", { key: "Enter" });
+    await field.setValue("Second thought");
+    request.finish();
+    await flushPromises();
+    expect(onReply).toHaveBeenCalledWith("First reply", []);
+    expect(field.element).toHaveProperty("value", "Second thought");
+  });
+
+  it("keeps text typed while an edit is being saved", async () => {
+    const request = pending();
+    const onEdit = vi.fn().mockReturnValue(request.promise);
+    const wrapper = mount(CommentReply, { attachTo: document.body, global, props: { editable: true, message, onEdit } });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    const field = wrapper.get("textarea");
+    await field.setValue("First edit");
+    await field.trigger("keydown", { key: "Enter" });
+    await field.setValue("Second edit");
+    request.finish();
+    await flushPromises();
+    expect(wrapper.get("textarea").element).toHaveProperty("value", "Second edit");
+  });
+
+  it.each(["Close", "Resolve"])("protects a dirty reply from %s", async (action) => {
+    const { wrapper, client } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    const field = wrapper.get("[data-slot=comment-thread] textarea");
+    await field.setValue("Unsent reply");
+    await wrapper.get(`[aria-label=${action}]`).trigger("click");
+    await flushPromises();
+    expect(wrapper.get("[data-slot=comment-thread] textarea").element).toHaveProperty("value", "Unsent reply");
+    expect(client.threads[0]?.status).toBe("open");
+  });
+
+  it.each(["Close", "Resolve"])("protects a dirty edit from %s", async (action) => {
+    const { wrapper, client } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("[data-variant=edit] textarea").setValue("Unsent edit");
+    await wrapper.get(`[aria-label=${action}]`).trigger("click");
+    await flushPromises();
+    expect(wrapper.get("[data-variant=edit] textarea").element).toHaveProperty("value", "Unsent edit");
+    expect(client.threads[0]?.status).toBe("open");
+  });
+
   it("closes the edit box only after the edit was saved", async () => {
     const save = pending();
     const onEdit = vi.fn().mockReturnValueOnce(save.promise);
@@ -910,7 +1014,7 @@ describe("thread actions", () => {
     expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Ana Ruiz only", ["ana"]);
   });
 
-  it("drops a mention of a person whose name is not known", async () => {
+  it("keeps an existing mention on an unchanged edit even when its name is not known", async () => {
     const onEdit = vi.fn().mockResolvedValue(undefined);
     const wrapper = mount(CommentReply, {
       attachTo: document.body,
@@ -921,7 +1025,7 @@ describe("thread actions", () => {
     await wrapper.get("[aria-label=Edit]").trigger("click");
     await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
     await flushPromises();
-    expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Cleo", []);
+    expect(onEdit).toHaveBeenCalledWith("message-1", "Hi @Cleo", ["cleo"]);
   });
 });
 
@@ -1105,6 +1209,45 @@ describe("links and layout", () => {
     }
   });
 
+  it("reveals and observes a replacement element at the same position", async () => {
+    const observe = vi.fn();
+    const unobserve = vi.fn();
+    vi.spyOn(globalThis, "ResizeObserver").mockImplementation(class {
+      disconnect = vi.fn();
+      observe = observe;
+      unobserve = unobserve;
+    });
+    const { client } = setup([thread(1)]);
+    let comments!: ReturnType<typeof useComments>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        comments = useComments({ client, subject: pricing });
+        return () => h(CommentLayer, { comments });
+      },
+    }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    await vi.waitFor(() => expect(client.status).toBe("ready"));
+    await flushPromises();
+    const previous = target;
+    expect(observe).toHaveBeenCalledWith(previous);
+
+    target = document.createElement("button");
+    target.id = "cta";
+    target.textContent = "Buy";
+    previous.replaceWith(target);
+    const scroll = vi.spyOn(target, "scrollIntoView");
+    comments.measure();
+    await flushPromises();
+
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    await wrapper.get("[data-slot=comment-list-item]").trigger("click");
+    expect(scroll).toHaveBeenCalledWith({ block: "center" });
+    const position = comments.positions.value.get("thread-1");
+    expect(position && !position.detached && position.element).toBe(target);
+    expect(unobserve).toHaveBeenCalledWith(previous);
+    expect(observe).toHaveBeenCalledWith(target);
+  });
+
   it("hides the pin of an element that a scroll container clips", async () => {
     document.body.innerHTML = `<main><div id="list" style="overflow: auto"><button id="cta">Buy</button></div></main>`;
     target = document.getElementById("cta")!;
@@ -1122,5 +1265,233 @@ describe("links and layout", () => {
     rects.set(target, { height: 40, left: 100, top: 400, width: 200 });
     window.dispatchEvent(new Event("scroll"));
     await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-pin]").exists()).toBe(false));
+  });
+});
+
+
+describe("review regressions", () => {
+  it("preserves new-comment text changed during a pending send and lets it be sent", async () => {
+    const { wrapper, transport, client } = await layer();
+    const gate = deferred<void>();
+    const create = transport.create.bind(transport);
+    vi.spyOn(transport, "create").mockImplementationOnce(async input => {
+      await gate.promise;
+      return create(input);
+    });
+    await drop(wrapper);
+    await textarea(wrapper).setValue("First comment");
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    await textarea(wrapper).setValue("Second thought");
+    gate.resolve();
+    await flushPromises();
+    expect(textarea(wrapper).element).toHaveProperty("value", "Second thought");
+    expect(composer(wrapper).attributes("data-busy")).toBeUndefined();
+    await textarea(wrapper).trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(client.threads.map(entry => entry.messages[0]?.body)).toEqual(["First comment", "Second thought"]);
+  });
+
+  it.each(["reply", "edit"])("protects an unsent %s when the active pin is clicked", async variant => {
+    const { wrapper } = await layer([thread(1)]);
+    const pin = wrapper.get("[data-slot=comment-pin]");
+    await pin.trigger("click");
+    if (variant === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    const field = wrapper.get(variant === "edit" ? "[data-variant=edit] textarea" : "[data-slot=comment-thread] textarea");
+    await field.setValue("Keep this text");
+    await pin.trigger("click");
+    expect(wrapper.find("[data-slot=comment-thread]").exists()).toBe(true);
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep this text");
+  });
+
+  it.each(["reply", "edit"])("keeps the %s composer mounted when its anchor clips and returns", async variant => {
+    const main = document.querySelector("main")!;
+    main.style.overflow = "auto";
+    let clipped = false;
+    vi.mocked(Element.prototype.getBoundingClientRect).mockImplementation(function (this: Element) {
+      const box = this === target ? rect : this === main ? { left: 0, top: 0, width: 400, height: clipped ? 50 : 200 } : { left: 0, top: 0, width: 0, height: 0 };
+      return { ...box, bottom: box.top + box.height, right: box.left + box.width, toJSON: () => box, x: box.left, y: box.top };
+    });
+    const { wrapper } = await layer([thread(1)]);
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    if (variant === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    const field = wrapper.get(variant === "edit" ? "[data-variant=edit] textarea" : "[data-slot=comment-thread] textarea");
+    await field.setValue("Keep while scrolling");
+    clipped = true;
+    window.dispatchEvent(new Event("scroll"));
+    await vi.waitFor(() => expect(wrapper.find("[data-floating=true]").exists()).toBe(true));
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep while scrolling");
+    clipped = false;
+    window.dispatchEvent(new Event("scroll"));
+    await vi.waitFor(() => expect(wrapper.find("[data-floating=true]").exists()).toBe(false));
+    expect(field.element.isConnected).toBe(true);
+    expect(field.element).toHaveProperty("value", "Keep while scrolling");
+  });
+
+  it.each(["", "@be "])("discards a mention lookup after the query changes to %j", async value => {
+    const { wrapper, transport, client } = await layer();
+    const request = deferred<CommentUser[]>();
+    vi.spyOn(transport, "users").mockReturnValue(request.promise);
+    await drop(wrapper);
+    const field = textarea(wrapper);
+    await field.setValue("@be");
+    await field.setValue(value);
+    request.resolve([ben]);
+    await flushPromises();
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    await field.setValue("Ready");
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(client.threads[0]?.messages[0]?.body).toBe("Ready");
+  });
+
+  it("closes deleted threads and restores focus to the toolbar", async () => {
+    const { wrapper } = await layer([thread(1)]);
+    const state = wrapper.getComponent(CommentToolbar).props("comments")!;
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-pin]").exists()).toBe(true));
+    await wrapper.get("[data-slot=comment-pin]").trigger("click");
+    await wrapper.get("[aria-label=Delete]").trigger("click");
+    await wrapper.get("[data-slot=comment-reply-confirm]").findAll("button").find(button => button.text() === "Delete thread")!.trigger("click");
+    await flushPromises();
+    expect(state.openId.value).toBeNull();
+    expect(document.activeElement).toBe(wrapper.get("[data-slot=comment-toolbar-mode]").element);
+  });
+});
+
+describe("comment boundaries", () => {
+  it.each(["reply", "thread"])("hides actions without persistence handlers in a %s", async kind => {
+    const wrapper = kind === "reply"
+      ? mount(CommentReply, { attachTo: document.body, global, props: { editable: true, message: thread(1).messages[0]! } })
+      : mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    expect(wrapper.find("[aria-label=Edit]").exists()).toBe(false);
+    expect(wrapper.find("[aria-label=Delete]").exists()).toBe(false);
+  });
+
+  it("preserves unresolved mentions on an unchanged thread edit", async () => {
+    const item = thread(1);
+    item.messages[0]!.body = "Ask @Cleo";
+    item.messages[0]!.mentions = ["cleo"];
+    const onEdit = vi.fn();
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { thread: item, user: ana, onEdit } });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("[data-variant=edit] textarea").trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onEdit).toHaveBeenCalledWith("message-1", "Ask @Cleo", ["cleo"]);
+  });
+
+  it.each(["keyboard", "pointer"])("closes the mention menu after a %s caret move", async kind => {
+    const { wrapper } = await layer([], { users: async () => [ben] });
+    await drop(wrapper);
+    const field = textarea(wrapper);
+    await field.setValue("@be");
+    await vi.waitFor(() => expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(true));
+    (field.element as HTMLTextAreaElement).setSelectionRange(2, 2);
+    await field.trigger(kind === "keyboard" ? "keyup" : "click", { key: "ArrowLeft" });
+    expect(wrapper.find("[data-slot=comment-composer-mentions]").exists()).toBe(false);
+    expect(field.element).toHaveProperty("value", "@be");
+  });
+
+  it.each(["draft", "reply", "edit"])("protects an unsent %s before keyboard navigation to another page", async kind => {
+    const navigate = vi.fn();
+    const { wrapper } = await layer([thread(1), thread(2, { subject: about })], { navigate });
+    await wrapper.get("[data-slot=comment-toolbar-list]").trigger("click");
+    await wrapper.findAll("[data-slot=comment-list-scope]")[1]!.trigger("click");
+    await flushPromises();
+    if (kind === "draft") await drop(wrapper);
+    else {
+      await wrapper.get("[data-slot=comment-pin]").trigger("click");
+      if (kind === "edit") await wrapper.get("[aria-label=Edit]").trigger("click");
+    }
+    const selector = kind === "edit" ? "[data-variant=edit] textarea" : "textarea";
+    await wrapper.get(selector).setValue("Keep this text");
+    const link = wrapper.findAll("[data-slot=comment-list-item]").find(row => row.attributes("href") === "/about?comment=2")!;
+    (link.element as HTMLElement).focus();
+    await link.trigger("click", { detail: 0 });
+    await flushPromises();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(wrapper.get(selector).element).toHaveProperty("value", "Keep this text");
+    expect(document.activeElement).toBe(wrapper.get(selector).element);
+    await wrapper.get(selector).setValue("");
+    await link.trigger("click", { detail: 0 });
+    expect(navigate).toHaveBeenCalledWith("/about?comment=2");
+  });
+
+  it("keeps a reply until a submit handler is available", async () => {
+    const wrapper = mount(CommentThread, { attachTo: document.body, global, props: { thread: thread(1), user: ana } });
+    mounted.push(wrapper);
+    const field = wrapper.get("textarea");
+    await field.setValue("Please answer");
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(field.element).toHaveProperty("value", "Please answer");
+    const onReply = vi.fn().mockResolvedValue(undefined);
+    await wrapper.setProps({ onReply });
+    await field.trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onReply).toHaveBeenCalledWith("Please answer", []);
+    expect(field.element).toHaveProperty("value", "");
+  });
+
+  it.each([
+    { body: "Hi @Anna", mentions: [] },
+    { body: "Hi @Ann_1", mentions: [] },
+    { body: "Hi @Année", mentions: [] },
+    { body: "Hi @Ann!", mentions: ["ann"] },
+    { body: "(@Ann)", mentions: ["ann"] },
+    { body: "Hi @Ann", mentions: ["ann"] },
+  ])("matches complete mention tokens in $body", async ({ body, mentions }) => {
+    const onEdit = vi.fn().mockResolvedValue(undefined);
+    const message = { ...thread(1).messages[0]!, body: "Hi @Ann", mentions: ["ann"] };
+    const wrapper = mount(CommentReply, {
+      attachTo: document.body,
+      global,
+      props: { editable: true, message, onEdit, people: [{ id: "ann", name: "Ann" }] },
+    });
+    mounted.push(wrapper);
+    await wrapper.get("[aria-label=Edit]").trigger("click");
+    await wrapper.get("textarea").setValue(body);
+    await wrapper.get("textarea").trigger("keydown", { key: "Enter" });
+    await flushPromises();
+    expect(onEdit).toHaveBeenCalledWith("message-1", body, mentions);
+  });
+
+  it("remeasures shadow-root mutations and follows a reactive root", async () => {
+    const firstHost = document.createElement("section");
+    const secondHost = document.createElement("section");
+    document.body.append(firstHost, secondHost);
+    const first = firstHost.attachShadow({ mode: "open" });
+    const second = secondHost.attachShadow({ mode: "open" });
+    first.innerHTML = '<button id="cta">Buy</button>';
+    second.innerHTML = '<button id="cta">Buy</button>';
+    target = first.querySelector("button")!;
+    const root = ref<ParentNode>(first);
+    const { client } = setup([thread(1)]);
+    const wrapper = mount(defineComponent({
+      setup() {
+        const comments = useComments({ client, root, subject: pricing });
+        return () => h(CommentLayer, { comments });
+      },
+    }), { attachTo: document.body, global });
+    mounted.push(wrapper);
+    try {
+      await vi.waitFor(() => expect(client.status).toBe("ready"));
+      await flushPromises();
+      expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 200px");
+      rect.left = 300;
+      first.prepend(document.createElement("div"));
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 400px"));
+      target = second.querySelector("button")!;
+      rect.left = 500;
+      root.value = second;
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 600px"));
+      rect.left = 700;
+      second.prepend(document.createElement("div"));
+      await vi.waitFor(() => expect(wrapper.get("[data-slot=comment-layer-item]").attributes("style")).toContain("left: 800px"));
+    } finally {
+      rect.left = 100;
+    }
   });
 });

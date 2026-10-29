@@ -176,5 +176,29 @@ export function installComments(comments: Comments, runtime: { database: Comment
 
 export { builtinCommentSubjects, defineCommentSubject } from "./operations-core/define.ts"
 export type { CommentAction, CommentMentionEvent, CommentsAuthorize, CommentsDefinition, CommentSubjectDefinition } from "./operations-core/define.ts"
-export type { CommentActor, CommentUser, CommentSubject, CommentMessage, CommentListQuery, CommentsTransport } from "./operations-core/types.ts"
 export type { DefineCommentsOptions, CommentsAuthorizeContext } from "./definition.ts"
+export { commentsErrorDiagnostics } from "./client-errors.ts"
+export type {
+  CommentUser,
+  CommentActor,
+  CommentStatus,
+  CommentSubject,
+  PageAnchor,
+  ElementAnchor,
+  TextAnchor,
+  AreaAnchor,
+  ImageAnchor,
+  CommentAnchor as ClientCommentAnchor,
+  CommentMessage,
+  CommentThread as ClientCommentThread,
+  CommentListQuery,
+  CommentGetInput,
+  CommentCreateInput,
+  CommentReplyInput,
+  CommentEditInput,
+  CommentDeleteInput,
+  CommentStatusInput,
+  CommentUsersInput,
+  CommentEvent,
+  CommentsTransport,
+} from "./client-types.ts"

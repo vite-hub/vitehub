@@ -163,6 +163,19 @@ it("resolves mention authors from a readable thread even if they also wrote in a
   expect(await call("comments.create", { ...input, body: "Hello @Admin", mentions: [admin.id] })).toMatchObject({ ok: true })
 })
 
+it.each([
+  ["(@admin)", true],
+  ["Hello @ADMIN!", true],
+  ["Hello x@Admin", false],
+  ["Hello @Adminée", false],
+  ["Hello @Admin_1", false],
+])("matches the browser mention boundaries in %s", async (body, allowed) => {
+  setup(defineComments({ authorize: () => true }))
+  await create(admin)
+  const result = await call("comments.create", { ...input, body, mentions: [admin.id] })
+  expect(result).toMatchObject(allowed ? { ok: true } : { ok: false, code: "COMMENTS_R0007" })
+})
+
 it.each([false, true])("scans past repeated authors for mention suggestions (hidden: %s)", async (hidden) => {
   setup(defineComments({ authorize: ({ action, thread }) => action !== "read" || !thread || !hidden || thread.author.id !== member.id }))
   const prolific = await create()
