@@ -46,6 +46,8 @@ export interface ViteHubCliFeature {
 }
 
 export interface ViteHubCliCommandNamespace {
+  /** The feature that `vitehub <name>` runs when no feature is named. */
+  defaultFeature?: string
   description?: string
   features: ViteHubCliFeature[]
   name: string
