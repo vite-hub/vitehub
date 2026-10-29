@@ -12,6 +12,10 @@ import type { DatabaseContributionContext } from "@vite-hub/database/vite"
 import type { CommentsRealtimeContributionContext, CommentsVitePluginOptions, CommentsVitePlugin as LivePlugin } from "./live-vite.ts"
 import type { HubCommentsOptions as OperationOptions, CommentsVitePlugin as OperationPlugin } from "./operations-core/vite.ts"
 
+export { injectLoader, loaderTag, loaderUrl, mountPath, overlayRoute, renderOverlayMiddleware, scriptNonce } from "./overlay.ts"
+export type { CommentsOverlayAssets, CommentsOverlayOptions } from "./overlay.ts"
+export { commentsOverlayMiddlewarePath } from "./operations-core/vite.ts"
+
 export { commentsConsoleSection } from "./console.ts"
 export { mountedCommentsRoute } from "./page.ts"
 export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
@@ -83,10 +87,12 @@ export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugi
       if (typeof hook === "function") await hook.call(this, config)
       else await hook?.handler.call(this, config)
     },
-    transformIndexHtml(html, context) {
-      if (select() !== live) return
-      const hook = live.transformIndexHtml
-      return typeof hook === "function" ? hook.call(this, html, context) : hook?.handler.call(this, html, context)
+    transformIndexHtml: {
+      order: "post",
+      handler(html, context) {
+        const hook = select().transformIndexHtml
+        return typeof hook === "function" ? hook.call(this, html, context) : hook?.handler.call(this, html, context)
+      },
     },
     vitehub: {
       databases: context => select(context).vitehub.databases(context),

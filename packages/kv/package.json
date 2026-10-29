@@ -4,12 +4,16 @@
   "description": "Vite-first key-value storage primitives and integration for ViteHub.",
   "keywords": [
     "cloudflare",
+    "key-value",
     "kv",
+    "redis",
+    "typescript",
+    "upstash",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -44,17 +48,17 @@
       "require": "./dist/errors.js",
       "default": "./dist/errors.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime/cloudflare-kv": {
       "types": "./dist/runtime/cloudflare-kv.d.ts",
       "import": "./dist/runtime/cloudflare-kv.js",
       "require": "./dist/runtime/cloudflare-kv.js",
       "default": "./dist/runtime/cloudflare-kv.js"
-    },
-    "./runtime/dev": {
-      "types": "./dist/runtime/dev.d.ts",
-      "import": "./dist/runtime/dev.js",
-      "require": "./dist/runtime/dev.js",
-      "default": "./dist/runtime/dev.js"
     },
     "./runtime/upstash-driver": {
       "types": "./dist/runtime/upstash-driver.d.ts",

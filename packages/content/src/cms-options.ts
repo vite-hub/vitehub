@@ -47,15 +47,26 @@ export function cmsOptionProblem(key: string, value: unknown): string | undefine
   return "is not a cms preset option."
 }
 
+/**
+ * The store that the options select. `repo` selects the GitHub store, so `store: "github"` is needed only for a GitHub
+ * store without `repo`. Never read from the environment: the same config selects the same store on every machine.
+ */
+export function cmsStoreOf(options: object): typeof cmsStores[number] {
+  const store: unknown = Reflect.get(options, "store")
+  if (store === "github" || store === "blob-database") return store
+  return Reflect.get(options, "repo") === undefined ? "blob-database" : "github"
+}
+
 /** A problem with the combination of options, or undefined. Pass only the options that the app set. */
 export function cmsOptionsProblem(options: object): string | undefined {
   const get = (key: string): unknown => Reflect.get(options, key)
-  if (get("store") !== "github") {
+  if (cmsStoreOf(options) !== "github") {
     const used = cmsGitHubOptions.filter(key => get(key) !== undefined)
-    if (used.length) return `option${used.length === 1 ? "" : "s"} ${used.map(key => JSON.stringify(key)).join(", ")} only ${used.length === 1 ? "applies" : "apply"} to store: "github". Add store: "github" or remove ${used.length === 1 ? "it" : "them"}.`
-    return
+    if (!used.length) return
+    const fix = get("store") === "blob-database" ? `Remove store: "blob-database" to keep content in Git, or remove ${used.length === 1 ? "it" : "them"}.` : `Set repo: "owner/name" to keep content in Git, or remove ${used.length === 1 ? "it" : "them"}.`
+    return `option${used.length === 1 ? "" : "s"} ${used.map(key => JSON.stringify(key)).join(", ")} only ${used.length === 1 ? "applies" : "apply"} to the GitHub store. ${fix}`
   }
-  if (get("blob") !== undefined) return `option "blob" does not apply to store: "github", which keeps files in Git and needs no Blob store.`
+  if (get("blob") !== undefined) return `option "blob" does not apply to the GitHub store, which keeps files in Git and needs no Blob store.`
   const branch = get("branch") ?? cmsGitHubDefaults.branch
   const draft = get("draftBranch") ?? cmsGitHubDefaults.draftBranch
   if (branch === draft) return `option "draftBranch" must differ from "branch". Both are ${JSON.stringify(branch)}.`

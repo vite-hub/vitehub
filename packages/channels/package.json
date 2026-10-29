@@ -5,10 +5,12 @@
   "keywords": [
     "channels",
     "messaging",
+    "notifications",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",

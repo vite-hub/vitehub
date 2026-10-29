@@ -26,6 +26,8 @@ defineProps<{
 .code-block-wrapper {
   min-width: 0;
   margin-block: 1rem;
+  border: 1px solid var(--ui-border);
+  border-radius: var(--ui-radius);
 }
 
 .vh-code-filename {
@@ -33,9 +35,7 @@ defineProps<{
   min-height: 2.5rem;
   align-items: center;
   gap: 0.5rem;
-  border: 1px solid var(--ui-border);
-  border-bottom: 0;
-  border-radius: var(--ui-radius) var(--ui-radius) 0 0;
+  border-bottom: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
   padding: 0.375rem 0.75rem;
   color: var(--ui-text-muted);
