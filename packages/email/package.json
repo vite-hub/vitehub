@@ -3,12 +3,15 @@
   "version": "0.0.4",
   "description": "Provider-neutral transactional email primitives and Vite integration for ViteHub.",
   "keywords": [
+    "cloudflare",
     "email",
+    "resend",
     "transactional-email",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
