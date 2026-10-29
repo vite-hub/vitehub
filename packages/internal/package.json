@@ -206,6 +206,12 @@
       "require": "./dist/runtime/page-tools.js",
       "default": "./dist/runtime/page-tools.js"
     },
+    "./runtime/page-tools-loader": {
+      "types": "./dist/runtime/page-tools-loader.d.ts",
+      "import": "./dist/runtime/page-tools-loader.js",
+      "require": "./dist/runtime/page-tools-loader.js",
+      "default": "./dist/runtime/page-tools-loader.js"
+    },
     "./runtime/request-origin": {
       "types": "./dist/runtime/request-origin.d.ts",
       "import": "./dist/runtime/request-origin.js",
@@ -271,6 +277,12 @@
       "import": "./dist/build/mode.js",
       "require": "./dist/build/mode.js",
       "default": "./dist/build/mode.js"
+    },
+    "./build/page-tools": {
+      "types": "./dist/build/page-tools.d.ts",
+      "import": "./dist/build/page-tools.js",
+      "require": "./dist/build/page-tools.js",
+      "default": "./dist/build/page-tools.js"
     },
     "./build/paths": {
       "types": "./dist/build/paths.d.ts",

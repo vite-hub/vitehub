@@ -63,7 +63,7 @@ function sessionSecret(): string | undefined {
 
 /** A return path on this site, so the sign-in cannot send people elsewhere. */
 export function safeReturn(value: string | null): string {
-  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\") ? value : "/?comments"
+  return value && value.startsWith("/") && !value.startsWith("//") && !value.startsWith("/\\") ? value : "/?vitehub"
 }
 
 /**

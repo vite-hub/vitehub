@@ -1,11 +1,12 @@
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsApiRoute, commentsHintCookie, commentsHintQuery, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
 
+import type { ViteHubPageToolContext, ViteHubPageToolModule } from "@vite-hub/internal/runtime/page-tools-loader"
 import type { RealtimeRoom } from "@vite-hub/realtime/client"
 import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } from "../types.ts"
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
@@ -118,6 +119,8 @@ function renderBody(body: string, mentions: CommentMention[]): Node {
 }
 
 class CommentsOverlay extends HTMLElement {
+  /** The page tools context that started the overlay. */
+  context?: ViteHubPageToolContext
   private readonly shadow = this.attachShadow({ mode: "open" })
   private readonly root = h("div", { className: "root" })
   private readonly layer = h("div", { className: "layer" })
@@ -165,12 +168,6 @@ class CommentsOverlay extends HTMLElement {
       return
     }
     if (!session.can.read) {
-      // Only the cookie asked for comment mode, such as after the person left the Console: go quietly. The session
-      // route already cleared the cookie.
-      if (!new URLSearchParams(location.search).has(commentsHintQuery)) {
-        this.exit()
-        return
-      }
       this.showDenied(session)
       return
     }
@@ -920,21 +917,25 @@ class CommentsOverlay extends HTMLElement {
     location.reload()
   }
 
-  /** Leaves comment mode on every page: clears the hint cookie and the query, then removes the overlay. */
+  /** Turns the page tools off on every page, through the loader, then removes the overlay. */
   private exit() {
     void this.finishEdit(false)
-    document.cookie = `${commentsHintCookie}=; Path=/; Max-Age=0; SameSite=Lax`
-    const url = new URL(location.href)
-    if (url.searchParams.has(commentsHintQuery)) {
-      url.searchParams.delete(commentsHintQuery)
-      history.replaceState(history.state, "", url)
-    }
     this.setMode("view")
+    this.context?.exit()
     this.remove()
   }
 }
 
-if (!customElements.get("vitehub-comments")) {
-  customElements.define("vitehub-comments", CommentsOverlay)
-  document.body.append(document.createElement("vitehub-comments"))
+/**
+ * The `comments` page tool: the page tools loader calls it for people that may read comments. It mounts the
+ * `<vitehub-comments>` element and returns its cleanup. The toolbar always shows, so `context.open` changes nothing.
+ */
+const start: ViteHubPageToolModule["default"] = (context) => {
+  if (!customElements.get("vitehub-comments")) customElements.define("vitehub-comments", CommentsOverlay)
+  const overlay = document.createElement("vitehub-comments")
+  if (overlay instanceof CommentsOverlay) overlay.context = context
+  document.body.append(overlay)
+  return () => overlay.remove()
 }
+
+export default start

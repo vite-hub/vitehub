@@ -66,12 +66,21 @@ describe("hubComments", () => {
     expect(await plugin.vitehub.databases({ root, rootDir: root, projectRoot: root })).toEqual([])
   })
 
-  it("serves the API, installs the runtime, and serves the overlay", async () => {
+  it("serves the API, installs the runtime, and serves the overlay with the page tools routes", async () => {
     const root = await project({ "server/comments.ts": "export const comments = defineComments()", "server/content.ts": "export const content = {}" })
     const nitro = await configure(hubComments({ auth: true }), root)
-    expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
+    expect(nitro?.handlers).toEqual([
+      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") },
+      { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
+    ])
     expect(nitro?.plugins).toEqual([join(root, ".vitehub/nitro/comments/plugin.mjs")])
-    expect(nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: "/api/_vitehub/comments/assets" })])
+    expect(nitro?.publicAssets).toEqual([
+      expect.objectContaining({ baseURL: "/_vitehub/page/assets", dir: expect.stringMatching(/dist[/\\]page$/) }),
+      expect.objectContaining({ baseURL: "/api/_vitehub/comments/assets" }),
+    ])
+    expect(await readFile(join(root, ".vitehub/nitro/comments/page-session.mjs"), "utf8")).toBe("export { viteHubPageSessionHandler as default } from \"@vite-hub/comments/runtime\"\n")
+    // The page tool check reads the same session as the API.
+    expect(await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")).toContain("session: commentsAuthSession,")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
     expect(handler).toContain("import { commentsAuthSession } from \"@vite-hub/comments/runtime/auth\"")
     expect(handler).toContain("content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined")
@@ -243,7 +252,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const plugin = hubComments({ console: { module: "vite-hub/console/sections" } })
     const nitro = await configure(plugin, root, "build", config)
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
-    expect(nitro?.publicAssets?.[0]?.baseURL).toBe("/portal/api/_vitehub/comments/assets")
+    expect(nitro?.publicAssets).toEqual(expect.arrayContaining([expect.objectContaining({ baseURL: "/portal/api/_vitehub/comments/assets" })]))
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(mcpPlugin).toContain('/portal/api/_vitehub/comments/assets/overlay.js')
     expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
@@ -251,7 +260,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const transform = typeof hook === "function" ? hook : hook?.handler
     if (!transform) throw new Error("Expected a Comments HTML transform")
     const tags: unknown = await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])
-    expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/portal/api/_vitehub/comments/assets/overlay.js') })]))
+    expect(tags).toEqual(expect.arrayContaining([expect.objectContaining({ children: expect.stringContaining('/_vitehub/page/assets/loader.js') })]))
   })
 
   it.each([
@@ -286,7 +295,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     const contribution = await plugin.api.contributeRealtime({ authority: "memory", directory, projectRoot: root })
     expect(contribution).toEqual({ definitions: [{ handler: join(directory, "comments.mjs"), name: "comments" }] })
     // Without Auth or the Console, the people of the rooms are the people signed in with GitHub.
-    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toMatch(/export default commentsRealtime\(comments, \{ session: createCommentsGitHubLogin\(.*\)\.user \}\)/)
+    expect(await readFile(join(directory, "comments.mjs"), "utf8")).toContain("export default commentsRealtime(comments, { session: githubLogin.user })")
     await configure(plugin, root)
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain("realtime: true")
   })
@@ -301,7 +310,8 @@ describe("comments() without vite-hub", () => {
     await configure(setup === "standalone" ? standalone() : hubComments(), root, "serve")
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     const handler = await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")
-    expect(plugin).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
+    expect(plugin).toContain('const githubLogin = createCommentsGitHubLogin({"repository":"acme/app"})')
+    expect(plugin).toContain('session: githubLogin.user, githubLogin,')
     expect(handler).toContain('githubLogin: createCommentsGitHubLogin({"repository":"acme/app"})')
   })
 
@@ -314,6 +324,8 @@ describe("comments() without vite-hub", () => {
     const plugin = standalone()
     const nitro = await configure(plugin, root, command, { base: "/portal/" })
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
+    expect(nitro?.handlers).toContainEqual({ route: "/portal/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") })
+    expect(nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }))
     if (preset) {
       const app = await createNitro({ ...nitro, rootDir: root, dev: false, preset, compatibilityDate: "2026-10-27" })
       await app.close()
@@ -321,6 +333,7 @@ describe("comments() without vite-hub", () => {
     const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(generated).toContain("/portal/api/_vitehub/comments/assets/overlay.js")
     expect(generated).toContain(`development: ${command === "serve"}`)
+    expect(generated).toContain("session: githubLogin.user, githubLogin,")
     expect(generated).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
     expect(await readFile(join(root, ".vitehub/nitro/comments/handler.mjs"), "utf8")).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')
   }, 30_000)
@@ -328,7 +341,10 @@ describe("comments() without vite-hub", () => {
   it("turns on without server/comments.ts, with a SQLite file in development that Git ignores", async () => {
     const root = await project({ "package.json": "{}" })
     const nitro = await configure(standalone(), root, "serve")
-    expect(nitro?.handlers).toEqual([{ route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") }])
+    expect(nitro?.handlers).toEqual([
+      { route: "/api/_vitehub/comments/**", handler: join(root, ".vitehub/nitro/comments/handler.mjs") },
+      { route: "/_vitehub/page/session", handler: join(root, ".vitehub/nitro/comments/page-session.mjs") },
+    ])
     expect(await readFile(join(root, ".vitehub/nitro/comments/definition.mjs"), "utf8")).toContain("export const comments = defineComments()")
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
     expect(plugin).toContain("from \"@vite-hub/comments/runtime/connect/node\"")
@@ -366,7 +382,8 @@ describe("comments() without vite-hub", () => {
     const generated = join(root, ".vitehub/nitro/comments/plugin.mjs")
     const source = await readFile(generated, "utf8")
     expect(source).not.toContain(file)
-    expect(source).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
+    expect(source).toContain('const githubLogin = createCommentsGitHubLogin({"repository":"acme/app"})')
+    expect(source).toContain('session: githubLogin.user, githubLogin,')
     const { default: install } = await import(pathToFileURL(generated).href)
     install(null)
     const { comments: definition } = await import(pathToFileURL(join(root, ".vitehub/nitro/comments/definition.mjs")).href)
@@ -390,7 +407,8 @@ describe("comments() without vite-hub", () => {
     expect(source).not.toContain("runtime/connect/node")
     expect(source).not.toContain("node:sqlite")
     expect(source).toContain("development: false")
-    expect(source).toContain('session: createCommentsGitHubLogin({"repository":"acme/app"}).user')
+    expect(source).toContain('const githubLogin = createCommentsGitHubLogin({"repository":"acme/app"})')
+    expect(source).toContain('session: githubLogin.user, githubLogin,')
   }, 30_000)
 
   it.each(["file:./data/comments.sqlite", ":memory:"])("rejects static SQLite locations on Workers (%s)", async (database) => {

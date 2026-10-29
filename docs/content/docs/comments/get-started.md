@@ -45,7 +45,7 @@ There is nothing else to set up. `comments()` adds [Nitro](https://nitro.build) 
 pnpm vite dev
 ```
 
-Open `http://localhost:5173/?comments`. The `?comments` query turns on comment mode, and a toolbar shows at the bottom of the page. The server also sets the `vitehub-comments` cookie, so other pages of the site keep comment mode until you close the toolbar.
+Open `http://localhost:5173/?vitehub`. The `?vitehub` query turns on the ViteHub page tools, such as Comments. A toolbar shows at the bottom of the page. The server also sets the `vitehub-tools` cookie, so other pages of the site keep comment mode until you close the toolbar.
 
 1. Press <kbd>C</kbd>, or select **Comment** in the toolbar.
 2. Click a heading on the page. A comment box opens at that point.
@@ -100,7 +100,7 @@ pnpm vite build
 node --env-file=.env .output/server/index.mjs
 ```
 
-Open `http://localhost:3000/?comments`.
+Open `http://localhost:3000/?vitehub`.
 
 1. A message at the bottom of the page asks you to sign in. Select **Sign in with GitHub**.
 2. Allow the App on GitHub. GitHub sends you back to the page in comment mode.

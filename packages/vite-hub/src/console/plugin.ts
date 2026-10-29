@@ -204,7 +204,7 @@ function renderConsoleNitroPlugin(
   access?: ConsoleAccessBuild,
   runtimeCapabilityImports?: Record<string, false | string>,
   development = false,
-  applicationBase = "/",
+  _applicationBase = "/",
 ): string {
   assertConsoleRetention(retention, journal)
   const accessCode = renderConsoleAccess(access)
@@ -228,7 +228,7 @@ function renderConsoleNitroPlugin(
     .map(schedule => ` [${JSON.stringify(schedule.name)}]: () => import(${JSON.stringify(pathToFileURL(schedule.handler).href)}),`)
     .join("")
     .replace(/,$/, " ")
-  const contributedSections = describeConsoleContributedSections(sections, applicationBase).map(section => catalog.sectionOverrides?.[section.id] ?? section)
+  const contributedSections = describeConsoleContributedSections(sections).map(section => catalog.sectionOverrides?.[section.id] ?? section)
   const runtimeReaders = describeConsoleRuntimeReaders(sections).filter(reader => catalog.sectionOverrides?.[reader.section]?.view.kind !== "operation-view")
   const definitionsEnabled = databaseEnabled || contributedSections.length > 0
   const revision = fixtureSnapshot ? consoleFixtureRevision(fixtureSnapshot) : undefined

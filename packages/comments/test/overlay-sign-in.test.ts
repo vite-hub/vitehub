@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest"
 
 import { api } from "../src/overlay/api.ts"
+import start from "../src/overlay/index.ts"
 
 import type { CommentsSession } from "../src/overlay/api.ts"
 
@@ -23,25 +24,21 @@ afterEach(() => {
 async function open(search: string) {
   history.replaceState(null, "", `/page${search}`)
   vi.spyOn(api, "session").mockResolvedValue([undefined, denied])
-  await import("../src/overlay/index.ts")
-  let overlay = document.querySelector("vitehub-comments")
-  if (!overlay) {
-    overlay = document.createElement("vitehub-comments")
-    document.body.append(overlay)
-  }
+  start({ tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, signal: new AbortController().signal, open: true, exit: vi.fn() })
+  const overlay = document.querySelector("vitehub-comments")!
   await Promise.resolve()
   return overlay
 }
 
-it("quietly removes a denied overlay opened by the hint cookie alone", async () => {
+it("keeps the sign-in prompt available when the shared session allowed the tool through the hint cookie", async () => {
   const overlay = await open("")
-  expect(overlay.isConnected).toBe(false)
+  expect(overlay.shadowRoot?.querySelector("a")?.textContent).toBe("Sign in with GitHub")
 })
 
 it("offers GitHub sign-in when the person explicitly requests Comments", async () => {
-  const overlay = await open("?comments")
+  const overlay = await open("?vitehub=comments")
   expect(overlay.isConnected).toBe(true)
   const link = overlay.shadowRoot?.querySelector("a")
   expect(link?.textContent).toBe("Sign in with GitHub")
-  expect(link?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?comments")}`)
+  expect(link?.getAttribute("href")).toBe(`${denied.signIn!.url}?return=${encodeURIComponent("/page?vitehub=comments")}`)
 })
