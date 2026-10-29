@@ -301,6 +301,18 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
   return access.user ?? await deferredUsers.get(access)?.()
 }
 
+/**
+ * The user that an operation sees. A development server without sign-in (`local` access, or `open` with
+ * `console.auth: false`) has no accounts, so the person is the local developer: `{ id: "local", name: "You" }`.
+ * Production servers never invent a user.
+ */
+export async function readConsoleOperationUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
+  const user = await readConsoleAccessUser(access)
+  if (user) return user
+  // SAFETY: The local developer has the id and name that a Console user needs.
+  return (access.mode === "local" || access.mode === "open") && isConsoleDevelopmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
+}
+
 /** Whether the access includes the section, with a read-only grant (`"<section>:read"`) too. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
@@ -366,8 +378,8 @@ export interface ConsoleRealtimeUser {
 export interface ConsoleRealtimeAccess {
   /** The signed-in Console user, a Cloudflare Access email, or a guest of an open Console. Null without Console access. */
   identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
-  /** Whether the request has Console access that includes the section. */
-  authorize(context: { event: unknown }): Promise<boolean>
+  /** Whether the request includes the section; writes require its full grant instead of a read-only grant. */
+  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
   /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
   user(context: { event: unknown }): Promise<ConsoleUser | null>
 }
@@ -414,8 +426,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
       // An open Console has no accounts: each connection is a guest.
       return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
     },
-    async authorize({ event }) {
-      return Boolean(await access(event))
+    async authorize({ event, kind }) {
+      const allowed = await access(event)
+      return Boolean(allowed && (kind !== "write" || consoleAccessWrites(allowed, section)))
     },
     async user({ event }) {
       const allowed = await access(event)

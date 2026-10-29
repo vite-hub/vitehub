@@ -53,6 +53,8 @@ export default defineConfig({
 
 See [Console sign-in](/docs/development/console) for `console-authorize.ts`. To limit Comments to some Console users, return the sections from it, such as `{ sections: ['comments', 'content'] }`.
 
+A `comments:read` grant allows reading threads and joining page presence. Creating, replying, resolving, reopening, deleting, and editing Content fields require the full `comments` grant as well as the Comments policy.
+
 When a person opens the Console, it calls `GET /api/_vitehub/comments/session`. That sets the comment mode cookie, so the app's pages show the Comments toolbar from then on. Nobody else gets the cookie, so their pages have no Comments script.
 
 | Console sign-in | Comment author |

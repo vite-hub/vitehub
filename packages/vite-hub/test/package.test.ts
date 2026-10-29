@@ -100,6 +100,7 @@ const consolidatedOwnerExports = new Set([
 ]);
 
 const lowLevelOwnerExports = new Set([
+  "@vite-hub/comments/testing",
   "@vite-hub/agent/ai-sdk",
   "@vite-hub/agent/cloudflare/state",
   "@vite-hub/agent/env-identity",
@@ -126,6 +127,7 @@ const lowLevelOwnerExports = new Set([
 ]);
 
 const generatedRuntimeOwnerExports = new Set([
+  "@vite-hub/comments/operations",
   "@vite-hub/runtime/shutdown",
   "@vite-hub/agent/runtime/empty-registry",
   "@vite-hub/agent/runtime/invocations-dev",
