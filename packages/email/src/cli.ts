@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises"
 import { resolve } from "node:path"
+import { createInterface } from "node:readline/promises"
 
 import * as v from "valibot"
 
@@ -15,6 +16,8 @@ import type { EmailOutboxDelivery, EmailOutboxList, EmailOutboxMessage } from ".
 export type EmailCliContext = Pick<ViteHubCliContext, "cwd" | "env" | "fetch" | "rootDir"> & ViteHubCliStreams
 
 export interface EmailCliOptions {
+  /** Asks whether `outbox clear` may remove every message. Defaults to a prompt on a terminal, and refuses without one. */
+  confirm?: (question: string) => boolean | Promise<boolean>
   fetch?: typeof fetch
   /** Directories that hold Email templates. The Vite plugin passes its `server/emails` roots. */
   templateRoots?: () => readonly string[]
@@ -29,6 +32,7 @@ interface ParsedOutboxArgs {
   json: boolean
   timeout?: number
   url?: string
+  yes: boolean
 }
 
 interface OutboxCommand {
@@ -53,11 +57,11 @@ const outboxCommands: readonly OutboxCommand[] = [
   { description: "Remove every captured message.", name: "clear", operation: "outbox-clear" },
 ]
 
-const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--url <url>]"
+const outboxUsage = "vitehub email outbox <list|show|clear> [<id>] [--html|--text|--json] [--yes] [--url <url>]"
 const previewUsage = "vitehub email preview <template> [--data <json|@file>] [--html|--text|--json]"
 
 function outboxCommandUsage(command: OutboxCommand): string {
-  return `vitehub email outbox ${command.name}${command.id ? " <id>" : ""}${command.formats ? " [--html|--text|--json]" : " [--json]"} [--url <url>]`
+  return `vitehub email outbox ${command.name}${command.id ? " <id>" : ""}${command.formats ? " [--html|--text|--json]" : " [--json]"}${command.name === "clear" ? " [--yes]" : ""} [--url <url>]`
 }
 
 function writeOutboxUsage(command: OutboxCommand, stream: ViteHubCliStreams["stdout"]): void {
@@ -77,6 +81,7 @@ function writeOutboxUsage(command: OutboxCommand, stream: ViteHubCliStreams["std
     "  --json            Print JSON.",
     "  --url <url>       Deployed app URL. Credentials come from VITEHUB_CONSOLE_AUTHORIZATION, VITEHUB_CONSOLE_COOKIE, or CF_ACCESS_*. Defaults to the dev server of this project.",
     "  --timeout <ms>    Request timeout.",
+    ...(command.name === "clear" ? ["  -y, --yes         Clear the outbox without asking for confirmation."] : []),
     "  -h, --help        Show this help.",
     "",
   ].join("\n"))
@@ -98,7 +103,7 @@ function setFormat(parsed: ParsedOutboxArgs, format: OutboxBodyFormat): void {
 }
 
 function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): ParsedOutboxArgs {
-  const parsed: ParsedOutboxArgs = { help: false, json: false }
+  const parsed: ParsedOutboxArgs = { help: false, json: false, yes: false }
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!
     if (arg === "-h" || arg === "--help") {
@@ -108,6 +113,10 @@ function parseOutboxArgs(command: OutboxCommand, args: readonly string[]): Parse
     if (arg === "--json") {
       parsed.json = true
       if (command.formats) setFormat(parsed, "json")
+      continue
+    }
+    if (command.name === "clear" && (arg === "--yes" || arg === "-y")) {
+      parsed.yes = true
       continue
     }
     if (command.formats && (arg === "--html" || arg === "--text")) {
@@ -256,6 +265,16 @@ function formatOutboxResult(parsed: ParsedOutboxArgs, result: OutboxResult): str
   }
 }
 
+async function askOnTerminal(question: string): Promise<boolean> {
+  const terminal = createInterface({ input: process.stdin, output: process.stderr })
+  try {
+    return /^y(es)?$/i.test((await terminal.question(question)).trim())
+  }
+  finally {
+    terminal.close()
+  }
+}
+
 async function runOutboxCommand(command: OutboxCommand, args: string[], context: EmailCliContext, options: EmailCliOptions): Promise<number> {
   let parsed: ParsedOutboxArgs
   try {
@@ -272,7 +291,13 @@ async function runOutboxCommand(command: OutboxCommand, args: string[], context:
     writeOutboxUsage(command, context.stdout)
     return 0
   }
+  if (command.name === "clear" && !parsed.yes) {
+    const question = `Remove every captured message from the Email outbox at ${parsed.url ?? context.rootDir}? [y/N] `
+    const confirmed = options.confirm ? await options.confirm(question) : (process.stdin.isTTY && process.stderr.isTTY) ? await askOnTerminal(question) : false
+    if (!confirmed) return writeFailure(parsed.json, context, { code: "EMAIL_NOT_CONFIRMED", fix: "Run it again with --yes.", message: "email outbox clear removes every captured message and was not confirmed." })
+  }
   const called = await callOperationFromCli({
+    ...(command.name === "clear" ? { confirmed: true } : {}),
     env: context.env,
     fetch: context.fetch ?? options.fetch ?? globalThis.fetch,
     rootDir: context.rootDir,

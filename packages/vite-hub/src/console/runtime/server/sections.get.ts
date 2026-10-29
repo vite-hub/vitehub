@@ -27,7 +27,7 @@ function consoleSectionsHandler(event: ConsoleRequestEvent, access: ConsoleAcces
   const result: { auth?: true, build?: string, contributions?: readonly ConsoleContributedSection[], projectName?: string, readOnly?: readonly string[], scoped?: true, sections: readonly string[] } = { sections }
   const readOnly = sections.filter(section => !consoleAccessWrites(access, section))
   if (readOnly.length) result.readOnly = readOnly
-  if (getConsoleAuth()) result.auth = true
+  if (getConsoleAuth() || access.mode === "auth") result.auth = true
   if (access.sections !== "all") result.scoped = true
   if (contributions.length) result.contributions = contributions
   if (projectName) result.projectName = projectName

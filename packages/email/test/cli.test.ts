@@ -73,6 +73,58 @@ const listResult = {
   ],
 }
 
+describe("Email outbox clear confirmation", () => {
+  it.each([{ target: [] }, { target: ["--url", "https://app.example/base/"] }])("refuses an unconfirmed clear: $target", async ({ target }) => {
+    const output = context()
+    const fetch = devServer({ cleared: 2 })
+    await expect(runEmailOutboxCli(["clear", ...target], output.context, { fetch })).resolves.toBe(1)
+    expect(output.stderr.output()).toContain("was not confirmed")
+    expect(output.stderr.output()).toContain("--yes")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it("reports a declined confirmation as JSON without sending a request", async () => {
+    const output = context()
+    const fetch = devServer({ cleared: 2 })
+    await expect(runEmailOutboxCli(["clear", "--json"], output.context, { confirm: () => false, fetch })).resolves.toBe(1)
+    expect(JSON.parse(output.stdout.output())).toMatchObject({ error: { code: "EMAIL_NOT_CONFIRMED" } })
+    expect(output.stderr.output()).toBe("")
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it.each(["/app", "https://app.example/base/"])("asks about clearing the outbox at %s, then sends confirmation", async target => {
+    const output = context()
+    const fetch = devServer({ cleared: 2 })
+    const confirm = vi.fn(async (_question: string) => true)
+    const args = target === "/app" ? ["clear"] : ["clear", "--url", target]
+    await expect(runEmailOutboxCli(args, output.context, { confirm, fetch })).resolves.toBe(0)
+    expect(confirm).toHaveBeenCalledOnce()
+    expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining("every captured message"))
+    expect(confirm.mock.calls[0]?.[0]).toEqual(expect.stringContaining(target))
+    expect(sentCall(fetch).headers.get("x-vitehub-confirmation")).toBe("confirmed")
+    expect(sentCall(fetch).body).toEqual({ input: {}, operation: "email.outbox-clear" })
+  })
+
+  it.each(["--yes", "-y"])("clears with %s without prompting", async flag => {
+    const output = context()
+    const fetch = devServer({ cleared: 2 })
+    const confirm = vi.fn(() => false)
+    await expect(runEmailOutboxCli(["clear", flag, "--url", "https://app.example"], output.context, { confirm, fetch })).resolves.toBe(0)
+    expect(confirm).not.toHaveBeenCalled()
+    expect(sentCall(fetch).headers.get("x-vitehub-confirmation")).toBe("confirmed")
+  })
+
+  it("keeps help available without prompting or sending a request", async () => {
+    const output = context()
+    const fetch = vi.fn()
+    const confirm = vi.fn(() => false)
+    await expect(runEmailOutboxCli(["clear", "--help"], output.context, { confirm, fetch })).resolves.toBe(0)
+    expect(output.stdout.output()).toContain("--yes")
+    expect(confirm).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+})
+
 describe("Email outbox failure output", () => {
   it.each([["show", "--json"], ["list", "--json", "--html"], ["send", "--json"], ["--json"]])("returns JSON for outbox argument errors: %j", async (...args) => {
     const output = context()
@@ -181,12 +233,12 @@ describe("vitehub email outbox", () => {
   it("clears the outbox", async () => {
     const human = context()
     const fetch = devServer({ cleared: 2 })
-    await expect(runEmailOutboxCli(["clear"], human.context, { fetch })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["clear", "--yes"], human.context, { fetch })).resolves.toBe(0)
     expect(sentCall(fetch).body).toEqual({ input: {}, operation: "email.outbox-clear" })
     expect(human.stdout.output()).toBe("Removed 2 messages from the outbox.\n")
 
     const json = context()
-    await expect(runEmailOutboxCli(["clear", "--json"], json.context, { fetch: devServer({ cleared: 1 }) })).resolves.toBe(0)
+    await expect(runEmailOutboxCli(["clear", "--json", "--yes"], json.context, { fetch: devServer({ cleared: 1 }) })).resolves.toBe(0)
     expect(JSON.parse(json.stdout.output())).toEqual({ cleared: 1 })
   })
 

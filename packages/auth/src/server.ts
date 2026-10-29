@@ -851,6 +851,30 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
+// Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
+const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
+
+async function checkAuthAccessRequest(
+  input: AuthRequestInput,
+  definition: AuthDefinition,
+  routeIndexes: number[],
+  requiredAuthorizeRouteIndexes: number[],
+  options: { redirectToSignIn?: boolean, reuse?: boolean, remember?: boolean } = {},
+): Promise<Response | undefined> {
+  const key = JSON.stringify([routeIndexes, requiredAuthorizeRouteIndexes])
+  let definitions = reusableAccessChecks.get(input)
+  let accepted = definitions?.get(definition)
+  const reusable = accepted?.get(key)
+  if (reusable === true || (options.reuse && reusable === false)) return
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
+  if (!response && (options.reuse || options.remember)) {
+    if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
+    if (!accepted) definitions.set(definition, accepted = new Map())
+    accepted.set(key, options.reuse === true)
+  }
+  return response
+}
+
 /** Bind discovered access routes to a Web Request or host request handler. */
 export function createAuthAccessHandler(
   routes: readonly ResolvedAuthAccessRoute[],
@@ -880,13 +904,13 @@ export function createAuthAccessHandler(
     );
     if (matched.length === 0) return;
 
-    const { response } = await checkAuthRequest(
+    return await checkAuthAccessRequest(
       input,
       definition ?? resolveDefaultDefinition(),
       matched.map(rule => rule.index),
       matched.filter(rule => rule.authorize).map(rule => rule.index),
+      { remember: true },
     )
-    return response
   }
 }
 
@@ -895,7 +919,11 @@ export async function requireAuthAccessRoutes(
   routeIndexes: number[],
   definition: AuthDefinition = resolveDefaultDefinition(),
   requiredAuthorizeRouteIndexes: number[] = [],
-  options: { redirectToSignIn?: boolean } = {},
+  options: {
+    redirectToSignIn?: boolean
+    /** Reuse successful checks of these exact rules and Definition on this request, including in app Auth middleware. */
+    reuse?: boolean
+  } = {},
 ): Promise<Response | undefined> {
   if (!Array.isArray(routeIndexes) || routeIndexes.length === 0 || routeIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw authErrorDiagnostics.AUTH_R0009({ message: "[vitehub] Auth access route indexes must be a non-empty array of non-negative integers." })
@@ -903,8 +931,7 @@ export async function requireAuthAccessRoutes(
   if (!Array.isArray(requiredAuthorizeRouteIndexes) || requiredAuthorizeRouteIndexes.some(routeIndex => !Number.isSafeInteger(routeIndex) || routeIndex < 0)) {
     throw authErrorDiagnostics.AUTH_R0010({ message: "[vitehub] Required Auth authorize route indexes must be an array of non-negative integers." })
   }
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
-  return response
+  return await checkAuthAccessRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options)
 }
 
 export default handleAuth

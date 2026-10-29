@@ -164,6 +164,8 @@ pnpm vitehub email outbox clear
 pnpm vitehub email preview welcome --data '{"user":{"name":"Maxi"}}'
 ```
 
+`email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`).
+
 Application code can select its generated outbox identity through the public server export:
 
 ```ts

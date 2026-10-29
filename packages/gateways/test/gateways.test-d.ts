@@ -1,10 +1,18 @@
 import { describe, expectTypeOf, it } from "vitest"
 
-import { anthropic, ask, cliproxy, cloudflare, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
+import { anthropic, ask, chatgpt, cliproxy, cloudflare, defineAiGateway, litellm, ollama, openai, openrouter, typesafe, vercel } from "../src/index.ts"
 
 import type { AiGateway, AiGatewayAsk, AskChoiceAnswer } from "../src/index.ts"
 
 describe("AI gateway capabilities", () => {
+  it("keeps ChatGPT credentials and model calls behind the Agent runtime", () => {
+    const gateway = chatgpt({ connection: "personal" })
+    expectTypeOf(gateway.kind).toEqualTypeOf<"chatgpt">()
+    // @ts-expect-error A descriptor cannot resolve tokens in application code.
+    void gateway.apiKey
+    // @ts-expect-error Model calls on this grant require a future model Driver integration.
+    void gateway.ask
+  })
   it("gives ask() only to gateways that answer Jev questions", () => {
     expectTypeOf(typesafe().ask).toEqualTypeOf<AiGatewayAsk>()
     expectTypeOf(vercel().ask).toEqualTypeOf<AiGatewayAsk>()

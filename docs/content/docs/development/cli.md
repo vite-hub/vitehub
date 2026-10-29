@@ -180,7 +180,7 @@ pnpm vitehub email outbox clear
 
 Use `--json` for machine-readable output. The outbox is available only in `vite dev` and is cleared when the server restarts. Use `vitehub email preview <template>` to render a `server/emails` template without sending it.
 
-The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox-list`, `outbox-show`, and `outbox-clear`, which print JSON.
+The commands run the `email.outbox-list`, `email.outbox-show`, and `email.outbox-clear` operations in the `email` Console section, so a person or an agent needs access to that section. `email.outbox-clear` is destructive. `vitehub email outbox clear` asks for confirmation on a terminal and refuses elsewhere; scripts pass `--yes` (or `-y`). `email.preview` renders a template through the same RPC, and the written `vitehub email preview` command renders it in your terminal instead, so it works without a server. The operations also appear as the generated commands `vitehub email outbox-list`, `outbox-show`, and `outbox-clear`, which print JSON.
 
 ## Read and reset Rate Limit counters
 
