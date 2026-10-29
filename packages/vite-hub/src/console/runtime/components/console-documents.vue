@@ -19,6 +19,8 @@ import ConsoleMediaPicker from "./console-media-picker.vue";
 import ConsolePageHeader from "./console-page-header.vue";
 import ConsoleSearch from "./console-search.vue";
 import ConsoleSetupHint from "./console-setup-hint.vue";
+import ConsoleLoading from "./console-loading.vue";
+import ConsoleState from "./console-state.vue";
 
 import type { ConsoleDocumentOverview, ConsoleDocumentState } from "../client/documents";
 import type { ConsoleMediaInfo } from "../client/media-library";
@@ -420,9 +422,7 @@ watch(changes, () => void loadOverview());
       </template>
       <template v-else-if="collection && (editorDocumentId || creating) && mediaPending">
         <ConsolePageHeader :title="collection.label" />
-        <div class="flex min-h-0 flex-1 items-center justify-center">
-          <UIcon name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
-        </div>
+        <ConsoleLoading label="Preparing document…" />
       </template>
       <template v-else-if="collection && (editorDocumentId || creating)">
         <ConsoleDocumentEditor
@@ -452,10 +452,11 @@ watch(changes, () => void loadOverview());
       </template>
       <template v-else>
         <ConsolePageHeader :title="details.label" />
-        <div class="flex min-h-0 flex-1 items-center justify-center">
-          <UIcon v-if="loading" name="i-lucide-loader-circle" class="size-4 animate-spin text-muted" />
+        <ConsoleLoading v-if="loading" label="Loading collections…" />
+        <ConsoleState v-else-if="error" title="Couldn't load collections" :error="error" :retry="loadCollections" />
+        <div v-else class="flex min-h-0 flex-1 items-center justify-center">
           <UEmpty
-            v-else-if="setup?.access"
+            v-if="setup?.access"
             variant="naked"
             icon="i-lucide-lock"
             title="No one can read documents yet"
