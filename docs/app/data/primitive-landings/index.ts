@@ -1,3 +1,4 @@
+import { LogsLanding } from "./logs";
 import { AgentsLanding } from "./agents";
 import { WorkspaceLanding } from "./workspace";
 import { SandboxLanding } from "./sandbox";
@@ -22,6 +23,7 @@ import { RealtimeLanding } from "./realtime";
 import type { PrimitiveLanding } from "./types";
 
 export const primitiveLandings: Record<string, PrimitiveLanding> = Object.fromEntries([
+  LogsLanding,
   AgentsLanding,
   WorkspaceLanding,
   SandboxLanding,

@@ -630,18 +630,6 @@ The panel reads the selected Invocation's snapshots. It does not run MCP discove
 
 ## Inspect logs
 
-Install `evlog` and set `logs: true` beside `console` in `vitehub()` for local inspection. ViteHub attaches a bounded buffer to the existing Evlog drain. If Evlog is already installed as a Nitro module, configure its options there. Otherwise pass its native options through `logs.evlog`.
+[Logs](/docs/logs) uses Evlog for request capture, structured fields, redaction, sampling, and drains. Explorer and Stream keep selected event data in the right inspector. The CLI reads the same source with `pnpm vitehub logs list --level error --json`.
 
-Use Explorer or Stream to select an event and inspect its structured data on the right. Search includes structured fields. Follow polls the newest page every two seconds. It does not guarantee delivery of every event between polls. The local buffer defaults to 256 events and 16 KiB per event. It is per process and disappears on restart. The Console shows dropped or evicted counts and retains at most 1,000 loaded events in the browser.
-
-Read the same source from code with `LogSource.query()` or through the CLI while the app is running:
-
-```sh
-pnpm vitehub logs list --level error --limit 50 --json
-```
-
-For production, set `logs: { source: './server/logs.ts' }`. That server module must default-export a `LogSource` from `vite-hub/logs/source`. Its `info` describes retention and supported filters. Its `query()` returns newest-first `LogEntry` pages and an optional cursor. The adapter must apply each advertised filter and keep backend credentials on the server. This connects the Console to an existing backend without starting a logger, buffer, SDK, or exporter. No built-in provider history adapter is included. A production build rejects `logs: true` because the local buffer cannot combine serverless instances or retain history.
-
-`vite-hub/logs` exports Evlog's logger API unchanged. Redact events before they reach a source. Serialize a Nostics diagnostic with `diagnostic.toJSON()` before setting it as structured data, for example `logger.set({ diagnostic: diagnostic.toJSON() })`. The inspector reads its stable `name` or `code`, `why`, `fix`, `docs`, and nested `data`. Let one operation own error reporting so a request hook and a diagnostic reporter do not emit it twice.
-
-With the Cloudflare preset, enabling Logs defaults Wrangler's native `observability` to `{ enabled: true }`. An explicit observability configuration is preserved, including `enabled: false`. Collection does not configure an exporter or connect Cloudflare history to the Console. OpenTelemetry exports logs, but each backend still needs its own read adapter.
+[Get started](/docs/logs/get-started) with a temporary development buffer, or [connect an existing backend](/docs/logs/configure#read-an-existing-backend) for production. Follow polls the newest page every two seconds. It does not guarantee delivery of every event. See [limits and errors](/docs/logs/limits-and-errors) for retention and inspection limits.
