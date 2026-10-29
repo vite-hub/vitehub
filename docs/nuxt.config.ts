@@ -110,6 +110,14 @@ export default defineNuxtConfig({
     },
   },
   css: ["~/assets/main.css"],
+  postcss: {
+    plugins: {
+      cssnano: {
+        // postcss-calc 10.1.1 rejects comark-chat's valid nested calc() fallback. Let browsers evaluate it.
+        preset: ["default", { calc: false }],
+      },
+    },
+  },
   vite: {
     resolve: {
       alias: [

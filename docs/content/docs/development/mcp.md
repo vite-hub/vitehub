@@ -8,7 +8,7 @@ icon: i-lucide-plug
 
 ViteHub MCP is an MCP server at `/_vitehub/mcp`. It gives an Agent, such as Claude Code or Codex, the tools of the Console sections that you may use. An Agent can read and save Content drafts, inspect Database schemas, list KV keys and Blob objects, and work with [Comments](/docs/comments).
 
-It comes with the [Console](/docs/development/console). There is nothing to turn on. Each request runs with the Console access of the person who connects, and `console.authorize` sections apply: a person without the `comments` section gets no Comments tools.
+It comes with the [Console](/docs/development/console). There is nothing to turn on. Each request runs with the Console access of the person who connects, and `console.authorize` sections apply: a person without the `comments` section gets no Comments tools. A `comments:read` grant lists and permits only `comments_list_threads` and `comments_get_thread`; replies and resolutions require the full `comments` grant.
 
 ## Connect an Agent
 
@@ -91,4 +91,4 @@ ViteHub MCP has no OAuth sign-in yet, so most desktop Agents cannot connect to a
 
 ## Protocol
 
-ViteHub MCP speaks the stateless JSON form of the Streamable HTTP transport: one JSON-RPC message per `POST`, and one JSON answer. It supports the revisions `2025-11-25`, `2025-06-18`, `2025-03-26`, and `2024-11-05`, and the methods `initialize`, `ping`, `tools/list`, and `tools/call`. It does not stream, and it keeps no session.
+ViteHub MCP speaks the stateless JSON form of the Streamable HTTP transport: one JSON-RPC message per `POST`, and one JSON answer. It supports the revisions `2025-11-25` and `2025-06-18`, and the methods `initialize`, `ping`, `tools/list`, and `tools/call`. It does not stream, and it keeps no session. Send the negotiated revision in the `MCP-Protocol-Version` header on subsequent requests; unsupported revisions receive HTTP 400.

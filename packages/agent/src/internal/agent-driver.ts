@@ -1,9 +1,11 @@
+import type { ChatGPTGateway } from "@vite-hub/gateways"
 import { isPlainObject, isPlainRecord } from "@vite-hub/internal/object"
 import { getCloudflareEnv, runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
 import { inheritSharedAgentCapacityOptions } from "./agent-capacity.ts"
 import { askJev, askState } from "./ask-runtime.ts"
 import { activeAgentInvocationScope } from "./invocation-scope.ts"
 import { recordDriverUsage } from "./auxiliary-usage.ts"
+import { isChatGPTGateway, aiGatewayAsks } from "@vite-hub/gateways/internal"
 import { assertAgentDriverGatewaySupports, normalizeAgentDriverGateway } from "./agent-gateway.ts"
 import { isRuntimeFunction, isRuntimeNumber, isRuntimeString } from "./runtime-value.ts"
 import { normalizeRetention } from "./retention-policy.ts"
@@ -14,7 +16,7 @@ import type {
   AgentAskQuestionsResolver,
   AgentAttachmentExecutionOptions,
   AgentDriverAdaptiveCapacityOptions,
-  AgentDriverGateway,
+  AiGateway,
   AgentDriverCapacityOptions,
   AgentInvokerProfile,
   AgentModelExecutionOptions,
@@ -53,7 +55,7 @@ export type NormalizedAgentDriver<
     cwd?: AgentProviderWorkingDirectoryResolver<TRuntimeConfig>
     env?: AgentProviderEnvironmentResolver<TRuntimeConfig>
     execution?: { attachments?: AgentAttachmentExecutionOptions }
-    gateway?: AgentDriverGateway
+    gateway?: AiGateway | ChatGPTGateway
     instructions?: AgentAdapterInstructions<TRuntimeConfig>
     kind: "provider"
     launch?: AgentProviderLaunchResolver<TRuntimeConfig>
@@ -81,6 +83,16 @@ export type NormalizedAgentDriver<
     run: AgentRunHandler<TRuntimeConfig, CALL_OPTIONS>
   }
 )
+
+/** A `driver.ask` gateway must answer Jev questions: `typesafe()`, `vercel()`, or `cloudflare()`. */
+function askGateway(value: unknown): AiGateway<{ ask: true }> {
+  if (!isPlainRecord(value) || Reflect.get(value, aiGatewayAsks) !== true) {
+    const name = isPlainRecord(value) && typeof value.name === "string" ? ` "${value.name}"` : ""
+    throw agentDiagnostics.AGENT_R1013({ message: `[vitehub] defineAgent({ driver: { ask, gateway } }) needs a gateway that answers Jev questions. Gateway${name} does not. Use typesafe(), vercel(), or cloudflare() from vite-hub/gateways.` })
+  }
+  // SAFETY: Only the ask presets of @vite-hub/gateways set aiGatewayAsks, and they return AiGateway<{ ask: true }>.
+  return value as unknown as AiGateway<{ ask: true }>
+}
 
 function hasOwnDefined(value: Record<string, unknown>, key: string): boolean {
   return Object.hasOwn(value, key) && value[key] !== undefined
@@ -160,7 +172,7 @@ export function normalizeAgentDriverCapacity(value: unknown): AgentDriverCapacit
 const modelDriverKeys = new Set(["capacity", "execution", "instructions", "maxRetries", "model", "output"])
 const providerDriverKeys = new Set(["capacity", "credentialProfile", "credentials", "cwd", "env", "execution", "gateway", "instructions", "kind", "launch", "model", "output", "permissions", "providerSettings", "reasoningEffort", "reasoningSummary", "requirements", "retention", "sessionStorePath", "toolchain"])
 const runDriverKeys = new Set(["capacity", "output", "run"])
-const askDriverKeys = new Set(["ask", "capacity"])
+const askDriverKeys = new Set(["ask", "capacity", "gateway"])
 
 function isResolver(value: unknown): value is { resolve: (...args: never[]) => unknown } {
   return isPlainObject(value) && isRuntimeFunction(value.resolve)
@@ -263,6 +275,8 @@ function normalizeProviderDriver(provider: "claude-code" | "codex", value: Recor
   }
   const gateway = value.gateway === undefined ? undefined : normalizeAgentDriverGateway(value.gateway)
   if (gateway) assertAgentDriverGatewaySupports(gateway, provider)
+  const settings = isPlainRecord(value.providerSettings) ? value.providerSettings : undefined
+  if (isChatGPTGateway(gateway) && (value.launch !== undefined || ["launchArgs", "binaryPath", "homePath", "shadowHomePath"].some(key => settings?.[key] !== undefined))) throw agentDiagnostics.AGENT_R1015()
   // A gateway replaces Codex sign-in. Layers cannot unset inherited credentials, so the gateway wins
   // and credential-only rules no longer apply.
   const credentials = gateway ? undefined : value.credentials
@@ -413,6 +427,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
     }
     // SAFETY: The typed AgentSettings boundary establishes the question map; askJev validates each question when it runs.
     const ask = driver.ask as AgentAskQuestionsResolver
+    const gateway = driver.gateway === undefined ? undefined : askGateway(driver.gateway)
     return {
       capacity,
       kind: "ask",
@@ -423,6 +438,7 @@ function normalizeExplicitAgentDriver(driver: unknown): NormalizedAgentDriver {
           {
             abortSignal: context.input.abortSignal,
             event: { context },
+            ...(gateway ? { gateway } : {}),
             ...(scope ? { observe: event => scope.trace(event) } : {}),
             // Each Jev request is one call of the Invocation usage record, so the usage and cost index counts ask runs.
             recordUsage: usage => recordDriverUsage(context.context, usage),

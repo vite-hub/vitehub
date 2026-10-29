@@ -18,6 +18,8 @@ Retained-history methods require a Store with `history`. Unsupported Stores and 
 
 A stale `ifHead` throws `WORKSPACE_CONFLICT` with the ref and the expected and actual revision ids. Missing revisions, deleted workspace identities, and change commits that delete a missing file throw `WORKSPACE_NOT_FOUND`. Blob operations retain their `BLOB_*` error codes. Retry failed workspace deletion after the storage error is resolved.
 
+The GitHub Store uses branches as refs and commits as revisions. It has no pruning API, and branches and commits are not deleted. A missing repository or token throws `WORKSPACE_R0072` at the first request. A commit message or metadata that is too large, or a message that contains a `Vitehub-Metadata:` line, throws `WORKSPACE_R0073`. `history.head()` keeps a branch head for 5 seconds. A commit that changes no file does not create a branch. See [GitHub Store](/docs/workspace/configure#github-store).
+
 The Blob + Database Store retains all committed revisions on every ref and has no pruning API. `usage()` counts unique retained file bytes. It excludes abandoned uploads and provider metadata, so it is not a measure of billed storage. Workspace `maxBytes` rules apply to changed files; applications own account quotas and retention policy.
 
 ## Local filesystem access

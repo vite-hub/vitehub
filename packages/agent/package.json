@@ -4,13 +4,19 @@
   "description": "Agent DX layer and Vite integration for ViteHub.",
   "keywords": [
     "agent",
+    "agent-harness",
     "ai",
+    "ai-agents",
+    "ai-sdk",
     "cloudflare",
+    "coding-agent",
+    "llm",
+    "typescript",
     "vercel",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -99,12 +105,6 @@
       "require": "./dist/eve.js",
       "default": "./dist/eve.js"
     },
-    "./gateways": {
-      "types": "./dist/gateways.d.ts",
-      "import": "./dist/gateways.js",
-      "require": "./dist/gateways.js",
-      "default": "./dist/gateways.js"
-    },
     "./invocations/d1": {
       "types": "./dist/invocations/d1.d.ts",
       "import": "./dist/invocations/d1.js",
@@ -152,6 +152,12 @@
       "import": "./dist/observability/posthog.js",
       "require": "./dist/observability/posthog.js",
       "default": "./dist/observability/posthog.js"
+    },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
     },
     "./output": {
       "types": "./dist/output.d.ts",
@@ -248,7 +254,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/agent#build && vp test && node test/run-node-tests.mjs test/browser-smoke-cleanup.test.mjs"
   },
   "dependencies": {
@@ -261,13 +267,15 @@
     "@valibot/to-json-schema": "catalog:runtime",
     "@vercel/connect": "2.4.0",
     "@vercel/nft": "catalog:vercel",
-    "@yarnpkg/parsers": "catalog:tooling",
     "@vite-hub/env": "workspace:*",
     "@vite-hub/forge": "workspace:*",
+    "@vite-hub/gateways": "workspace:*",
     "@vite-hub/markdown-template": "workspace:*",
     "@vite-hub/rate-limit": "workspace:*",
     "@vite-hub/runtime": "workspace:*",
+    "@vite-hub/sandbox": "workspace:*",
     "@vite-hub/workspace": "workspace:*",
+    "@yarnpkg/parsers": "catalog:tooling",
     "ai": "catalog:ai",
     "chat": "catalog:chat",
     "comark": "catalog:markdown",
@@ -276,8 +284,7 @@
     "nostics": "catalog:runtime",
     "proper-lockfile": "catalog:",
     "valibot": "catalog:runtime",
-    "yaml": "catalog:tooling",
-    "@vite-hub/sandbox": "workspace:*"
+    "yaml": "catalog:tooling"
   },
   "devDependencies": {
     "@agntn/web": "catalog:ai",

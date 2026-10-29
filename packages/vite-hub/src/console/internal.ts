@@ -3,7 +3,6 @@ import type { ServerEnvDescription, ServerEnvInspection } from "@vite-hub/env"
 import type { AgentInvocations } from "@vite-hub/agent"
 import type { BlobStorage } from "@vite-hub/blob"
 import type { RuntimeDatabaseEntry } from "@vite-hub/database/drizzle"
-import type { KVStorage } from "@vite-hub/kv"
 import type { ScheduleDefinitionRegistry } from "@vite-hub/schedule"
 import type { ConsoleSectionCatalog } from "./runtime/definitions.ts"
 import type { ConsoleDocumentEditors } from "./runtime/server/documents.ts"
@@ -28,9 +27,6 @@ export const consoleInvocationsRegistryKey: unique symbol = Symbol.for("vitehub.
 export const consoleBlobKey: unique symbol = Symbol.for("vitehub.console.blob")
 export const consoleBlobRegistryKey: unique symbol = Symbol.for("vitehub.console.blob.registry")
 export const consoleBlobRootKey: unique symbol = Symbol.for("vitehub.console.blob.root")
-export const consoleKVKey: unique symbol = Symbol.for("vitehub.console.kv")
-export const consoleKVRegistryKey: unique symbol = Symbol.for("vitehub.console.kv.registry")
-export const consoleKVRootKey: unique symbol = Symbol.for("vitehub.console.kv.root")
 export const consoleEnvKey: unique symbol = Symbol.for("vitehub.console.env")
 export const consoleEnvRegistryKey: unique symbol = Symbol.for("vitehub.console.env.registry")
 export const consoleEnvRootKey: unique symbol = Symbol.for("vitehub.console.env.root")
@@ -67,11 +63,6 @@ export type ConsoleEnvInspection = ServerEnvDescription & {
   manage?: (request: Request) => Promise<Response>
 }
 
-export interface ConsoleKVInspection {
-  storage: KVStorage
-  stores: readonly string[]
-}
-
 export interface ConsoleDatabaseInspection {
   databases: Record<string, RuntimeDatabaseEntry<Record<string, unknown>>>
   names: readonly string[]
@@ -83,8 +74,6 @@ export interface ConsoleBlobInspection {
 }
 
 type ConsoleBlobByRoot = ConsoleProjectRegistry<ConsoleBlobInspection>
-
-type ConsoleKVByRoot = ConsoleProjectRegistry<ConsoleKVInspection>
 
 type ConsoleEnvByRoot = ConsoleProjectRegistry<ConsoleEnvInspection>
 
@@ -98,7 +87,7 @@ type ConsoleBuildByRoot = ConsoleProjectRegistry<string>
 
 type ConsoleInvocationRegistry = Record<
   symbol,
-  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleSectionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleKVByRoot | ConsoleKVInspection | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSchedulesByRoot | ScheduleDefinitionRegistry | ConsoleSectionsByRoot | ConsoleDocumentsByRoot | ConsoleDocumentEditors | undefined
+  AgentInvocations | boolean | ConsoleBlobByRoot | ConsoleBlobInspection | ConsoleDatabaseByRoot | ConsoleDatabaseInspection | ConsoleSectionCatalog | ConsoleDefinitionsByRoot | string | readonly ConsoleSectionId[] | ConsoleInvocationsByRoot | ConsoleInvocationIdentitiesByRoot | ConsoleEnvByRoot | ConsoleEnvInspection | ConsoleSchedulesByRoot | ScheduleDefinitionRegistry | ConsoleSectionsByRoot | ConsoleDocumentsByRoot | ConsoleDocumentEditors | undefined
 >
 
 type ConsoleInvocationIdentitiesByRoot = {
@@ -142,9 +131,6 @@ export type ConsoleInvocationScope = {
   [consoleInvocationsIdentityRootKey]?: string
   [consoleInvocationsRootKey]?: string
   [consoleInvocationsRegistryKey]?: ConsoleInvocationsByRoot
-  [consoleKVKey]?: ConsoleKVInspection
-  [consoleKVRegistryKey]?: ConsoleKVByRoot
-  [consoleKVRootKey]?: string
   [consoleEnvKey]?: ConsoleEnvInspection
   [consoleEnvRegistryKey]?: ConsoleEnvByRoot
   [consoleEnvRootKey]?: string
@@ -154,7 +140,6 @@ export type ConsoleInvocationScope = {
   [consoleDocumentsRootKey]?: string
   [consoleSchedulesRegistryKey]?: ConsoleSchedulesByRoot
   [consoleSchedulesRootKey]?: string
-  [consoleProjectRootKey]?: string
   [consoleInvocationsRootIdentityRegistryKey]?: ConsoleInvocationIdentitiesByRoot
   [consoleSectionsKey]?: readonly ConsoleSectionId[]
   [consoleAuthKey]?: ConsoleAuthMode | false
@@ -176,11 +161,6 @@ const blobRegistry = createConsoleProjectRegistry<ConsoleBlobInspection>({
   root: consoleBlobRootKey,
   value: consoleBlobKey,
   registry: consoleBlobRegistryKey,
-})
-const kvRegistry = createConsoleProjectRegistry<ConsoleKVInspection>({
-  root: consoleKVRootKey,
-  value: consoleKVKey,
-  registry: consoleKVRegistryKey,
 })
 const envRegistry = createConsoleProjectRegistry<ConsoleEnvInspection>({
   root: consoleEnvRootKey,
@@ -455,18 +435,6 @@ export function installConsoleBlobScope(
 
 export function resolveConsoleBlob(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleBlobInspection | undefined {
   return blobRegistry.resolve(scope)
-}
-
-export function installConsoleKVScope(
-  projectRoot: string,
-  inspection: ConsoleKVInspection,
-  scope: ConsoleInvocationScope = defaultConsoleInvocationScope(),
-): ConsoleKVInspection {
-  return kvRegistry.install(projectRoot, inspection, scope)
-}
-
-export function resolveConsoleKV(scope: ConsoleInvocationScope = defaultConsoleInvocationScope()): ConsoleKVInspection | undefined {
-  return kvRegistry.resolve(scope)
 }
 
 export function installConsoleEnvScope(

@@ -21,6 +21,11 @@ export const viteHubPageSessionPath = "/_vitehub/page/session"
 /** The URL of the loader script. Its version query changes when the loader changes, so caches keep it 5 minutes. */
 export const viteHubPageToolsLoader = "/_vitehub/page/assets/loader.js?v=2"
 
+/** Mount a page-tools URL under the application path, ignoring Vite asset bases such as CDN URLs. */
+export function viteHubPageToolsPath(path: string, base = ""): string {
+  return base.startsWith("/") && !base.startsWith("//") ? `${base.replace(/\/+$/, "")}${path}` : path
+}
+
 /** One tool that the visitor may use, as the session route returns it. */
 export interface ViteHubPageToolInfo {
   /** The owner, such as `comments`. It also names the tool's segment in the pill. */

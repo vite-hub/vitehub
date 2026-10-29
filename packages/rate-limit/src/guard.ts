@@ -1,5 +1,6 @@
-import { getRequestIP, HTTPError } from "h3"
+import { createError, getRequestIP } from "h3"
 import { getCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
+import { isH3V1Event, toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 
 import { cloudflareRateLimitDriver } from "./drivers/cloudflare.ts"
 import { getCloudflareRateLimitBindingName } from "./integrations/cloudflare.ts"
@@ -27,7 +28,7 @@ function isCloudflareBinding(value: unknown): value is CloudflareRateLimitBindin
 
 function getRequestKey(event: RateLimitRequestEvent, provider: "cloudflare" | "memory"): string | undefined {
   return provider === "cloudflare"
-    ? event.req.headers.get("cf-connecting-ip") || getRequestIP(event as HTTPEvent)
+    ? toEventRequest(event).headers.get("cf-connecting-ip") || getRequestIP(event as HTTPEvent)
     : getRequestIP(event as HTTPEvent)
 }
 
@@ -90,7 +91,7 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
   if (decision.allowed) return
 
   if (decision.reason === "unavailable") {
-    throw new HTTPError({
+    throw rateLimitHTTPError(event, {
       cause: decision.cause,
       message: "Rate limiting is unavailable.",
       status: 503,
@@ -98,7 +99,7 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
     })
   }
 
-  throw new HTTPError({
+  throw rateLimitHTTPError(event, {
     headers: decision.retryAfter === undefined
       ? undefined
       : { "Retry-After": String(decision.retryAfter) },
@@ -106,4 +107,15 @@ export async function requireRateLimit(event: RateLimitRequestEvent, name: strin
     status: 429,
     statusText: "Too Many Requests",
   })
+}
+
+/**
+ * Nuxt 4 bundles every `h3` import as its own h3 1, which has `createError()` but no `HTTPError`. h3 2's
+ * `createError()` returns an `HTTPError`. h3 1 errors carry no headers, so an H3 1 event gets them on its response.
+ */
+function rateLimitHTTPError(event: RateLimitRequestEvent, details: { cause?: unknown, headers?: Record<string, string>, message: string, status: number, statusText: string }): Error {
+  if (details.headers && isH3V1Event(event)) {
+    for (const [name, value] of Object.entries(details.headers)) event.node.res?.setHeader(name, value)
+  }
+  return createError(details)
 }

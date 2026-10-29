@@ -1,8 +1,10 @@
 import { defineConfig } from "vitest/config"
 import vue from "@vitejs/plugin-vue"
 
+import { overlayPlugin } from "./overlay.vite.config.ts"
+
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [vue(), overlayPlugin()],
   test: {
     environment: "node",
     include: ["test/**/*.test.ts"],

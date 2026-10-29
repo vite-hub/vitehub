@@ -200,3 +200,10 @@ Protect a production Console with `console: { auth: { provider: 'cloudflare-acce
 - Use [Provisioning](/docs/development/provisioning) for resource creation.
 - Use [Provider output](/docs/reference/provider-output) for generated artifact families.
 - Use [Verification](/docs/development/verification) for Cloudflare proof tiers.
+
+## Related guides
+
+Use [Deploy an Agent](/docs/guides/deploy-agent-cloudflare-vercel),
+[D1 with Drizzle](/docs/guides/cloudflare-d1),
+[R2 file storage](/docs/guides/cloudflare-r2), or
+[Browser Run](/docs/guides/cloudflare-browser) for worked deployment tasks.

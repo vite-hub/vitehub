@@ -88,13 +88,14 @@ describe("Process Schedule Runtime", () => {
     expect(handlers.utc.mock.calls.map(([context]) => context.scheduledAt.toISOString())).toEqual(["2026-07-15T08:00:00.000Z"])
   })
 
-  it("catches up a Static Schedule minute that no process checked during a restart", async () => {
+  it.each([60 * 60_000, 90_000, 90_000.5])("catches up a Static Schedule minute after a restart with catchUpMs=%s", async (catchUpMs) => {
     // The previous process stopped before its 15:00 scan, and this process starts at 15:01.
     const scheduleRunStore = createMemoryScheduleRunStore()
     const previous = new Date("2026-10-16T14:50:00.000Z")
     await scheduleRunStore.createRun({ attemptCount: 1, createdAt: previous, id: "srun_static_reconcile_2026-10-16T14:50:00.000Z", scheduleId: "reconcile", scheduledAt: previous, status: "succeeded", target: "reconcile", updatedAt: previous })
     const handler = vi.fn()
     const controller = await installProcessScheduleRuntime({
+      catchUpMs,
       now: () => new Date("2026-10-16T15:01:20.000Z"),
       registry: {
         reconcile: async () => ({ cron: "*/10 * * * *", handler }),
@@ -102,8 +103,12 @@ describe("Process Schedule Runtime", () => {
       scheduleRunStore,
     })
 
-    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
-    await controller.close()
+    try {
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1))
+    }
+    finally {
+      await controller.close()
+    }
     expect(handler).toHaveBeenCalledWith(expect.objectContaining({ scheduledAt: new Date("2026-10-16T15:00:00.000Z") }))
   })
 

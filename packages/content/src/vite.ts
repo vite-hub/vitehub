@@ -3,15 +3,14 @@ import { dirname, join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 
 import { resolveViteHubProjectRoot, VITEHUB_NITRO_CONFIG_CONTEXT, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { findContentEntry, inspectContentEntry, toRuntimeModuleSpecifier } from "@vite-hub/source/vite"
+import { findContentEntry, inspectContentEntry } from "@vite-hub/source/vite"
 import { flattenPluginOptions } from "@vite-hub/internal/contributions"
-import { registerViteHubNitroDevEndpoint } from "@vite-hub/internal/dev-endpoint"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { parseAst } from "vite"
 
 import {
   cmsDatabaseReason,
+  cmsPresetStoreSync,
   cmsRequirementError,
   cmsWorkspaceExport,
   readCmsPresetUsageFile,
@@ -20,12 +19,13 @@ import {
   resolveCmsPresetPlan,
   usesCmsPresetSync,
 } from "./cms-build.ts"
-import { contentDevHeader, contentDevHeaderValue, contentDevRoute, contentDevRuntimeRoute } from "./dev.ts"
+import { cmsStoreOf } from "./cms-options.ts"
 
 import type { DatabaseContributionContext, DatabaseContributionEntry, DatabaseContributionFactory } from "@vite-hub/database/vite"
 import type { ViteHubCliPluginMetadata } from "@vite-hub/internal/cli"
 import type { ViteHubConsoleDocumentEditorSection, ViteHubConsoleDocumentSetup } from "@vite-hub/internal/console"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
+import type { OperationContributions } from "@vite-hub/internal/operations"
 import type { WorkspaceContributionContext, WorkspaceContributionFactory } from "@vite-hub/workspace/vite"
 import type { Plugin, ResolvedConfig, UserConfig } from "vite"
 import type { CmsPresetPlan, CmsWorkspaceImports } from "./cms-build.ts"
@@ -49,14 +49,17 @@ export function usesCmsPreset(input: { projectRoot: string, serverDirs?: readonl
   return usesCmsPresetSync(input, parseAst)
 }
 
+/** The selected CMS store, so framework integrations enable only the services it needs. */
+export function cmsPresetStore(input: { projectRoot: string, serverDirs?: readonly string[] }): "blob-database" | "github" | undefined {
+  return cmsPresetStoreSync(input, parseAst)
+}
+
 export interface ContentVitePluginOptions {
   /**
    * Import paths for the generated `cms` Workspace module. Defaults to the `@vite-hub/*` packages. The `vite-hub`
    * integration passes its own subpaths, so the module resolves from the app.
    */
   imports?: Partial<CmsWorkspaceImports>
-  /** Import prefix of the generated Nitro dev handler, for example `vite-hub/_internal/content`. Defaults to `@vite-hub/content`. */
-  importBase?: string
 }
 
 export interface ContentVitePluginAPI {
@@ -68,9 +71,9 @@ export type ContentVitePlugin = Plugin & {
   api: ContentVitePluginAPI
   /**
    * Contributions that the Workspace and Database plugins collect, empty without the `cms` preset, plus the
-   * `vitehub content` commands and the Content Definition inspector.
+   * `vitehub content` commands, the Content operations, and the Content Definition inspector.
    */
-  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
+  vitehub: { databases: DatabaseContributionFactory, workspaces: WorkspaceContributionFactory, operations: OperationContributions } & ViteHubCliPluginMetadata & ViteHubInspectionPluginMetadata
 }
 
 type ContentPluginConfig = UserConfig & {
@@ -153,7 +156,6 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
   let projectRoot: string | undefined
   let serverDirs: string[] | undefined
   let resolvedPlugins: readonly unknown[] | undefined
-  let resolved: ResolvedConfig | undefined
   const discover = () => findContentEntry({ projectRoot: projectRoot ?? process.cwd(), serverDirs })
 
   async function resolveCmsPreset(input: { projectRoot: string, serverDirs?: readonly string[], databaseRoot?: string, contributedDefinitions?: readonly { name: string }[] }): Promise<CmsPresetPlan | undefined> {
@@ -177,6 +179,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     enforce: "post",
     api: { resolveCmsPreset },
     vitehub: {
+      // The Console, `vitehub content`, and agents run these. The app imports them through `vite-hub`.
+      // An app without server/content.ts has no Content to operate on, so it contributes nothing.
+      operations: async () => await discover()
+        ? [{ export: "contentOperations", load: async () => (await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./operations.ts" : "./operations.js")).contentOperations, module: "@vite-hub/content/operations" }]
+        : [],
       cli: async () => {
         if (!await discover()) return
         const { createContentCliContributor } = await import(/* @vite-ignore */ import.meta.url.endsWith(".ts") ? "./cli.ts" : "./cli.js")
@@ -185,13 +192,14 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       inspect: async () => {
         const definition = await discover()
         if (!definition) return
+        const features = await inspectContentEntry(definition)
         return {
           definitions: [{
             kind: "content",
             label: "Content",
             list: () => [{
               fields: [
-                { label: "Route", value: "/api/content/**" },
+                { label: "Route", value: features.route ? "/api/content/**" : "Disabled" },
                 { label: "Collections", value: "vitehub content collections" },
               ],
               file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),
@@ -226,8 +234,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
         const module = resolve(root, cmsDatabaseModulePath)
         if (!plan || plan.databaseReason !== "preset") await rm(module, { force: true })
         if (!plan) return []
+        // The GitHub store keeps history in Git. Only editor sessions need tables.
         const entries: DatabaseContributionEntry[] = [
-          { database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." },
+          ...(plan.store === "github"
+            ? []
+            : [{ database: plan.database, definition: { export: "workspaceHistorySchema", module: imports.blobDatabase }, name: "content-history", reason: "Stores the history of Content documents." }]),
           ...(imports.contentDatabase
             ? [{ database: plan.database, definition: { export: "contentSessionsSchema", module: imports.contentDatabase }, name: "content-sessions", reason: "Stores presence and edit leases of Content documents." }]
             : []),
@@ -239,7 +250,7 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
     },
     config: {
       order: "pre",
-      async handler(config, env) {
+      handler(config) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as ContentPluginConfig
         const root = viteConfig[VITEHUB_PROJECT_ROOT]
@@ -247,26 +258,11 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
           : resolveViteHubProjectRoot(viteConfig.root || process.cwd())
         projectRoot = root
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
-        if (env.command !== "serve") return
-        // `vitehub content` calls a dev-only Nitro handler that runs the app's Content runtime.
-        const handler = resolve(root, generatedNitroDevHandler)
-        const definition = await discover()
-        if (!definition) {
-          await rm(handler, { force: true })
-          return
-        }
-        await mkdir(dirname(handler), { recursive: true })
-        await writeFile(handler, renderContentDevHandler({ definition, importBase: options.importBase }), "utf8")
-        // Vite keeps the `nitro` key that the Nitro Vite plugin reads. The kit copies it and adds one handler.
-        const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, route: contentDevRuntimeRoute })
-        Reflect.set(config, "nitro", kit.config)
       },
     },
     async configResolved(config) {
       // SAFETY: The resolved config keeps ViteHub's shared keys from the config hook.
       const viteConfig = config as ResolvedConfig & ContentPluginConfig
-      resolved = config
       resolvedPlugins = config.plugins
       projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(config.root)
       serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice() ?? serverDirs
@@ -275,27 +271,19 @@ export function hubContent(options: ContentVitePluginOptions = {}): ContentViteP
       const missing = [
         pluginByName(config, workspacePluginName) ? undefined : "workspace",
         pluginByName(config, databasePluginName) || viteConfig[VITEHUB_NITRO_CONFIG_CONTEXT] ? undefined : "database",
-        blobStoreNames(pluginByName(config, blobPluginName)) ? undefined : "blob",
+        plan.store === "github" || blobStoreNames(pluginByName(config, blobPluginName)) ? undefined : "blob",
       ].filter(Boolean)
       if (missing.length) {
         const setting = missing.map(name => `${name}: true`).join(", ")
         throw cmsRequirementError(plan.file, projectRoot, `it needs ${missing.join(", ")} enabled. Set vitehub({ ${setting} }) in your Vite config.`)
       }
+      if (plan.store === "github" || plan.blob === undefined) return
       const stores = blobStoreNames(pluginByName(config, blobPluginName)) || []
       if (!stores.includes(plan.blob)) {
         throw cmsRequirementError(plan.file, projectRoot, `it stores files in Blob store ${JSON.stringify(plan.blob)}, which is not configured. Blob stores: ${stores.map(name => JSON.stringify(name)).join(", ")}. Choose one with extends: [cms, { blob: ${JSON.stringify(stores[0])} }] or add the store to vitehub({ blob }).`)
       }
     },
     configureServer(server) {
-      registerViteHubNitroDevEndpoint(server, {
-        header: contentDevHeader,
-        headerValue: contentDevHeaderValue,
-        label: "Content Dev",
-        nitroBaseURL: () => readNitroBaseURL(resolved),
-        route: contentDevRoute,
-        runtimeRoute: contentDevRuntimeRoute,
-        unavailable: { code: "CONTENT_DEV_RUNTIME_UNAVAILABLE", message: contentDevRuntimeUnavailableMessage },
-      })
       const root = projectRoot
       if (!root) return
       const directories = absoluteDirs(root, serverDirs) ?? [resolve(root, "server")]
@@ -386,7 +374,9 @@ export async function findContentPublishRunner(schedules: readonly string[]): Pr
  * What the Content editor lacks, read without running the app. Scheduled publishes need a Schedule Definition that calls
  * `content.publishDue()`; without one, schedules never publish and only turn overdue.
  */
-async function inspectContentSetup(options: ContentConsoleOptions): Promise<ViteHubConsoleDocumentSetup> {
+async function inspectContentSetup(options: ContentConsoleOptions, file: string): Promise<ViteHubConsoleDocumentSetup> {
+  const usage = await readCmsPresetUsageFile(file, options.projectRoot, parseAst)
+  if (usage && cmsStoreOf(usage.options) === "github") return {}
   if (options.schedules && await findContentPublishRunner(options.schedules)) return {}
   return {
     schedule: {
@@ -418,7 +408,7 @@ export const contentConsoleSection: ViteHubConsoleDocumentEditorSection<ContentC
   actions: { export: "createContentConsoleActions", module: "@vite-hub/content/runtime/console" },
   description: "Edit, publish, and restore Content documents.",
   entry: options => findContentCollectionsEntry(options),
-  inspect: options => inspectContentSetup(options),
+  inspect: (options, file) => inspectContentSetup(options, file),
   icon: "i-lucide-file-pen-line",
   id: "content",
   label: "Content",
@@ -502,28 +492,4 @@ export async function contributeContentRealtime(options: ContentRealtimeContribu
     ].join("\n")),
   ])
   return { definitions: [{ handler: definition, name: contentRealtimeDefinitionName }], plugins: [plugin] }
-}
-
-const contentPackageName = "@vite-hub/content"
-const generatedNitroDevHandler = ".vitehub/nitro/content/dev-handler.ts"
-
-/** Message that the Content dev endpoint returns when the host does not run Nitro in the Vite process. */
-export const contentDevRuntimeUnavailableMessage = "This Vite Development Server does not run Nitro in process, so it cannot reach the Content runtime. `vitehub content` commands need a Vite + Nitro host. Nuxt and plain Vite are not supported."
-
-/** Renders the dev-only Nitro handler that passes `vitehub content` requests to the app's Content runtime. */
-export function renderContentDevHandler(options: { definition: string, importBase?: string }): string {
-  return [
-    "import { defineEventHandler } from 'h3'",
-    `import { handleContentDevRequest } from ${JSON.stringify(`${options.importBase ?? contentPackageName}/runtime/dev`)}`,
-    `import * as definition from ${JSON.stringify(toRuntimeModuleSpecifier(options.definition))}`,
-    "",
-    "export default defineEventHandler(event => handleContentDevRequest(event.req, definition.content))",
-    "",
-  ].join("\n")
-}
-
-function readNitroBaseURL(config: ResolvedConfig | undefined): string | undefined {
-  const nitro: unknown = config ? Reflect.get(config, "nitro") : undefined
-  const baseURL: unknown = nitro !== null && Object(nitro) === nitro ? Reflect.get(Object(nitro), "baseURL") : undefined
-  return String(baseURL) === baseURL ? baseURL : process.env.NITRO_APP_BASE_URL
 }

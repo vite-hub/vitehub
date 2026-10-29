@@ -1,48 +1,25 @@
 import { getCloudflareEnv, resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
-import { defineHandler } from "h3"
+import { assertOperationConfirmation, assertOperationProject, operationAccessAllows, operationCall, operationRootHeader, operationSection, operationSurfaceHeader, parseOperationInput, projectRootHash } from "@vite-hub/internal/operations"
+import { toEventRequest } from "@vite-hub/internal/runtime/h3-v1-request"
 import * as v from "valibot"
 
-import { consoleRpcHeader, consoleRpcMethods } from "../rpc.ts"
-import { bindConsoleAccess, consoleAccessAllows, withConsoleAccess, type ConsoleAccess } from "./access.ts"
-import consoleAgentsHandler from "./agents.get.ts"
-import consoleAgentInvocationsHandler from "./agent-invocations.post.ts"
-import { consoleAttachmentRequestBytes } from "./attachments.ts"
-import consoleBlobHandler from "./blob.get.ts"
-import consoleDatabaseHandler from "./database.get.ts"
-import consoleDefinitionsHandler from "./definitions.get.ts"
-import consoleDocumentsHandler, { maximumConsoleDocumentRequestBytes } from "./documents.ts"
-import consoleInvocationCapabilitiesHandler from "./invocation-capabilities.get.ts"
-import consoleInvocationWorkspaceHandler from "./invocation-workspace.get.ts"
-import consoleInvocationHandler from "./invocation.get.ts"
-import consoleInvocationsHandler from "./invocations.get.ts"
-import consoleEnvHandler from "./env.get.ts"
-import consoleKVHandler from "./kv.get.ts"
+import { consoleRpcHeader } from "../rpc.ts"
+import { consoleAccessAllows, consoleAccessWrites, readConsoleOperationUser, withConsoleAccess, type ConsoleAccess } from "./access.ts"
 import { consoleDiagnosticBody, consoleStatusDiagnosticCode } from "../diagnostics.ts"
-import { maximumConsoleMediaRequestBytes, runConsoleMediaAction, uploadConsoleMedia } from "./media.ts"
+import { consoleOperationRegistry, installedConsoleProjectRoot } from "./operation-contributions.ts"
+import { isConsoleDevelopmentBuild } from "./development.ts"
+import { uploadConsoleMedia } from "./media.ts"
 import { consoleRequestError, consoleRequestJSON } from "./request.ts"
-import { consoleSearchCollectionHandler } from "./search.get.ts"
-import { consoleScheduleRunHandler } from "./schedule-run.ts"
-import consoleSectionsHandler from "./sections.get.ts"
-import consoleStatusHandler from "./status.get.ts"
-import consoleUsageHandler from "./usage.get.ts"
 
-import type { EventHandlerRequest, EventHandlerWithFetch, H3Event } from "h3"
-import type { ConsoleRpcInput, ConsoleRpcMethod, ConsoleRpcResult } from "../rpc.ts"
-import type { ConsoleRequestEvent } from "./request.ts"
-import type { ConsoleSectionId } from "../sections.ts"
-import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
+import type { H3Event } from "h3"
+import type { OperationContext } from "@vite-hub/internal/operations"
+import type { ConsoleRpcResult } from "../rpc.ts"
 
 export const consoleRpcCallPath = "/_vitehub/rpc/__call"
 /** Media library uploads: one file per `multipart/form-data` request, so the browser can report progress. */
 export const consoleRpcUploadPath = "/_vitehub/rpc/__upload"
 
 const maximumConsoleRpcRequestBytes = 64 * 1_024
-// Invocation envelopes also carry image data URLs, and document saves carry a whole Markdown document.
-const maximumConsoleRpcRequestBytesByMethod: Readonly<Record<string, number>> = {
-  [consoleRpcMethods.agentInvocations]: consoleAttachmentRequestBytes + maximumConsoleRpcRequestBytes,
-  [consoleRpcMethods.documents]: maximumConsoleDocumentRequestBytes + maximumConsoleRpcRequestBytes,
-  [consoleRpcMethods.media]: maximumConsoleMediaRequestBytes + maximumConsoleRpcRequestBytes,
-}
 
 const responseHeaders = {
   "cache-control": "no-store",
@@ -50,50 +27,20 @@ const responseHeaders = {
   "x-robots-tag": "noindex, nofollow",
 }
 
-const envelopeSchema = v.object({ input: v.optional(v.unknown()), method: v.string() })
-const inputSchema = v.object({
-  agent: v.optional(v.string()),
-  body: v.optional(v.unknown()),
-  id: v.optional(v.string()),
-  method: v.optional(v.picklist(["GET", "POST"])),
-  query: v.optional(v.record(v.string(), v.union([v.string(), v.array(v.string())]))),
-})
+const envelopeSchema = v.object({ input: v.optional(v.unknown()), operation: v.string() })
 
 interface ConsoleRpcContext {
   /** The checked access of the RPC request. Each operation runs with it. */
   access: ConsoleAccess
   env?: Record<string, unknown>
+  /** The address of the peer, when the host exposes it. */
+  remoteAddress?: string
   waitUntil?: (task: Promise<unknown>) => void
 }
 
 interface ConsoleOperationContext extends ConsoleRpcContext {
   // Operations set a success status here, such as 202 for an accepted Agent invocation.
   response: { status?: number }
-}
-
-function requestEvent(operation: string, input: ConsoleRpcInput, context: ConsoleOperationContext): ConsoleRequestEvent {
-  const id = input.id ? `/${encodeURIComponent(input.id)}` : ""
-  const url = new URL(`/api/_vitehub/console/${operation}${id}`, "http://vitehub.local")
-  for (const [key, value] of Object.entries(input.query ?? {})) {
-    if (Array.isArray(value)) value.forEach((entry) => url.searchParams.append(key, entry))
-    else url.searchParams.set(key, value)
-  }
-  const params: Record<string, string> = {}
-  if (input.agent) params.agent = input.agent
-  if (input.id) params.id = input.id
-  const event: ConsoleRequestEvent = {
-    env: context.env,
-    context: Object.keys(params).length ? { params } : undefined,
-    method: input.method ?? "GET",
-    req: {
-      json: async () => input.body,
-      method: input.method ?? "GET",
-      url,
-    },
-    res: context.response,
-  }
-  if (context.waitUntil) event.waitUntil = context.waitUntil
-  return bindConsoleAccess(context.access, event)
 }
 
 function errorResult(error: unknown): ConsoleRpcResult {
@@ -116,37 +63,16 @@ function errorResult(error: unknown): ConsoleRpcResult {
   const result: Extract<ConsoleRpcResult, { ok: false }> = { code, message: message ?? "Console request failed.", ok: false, status }
   const fix = text(Reflect.get(value, "fix"))
   const docs = text(Reflect.get(value, "docs"))
+  const details: unknown = Reflect.get(value, "details")
   if (fix) result.fix = fix
   if (docs) result.docs = docs
+  // Server failures keep their details out of the response. Input and conflict failures name what to fix.
+  if (status < 500 && details instanceof Object && !Array.isArray(details)) Object.assign(result, { details })
   return result
 }
 
 function text(value: unknown): string | undefined {
   return typeof value === "string" && value ? value : undefined
-}
-
-async function consoleSearchError(response: Response): Promise<Error> {
-  const text = await response.text()
-  let message = text
-  try {
-    const parsed = v.safeParse(v.object({
-      statusMessage: v.optional(v.unknown()),
-      message: v.optional(v.unknown()),
-    }), JSON.parse(text))
-    if (parsed.success) {
-      const statusMessage = v.safeParse(v.string(), parsed.output.statusMessage)
-      const responseMessage = v.safeParse(v.string(), parsed.output.message)
-      if (statusMessage.success) message = statusMessage.output
-      else if (responseMessage.success) message = responseMessage.output
-    }
-  }
-  catch {
-    // Preserve non-JSON upstream responses as-is.
-  }
-  return Object.assign(viteHubErrorDiagnostics.VITE_HUB_R0052({ message }), {
-    statusCode: response.status,
-    statusMessage: message,
-  })
 }
 
 async function result(resolve: () => unknown | Promise<unknown>): Promise<ConsoleRpcResult> {
@@ -157,67 +83,12 @@ async function result(resolve: () => unknown | Promise<unknown>): Promise<Consol
   }
 }
 
-type ConsoleOperation = {
-  /** The Console section of the operation. `false` marks an operation that every Console user may call. */
-  section: ConsoleSectionId | false | ((input: ConsoleRpcInput) => ConsoleSectionId | undefined)
-  run: (input: ConsoleRpcInput, context: ConsoleOperationContext) => unknown | Promise<unknown>
-}
-
-function querySection(input: ConsoleRpcInput): ConsoleSectionId | undefined {
-  const section = input.query?.section
-  return Array.isArray(section) ? undefined : section
-}
-
-const operations = new Map<string, ConsoleOperation>(Object.entries({
-  [consoleRpcMethods.agents]: { section: "agents", run: (input, context) => consoleAgentsHandler(requestEvent("agents", input, context)) },
-  [consoleRpcMethods.agentInvocations]: { section: "agents", run: (input, context) => consoleAgentInvocationsHandler(requestEvent(`agents/${input.agent ?? ""}/invocations`, input, context)) },
-  [consoleRpcMethods.blob]: { section: "blob", run: (input, context) => consoleBlobHandler(requestEvent("blob", input, context)) },
-  [consoleRpcMethods.database]: { section: "databases", run: (input, context) => consoleDatabaseHandler(requestEvent("database", input, context)) },
-  [consoleRpcMethods.definitions]: {
-    section: querySection,
-    run: (input, context) => {
-      // The route guard rejects a request without a section. Over RPC it is invalid input.
-      if (querySection(input) === undefined) throw consoleRequestError(400, "A valid definition section is required.")
-      return consoleDefinitionsHandler(requestEvent("definitions", input, context))
-    },
-  },
-  [consoleRpcMethods.documents]: {
-    section: querySection,
-    async run(input, context) {
-      const result = await consoleDocumentsHandler(requestEvent("documents", input, context))
-      if (result instanceof Response) throw consoleRequestError(result.status, "This Console access does not include this section.")
-      return result.value
-    },
-  },
-  [consoleRpcMethods.invocationWorkspace]: { section: "agents", run: (input, context) => consoleInvocationWorkspaceHandler(requestEvent("invocation-workspace", input, context)) },
-  [consoleRpcMethods.invocation]: { section: "agents", run: (input, context) => consoleInvocationHandler(requestEvent("invocations", input, context)) },
-  [consoleRpcMethods.invocationCapabilities]: { section: "agents", run: (input, context) => consoleInvocationCapabilitiesHandler(requestEvent("invocation-capabilities", input, context)) },
-  [consoleRpcMethods.invocations]: { section: "agents", run: (input, context) => consoleInvocationsHandler(requestEvent("invocations", input, context)) },
-  [consoleRpcMethods.env]: { section: "env", run: (input, context) => consoleEnvHandler(requestEvent("env", input, context)) },
-  [consoleRpcMethods.kv]: { section: "kv", run: (input, context) => consoleKVHandler(requestEvent("kv", input, context)) },
-  [consoleRpcMethods.media]: {
-    section: querySection,
-    run: (input, context) => runConsoleMediaAction(querySection(input) ?? "", input.query?.action, input.body, context.access),
-  },
-  [consoleRpcMethods.search]: {
-    section: "agents",
-    async run(input, context) {
-      const event = requestEvent("search", input, context)
-      const response = await consoleSearchCollectionHandler.fetch(new Request(event.req!.url!, { method: event.method }))
-      if (!response.ok) throw await consoleSearchError(response)
-      return await response.json()
-    },
-  },
-  [consoleRpcMethods.scheduleRun]: { section: "schedules", run: (input, context) => consoleScheduleRunHandler(requestEvent("schedule-run", input, context)) },
-  [consoleRpcMethods.sections]: { section: false, run: (input, context) => consoleSectionsHandler(requestEvent("sections", input, context)) },
-  [consoleRpcMethods.status]: { section: "agents", run: (input, context) => consoleStatusHandler(requestEvent("status", input, context)) },
-  [consoleRpcMethods.usage]: { section: "usage", run: (input, context) => consoleUsageHandler(requestEvent("usage", input, context)) },
-} satisfies Record<ConsoleRpcMethod, ConsoleOperation>))
+export { consoleOperationRegistry }
 
 /** The Console section of each RPC operation, for inspection and tests. `false` marks an operation that every Console user may call. */
-export function consoleRpcOperationSection(method: ConsoleRpcMethod, input: ConsoleRpcInput = {}): ConsoleSectionId | false | undefined {
-  const section = operations.get(method)?.section
-  return section instanceof Function ? section(input) : section
+export function consoleRpcOperationSection(name: string, input: unknown = {}): string | false | undefined {
+  const operation = consoleOperationRegistry().get(name)
+  return operation ? operationSection(operation, input) : undefined
 }
 
 function isSameOriginRequest(request: Request, url: URL): boolean {
@@ -237,13 +108,15 @@ function isConsoleRpcPath(pathname: string, path: string): boolean {
   return route !== -1 && pathname.slice(route) === path
 }
 
-function largeEnvelopePrefix(body: string): { maximumBytes: number, method: string, prefix: string } | undefined {
-  // Large invocation and document calls put the method first so they can be classified within 64 KiB.
-  const prefix = /^[ \t\r\n]*\{[ \t\r\n]*"method"[ \t\r\n]*:[ \t\r\n]*("(?:[^"\\]|\\.)*")[ \t\r\n]*(?:,|(?=\}))/.exec(body)
+function largeEnvelopePrefix(body: string): { maximumBytes: number, operation: string, prefix: string } | undefined {
+  // Large calls put the operation first so they can be classified within 64 KiB.
+  const prefix = /^[ \t\r\n]*\{[ \t\r\n]*"operation"[ \t\r\n]*:[ \t\r\n]*("(?:[^"\\]|\\.)*")[ \t\r\n]*(?:,|(?=\}))/.exec(body)
   if (!prefix) return undefined
-  const method: unknown = JSON.parse(prefix[1]!)
-  if (String(method) !== method || !Object.hasOwn(maximumConsoleRpcRequestBytesByMethod, method)) return undefined
-  return { maximumBytes: maximumConsoleRpcRequestBytesByMethod[method]!, method, prefix: prefix[0] }
+  const operation: unknown = JSON.parse(prefix[1]!)
+  if (String(operation) !== operation) return undefined
+  const maximumBytes = consoleOperationRegistry().get(operation)?.maxRequestBytes
+  if (maximumBytes === undefined || maximumBytes <= maximumConsoleRpcRequestBytes) return undefined
+  return { maximumBytes, operation, prefix: prefix[0] }
 }
 
 async function readConsoleEnvelope(request: Request): Promise<unknown> {
@@ -277,11 +150,11 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
     body += decoder.decode()
     const large = largeEnvelopePrefix(body)
     if (!large) return JSON.parse(body)
-    // Parse the remaining members separately so a duplicate method cannot override
+    // Parse the remaining members separately so a duplicate operation cannot override
     // the classification and bypass the ordinary request limit.
     const members = v.parse(v.record(v.string(), v.unknown()), JSON.parse(`{${body.slice(large.prefix.length)}`))
-    if (Object.hasOwn(members, "method")) throw consoleRequestError(400, "Invalid Console request.")
-    return { ...members, method: large.method }
+    if (Object.hasOwn(members, "operation")) throw consoleRequestError(400, "Invalid Console request.")
+    return { ...members, operation: large.operation }
   }
   catch (error) {
     await reader.cancel()
@@ -292,13 +165,39 @@ async function readConsoleEnvelope(request: Request): Promise<unknown> {
   }
 }
 
+const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
+
+function isLoopbackHost(host: string | null): boolean {
+  if (!host) return false
+  const name = (host.startsWith("[") ? host.slice(0, host.indexOf("]") + 1) : host.replace(/:\d+$/, "")).toLowerCase()
+  return loopbackHosts.has(name) || name.endsWith(".localhost")
+}
+
+function isLoopbackAddress(address: string): boolean {
+  return address === "::1" || address === "127.0.0.1" || address.startsWith("127.") || address.startsWith("::ffff:127.")
+}
+
+/**
+ * `vite dev` with no sign-in (the `local` or `open` access) trusts anyone who can reach it, so it serves only this
+ * machine: a tunnel or a LAN address with a forwarded Host would give the whole app to a stranger.
+ */
+function assertLoopbackWithoutSignIn(request: Request, url: URL, context: ConsoleRpcContext): void {
+  if ((context.access.mode !== "local" && context.access.mode !== "open") || !isConsoleDevelopmentBuild()) return
+  const hostHeader = request.headers.get("host") ?? url.host
+  const forwarded = request.headers.get("x-forwarded-host")
+  if (isLoopbackHost(hostHeader) && (!forwarded || isLoopbackHost(forwarded)) && (!context.remoteAddress || isLoopbackAddress(context.remoteAddress))) return
+  throw consoleRequestError(403, "The development Console without sign-in accepts only requests from this machine. Set console.auth to open it to others.", "CONSOLE_LOOPBACK_ONLY")
+}
+
 async function callConsoleOperation(request: Request, context: ConsoleOperationContext): Promise<unknown> {
   const url = new URL(request.url)
   if (!isSameOriginRequest(request, url)) throw consoleRequestError(403, "Cross-origin Console requests are not allowed.", "CONSOLE_ORIGIN_REJECTED")
+  assertLoopbackWithoutSignIn(request, url, context)
+  assertOperationProject(request, installedConsoleProjectRoot())
   if (isConsoleRpcPath(url.pathname, consoleRpcUploadPath)) {
     if (request.method !== "POST") throw consoleRequestError(405, "Method not allowed")
     const section = url.searchParams.get("section") ?? ""
-    if (!consoleAccessAllows(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section.")
+    if (!consoleAccessWrites(context.access, section)) throw consoleRequestError(403, "This Console access does not include this section, or only reads it.")
     return uploadConsoleMedia(request, section, context.access)
   }
   if (!isConsoleRpcPath(url.pathname, consoleRpcCallPath)) throw consoleRequestError(404, "Console RPC endpoint not found.")
@@ -313,28 +212,70 @@ async function callConsoleOperation(request: Request, context: ConsoleOperationC
   }
   const envelope = v.safeParse(envelopeSchema, payload)
   if (!envelope.success) throw consoleRequestError(400, "Invalid Console request.")
-  const operation = operations.get(envelope.output.method)
+  const operation = consoleOperationRegistry().get(envelope.output.operation)
   if (!operation) throw consoleRequestError(404, "Console operation not found.")
-  const input = v.safeParse(inputSchema, envelope.output.input ?? {})
-  if (!input.success || Array.isArray(envelope.output.input)) throw consoleRequestError(400, "Invalid Console input.")
-  const section = operation.section instanceof Function ? operation.section(input.output) : operation.section
+  if (Array.isArray(envelope.output.input)) throw consoleRequestError(400, "Invalid Console input.")
+  // A failed check throws INTERNAL_R0022 with status 400, which names the fields to fix.
+  const input = await parseOperationInput(operation, envelope.output.input)
+  const section = operationSection(operation, input)
   if (section !== false && !consoleAccessAllows(context.access, section)) {
     throw consoleRequestError(403, "This Console access does not include this section.")
   }
-  return operation.run(input.output, context)
+  const classification = operationCall(operation, input)
+  // A read-only grant (`"<section>:read"`) runs only the operations, and the calls, that read.
+  if (section !== false && !operationAccessAllows(context.access, section, classification)) {
+    throw consoleRequestError(403, `This Console access to the "${section}" section is read-only, and ${operation.name} is a ${operation.kind} operation.`, "CONSOLE_ACCESS_DENIED")
+  }
+  assertOperationConfirmation(request, classification)
+  // Navigation and other reads that do not need a person skip the session lookup.
+  const user = operation.user === false ? undefined : await readConsoleOperationUser(context.access)
+  const operationContext: OperationContext = {
+    access: context.access,
+    development: isConsoleDevelopmentBuild(),
+    request,
+    response: context.response,
+    // The CLI names itself. Only the unauthenticated `local` access of `vite dev` trusts it more than the Console.
+    surface: request.headers.get(operationSurfaceHeader) === "cli" ? "cli" : "console",
+    // SAFETY: A Console user from the Auth adapter has the id that the operation user needs.
+    user: user ? user as OperationContext["user"] : null,
+    ...(context.env ? { env: context.env } : {}),
+    ...(context.waitUntil ? { waitUntil: context.waitUntil } : {}),
+  }
+  // SAFETY: The schema of the operation produced `input`.
+  return (operation.run as (value: unknown, context: OperationContext) => unknown)(input, operationContext)
 }
 
 /** Run one Console operation from one checked request, so any host instance can serve any call. */
 export async function handleConsoleRpcRequest(request: Request, context: ConsoleRpcContext): Promise<Response> {
   const response: ConsoleOperationContext["response"] = {}
   const body = await result(() => callConsoleOperation(request, { ...context, response }))
-  return Response.json(body, { headers: responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
+  // The local dev RPC names its project, so a command can tell that it reached the wrong dev server.
+  const root = context.access.mode === "local" ? installedConsoleProjectRoot() : undefined
+  return Response.json(body, { headers: root ? { ...responseHeaders, [operationRootHeader]: projectRootHash(root) } : responseHeaders, status: body.ok ? response.status ?? 200 : body.status })
 }
 
-const consoleRpcHandler: EventHandlerWithFetch<EventHandlerRequest, Promise<Response>> = defineHandler(withConsoleAccess((event: H3Event, access) => {
+function readPath(value: unknown, ...path: string[]): unknown {
+  let current = value
+  for (const key of path) current = current instanceof Object ? Reflect.get(current, key) : undefined
+  return current
+}
+
+/** The peer address, from whichever of the h3 request or the Node socket the host exposes. */
+function eventRemoteAddress(event: H3Event): string | undefined {
+  const candidates = [
+    readPath(event, "req", "ip"),
+    readPath(event, "req", "context", "clientAddress"),
+    readPath(event, "req", "runtime", "node", "req", "socket", "remoteAddress"),
+    readPath(event, "node", "req", "socket", "remoteAddress"),
+  ]
+  return candidates.find((candidate): candidate is string => typeof candidate === "string" && candidate !== "")
+}
+
+// A plain handler, because Nuxt 4 bundles every `h3` import as its own h3 1, which has no `defineHandler()`.
+const consoleRpcHandler: (event: H3Event) => Promise<Response> = withConsoleAccess((event: H3Event, access) => {
   const waitUntil = resolveWaitUntil(event, { preferHost: true })
-  return handleConsoleRpcRequest(event.req, { access, env: getCloudflareEnv(event, { fallback: false }), waitUntil })
+  return handleConsoleRpcRequest(toEventRequest(event), { access, env: getCloudflareEnv(event, { fallback: false }), remoteAddress: eventRemoteAddress(event), waitUntil })
   // Each operation checks its own section.
-}, { anySection: true }))
+}, { anySection: true })
 
 export default consoleRpcHandler

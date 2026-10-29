@@ -8,9 +8,9 @@ icon: i-lucide-monitor-dot
 
 The ViteHub Console inspects the primitives enabled in the same ViteHub configuration. It is off by default. Enable it, start the app, then open `/_vitehub` to choose a section.
 
-ViteHub renders the Console UI and serves its static assets. The Console sends each operation as one same-origin `POST` to `/_vitehub/rpc/__call`, so the same interface works on development servers and production hosts without separate resource routes.
+ViteHub renders the Console UI and serves its static assets. The Console sends each call as one same-origin `POST` to `/_vitehub/rpc/__call` with `{ operation, input }`. An [operation](/docs/development/operations) is a named ability such as `invocations.list` or `content.publish`. The CLI calls the same route, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console currently exposes Env, Agents, Content, Comments, Blob, Database, KV, Rate Limit, Sandbox, Workspace, Workflow, Queue, and Schedule. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when `server/comments.ts` exists. It lists the threads that the team left on the app's pages, and opening the Console turns on the [ViteHub tools pill](#open-the-console-from-the-apps-pages), with the Comments toolbar, on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console sections are Auth, Env, Connections, Agents, Channels, Usage, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when `server/comments.ts` exists. It lists the threads that the team left on the app's pages, and opening the Console turns on the [ViteHub tools pill](#open-the-console-from-the-apps-pages), with the Comments toolbar, on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs, and uploads (up to 8 MiB) or deletes objects through the `blob.put` and `blob.del` operations. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected, and edits or deletes it through the `kv.set` and `kv.del` operations. Rate Limit lists statically discovered policies and source locations, and reads or resets the live counter of a key you enter through the `rate-limit.peek` and `rate-limit.reset` operations. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -113,7 +113,22 @@ export default defineNuxtConfig({
 
 Restart the development server after changing the option. Open `http://localhost:3000/_vitehub`, using your app's actual origin and port.
 
-`console: true` is not valid. ViteHub stops with an error that names `auth: false` and `auth: 'app'`. A `console` object without `auth` also fails.
+### Open the Console in DevTools
+
+On a development server, the Console is also a **ViteHub Console** entry in the DevTools of your app:
+
+| App | Where |
+| --- | --- |
+| Nuxt | A tab in Nuxt DevTools 3 and 4. |
+| Vite with [`@vitejs/devtools`](https://devtools.vite.dev) | An entry in the Vite DevTools dock, which Devframe renders. |
+
+The entry shows the same `/_vitehub` page in a frame. In development, the page lets frames of the same origin show it. A production build still refuses every frame.
+
+With independent Console Auth, the sign-in button opens authentication in the main browser page. Open DevTools again after signing in.
+
+`console: true` reuses the app Auth Definition and its server access policy. Enable `auth: true` and authorize the Console routes in `server/auth.ts`, as shown below. A `console` object still requires an explicit `auth` choice.
+
+App Auth and the Console must use the same public origin, including the protocol and port. The Console rejects a different resolved Auth `baseURL` before starting sign-in or initializing its account client. Serve Auth on the Console origin or configure independent Console Auth when the app's Auth runs on another origin.
 
 `auth: false` also works in a production build. The build and the production server log a warning, because anyone who can reach the route can read Console data. Before you deploy, add `authorize` or choose another `auth`. See [Protect the Console route](#protect-the-console-route).
 
@@ -192,28 +207,19 @@ ViteHub sends `X-Robots-Tag: noindex, nofollow` on the Console route and include
 
 ### Use the app Auth
 
-Set `auth: 'app'` to reuse the app's Primary Auth Definition. Add `authorize` to decide who may use the Console. `authorize` is the path of a server file that default-exports `defineConsoleAuthorize()`:
+Enable the Console with the app's existing server Auth Definition and access policy:
 
 ```ts [vite.config.ts]
 export default defineConfig({
   plugins: [vitehub({
-    agent: true,
     auth: true,
-    console: { auth: 'app', authorize: './server/console-authorize.ts' },
+    console: true,
     preset: 'node',
   })],
 })
 ```
 
-```ts [server/console-authorize.ts]
-import { defineConsoleAuthorize } from 'vite-hub/console/auth'
-
-export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
-```
-
-ViteHub checks for an Auth Session first. A missing session returns `401`. Then it calls `authorize` with the request and the signed-in `user`. The `role` field is an application example, not a ViteHub field. Replace it with the role, permission, or allowlist that the app already uses.
-
-You can instead guard the Console with access routes in the Auth Definition. Without `authorize`, the Auth Definition must have an access route with an `authorize` callback for `/_vitehub/**` and for `GET /api/_vitehub/console/status`. With the Usage section, it also needs one for `GET /api/_vitehub/console/usage`. Otherwise ViteHub stops with `VITE_HUB_B0006`, in every environment:
+Keep the providers, database, and session configuration in `server/auth.ts`. Add access routes that decide who can use the Console:
 
 ```ts [server/auth.ts]
 import { defineAuth, type AuthAccessAuthorize } from 'vite-hub/auth'
@@ -222,6 +228,7 @@ const authorizeConsole: AuthAccessAuthorize = ({ user }) =>
   user.role === 'admin'
 
 export default defineAuth({
+  // Keep the app's existing providers, database, and session options here.
   access: {
     routes: [
       { route: '/_vitehub/**', authorize: authorizeConsole },
@@ -231,7 +238,31 @@ export default defineAuth({
 })
 ```
 
-Returning `false` from the callback returns `403`. The callback can return a `Response` when the app needs another rejection or redirect. Without a discovered Auth Definition, `auth: 'app'` stops with `VITE_HUB_B0005`.
+The `role` field is an application example. Use the app's existing role, permission, or allowlist. A missing session returns `401`. After sign-in, the callback receives the request and signed-in `user`. Returning `false` returns `403` and offers **Switch account**. A custom `Response` controls the rejection or redirect.
+
+App Auth provides a built-in page at `/_vitehub/sign-in`. It lists the configured social providers, starts sign-in through the existing Auth endpoint, and returns to the requested Console page. Failed attempts show the provider buttons again. Expired sessions show a clickable **Sign in** action. The account menu uses the same app session and supports sign-out. No Console Auth Definition, client, or sign-in route is needed.
+
+ViteHub requires an authorization callback for every Console route, including `GET /api/_vitehub/console/status` and, when enabled, `GET /api/_vitehub/console/usage`. The two wildcard routes above cover them. Missing policy stops the build with `VITE_HUB_B0006`. Missing app Auth stops it with `VITE_HUB_B0005`. `console: true` never grants access to every signed-in user by itself.
+
+For section-specific permissions or a separate Console policy, use an authorization file:
+
+```ts [vite.config.ts]
+console: { auth: 'app', authorize: './server/console-authorize.ts' }
+```
+
+```ts [server/console-authorize.ts]
+import { defineConsoleAuthorize } from 'vite-hub/console/auth'
+
+export default defineConsoleAuthorize(({ user }) => user?.role === 'admin')
+```
+
+For email, passkeys, or a custom sign-in UI, override the page:
+
+```ts [vite.config.ts]
+console: { auth: 'app', signInPage: '/sign-in' }
+```
+
+The custom page receives `redirect`, such as `/sign-in?redirect=%2F_vitehub%2Fauth`. Return there after sign-in, accepting only paths on your origin. ViteHub adds the application's mount base. `auth: false` with an `authorize` that returns `401` uses `signInPage` in the same way. Independent Console Auth has its own page and does not take this override.
 
 ### Use Console Auth
 
@@ -336,14 +367,15 @@ export default defineConsoleAuthorize(async ({ request }) => {
 
 ### Limit a user to some sections
 
-`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data.
+`authorize` works with every `auth` choice. Every Console data route calls it with the Web `Request` before it reads data. This includes the RPC route, invocation actions, Env management, Channel replay, Schedule runs, and Connections management. The page shell, the client script, and static assets do not call it, because they contain no project data. With `signInPage`, a visit to a Console page also runs the access check, to send a user without a session to sign in.
 
 `authorize` returns one of these values:
 
 | Result | Effect |
 | --- | --- |
 | `true` | Allows every Console section. |
-| `{ sections: ['content'] }` | Allows only these section ids. An empty list returns `403`. |
+| `{ sections: ['content'] }` | Allows only these section ids, with every action of the section. An empty list returns `403`. |
+| `{ sections: ['kv:read'] }` | Allows the section `kv` for reads only. Operations of kind `write` or `destructive` return `403`, unless the call only reads (`readOnlyWhen`). |
 | `false` | Returns `403`. |
 | A `Response` | Returns that response, for example a `401` or a redirect. |
 
@@ -359,7 +391,13 @@ export default defineConsoleAuthorize(({ user }) => {
 })
 ```
 
-Section ids are the ids in the Console URL, such as `env`, `connections`, `agents`, `usage`, `content`, `blob`, `databases`, `kv`, `workspaces`, `workflows`, `queues`, and `schedules`. Each Console route and RPC operation declares its section, and the server returns `403` for a section outside the list. Write actions follow the section that owns them: Env management needs `env`, Connections management needs `connections`, Agent Invocations and Channel replay need `agents`, Schedule runs need `schedules`, and Content saves and publishes need `content`. Content then checks `content.can()` for the signed-in user, so `{ sections: ['content'] }` gives an editor the section, and `defineContent({ authorize })` decides which collections and actions they get. The Console navigation shows only the allowed sections. That is a convenience. The server check is the security boundary.
+A section entry is the section id, or `'<section>:read'` for a read-only role. A read-only grant allows only `kind: 'read'` operations of the section, and the calls that `readOnlyWhen` marks as read only, on every surface: the Console RPC, `vitehub <namespace> --url`, agent tools, and MCP. Write routes such as Env management, Schedule runs, Channel replay, Agent Invocations, and media upload refuse it. List `'kv:read'` and `'kv'` together and the full grant wins. The Console hides the write actions of a section it may only read, such as the KV editor and the Blob upload.
+
+::warning
+Breaking change: a section grant now includes the write actions of its section. `{ sections: ['kv'] }` lets a user set and delete keys, `'blob'` lets them upload and delete blobs, and `'rate-limits'` lets them reset counters, where these pages only read before. Use `'<section>:read'`, for example `{ sections: ['kv:read', 'blob:read'] }`, for a read-only role.
+::
+
+Section ids are the ids in the Console URL, such as `env`, `connections`, `agents`, `usage`, `content`, `blob`, `databases`, `kv`, `workspaces`, `workflows`, `queues`, and `schedules`. Each Console route and RPC operation declares its section, and the server returns `403` for a section outside the list. Write actions follow the section that owns them: Env management needs `env`, Connections management needs `connections`, Agent Invocations and Channel replay need `agents`, Schedule runs need `schedules`, Workflow starts, cancels, and resumes need `workflows`, and Content saves and publishes need `content`. Content then checks `content.can()` for the signed-in user, so `{ sections: ['content'] }` gives an editor the section, and `defineContent({ authorize })` decides which collections and actions they get. The Console navigation shows only the allowed sections. That is a convenience. The server check is the security boundary.
 
 ### How each mode checks a request
 
@@ -408,11 +446,13 @@ vitehub({
 
 Every user that passes the Console access policy with the `connections` section can then manage every Connection. Restrict the policy to the people who own the provider accounts.
 
+In `vite dev`, a Console without sign-in (`local` access, or `console: { auth: false }`) answers only loopback requests. A request whose `Host` is not `localhost`, `127.0.0.1`, or `[::1]`, or whose peer address is not loopback, gets `403` with `CONSOLE_LOOPBACK_ONLY`. Production servers are not affected, so set `console.auth` or `console.authorize` for them.
+
 Console RPC requests must come from the same origin. The RPC route rejects opaque origins and browser requests marked `same-site` or `cross-site`. Browser Fetch Metadata permits same-origin requests through reverse proxies. When that metadata is absent, the RPC route compares the `Origin` header with the request URL. Hosts must reconstruct the public request origin for older browsers that send `Origin` without Fetch Metadata.
 
 Browsers can omit both headers on HTTP origins. Requests with neither same-origin Fetch Metadata nor an `Origin` header must send `x-vitehub-console: 1`. A foreign browser page cannot add this header without a CORS preflight, which the RPC route rejects. The built-in Console client adds it automatically. Server clients must add it when they send RPC calls without origin headers. The marker is not a credential. All requests still require the configured authentication and authorization.
 
-The `vitehub:console:agent-invocations` RPC operation accepts an Agent name, `method: 'POST'`, and a body typed as `ConsoleAgentInvocationInput` from `vite-hub/console`. The body requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
+The `agents.invoke` operation accepts an Agent name and the fields of `ConsoleAgentInvocationInput` from `vite-hub/console`. The input requires a non-empty `prompt` and can include a configured `invokerProfileId` and prior `messages`.
 
 ```ts
 import { createMessage } from 'vite-hub/agent'
@@ -432,7 +472,7 @@ History must contain valid ViteHub Messages with `user` or `assistant` roles and
 
 ### Cancel a running session
 
-A pending or running session shows **Cancel session** in its header when the Console has invoke access for the session's Agent. The action uses the same `invoke` permission as starting an Agent Invocation. Without it, the button is hidden and the `vitehub:console:invocation` operation rejects `POST { action: 'cancel' }` with status 403.
+A pending or running session shows **Cancel session** in its header when the Console has invoke access for the session's Agent. The action uses the same `invoke` permission as starting an Agent Invocation. Without it, the button is hidden and the `invocations.cancel` operation rejects the call with status 403.
 
 The Console calls `invocations.cancel(id)` on the Agent's journal. A run in the same process stops at once. A run in another process reads the request at its next claim renewal, within 10 seconds. When the Driver cannot stop the run, the header shows `Cancel requested, not enforced by <driver>`. The session stays running until the Driver returns. See [Cancel an invocation](/docs/agents/invocations#cancel-an-invocation) for each Driver.
 
@@ -503,7 +543,7 @@ console: {
 
 `maxAge` takes a duration such as `'14d'` or a number of milliseconds. `maxRecords` takes a positive integer. `maxSize` takes a size such as `'500MB'`, a number of bytes, or a percent of the volume that holds the journal file, such as `'30%'`. A percent counts only the journal file, not the other files on that volume. `maxSize` bounds the live data of the whole database file, so keep the journal in its own file. A file created before this release keeps its largest size until a `VACUUM` rebuilds it; its free pages are reused for new records. An invalid limit fails the build with `VITE_HUB_B0015`. The D1 fallback does not support `maxSize`, because D1 reports the size of the whole app database, and fails the build with `VITE_HUB_B0016`. See [Agent Invocations](/docs/agents/invocation-storage#use-a-custom-store) for how each limit runs.
 
-In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs during development.
+In production, the operator must still decide how long to keep records that may contain sensitive data. Workflow, Queue, and Schedule inspection do not use the journal. Workflow and Queue do not expose run or message history because ViteHub does not yet have provider-independent contracts for listing that operational data. The Schedule page lists the discovered Schedule Definitions. Definitions with `manual: true` show a run action when Console invocation is enabled; use [`vitehub schedule`](/docs/development/cli#run-and-inspect-schedules) to run them or list recorded runs, in development or on a deployment with `--url`.
 
 The fallback applies only when no journal is set. A journal from `defineAgent({ invocations })` or from the app-wide `agent.invocations` option remains authoritative. Its sessions are not copied into `console.sqlite`. The Console reads that journal instead, so development uses one journal. An Agent with `invocations: false` records no sessions.
 
@@ -513,7 +553,7 @@ The Agent Console uses an invocation journal configured on the discovered Agent 
 
 When no Agent Definition configures a journal, the Console falls back to local SQLite at `.vitehub/data/console.sqlite`. This fallback is suitable for development and Node deployments with durable local storage. It is local to one replica and does not survive replacement unless the host persists that path. Cloudflare, Netlify, Vercel, and Deno production deployments should configure a durable hosted invocation journal instead.
 
-The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST operation remains read-only. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
+The Console sends every read through the RPC route at `/_vitehub/rpc/**`. Its internal request contract uses `GET` semantics for bounded listings and metadata, and JSON-body `POST` semantics to read a selected KV value without putting an opaque key in the request URL. The POST body of a KV value read names the key without putting it in the URL. KV writes use the same route with an `action` (`set`, `del`), and Blob uploads and deletes with `put` and `del`; those run the `kv.set`, `kv.del`, `blob.put`, and `blob.del` operations. Responses set `Cache-Control: no-store` and `X-Content-Type-Options: nosniff`.
 
 KV inspection calls the configured store's paginated `list`, `get`, and `has` operations. It never calls `set`, `del`, or `clear`. Each key page returns at most 200 entries, and the Console passes the provider's opaque cursor when you load more. Selected values are rendered as text or formatted JSON and truncated at 256 KiB in the response. Listing and reading can still count as provider operations even though they do not change data.
 
@@ -551,7 +591,7 @@ The Console does not calculate missing provider data. Token counts, model metada
 | Agents opens but has no sessions | Invoke a discovered Agent. Confirm it uses the framework fallback instead of a separate `invocations` store. |
 | Sandboxes is absent from the Console home | Configure `sandboxTask: true` with a deployment preset that supports Sandbox Tasks. |
 | A production build fails with `VITE_HUB_B0014` | Set `console.authorize` to a server file that default-exports `defineConsoleAuthorize()`. |
-| ViteHub rejects `console: true` (`VITE_HUB_B0003`) | Choose who can open the Console: `console: { auth: false }` for no sign-in, or `console: { auth: 'app' }` to use the app Auth. |
+| `console: true` reports missing app Auth or Console access policy | Enable `auth: true` and authorize the Console routes in the app Auth Definition. The shorthand uses app Auth; use `console: { auth: false }` only when you want no sign-in. |
 | ViteHub reports that `console.auth` is required (`VITE_HUB_B0004`) | Add `auth` to the `console` object. Use `false`, `'app'`, or a Console Auth config. |
 | `auth: 'app'` fails with `VITE_HUB_B0005` | Set `auth: true` and add a discovered Auth Definition, such as `server/auth.ts`. |
 | `auth: 'app'` fails with `VITE_HUB_B0006` | Set `console.authorize`, or add Auth access routes with an `authorize` callback for the routes in the message. |
@@ -599,3 +639,9 @@ Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combi
 Open the right panel's tab chooser and select **Capabilities**. Select a Capability to inspect its recorded data and tools. MCP groups tools by server and preserves original tool names and schemas. Title shows its generation settings, progress, and result. Other Capabilities have a default tools and configuration view.
 
 The panel reads the selected Invocation's snapshots. It does not run MCP discovery or title generation. Missing or truncated capture is marked. Developers can [contribute a read-only view](/docs/agents/capabilities/custom#contribute-an-inspection-view) with the shared JSON Render component catalog.
+
+## Inspect logs
+
+[Logs](/docs/logs) uses Evlog for request capture, structured fields, redaction, sampling, and drains. Explorer and Stream keep selected event data in the right inspector. The CLI reads the same source with `pnpm vitehub logs list --level error --json`.
+
+[Get started](/docs/logs/get-started) with a temporary development buffer, or [connect an existing backend](/docs/logs/configure#read-an-existing-backend) for production. Follow polls the newest page every two seconds. It does not guarantee delivery of every event. See [limits and errors](/docs/logs/limits-and-errors) for retention and inspection limits.

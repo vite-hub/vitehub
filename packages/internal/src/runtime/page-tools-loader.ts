@@ -94,6 +94,8 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
 }
 
 export interface LoadViteHubPageToolsOptions {
+  /** The public session URL. A browser entry resolves it relative to its own loader URL. */
+  session?: string
   /** Imports the script of a tool. Default: a dynamic `import()`. */
   load?: (script: string) => Promise<unknown>
 }
@@ -107,7 +109,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
+    const response = await fetch(options.session ?? viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }

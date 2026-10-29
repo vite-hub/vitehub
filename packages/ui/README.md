@@ -1,5 +1,10 @@
 # @vite-hub/ui
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Fui&icon=npm)](https://www.npmjs.com/package/@vite-hub/ui)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Fui&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/ui)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 Vue primitives for AI chat, Agent Invocations, traces, diffs, and file trees. The styled components compose [Nuxt UI](https://ui.nuxt.com/) and render [AI SDK](https://ai-sdk.dev/) message contracts; the headless entry point provides message-scrolling behavior without the styled component layer.
 
 Markdown images and image attachments use compact thumbnails with an expanded preview. The preview preserves the full aspect ratio and supports Escape, focus return, and opening the original image. Prompt attachments have a separate Remove button.
@@ -10,7 +15,7 @@ Markdown images and image attachments use compact thumbnails with an expanded pr
 | ----------------------- | ----------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `@vite-hub/ui`          | Styled chat, prompt, Markdown, session, invocation, trace, diff, and file-tree components | State, transport, persistence, routes, and authorization                                       |
 | `@vite-hub/ui/chat` (and other component entries) | One component or part family, for example `Chat`, `PromptInput`, or the `Trace` parts | State, transport, persistence, routes, and authorization |
-| `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, and message jumps            | Markup and styles; Nuxt UI is not required                                                     |
+| `@vite-hub/ui/headless` | Message viewport, live-edge following, prepend preservation, message jumps, and `useComments()` | Markup and styles; Nuxt UI is not required                                                     |
 | `@vite-hub/ui/nuxt`     | Nuxt module setup                                                                         | Installs the Nuxt UI module, registers ViteHub UI components, and loads the package stylesheet |
 | `@vite-hub/ui/vite`     | Vue with Vite setup                                                                       | Configures the Nuxt UI and Comark Vite plugins                                                 |
 
@@ -111,6 +116,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - Primary chat and invocation output supports Vue server rendering. Scrolling observers, clipboard actions, and attachment conversion use browser APIs and become interactive after hydration. Upload and persist raw files yourself when data URLs are not appropriate.
 - The styled components depend on Nuxt UI components and tokens. `@vite-hub/ui/styles.css` adds ViteHub presentation but is not a replacement for the Tailwind and Nuxt UI imports.
 - The package supplies accessible defaults for its message log, prompt, scroll controls, lists, and built-in actions. The application remains responsible for accessible names on custom controls and slots, meaningful status and error copy, focus behavior around application-owned navigation, and testing the completed interface.
+- `FileTree` names its search input **Search files** by default. Pass `search-label` for a localized or context-specific accessible name.
 - The headless entry point owns scrolling behavior, not appearance. Importing `@vite-hub/ui/headless` does not load the stylesheet or register Nuxt UI components.
 
 ## Documentation
@@ -120,6 +126,7 @@ The page displays **ViteHub UI is ready.** in bold. This confirms the public com
 - [Chat and transport boundary](https://vitehub.dev/docs/ui/chat)
 - [Prompt input](https://vitehub.dev/docs/ui/prompt-input) and [attachments](https://vitehub.dev/docs/ui/attachments)
 - [Headless message scroller](https://vitehub.dev/docs/ui/message-scroller)
+- [Comments](https://vitehub.dev/docs/ui/comments): Figma-style pins, threads, and a side list, built on [`@vite-hub/comments`](https://github.com/vite-hub/vitehub/tree/main/packages/comments)
 - [Diff](https://vitehub.dev/docs/ui/diff) and [file-tree views](https://vitehub.dev/docs/ui/file-tree)
 
 ## Console views

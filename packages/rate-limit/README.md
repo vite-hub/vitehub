@@ -1,5 +1,10 @@
 # @vite-hub/rate-limit
 
+[![npm version](https://comark-ui.onmax.me/badge.svg?source=npm-version&package=%40vite-hub%2Frate-limit&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
+[![npm downloads](https://comark-ui.onmax.me/badge.svg?source=npm-downloads&package=%40vite-hub%2Frate-limit&period=month&icon=npm)](https://www.npmjs.com/package/@vite-hub/rate-limit)
+[![license](https://comark-ui.onmax.me/badge.svg?label=license&value=Apache-2.0)](https://github.com/vite-hub/vitehub/blob/main/LICENSE)
+[![docs](https://comark-ui.onmax.me/badge.svg?label=docs&value=vitehub.dev)](https://vitehub.dev/docs)
+
 `@vite-hub/rate-limit` gives server code one atomic consume-and-decide operation for fixed-window request budgets. It keeps policy separate from the driver that stores and updates each counter.
 
 Install this owner package when you need a direct Rate Limiter, a custom driver, or the Vite integration without the full framework. If your application already uses the `vite-hub` framework distribution, enable Rate Limit there and import from `vite-hub/rate-limit` instead. See the [Rate Limit guide](https://vitehub.dev/docs/rate-limit) for that application setup.
@@ -119,7 +124,7 @@ The limiter exposes its resolved `policy` and the driver's declared `capabilitie
 | memory     | `used`, `remaining`, and `resetAt` in this process. `used: 0` when no counter exists. | Deletes the counter.  |
 | cloudflare | `unsupported`. The binding exposes only `limit()`, which consumes a token. | `unsupported`.        |
 
-For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. In development, `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` call them in the running Vite + Nitro server through a guarded dev-only endpoint. Nuxt and plain Vite return status 501.
+For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use the counters of `requireRateLimit()` in the current runtime. `vitehub rate-limit peek <id> <key>` and `vitehub rate-limit reset <id> <key>` (which asks on a terminal, or needs `--yes`) run the `rate-limit.peek` and `rate-limit.reset` operations of the running app, on the dev server or with `--url` on a deployed app that enables the Console. The Console **Rate Limits** page runs the same operations.
 
 ## Public imports
 
@@ -130,7 +135,7 @@ For managed guards, `peekRateLimit(id, key)` and `resetRateLimit(id, key)` use t
 | `@vite-hub/rate-limit/drivers/cloudflare` | Direct adapter for a request-scoped Cloudflare Rate Limiting binding      |
 | `@vite-hub/rate-limit/vite`               | Source discovery, Nitro runtime setup, manifest generation, and Cloudflare bindings |
 
-`@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/runtime/console`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
+`@vite-hub/rate-limit/runtime`, `@vite-hub/rate-limit/operations`, and `@vite-hub/rate-limit/cli` are reserved for framework integrations. Application code should use the guard or a direct Rate Limiter.
 
 ## Go deeper
 

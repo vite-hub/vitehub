@@ -12,6 +12,25 @@ const user: UIMessage = { id: "u", parts: [{ text: "Hi", type: "text" }], role: 
 const assistant: UIMessage = { id: "a", parts: [{ text: "Hello", type: "text" }], role: "assistant" };
 
 describe("ChatMessage", () => {
+  it.each(["image/png", "image"])("previews relative %s files while rejecting executable image URLs", (mediaType) => {
+    const message: UIMessage = {
+      id: "images",
+      role: "assistant",
+      parts: [
+        { filename: "retained.png", mediaType, type: "file", url: "/files/retained-image" },
+        { filename: "unsafe.png", mediaType, type: "file", url: "javascript:alert(1)" },
+      ],
+    };
+    const wrapper = mount(ChatMessage, {
+      global: { components: { UModal: defineComponent({ setup: (_, { slots }) => () => slots.default?.() }) } },
+      props: { message },
+    });
+
+    expect(wrapper.findAll("img").map(image => image.attributes("src"))).toEqual(["/files/retained-image"]);
+    expect(wrapper.get('[aria-label="Preview retained.png"]').attributes("type")).toBe("button");
+    expect(wrapper.text()).toContain("unsafe.png");
+  });
+
   it("puts the user at the end in a bubble and the assistant at the start without one", () => {
     const userMessage = mount(ChatMessage, { global, props: { message: user } });
     const assistantMessage = mount(ChatMessage, { global, props: { message: assistant } });
@@ -68,17 +87,17 @@ describe("ChatMessage", () => {
     };
     const wrapper = mount(ChatMessage, { global, props: { message } });
 
-    const traces = wrapper.findAll("[data-slot=trace]");
+    const traces = wrapper.findAll(".cht-trace");
     expect(traces).toHaveLength(1);
-    const lines = traces[0]!.findAll("[data-slot=trace-line]");
-    expect(lines.map((line) => line.get("[data-slot=trace-title]").text())).toEqual(["Thought", "run command", "lint", "pnpm docs"]);
-    expect(lines[2]!.get("[data-slot=trace-description]").text()).toBe("Failed");
-    expect(lines[2]!.attributes("data-status")).toBe("error");
+    const steps = traces[0]!.findAll(".cht-step");
+    expect(steps.map((step) => step.get(".cht-title").text())).toEqual(["Thought", "run command", "lint", "pnpm docs"]);
+    expect(steps[2]!.get(".cht-state").text()).toBe("Failed");
+    expect(steps[2]!.attributes("data-status")).toBe("error");
     expect(traces[0]!.get("a[href='https://pnpm.io']").attributes("rel")).toBe("noreferrer");
     expect(wrapper.text()).toContain("The lockfile is out of date.");
   });
 
-  it("shows a tool value that cannot be serialized without throwing", async () => {
+  it("shows a cyclic tool value without throwing", async () => {
     const cyclic: Record<string, unknown> = {};
     cyclic.self = cyclic;
     const message = {
@@ -88,10 +107,8 @@ describe("ChatMessage", () => {
     } as UIMessage;
     const wrapper = mount(ChatMessage, { attachTo: document.body, global, props: { message } });
 
-    const line = wrapper.get("[data-slot=trace-line]");
-    expect(line.attributes("data-status")).toBe("running");
-    await wrapper.get("[data-slot=trace-collapsible-trigger]").trigger("click");
-    expect(wrapper.get("[data-slot=code-block-content]").text()).toBe("[Value cannot be shown]");
+    expect(wrapper.get(".cht-step").attributes("data-status")).toBe("running");
+    expect(wrapper.get(".cht-value pre").text()).toBe('{\n  "self": "[Circular]"\n}');
     wrapper.unmount();
   });
 });

@@ -1,5 +1,5 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
@@ -60,9 +60,10 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
  */
 export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  const prefix = base.replace(/\/$/, "")
-  const pathname = prefix && url.pathname.startsWith(`${prefix}/`) ? url.pathname.slice(prefix.length) : url.pathname
-  if ([url.pathname, pathname].some(path => path.startsWith("/_vitehub") || path.startsWith("/api/"))) return false
+  base = viteHubPageToolsPath("", base)
+  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
+  const path = url.pathname.slice(base.length)
+  if (path.startsWith("/_vitehub") || path === "/api" || path.startsWith("/api/")) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`))
@@ -73,8 +74,8 @@ function wantsLoader(nitroApp: object, request: Request): boolean {
   return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, state().bases.get(nitroApp))
 }
 
-function loaderTag(nonce?: string): string {
-  return `<script type="module" src="${viteHubPageToolsLoader}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-page-tools></script>`
+function loaderTag(nonce?: string, base = ""): string {
+  return `<script type="module" src="${viteHubPageToolsPath(viteHubPageToolsLoader, base)}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-page-tools></script>`
 }
 
 const hintMaxAge = 60 * 60 * 24 * 30
@@ -152,12 +153,12 @@ export function scriptNonce(headers: Headers): string | undefined {
 /**
  * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. The page then
  * varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other responses return
- * unchanged.
+ * unchanged. `policyHeaders` supplies the effective CSP when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response): Response {
+export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers, base = ""): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = loaderTag(scriptNonce(response.headers))
+  const tag = loaderTag(scriptNonce(policyHeaders), base)
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -196,7 +197,7 @@ export function injectPageToolsLoader(response: Response): Response {
 interface Nitro2Event {
   web?: { request?: Request }
   node?: {
-    req?: { url?: string, headers?: Record<string, string> }
+    req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
     res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
@@ -204,7 +205,9 @@ interface Nitro2Event {
 /** The Web request of an H3 1 event. Only the path, query, and headers matter to the hint. */
 function nitro2Request(event: Nitro2Event): Request | undefined {
   const node = event.node?.req
-  return event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
+  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
+  const path = node?.originalUrl || node?.url
+  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
 }
 
 /**
@@ -229,7 +232,7 @@ export function installViteHubPageTools(nitroApp: unknown, base?: string): void 
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response) : response
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response, response.headers, state().bases.get(nitroApp)) : response
     })
     return
   }
@@ -244,13 +247,19 @@ export function installViteHubPageTools(nitroApp: unknown, base?: string): void 
     if (!request || !wantsLoader(nitroApp, request)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
-    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
+    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined, state().bases.get(nitroApp)))
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request && wantsLoader(nitroApp, request)) response.body = injectPageToolsLoader(response.body)
+    if (request && wantsLoader(nitroApp, request)) {
+      // H3 preserves Node response headers unless the returned Response replaces them.
+      const headers = new Headers(response.body.headers)
+      const policy = event.node?.res?.getHeader?.("content-security-policy")
+      if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+      response.body = injectPageToolsLoader(response.body, headers, state().bases.get(nitroApp))
+    }
   }])
 }
