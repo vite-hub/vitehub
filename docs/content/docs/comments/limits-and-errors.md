@@ -52,7 +52,7 @@ Build errors throw when Vite reads the config. When the build cannot choose the 
 
 The Comments runtime has no Database yet. ViteHub installs it from `server/comments.ts` when the server starts. Call the method from a server route or a Nitro plugin, not at import time. When the server log shows `Comments has no Database`, turn on a Database with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.
 
-With the `comments()` plugin, the server log shows `Comments has no database in this build` instead. A production build needs a file: set `comments({ database: 'file:./data/comments.sqlite' })`. See [Choose the Database](/docs/comments/configure#choose-the-database).
+The `comments()` plugin always has a database, so it does not return this code. When it finds no connection, the API answers `500`, and the server log shows [`DATABASE_NOT_CONNECTED`](/docs/database/limits-and-errors#database_not_connected) with what it looked for. See [Choose the Database](/docs/comments/configure#choose-the-database).
 
 ### COMMENTS_NOT_FOUND
 
