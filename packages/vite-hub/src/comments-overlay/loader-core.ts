@@ -184,6 +184,7 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
   const mayHaveSession = () => options.session === "always" || hasSessionMarker(environment.cookie())
   let control: OverlayControl | undefined
   let mountedSession: string | undefined
+  let mountedPath: string | undefined
   let latest = 0
   let stopped = false
 
@@ -191,6 +192,7 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
     control?.destroy()
     control = undefined
     mountedSession = undefined
+    mountedPath = undefined
   }
 
   async function check(): Promise<void> {
@@ -199,8 +201,8 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
       revoke()
       return
     }
-    // Hide private state while authorization is being refreshed.
-    control?.setActive(false)
+    // A new subject must wait for authorization; refreshing this page keeps its drafts and open thread mounted.
+    if (mountedPath !== environment.path()) control?.setActive(false)
     const session = await readSession(environment)
     if (stopped || ticket !== latest) return
     if (!session || !mayHaveSession()) {
@@ -209,6 +211,7 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
     }
     const identity = JSON.stringify(session)
     if (control && mountedSession === identity) {
+      mountedPath = environment.path()
       control.setActive(true)
       return
     }
@@ -226,6 +229,7 @@ export function runLoader(options: LoaderOptions, environment: LoaderEnvironment
         ...(environment.nonce ? { nonce: environment.nonce } : {}),
       })
       mountedSession = identity
+      mountedPath = environment.path()
     }
     catch (error) {
       globalThis.console.warn("[vitehub] The comments overlay did not load.", error)

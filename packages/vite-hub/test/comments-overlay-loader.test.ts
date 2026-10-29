@@ -58,9 +58,30 @@ describe("the comments loader", () => {
     const loader = runLoader(none, page.env)
     await loader.ready
     await page.go("/docs/intro")
+    expect(page.control.setActive).toHaveBeenCalledWith(false)
     const [, init] = page.fetchMock.mock.calls.at(-1) as unknown as [string, RequestInit]
     expect(JSON.parse(String(init.body)).input).toEqual({ subject: { id: "/docs/intro", kind: "page" } })
     loader.stop()
+  })
+
+  it("keeps the same page active during reauthorization and revokes it if access is lost", async () => {
+    const page = environment(readable)
+    const loader = runLoader(none, page.env)
+    await loader.ready
+    let finish!: (response: Response) => void
+    page.fetchMock.mockImplementation(() => new Promise<Response>((resolve) => { finish = resolve }))
+    try {
+      await page.go("/pricing")
+      expect(page.fetchMock).toHaveBeenCalledTimes(2)
+      expect(page.control.setActive).not.toHaveBeenCalledWith(false)
+      finish(readable())
+      await vi.waitFor(() => expect(page.control.setActive).toHaveBeenCalledWith(true))
+      expect(page.mount).toHaveBeenCalledOnce()
+      await page.go("/pricing")
+      finish(Response.json({ ok: true, value: { canRead: false } }))
+      await vi.waitFor(() => expect(page.control.destroy).toHaveBeenCalledOnce())
+    }
+    finally { loader.stop() }
   })
 
   it("downloads nothing more for a visitor who cannot read, is not signed in, or meets a server without comments", async () => {

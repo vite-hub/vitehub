@@ -53,6 +53,36 @@ async function mounted(session: OverlaySession = { canRead: true, canWrite: true
 }
 
 describe("the comments overlay", () => {
+  it.each(["pushState", "replaceState"] as const)("preserves an unsent draft on same-page %s", async (method) => {
+    const request = vi.fn(async (_url: string, init: RequestInit) => {
+      const { operation } = JSON.parse(String(init.body)) as { operation: string }
+      return Response.json({ ok: true, value: operation === "comments.session"
+        ? { canRead: true, canWrite: true, user: { id: "ana" } }
+        : [] })
+    })
+    vi.stubGlobal("fetch", request)
+    const loader = runLoader(readLoaderOptions(""), {
+      base: "/", cookie: () => "", fetch: globalThis.fetch,
+      load: async () => ({ mount }), overlayUrl: "/overlay.js",
+      path: () => appPathname(location.pathname, "/"), subscribe: trackNavigation,
+    })
+    try {
+      await loader.ready
+      const shadow = document.querySelector("[data-comments-overlay]")!.shadowRoot!
+      await vi.waitFor(() => expect(shadow.querySelector("[data-slot='comment-toolbar-page']")).not.toBeNull())
+      ;(shadow.querySelector("[data-slot='comment-toolbar-page']") as HTMLButtonElement).click()
+      await vi.waitFor(() => expect(shadow.querySelector("textarea")).not.toBeNull())
+      const field = shadow.querySelector("textarea")!
+      field.value = "Unsent feedback"
+      field.dispatchEvent(new Event("input", { bubbles: true }))
+      history[method](null, "", "/pricing/?filter=open")
+      await vi.waitFor(() => expect(request.mock.calls.filter(([, init]) => JSON.parse(String(init.body)).operation === "comments.session")).toHaveLength(2))
+      expect(shadow.querySelector("textarea")).toBe(field)
+      expect(field.value).toBe("Unsent feedback")
+    }
+    finally { loader.stop() }
+  })
+
   it("removes rendered private threads and stops refreshes after SPA sign-out", async () => {
     let signedIn = true
     const thread = {
