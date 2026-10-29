@@ -179,7 +179,7 @@ describe("Local only from a live room", () => {
     const client = {
       ...createConsoleDocumentsClient("", "content"),
       get: vi.fn(async () => structuredClone(shared)),
-      save: vi.fn(async () => {
+      save: vi.fn(async (_collection: string, _id: string, _input: { ifDigest?: string | null }): Promise<ConsoleDocument> => {
         throw new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: {} })
       }),
     }
