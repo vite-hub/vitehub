@@ -587,6 +587,23 @@ function takeState(document: ConsoleDocument): void {
   schedule.value = document.schedule;
 }
 
+/**
+ * Reads the shared draft again under local-only edits, such as after someone saved or deleted it. Unlike `load()`, it
+ * keeps the editor mounted, so the keystrokes that the body editor has not written yet stay.
+ */
+async function refreshShared(): Promise<void> {
+  if (creating.value || props.documentId === undefined) return;
+  try {
+    const document = await props.client.get(props.collection.name, props.documentId);
+    if (!local.value) return;
+    if (document) takeState(document);
+    else base.value = null;
+  }
+  catch {
+    // The next presence answer tries again.
+  }
+}
+
 /** Reads the stored version again after a room save, so Publish names the digest the room saved. */
 async function refreshState(): Promise<void> {
   if (creating.value) return;
@@ -753,7 +770,7 @@ function onRemoteDigest(digest: string | null): void {
   if (liveActive.value) return;
   // Local-only edits stay on screen. The stored version updates, so Apply knows the shared draft moved or is gone.
   if (local.value) {
-    if (!loading.value && (base.value?.digest ?? null) !== digest) void load();
+    if (!loading.value && (base.value?.digest ?? null) !== digest) void refreshShared();
     return;
   }
   if (creating.value || loading.value || saving.value || publishing.value || restoring.value || dirty.value) return;

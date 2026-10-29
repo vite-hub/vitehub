@@ -17,8 +17,11 @@ vi.mock("vue-router", () => ({
   useRoute: () => ({ query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
+/** How often the body editor mounted. A remount drops keystrokes that it has not written to the model yet. */
+const editorMounts = vi.hoisted(() => ({ count: 0 }))
 vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({
   default: { name: "ConsoleMarkdownEditor", props: ["modelValue"], emits: ["update:modelValue"], setup: (_props: unknown, { expose }: { expose: (exposed: object) => void }) => {
+    editorMounts.count++
     expose({ commit: async () => undefined })
     return () => null
   } },
@@ -210,6 +213,20 @@ describe("Apply from Local only after the lease holder leaves", () => {
     // Local only reports as a viewer again, so the lease is free for others.
     expect(state.kinds.at(-1)).toBe("view")
     expect(state.holder).toBeNull()
+  })
+
+  it("reads a moved shared draft without mounting the body editor again", async () => {
+    const { state, client, wrapper } = await readOnlyThenLocal()
+    const mounts = editorMounts.count
+    const reads = client.get.mock.calls.length
+    state.move("Saved by Ben")
+    // A presence answer names the new shared digest. SAFETY: happy-dom provides `document`; this tsconfig has no DOM library.
+    ;(globalThis as unknown as { document: EventTarget }).document.dispatchEvent(new Event("visibilitychange"))
+    await flushPromises()
+    expect(client.get.mock.calls.length).toBeGreaterThan(reads)
+    expect(wrapper.text()).toContain("Someone saved the shared draft after your local edits started")
+    expect(editorMounts.count).toBe(mounts)
+    expect(stored()).toEqual({ body: "PRIVATE body", data: privateEdit })
   })
 
   it("keeps the private edits through a reload, then applies them", async () => {
