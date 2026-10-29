@@ -57,6 +57,26 @@ const failing = defineOperation({
   section: "reports",
 })
 
+const digest = defineOperation({
+  cli: { default: true },
+  description: "Read the digest.",
+  input: v.strictObject({ window: v.optional(v.string()) }),
+  kind: "read",
+  name: "digest.get",
+  run: ({ window }) => ({ window: window ?? "day" }),
+  section: "digest",
+})
+
+const trigger = defineOperation({
+  cli: { dispatch: "/_vitehub/triggers/run", positional: ["name"] },
+  description: "Run a trigger now.",
+  input: v.strictObject({ name: v.string() }),
+  kind: "write",
+  name: "triggers.run",
+  run: ({ name }) => ({ run: { id: "r1", name } }),
+  section: "triggers",
+})
+
 const cleanup: string[] = []
 
 afterEach(async () => {
@@ -68,7 +88,7 @@ function stream() {
   return { output: () => value, write: (chunk: string | Uint8Array) => { value += String(chunk); return true } }
 }
 
-const operationList = [list, remove, failing, rich]
+const operationList = [list, remove, failing, rich, digest]
 
 // A dev server that runs the operations of the fixture plugin.
 function server(origin = "http://localhost:5173", headers: Record<string, string> = {}, operations: readonly AnyOperation[] = operationList) {
@@ -100,6 +120,29 @@ async function project() {
 }
 
 describe("generated operation commands", () => {
+  it.each(["", "hello", "hello\n", "héllo 🌍\r\nworld"])("writes formatted file content verbatim: %j", async (content) => {
+    const show = defineOperation({
+      cli: { format: (output: { content: string }) => output.content, namespace: "workspace" },
+      description: "Read a file for redirection.",
+      input: v.strictObject({}),
+      kind: "read",
+      name: "workspace.show",
+      run: () => ({ content }),
+      section: "workspaces",
+    })
+    const options = { fetch: server("http://localhost:5173", {}, [show]), operations: [show] }
+
+    const result = await run(["workspace", "show"], options)
+    expect(result.code).toBe(0)
+    expect(result.stdout).toBe(content)
+    expect(result.stderr).toBe("")
+
+    const json = await run(["workspace", "show", "--json"], options)
+    expect(json.code).toBe(0)
+    expect(JSON.parse(json.stdout)).toEqual({ content })
+    expect(json.stdout.endsWith("\n")).toBe(true)
+  })
+
   it("turns a contributed operation into a command with a positional and typed flags", async () => {
     const result = await run(["reports", "list", "acme", "--limit", "5", "--tags", "a,b", "--tags", "c"])
     expect(result.code).toBe(0)
@@ -112,6 +155,18 @@ describe("generated operation commands", () => {
     const help = await run(["reports", "list", "--help"])
     expect(help.stdout).toContain("Usage: vitehub reports list <team> [--dry-run] [--limit <value>] [--tags <value>] [--input <json|@file>] [--json] [--url <origin>]")
     expect(help.stdout).toContain("List the reports of a team.")
+    expect(help.fetch).not.toHaveBeenCalled()
+  })
+
+  it("runs the default command of a namespace when none is named", async () => {
+    const bare = await run(["digest"])
+    expect(bare.code).toBe(0)
+    expect(JSON.parse(bare.stdout)).toEqual({ window: "day" })
+    const flagged = await run(["digest", "--window", "week", "--json"])
+    expect(JSON.parse(flagged.stdout)).toEqual({ window: "week" })
+    expect((await run(["digest", "get", "--window", "week"])).code).toBe(0)
+    const help = await run(["digest", "--help"])
+    expect(help.stdout).toContain("get")
     expect(help.fetch).not.toHaveBeenCalled()
   })
 
@@ -211,6 +266,205 @@ describe("generated operation commands", () => {
     expect(JSON.parse(stdout.output())).toEqual({ deployed: true })
   })
 
+  describe("deployed RPC targets", () => {
+    const env = {
+      VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
+      CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+    }
+
+    it.each([
+      "http://app.example.com", "http://localhost.example.com", "ftp://localhost", "not a url",
+      "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
+    ])("rejects unsafe URL %s before sending credentials for reads and writes", async (url) => {
+      for (const args of [["reports", "list", "acme"], ["reports", "delete", "r1", "--yes", "--json"]]) {
+        const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+        const result = await run([...args, "--url", url], { env, fetch })
+        expect(fetch).not.toHaveBeenCalled()
+        expect(result.code).toBe(1)
+        expect(result.stderr + result.stdout).toContain("CLI_R0003")
+        expect(result.stderr + result.stdout).not.toMatch(/private|access-secret|password/)
+      }
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("sends credentials to safe RPC URL %s", async (url) => {
+      const fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("authorization")).toBe(env.VITEHUB_CONSOLE_AUTHORIZATION)
+        expect(headers.get("cookie")).toBe(env.VITEHUB_CONSOLE_COOKIE)
+        expect(headers.get("cf-access-client-id")).toBe(env.CF_ACCESS_CLIENT_ID)
+        expect(headers.get("cf-access-client-secret")).toBe(env.CF_ACCESS_CLIENT_SECRET)
+        expect(headers.has(operationExpectedRootsHeader)).toBe(false)
+        return Response.json({ ok: true, value: { deployed: true } })
+      })
+      const result = await run(["reports", "list", "acme", "--url", url], { env, fetch })
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+      expect(JSON.parse(result.stdout)).toEqual({ deployed: true })
+    })
+  })
+
+  describe("signed dispatch", () => {
+    const key = "ab".repeat(32)
+
+    async function runTrigger(env: NodeJS.ProcessEnv, fetch: ReturnType<typeof vi.fn>, url = "https://app.example.com", args: string[] = []) {
+      const stdout = stream()
+      const stderr = stream()
+      const plugin = { name: "fixture", vitehub: { operations: [{ export: "ops", load: async () => [trigger], module: "fixture/operations" }] } }
+      const code = await runViteHubCli({ args: ["triggers", "run", "nightly", "--url", url, "--yes", ...args], cwd: "/app", env, fetch: fetch as unknown as typeof globalThis.fetch, loadConfig: async () => ({ plugins: [plugin], root: "/app" }), loadNuxtViteConfig: async () => undefined, stderr, stdout })
+      return { code, stderr: stderr.output(), stdout: stdout.output() }
+    }
+
+    it("signs the input with VITEHUB_DISPATCH_KEY and posts it to the dispatch route", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://app.example.com/_vitehub/triggers/run")
+        const headers = new Headers(init?.headers)
+        expect(headers.get("x-vitehub-dispatch-signature")).toMatch(/^v1=[0-9a-f]{64}$/)
+        expect(headers.get("x-vitehub-dispatch-timestamp")).toBeTruthy()
+        expect(headers.get("x-vitehub-dispatch-nonce")).toBeTruthy()
+        expect(headers.get("authorization")).toBeNull()
+        expect(JSON.parse(String(init?.body))).toEqual({ name: "nightly" })
+        return Response.json({ run: { id: "r1", name: "nightly" } })
+      })
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+      expect(result.code).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r1", name: "nightly" } })
+      expect(fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it("forwards Access service tokens without Console session credentials", async () => {
+      const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("cf-access-client-id")).toBe("access-id")
+        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
+        expect(headers.get("authorization")).toBeNull()
+        expect(headers.get("cookie")).toBeNull()
+        return Response.json({ run: { id: "r1" } })
+      })
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key, CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret", VITEHUB_CONSOLE_AUTHORIZATION: "Bearer console-token", VITEHUB_CONSOLE_COOKIE: "session=console-cookie" }, fetch)
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledOnce()
+    })
+
+    it.each([
+      ["http://app.example.com", "must use HTTPS"],
+      ["http://localhost.example.com", "must use HTTPS"],
+      ["ftp://localhost", "must use HTTPS"],
+      ["not a url", "must be a URL"],
+      ["https://user:password@app.example.com", "must not contain credentials"],
+      ["https://app.example.com?token=private", "must not contain credentials"],
+      ["https://app.example.com#fragment", "must not contain credentials"],
+    ])("rejects unsafe dispatch URL %s without fetching", async (url, message) => {
+      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain(`CLI_R0003: --url ${message}`)
+      expect(fetch).not.toHaveBeenCalled()
+    })
+
+    it.each([
+      "http://app.example.com", "http://localhost.example.com", "ftp://localhost", "not a url",
+      "https://user:password@app.example.com", "https://app.example.com?token=private", "https://app.example.com#fragment",
+    ])("rejects unsafe RPC fallback URL %s before sending credentials", async (url) => {
+      const fetch = vi.fn(async () => Response.json({ ok: true, value: {} }))
+      const result = await runTrigger({
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer private-token", VITEHUB_CONSOLE_COOKIE: "session=private-cookie",
+        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+      }, fetch, url)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("CLI_R0003: --url")
+      expect(fetch).not.toHaveBeenCalled()
+      expect(result.stderr).not.toMatch(/private|access-secret|password/)
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts safe RPC fallback URL %s", async (url) => {
+      const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        const headers = new Headers(init?.headers)
+        expect(headers.get("authorization")).toBe("Bearer token")
+        expect(headers.get("cookie")).toBe("session=example")
+        expect(headers.get("cf-access-client-id")).toBe("access-id")
+        expect(headers.get("cf-access-client-secret")).toBe("access-secret")
+        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+      })
+      const result = await runTrigger({
+        VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token", VITEHUB_CONSOLE_COOKIE: "session=example",
+        CF_ACCESS_CLIENT_ID: "access-id", CF_ACCESS_CLIENT_SECRET: "access-secret",
+      }, fetch, url)
+      expect(result.code).toBe(0)
+      expect(fetch).toHaveBeenCalledExactlyOnceWith(`${url}/_vitehub/rpc/__call`, expect.any(Object))
+    })
+
+    it.each(["http://localhost:5173", "http://127.0.0.1:5173", "http://[::1]:5173", "https://app.example.com/base"])("accepts dispatch URL %s", async (url) => {
+      const fetch = vi.fn(async () => Response.json({ run: { id: "r1" } }))
+      expect((await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, url)).code).toBe(0)
+      expect(fetch.mock.calls[0]).toEqual([`${url}/_vitehub/triggers/run`, expect.any(Object)])
+    })
+
+    it.each([[], ["--json"]])("redacts signed results and failures with flags %j", async (...args) => {
+      const message = "Request failed: Bearer fake-token at https://user:fake-password@example.com"
+      const outputs = [
+        vi.fn(async () => Response.json({ run: { id: "r1", error: { name: "token=fake-name", message } }, items: Array.from({ length: 120 }, (_, i) => i), text: "x".repeat(11_000) })),
+        vi.fn(async () => Response.json({ message }, { status: 500 })),
+        vi.fn(async () => { throw new Error(message) }),
+      ]
+      for (const [index, fetch] of outputs.entries()) {
+        const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, undefined, args)
+        const output = result.stdout + result.stderr
+        expect(output).toContain("[redacted]")
+        expect(output).not.toContain("fake-token")
+        expect(output).not.toContain("fake-password")
+        expect(output).not.toContain("fake-name")
+        expect(result.code).toBe(index === 0 ? 0 : 1)
+        if (index === 0) {
+          const value = JSON.parse(result.stdout)
+          expect(value.items).toHaveLength(120)
+          expect(value.text).toHaveLength(11_000)
+        }
+      }
+    })
+
+    it.each([[], ["--json"]])("redacts nested secret-named fields without truncating signed results with flags %j", async (...args) => {
+      const fetch = vi.fn(async () => Response.json({
+        run: { details: { token: "opaque-token", password: "opaque-password", authorization: "opaque-authorization", cookie: "opaque-cookie", apiKey: { value: "opaque-key" } } },
+        items: Array.from({ length: 120 }, (_, i) => ({ id: i, credential: "opaque-credential" })),
+        text: "x".repeat(11_000),
+      }))
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch, undefined, args)
+      expect(result.code).toBe(0)
+      const value = JSON.parse(result.stdout)
+      expect(value.run.details).toEqual({ token: "[redacted]", password: "[redacted]", authorization: "[redacted]", cookie: "[redacted]", apiKey: "[redacted]" })
+      expect(value.items).toEqual(Array.from({ length: 120 }, (_, i) => ({ id: i, credential: "[redacted]" })))
+      expect(value.text).toBe("x".repeat(11_000))
+      expect(result.stdout).not.toContain("opaque-")
+    })
+
+    it("uses the RPC with Console credentials when no key is set", async () => {
+      const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+        expect(String(url)).toBe("https://app.example.com/_vitehub/rpc/__call")
+        expect(new Headers(init?.headers).get("authorization")).toBe("Bearer token")
+        return Response.json({ ok: true, value: { run: { id: "r2" } } })
+      })
+      const result = await runTrigger({ VITEHUB_CONSOLE_AUTHORIZATION: "Bearer token" }, fetch)
+      expect(result.code).toBe(0)
+      expect(JSON.parse(result.stdout)).toEqual({ run: { id: "r2" } })
+    })
+
+    it("names the key when the app refuses the signature", async () => {
+      const fetch = vi.fn(async () => Response.json({ message: "The dispatch signature does not match." }, { status: 401 }))
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: key }, fetch)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("CLI_R0006: The signed request failed with HTTP 401: The dispatch signature does not match.")
+      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY")
+    })
+
+    it("rejects a malformed key before it calls the app", async () => {
+      const fetch = vi.fn()
+      const result = await runTrigger({ VITEHUB_DISPATCH_KEY: "nope" }, fetch)
+      expect(result.code).toBe(1)
+      expect(result.stderr).toContain("VITEHUB_DISPATCH_KEY must be the 64-character hex key")
+      expect(fetch).not.toHaveBeenCalled()
+    })
+  })
+
   it("fails with a coded error when no dev server is known, and never guesses a port", async () => {
     const result = await run(["reports", "list", "acme"], { env: {} })
     expect(result.code).toBe(1)
@@ -289,6 +543,6 @@ describe("generated operation commands", () => {
   it("lists the operations as a Definition kind", async () => {
     const result = await run(["inspect", "definitions", "--kind", "operation", "--json"])
     expect(result.code).toBe(0)
-    expect(JSON.parse(result.stdout).definitions[0].definitions.map((definition: { name: string }) => definition.name)).toEqual(["reports.delete", "reports.fail", "reports.list", "reports.rich"])
+    expect(JSON.parse(result.stdout).definitions[0].definitions.map((definition: { name: string }) => definition.name)).toEqual(["digest.get", "reports.delete", "reports.fail", "reports.list", "reports.rich"])
   })
 })

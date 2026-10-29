@@ -132,6 +132,8 @@ describe("Console access on an H3 1 event (Nuxt 4)", () => {
       installConsoleAccess({ mode: "open" })
       const response = await (scheduleRun as unknown as (event: object) => Promise<Response>)(new H3V1Event("/_vitehub/schedules/run", { body: "{}", headers: { "content-type": "application/json" }, method: "POST" }))
       expect(response).toBeInstanceOf(Response)
+      expect(response.status).toBe(401)
+      await expect(response.json()).resolves.toMatchObject({ message: expect.stringContaining("signed dispatches only") })
     })
   })
 })
