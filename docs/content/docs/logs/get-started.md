@@ -41,7 +41,7 @@ export default defineHandler((event) => {
 
 Start your dev server, request `/api/status`, then open `/_vitehub/logs`. Select a row to inspect its structured data. Switch between Explorer and Stream. Follow polls for new events.
 
-Use the official `evlog/nitro` adapter for Nuxt with Nitro 2. In Nuxt, pass `logs: true` to the `vite-hub/nuxt` module options.
+Local `logs: true` capture currently supports Nitro 3. For Nuxt with Nitro 2, register Evlog through its official `evlog/nuxt` module and connect an [existing backend source](/docs/logs/configure#read-an-existing-backend) through `logs: { source: './server/logs.ts' }` in the `vite-hub/nuxt` module options. Source mode leaves logger registration to the application.
 
 The repository's `playground/logs` includes a checkout request, redaction, and a serialized Nostics diagnostic. Follow its README to run the example.
 
