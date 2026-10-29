@@ -3,7 +3,7 @@ import "@vite-hub/ui/styles.css";
 
 import ui from "@nuxt/ui/vue-plugin";
 import { createViteHubUI } from "@vite-hub/ui";
-import { createApp, defineAsyncComponent } from "vue";
+import { createApp } from "vue";
 import { createRouter, createWebHistory } from "vue-router";
 
 const ConsoleApp = () => import("../components/console-app.vue");
@@ -212,7 +212,7 @@ const router = createRouter({
 const loadSections = createConsoleSectionLoader(sectionsBase);
 
 // The document editor loads Tiptap and the Comark kit, so it is a separate chunk.
-const ConsoleDocuments = defineAsyncComponent(() => import("../components/console-documents.vue"));
+const ConsoleDocuments = () => import("../components/console-documents.vue");
 
 /** Adds one route for each installed section that an owner package contributes. */
 function addContributedRoutes(navigation) {
