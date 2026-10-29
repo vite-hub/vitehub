@@ -1,3 +1,5 @@
+export { chatgpt } from "./chatgpt.ts"
+export type { ChatGPTGateway } from "./chatgpt.ts"
 export { ask } from "./ask.ts"
 export type {
   AskAnswer,

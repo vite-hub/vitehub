@@ -1387,6 +1387,9 @@ importers:
       '@vite-hub/runtime':
         specifier: workspace:*
         version: link:../runtime
+      jose:
+        specifier: catalog:auth
+        version: 6.2.12
       nostics:
         specifier: catalog:runtime
         version: 1.3.0

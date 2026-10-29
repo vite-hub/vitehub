@@ -6,6 +6,30 @@ const docs = "https://vitehub.dev/docs/connections/limits-and-errors"
 
 // Keep published codes stable. Each code has a heading on the docs page.
 const codes = {
+  CONNECTIONS_CHATGPT_TRANSFER: {
+    why: "The ChatGPT credential file is invalid, or the destination already has another active grant.",
+    fix: "Export a fresh credential file from the source and import it into a disconnected ChatGPT Connection for the same account. Keep the file private.",
+  },
+  CONNECTIONS_CHATGPT_CLIENT: {
+    why: "ChatGPT plan grants can be used only through the ChatGPT Agent gateway.",
+    fix: "Set driver.gateway to chatgpt({ connection }) from vite-hub/gateways. Do not call useConnection().fetch() for this grant.",
+  },
+  CONNECTIONS_CHATGPT_IDENTITY: {
+    why: "The ChatGPT ID token did not pass identity validation. The new credentials were not accepted.",
+    fix: "Start a fresh sign-in with `vitehub connections connect <name>`.",
+  },
+  CONNECTIONS_CHATGPT_REGISTRATION: {
+    why: "The ChatGPT callback did not match the pending client registration.",
+    fix: "Start a fresh sign-in. Keep the issued client ID with its original ChatGPT account.",
+  },
+  CONNECTIONS_CHATGPT_LOOPBACK: {
+    why: "ChatGPT plan usage requires an HTTP callback on 127.0.0.1. Website redirects grant identity only.",
+    fix: "Run `vitehub connections connect <name>` on the computer with your browser. Transfer the credentials to a VM after local sign-in.",
+  },
+  CONNECTIONS_CHATGPT_PERMISSION: {
+    why: "The ChatGPT grant does not include permission to use the plan.",
+    fix: "Run `vitehub connections connect <name>` and allow ChatGPT plan usage. ViteHub does not switch to an API key.",
+  },
   // Runtime errors. Connection client calls return them as `[error, undefined]`.
   CONNECTIONS_APPROVAL_REQUIRED: {
     why: ({ action, approval, connection }: { action: string, approval: string, connection: string }): string => `Approval is required for ${action} on Connection "${connection}". Request: ${approval}.`,
@@ -116,7 +140,8 @@ const codes = {
     fix: "Use the file name of the Connection Definition, for example `useConnection('github')`.",
   },
   CONNECTIONS_INVALID_PROVIDER: {
-    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "fallback-key" | "oauth-login" }): string => {
+    why: ({ connection, origin, problem }: { connection?: string, origin?: string, problem?: "chatgpt" | "fallback-key" | "oauth-login" }): string => {
+      if (problem === "chatgpt") return "chatgpt() requires a non-empty appName and appVersion without control characters."
       if (problem === "fallback-key") return `The fallback key of Connection "${connection}" must contain 1 to 8192 visible ASCII characters.`
       if (problem === "oauth-login") return "The OAuth login provider needs `login`, an `mcp` or `issuer` HTTPS or loopback URL, an HTTPS or loopback `redirectUri`, and origins without a path."
       if (origin) return `The API key provider origin ${origin} contains a wildcard. ViteHub sends the key only to exact origins.`
