@@ -10,6 +10,7 @@ import {
   comarkJsonSchema,
   compileSingletonPath,
   contentDocumentUrl,
+  contentUrlNeedsOnlyId,
   compileDocumentsPath,
   contentInvalid,
   contentInvalidDocuments,
@@ -546,9 +547,11 @@ export interface ContentCollectionsRuntime extends Omit<ContentSchedulesRuntime,
   collection(name: string): AnyContentCollection
   publish(options?: ContentPublishOptions): Promise<ContentPublishResult>
   /**
-   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps an id to a
-   * path with its `route` (by default the id after a slash, without a trailing `/index`). A query string, a hash, and a
-   * trailing slash are ignored. When two collections give one path, the first collection defined wins.
+   * The document that an app path shows, such as `/blog/hello`, or null. Each `documents()` collection maps a document
+   * to a path with its `url`; a document whose `url` is null does not resolve. A collection without `url` maps the id
+   * after a slash, without a trailing `/index`. A pattern of `:id` alone reads no documents; a function or a pattern
+   * with fields reads them once per revision. A query string, a hash, and a trailing slash are ignored. When two
+   * collections give one path, the first collection defined wins.
    */
   resolve(path: string, options?: ContentResolveOptions): Promise<ContentResolved | null>
   supportsScheduling(): Promise<boolean>
@@ -1244,13 +1247,17 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       return document
     }
 
+    /** A draft lists work in progress with its issues. `published` and malformed files list only what validates. */
+    function listable(opened: OpenedRevision, parsed: ParsedText): parsed is ParsedText & { data: Record<string, unknown> } {
+      return !parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")
+    }
+
     async function index(opened: OpenedRevision): Promise<IndexedDocument[]> {
       return await memoize(indexes, opened.revision.id, async () => {
         const updated = await updatedAtMap(opened)
         const documents = await mapLimit([...entries(opened.files)], 8, async ([id, entry]) => {
           const parsed = await parseEntry(opened, entry)
-          // A draft lists work in progress with its issues. `published` and malformed files list only what validates.
-          if (!parsed.malformed && (!parsed.issues || opened.revision.ref !== "published")) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
+          if (listable(opened, parsed)) return documentOf(id, entry, parsed, opened.revision, updated.get(entry.path) ?? null)
           // Listing skips a document that cannot be read as fields; get() reports why.
           console.warn(contentInvalid(name, id, entry.path, parsed.issues).message)
           return undefined
@@ -1588,8 +1595,39 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
       collection = { ...shared, kind: "documents", path: definition.path, paths: definition.paths, components, ...(singularLabel ? { singularLabel } : {}), get, raw, save, remove, restore, status }
     }
 
-    const route = definition.kind === "documents" ? definition.route ?? defaultRoute : undefined
-    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, route, sessionCollection }
+    let warnedUrl = false
+
+    /**
+     * The app path and id of each document on one revision, for `resolve()`. Without `url`, or with a pattern of `:id`
+     * alone, the ids are enough; any other `url` reads the documents that `list()` reads.
+     */
+    async function routes(opened: OpenedRevision): Promise<Array<[path: string, id: string]>> {
+      const url = definition.url
+      const found = [...entries(opened.files)]
+      const documents = url === undefined || contentUrlNeedsOnlyId(url)
+        ? found.map(([id]) => ({ id, data: {} }))
+        : (await mapLimit(found, 8, async ([id, entry]) => {
+            const parsed = await parseEntry(opened, entry)
+            return listable(opened, parsed) ? { id, data: parsed.data } : undefined
+          })).filter(document => document !== undefined)
+      const result: Array<[path: string, id: string]> = []
+      for (const document of documents) {
+        try {
+          const path = url === undefined ? defaultRoute(document.id) : contentDocumentUrl(url, document)
+          if (path !== null) result.push([path, document.id])
+        }
+        catch (error) {
+          // One document with a failing url does not hide the others.
+          if (!warnedUrl) {
+            warnedUrl = true
+            console.warn(`[vitehub] The url of Content collection ${JSON.stringify(name)} failed for document ${JSON.stringify(document.id)}. resolve() skips documents whose url fails: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        }
+      }
+      return result
+    }
+
+    return { name, single, compiled, comarkSchema, collection, entries, idFor, parseEntry, parseText, pathFor, routes: single ? undefined : routes, sessionCollection }
   }
 
   for (const [name, definition] of Object.entries(options.collections)) {
@@ -1880,7 +1918,6 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
 
   /** The routes of one ref head: app path to document, the first collection winning. Built once per head. */
   const routeIndexes = new BoundedCache<Promise<ReadonlyMap<string, ContentResolved>>>(8)
-  const warnedRoutes = new Set<string>()
 
   async function resolve(path: string, resolveOptions: ContentResolveOptions = {}): Promise<ContentResolved | null> {
     if (String(path) !== path) throw contentErrorDiagnostics.CONTENT_R0008({ message: "[vitehub] Content resolve() requires an app path such as \"/blog/hello\"." })
@@ -1891,24 +1928,8 @@ export function createContentCollections(options: ContentCollectionsOptions): Co
     const index = await memoize(routeIndexes, opened.revision.id, async () => {
       const routes = new Map<string, ContentResolved>()
       for (const collection of collections.values()) {
-        if (!collection.route) continue
-        for (const [id, entry] of collection.entries(opened.files)) {
-          const parsed = await collection.parseEntry(opened, entry)
-          // Match get() and list(): drafts may have field issues, but malformed files are never readable.
-          if (parsed.malformed || (parsed.issues && opened.revision.ref === "published")) continue
-          let route: unknown
-          try {
-            route = collection.route(id)
-          }
-          catch (error) {
-            // One document with a failing route does not hide the others.
-            if (!warnedRoutes.has(collection.name)) {
-              warnedRoutes.add(collection.name)
-              console.warn(`[vitehub] The route of Content collection ${JSON.stringify(collection.name)} threw for document ${JSON.stringify(id)}. resolve() skips documents whose route throws: ${error instanceof Error ? error.message : String(error)}`)
-            }
-            continue
-          }
-          if (String(route) !== route) continue
+        if (!collection.routes) continue
+        for (const [route, id] of await collection.routes(opened)) {
           const key = normalizeRoute(route)
           if (!routes.has(key)) routes.set(key, { collection: collection.name, id })
         }
