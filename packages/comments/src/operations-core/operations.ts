@@ -1,4 +1,4 @@
-import { defineOperation } from "@vite-hub/internal/operations"
+import { defineOperation, operationAccessAllows } from "@vite-hub/internal/operations"
 import * as v from "valibot"
 
 import { builtinCommentSubjects } from "./define.ts"
@@ -392,5 +392,23 @@ const users = defineOperation({
   section: "comments",
 })
 
+const session = defineOperation({
+  description: "Tell the comments overlay who is signed in and what that person may do. Nothing else leaves the server.",
+  input: v.strictObject({ subject: v.optional(subject) }),
+  kind: "read",
+  name: "comments.session",
+  run: async (input, context): Promise<{ canRead: boolean, canWrite: boolean, user: CommentUser | null }> => {
+    const who = await caller(context)
+    // A visitor who is not signed in gets no answer from the policy: the overlay asks on every page view, so the policy
+    // does not run for each anonymous one, and nothing about the app leaks.
+    if (!who.user) return { canRead: false, canWrite: false, user: null }
+    // Without a policy nobody may do anything, and a policy that cannot answer without a thread says no.
+    const can = (action: CommentAction) => who.runtime.definition.authorize ? permitted(who, action, { subject: input.subject }).catch(() => false) : Promise.resolve(false)
+    const [canRead, canWrite] = await Promise.all([can("read"), can("write")])
+    return { canRead, canWrite: canRead && canWrite && operationAccessAllows(context.access, "comments", { kind: "write" }), user: personOf(who.user) }
+  },
+  section: "comments",
+})
+
 /** The comment operations. The Console, the CLI, MCP, and the comments client call them. */
-export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users]
+export const commentsOperations: readonly AnyOperation[] = [list, get, create, reply, edit, remove, statusOperation("comments.resolve", "resolved", "Mark a comment thread as resolved."), statusOperation("comments.reopen", "open", "Open a resolved comment thread again."), users, session]

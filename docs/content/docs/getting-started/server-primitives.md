@@ -34,6 +34,7 @@ You can add Agents later if your product needs them.
 | Collaborative Markdown editing, presence, and Workspace checkpoints | [Realtime](/docs/realtime) |
 | Read-only retrieval from files, globs, GitHub, markdown, MCP, or custom loaders | [Source](/docs/source) |
 | Parse, query, search, and serve content from Sources | [Content](/docs/content) |
+| Record structured events with Evlog and inspect an existing log backend | [Logs](/docs/logs) |
 | Background delivery that returns before work finishes | [Queue](/docs/queue) |
 | Durable long-running work with provider-tracked run state | [Workflows](/docs/workflows) |
 | Static cron output | [Schedule](/docs/schedule) |
