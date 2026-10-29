@@ -52,13 +52,15 @@ function readString(value: unknown, key: string): string | undefined {
 
 /**
  * The app base of a Vite configuration. ViteHub's application-base config field or `__VITEHUB_APP_BASE_URL__` constant
- * takes precedence over the Vite `base`; the Nuxt module sets both from `app.baseURL`. The Nitro base is `nitro.baseURL`, else
- * `NITRO_APP_BASE_URL`.
+ * takes precedence over the Vite `base`; the Nuxt module sets both from `app.baseURL`. Only a root-relative Vite `base`
+ * supplies an application path; absolute and protocol-relative URLs are asset CDN bases. The Nitro base is
+ * `nitro.baseURL`, else `NITRO_APP_BASE_URL`.
  */
 export function viteHubPageToolsBase(config: unknown, env: Record<string, string | undefined> = process.env): ViteHubPageToolsBase {
   const define: unknown = config !== null && typeof config === "object" ? Reflect.get(config, "define") : undefined
   const defined = readString(define, "__VITEHUB_APP_BASE_URL__")
-  let appBase = readString(config, "base")
+  const viteBase = readString(config, "base")
+  let appBase = viteBase?.startsWith("/") && !viteBase.startsWith("//") ? viteBase : undefined
   if (defined) {
     try {
       const value: unknown = JSON.parse(defined)

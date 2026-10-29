@@ -311,7 +311,11 @@ describe("independent Console Auth", () => {
     }
   })
 
-  it("generates session auth routes from the final Vite base", async () => {
+  it.each([
+    { base: "/portal/", mount: "/portal" },
+    { base: "https://cdn.example/assets/", mount: "" },
+    { base: "https://cdn.example/assets/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
+  ])("generates session auth routes from the final application base: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-auth-final-base-"))
     try {
       const server = resolve(root, "console-auth.ts")
@@ -322,11 +326,11 @@ describe("independent Console Auth", () => {
         base: "/early/",
         plugins: [
           consoleVitePlugin({ console: { auth: { server } }, preset: "node" }),
-          { name: "change-console-base", config: () => ({ base: "/portal/" }) },
+          { name: "change-console-base", config: () => bases },
         ],
       }, "build", "production")
       const middleware = await readFile(resolve(root, ".vitehub/nitro/console/auth-middleware.mjs"), "utf8")
-      expect(middleware).toContain('const mountBase = "/portal"')
+      expect(middleware).toContain(`const mountBase = ${JSON.stringify(mount)}`)
       expect(middleware).not.toContain("/early/")
     }
     finally {

@@ -142,7 +142,7 @@ describe("the Console Nitro configuration", () => {
 
   it.each([
     ["/portal/", "/portal"],
-    ["https://site.test/portal/", "/portal"],
+    ["https://site.test/portal/", ""],
     ["./", ""],
   ])("serves the page tools and Console below Vite base %s", async (base, path) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
