@@ -10,7 +10,7 @@ The ViteHub Console inspects the primitives enabled in the same ViteHub configur
 
 ViteHub renders the Console UI and serves its static assets. The Console sends each call as one same-origin `POST` to `/_vitehub/rpc/__call` with `{ operation, input }`. An [operation](/docs/development/operations) is a named ability such as `invocations.list` or `content.publish`. The CLI calls the same route, so the same interface works on development servers and production hosts without separate resource routes.
 
-The Console sections are Auth, Env, Connections, Agents, Channels, Usage, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when `server/comments.ts` exists. It lists the threads that the team left on the app's pages, and opening the Console turns on the Comments toolbar on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
+The Console sections are Auth, Env, Connections, Agents, Channels, Usage, MCP client, Logs, Content, Comments, Blob, Databases, Email, KV, Rate Limits, Sandbox Tasks, Workspaces, Workflows, Queues, and Schedules. The home shows only configured primitives in a grid and places the last opened primitive first, with that preference stored in the browser. Opening a section replaces the sidebar items with that section's navigation, and **All sections** returns to the Console home. **Search console**, <kbd>⌘</kbd> <kbd>K</kbd>, or <kbd>/</kbd> opens a command palette with the sections and their pages, Content documents, Agents, and retained sessions when Agents is enabled. Channels lists the Channels of the Agents, their conversation threads, and each conversation with its attachments and the runs that answered, with downloads as Markdown or JSON and a warning when the transcripts are not durable. See [See and export a conversation](/docs/agents/channels#see-and-export-a-conversation). Content appears when `server/content.ts` defines document collections and edits them: it saves drafts, publishes, and restores revisions, and `content.can()` decides what each user may do. See [Edit Content in the Console](/docs/content/console). Comments appears when `server/comments.ts` exists. It lists the threads that the team left on the app's pages, and opening the Console turns on the Comments toolbar on those pages for you. See [Comment as the Console team](/docs/comments/configure#comment-as-the-console-team). Blob lists configured stores and bounded pages of object metadata without downloading contents or exposing provider URLs. Database lists discovered Definitions, their source metadata, definition mode, and statically discovered table names without connecting to a database. When the schema is imported or spread, the Tables field says so instead of listing tables it cannot see. KV lists configured stores and keys, then fetches a value only after the key is selected. Rate Limit lists statically discovered policies and source locations without reading live counters. Sandbox lists discovered Definitions without starting runtime resources. Workspace lists discovered Definitions and source roots without initializing workspace stores, Sources, files, or processes. Workflow and Queue list discovered Definitions and their source metadata without loading the Definition modules. Schedule shows one table: discovered Schedule Definitions and targets, with the cron expression and time zone of static Definitions, plus the Runtime Schedules of the server runtime with their enabled state, next run, last run status, and run history.
 
 Console data can contain user prompts, model output, tool activity, Blob metadata, provider metadata, and stored KV values. Protect the Console before making it reachable on a production URL.
 
@@ -153,6 +153,51 @@ Open Connections to see each [Connection](/docs/connections) from `server/connec
 The Console registers `POST /_vitehub/connections`, `GET /_vitehub/connections/connect/:name`, and `GET /_vitehub/connections/callback` only when Connections is enabled. Each route runs the Console access policy itself, in development and in production, the same as the Console data routes. With Console Auth or app Auth, actions record the signed-in user as `user:<id>`. With `auth: false`, actions record `user:open`. With Cloudflare Access, they record `user:cloudflare-access`. When `console.authorize` returns `{ sections }`, the routes also need the `connections` section. The Connections section is not available in Nuxt apps.
 
 Starting Connect creates a single-use OAuth `state` in the Connections store. The browser opens the GET connect route, receives a `state` cookie and a cookie with the Console page to return to, and follows a redirect to the provider. The provider redirects back to the GET callback route. The callback consumes the stored `state` and checks the browser cookie and the manager before it saves the grant. A `state` from another manager returns `403`. Proxies must forward both GET routes, their query strings, and cookies, as well as the management POST route. When Vite `base` is set, these routes use that mount prefix.
+
+## Connect to MCP servers
+
+Set `console.mcpClient` to `true` to add the MCP client section. It runs on the server. It connects to MCP servers over Streamable HTTP as the person who signed in to the Console. It lists and calls their tools, reads their resources, and gets their prompts, and it shows each result as the server sent it.
+
+```ts
+vitehub({
+  console: { auth: "app", mcpClient: true },
+})
+```
+
+This section is the client side. [ViteHub MCP](/docs/development/mcp) is the server side: the MCP server that the Console itself serves at `/_vitehub/mcp`, which needs no option.
+
+The section lists the MCP server that the app announces in its [RFC 9728](https://www.rfc-editor.org/rfc/rfc9728) protected resource metadata at `/.well-known/oauth-protected-resource`, such as its own `/mcp`. **Connect** also accepts the URL of another server or a path on this app. A URL must use HTTPS. Plain HTTP works only for this app and for `localhost`.
+
+### Sign in with OAuth
+
+Without a token, the Console first connects without credentials. When the server answers `401`, the Console starts the [MCP authorization flow](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization):
+
+1. It reads the protected resource metadata that the `WWW-Authenticate` header names. Then it reads the metadata of the authorization server, with RFC 8414 or OpenID Connect discovery.
+2. It registers one public client through dynamic client registration (RFC 7591). All connections to that authorization server use this client.
+3. The browser opens the authorization URL with PKCE `S256`, `state`, and `resource` (RFC 8707). The authorization server sends the browser back to `/_vitehub/mcp-client/callback`, and the Console exchanges the code on the server. When the authorization server sends `iss` (RFC 9207), the Console checks it.
+4. When the MCP server rejects an access token, the Console uses the refresh token if it has one. Otherwise the connection shows **Signed out**, and **Sign in again** starts a new sign-in.
+5. **Disconnect** ends the MCP session. When the authorization server names a revocation endpoint, the Console also asks it to revoke the tokens (RFC 7009).
+
+The app's own `/mcp` usually has the app's Auth as its authorization server, on the same origin. That server sees the session of this browser, so a person who is signed in to the app does not sign in again. They approve the client once, and an authorization server that keeps approvals skips that step next time. The Console does not skip the approval. The approval is the app's record that the person allowed the client, and the app checks it on each request.
+
+When a server has no OAuth, choose **Token** and paste a personal API key or another bearer token. The Console sends it in the `Authorization` header.
+
+### Connect as several accounts
+
+Each connection has its own grant and its own MCP session. So you can open the same server as several accounts at the same time. The sidebar groups the connections by server, and **Add an account** connects to the same server again.
+
+- **Sign in as someone else** sends `prompt=login`, so the authorization server shows its sign-in form even when this browser is signed in.
+- With `console.auth: "app"`, the Console and an authorization server on the same origin share one session. Signing in as someone else there would also sign the Console in as that person. The Console turns off the option for those servers. Use a token of the other person, or open the Console with `auth: false` in development.
+
+**Run as** sends the same tool call, resource read, or prompt through other connections to the same server and shows the results next to each other. Use it to compare what each account can see.
+
+### What the MCP client keeps
+
+The Console keeps MCP connections in server memory, separately for each person who signs in. Tokens, refresh tokens, PKCE verifiers, and client registrations never reach the browser. The browser gets the account, the server details, the scopes, and the time the token expires. A server restart ends all connections.
+
+Every MCP request starts on the server. A person who has the `mcp-client` section can make the server send requests to URLs that they choose, so give the section only to people you trust with the network of the server. Agents and ViteHub MCP cannot use these connections. The `vitehub` CLI of `vite dev` uses them as the local developer.
+
+Use the MCP client in development or on one Node server. Hosts that run many instances, such as Cloudflare Workers, keep one memory per instance. A sign-in can start on one instance and finish on another, where it fails.
 
 ## Develop against a fixture
 
@@ -611,6 +656,9 @@ Each failed Console request returns JSON with a stable `code`, a `message` that 
 | `CONSOLE_CONFLICT` | `409` | Reload, then try again. |
 | `CONSOLE_UNAVAILABLE` | `408`, `429`, `502`–`504` | Wait, then try again. |
 | `CONSOLE_REQUEST_FAILED` | `500` | Try again, then read the server logs. |
+| `CONSOLE_MCP_UNREACHABLE` | `502` | Check that the MCP server runs and that the URL is its Streamable HTTP endpoint, such as `/mcp`. |
+| `CONSOLE_MCP_SIGNED_OUT` | `409` | Sign in again. For a token, connect again with a new one. |
+| `CONSOLE_MCP_AUTHORIZATION_FAILED` | `400`, `404`, `409`, `502` | Start the sign-in again. The server must publish RFC 9728 metadata that names an authorization server with client registration. |
 
 A Console route that fails with its own diagnostic keeps that code, for example `VITE_HUB_R0065`. Connections and Env management routes keep their `CONNECTION_*` and `ENV_BRIDGE_*` codes and add `fix` and `docs` to the error body.
 
