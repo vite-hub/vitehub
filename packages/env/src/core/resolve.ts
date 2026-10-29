@@ -5,7 +5,7 @@ import { promisify } from "node:util"
 
 import { parseSchema } from "../schema.ts"
 import { runtimeValueSchema } from "./declarations.ts"
-import { envValueTypeName, parseEnvValue } from "./values.ts"
+import { envValueTypeName, parseEnvValue, schemaContainsEnum } from "./values.ts"
 import { hasRuntimeType } from "../internal/runtime-type.ts"
 import { isViteHubError } from "@vite-hub/runtime"
 import { Diagnostic } from "nostics"
@@ -137,54 +137,23 @@ export async function resolveEnvEntries(
   const diagnostics: EnvDiagnosticEntry[] = []
 
   for (const [key, declaration] of Object.entries(declarations || {})) {
-    const defaultValue = parseDeclarationDefault(declaration, `${input.section}.${key}`)
-    const source = resolveEnvSource(declaration, `${input.section}.${key}`, canonicalKey.test(key) ? input.prefix : false)
-    const resolvedSource = await resolveSourceValue(source, input.context)
-    const defaulted = typeof resolvedSource.value === "undefined"
-    const valueForSchema = defaulted ? defaultValue : resolvedSource.value
-    if (typeof valueForSchema === "undefined") {
-      if (declaration.required) {
-        const path = `${input.section}.${key}`
-        throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
-      }
-      entries.push({
-        key,
-        masked: declaration.secret,
-        source: resolvedSource.label,
-        type: declaration.type ?? "undefined",
-        value: undefined,
-      })
-      diagnostics.push({
-        exposed: declaration.secret ? `${input.exposure}, masked` : input.exposure,
-        key: `${input.section}.${key}`,
-        masked: declaration.secret,
-        mode: declaration.mode,
-        source: resolvedSource.label,
-        status: "missing",
-        timing: input.timing,
-        type: declaration.type ?? "undefined",
-      })
-      continue
-    }
-
-    const value = parseSchema(declaration.schema, valueForSchema, `${input.section}.${key}`)
-    const type = declaration.type ?? inferTypeName(value)
+    const result = await resolveBuildDeclaration(declaration, `${input.section}.${key}`, input, canonicalKey.test(key))
     entries.push({
       key,
       masked: declaration.secret,
-      source: resolvedSource.label,
-      type,
-      value,
+      source: result.source,
+      type: result.type ?? declaration.type ?? "undefined",
+      value: result.value,
     })
     diagnostics.push({
       exposed: declaration.secret ? `${input.exposure}, masked` : input.exposure,
       key: `${input.section}.${key}`,
       masked: declaration.secret,
       mode: declaration.mode,
-      source: defaulted ? "default" : resolvedSource.label,
-      status: defaulted ? "defaulted" : "valid",
+      source: result.status === "defaulted" ? "default" : result.source,
+      status: result.status,
       timing: input.timing,
-      type,
+      type: result.type ?? declaration.type ?? "undefined",
     })
   }
 
@@ -259,44 +228,19 @@ async function resolveBuildConfigValue(
   },
 ): Promise<{ diagnostics: EnvDiagnosticEntry[], value: unknown }> {
   if (isEnvVariableDeclaration(declaration)) {
-    const defaultValue = parseDeclarationDefault(declaration, path)
-    const source = resolveEnvSource(declaration, path, input.prefix)
-    const resolvedSource = await resolveSourceValue(source, input.context)
-    const defaulted = typeof resolvedSource.value === "undefined"
-    const valueForSchema = defaulted ? defaultValue : resolvedSource.value
-    if (typeof valueForSchema === "undefined") {
-      if (declaration.required) {
-        throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
-      }
-      return {
-        diagnostics: [{
-          exposed: input.exposure,
-          key: path,
-          masked: false,
-          mode: declaration.mode,
-          source: resolvedSource.label,
-          status: "missing",
-          timing: input.timing,
-          type: declaration.type ?? "undefined",
-        }],
-        value: undefined,
-      }
-    }
-
-    const value = parseSchema(declaration.schema, valueForSchema, path)
-    const type = declaration.type ?? inferTypeName(value)
+    const result = await resolveBuildDeclaration(declaration, path, input)
     return {
       diagnostics: [{
         exposed: input.exposure,
         key: path,
         masked: false,
         mode: declaration.mode,
-        source: defaulted ? "default" : resolvedSource.label,
-        status: defaulted ? "defaulted" : "valid",
+        source: result.status === "defaulted" ? "default" : result.source,
+        status: result.status,
         timing: input.timing,
-        type,
+        type: result.type ?? declaration.type ?? "undefined",
       }],
-      value,
+      value: result.value,
     }
   }
 
@@ -317,6 +261,29 @@ async function resolveBuildConfigValue(
   }
 
   return { diagnostics, value }
+}
+
+async function resolveBuildDeclaration(
+  declaration: EnvVariableDeclaration,
+  path: string,
+  input: { context: EnvSourceContext, prefix?: string | false },
+  canonical = true,
+) {
+  const defaultValue = parseDeclarationDefault(declaration, path)
+  const source = resolveEnvSource(declaration, path, canonical ? input.prefix : false)
+  const resolvedSource = await resolveSourceValue(source, input.context)
+  const defaulted = typeof resolvedSource.value === "undefined"
+  const valueForSchema = defaulted ? defaultValue : resolvedSource.value
+  if (typeof valueForSchema === "undefined") {
+    if (declaration.required) {
+      throw missingRequiredEnv(source.kind === "custom" ? "custom" : source.label, `Missing ${path} from ${source.label}.`, path)
+    }
+    return { source: resolvedSource.label, status: "missing" as const, value: undefined }
+  }
+
+  const value = parseSchema(declaration.schema, valueForSchema, path)
+  const type = declaration.type ?? inferTypeName(value)
+  return { source: resolvedSource.label, status: defaulted ? "defaulted" as const : "valid" as const, type, value }
 }
 
 function parseDeclarationDefault(declaration: EnvVariableDeclaration, path: string): unknown {
@@ -356,7 +323,7 @@ function buildRegistry(declarations: EnvRuntimeConfigOptions | undefined, path: 
     if (!schema) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} uses a custom schema. Server Env accepts env(), env.boolean(), env.number(), and env.enum() because runtime parsers must be serializable.`)
     }
-    if (schema.kind === "enum" && value.secret) {
+    if (schemaContainsEnum(schema) && value.secret) {
       throw invalidEnvDeclaration(valuePath, `Runtime declaration ${valuePath} cannot be a secret enum: generated types, the Console, and errors show its allowed values. Use env({ secret: true }) and check the value in server code.`)
     }
     const type = envValueTypeName(schema)

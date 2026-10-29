@@ -1787,7 +1787,9 @@ describe("agent channels", () => {
 
   it("skips no-findings bot reviews and debounces a trigger's deliveries per PR", async () => {
     const { github } = await import("../src/channels.ts")
+    const fetcher = vi.fn(async () => Response.json({ number: 42, title: "Improve app" }))
     const channel = github({
+      app: { fetch: fetcher },
       pullRequest: {
         reconcile: {
           triggers: [
@@ -1833,10 +1835,12 @@ describe("agent channels", () => {
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const clean = await trigger.invoke(context as never, review(57, "> ✅ No new issues found.\n\n**Reviewed changes**"))
     expect(clean).toBeInstanceOf(Response)
+    expect(fetcher).not.toHaveBeenCalled()
 
     // SAFETY: This test fixture intentionally constructs the exact asserted channel contract.
     const finding = await trigger.invoke(context as never, review(58, "> [!IMPORTANT]\n> The new type drops a field."))
     if (finding instanceof Response) throw new Error("Expected GitHub review invocation for a finding.")
+    expect(fetcher).toHaveBeenCalled()
     expect(finding.webhook).toMatchObject({ concurrencyGroup: "acme/app#42", debounce: { delayMs: 60_000, key: "acme/app#42:1" }, deliveryId: "review-58" })
   })
 

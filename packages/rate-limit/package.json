@@ -6,10 +6,12 @@
     "cloudflare",
     "h3",
     "rate-limit",
+    "rate-limiting",
+    "typescript",
     "vite",
     "vitehub"
   ],
-  "homepage": "https://github.com/vite-hub/vitehub#readme",
+  "homepage": "https://vitehub.dev",
   "bugs": "https://github.com/vite-hub/vitehub/issues",
   "license": "Apache-2.0",
   "author": "onmax <maximogarciamtnez@gmail.com>",
@@ -50,17 +52,17 @@
       "require": "./dist/drivers/memory.js",
       "default": "./dist/drivers/memory.js"
     },
+    "./operations": {
+      "types": "./dist/operations.d.ts",
+      "import": "./dist/operations.js",
+      "require": "./dist/operations.js",
+      "default": "./dist/operations.js"
+    },
     "./runtime": {
       "types": "./dist/runtime.d.ts",
       "import": "./dist/runtime.js",
       "require": "./dist/runtime.js",
       "default": "./dist/runtime.js"
-    },
-    "./runtime/console": {
-      "types": "./dist/runtime/console.d.ts",
-      "import": "./dist/runtime/console.js",
-      "require": "./dist/runtime/console.js",
-      "default": "./dist/runtime/console.js"
     },
     "./vite": {
       "types": "./dist/vite.d.ts",
@@ -73,7 +75,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "vp run --cache -t @vite-hub/rate-limit#build && tsc --noEmit -p ./tsconfig.json",
+    "typecheck": "vp run --cache -t @vite-hub/rate-limit#build && node ../../test/package-typecheck.mjs --noEmit -p ./tsconfig.json",
     "test": "vp run -t @vite-hub/rate-limit#build && vp test"
   },
   "dependencies": {
@@ -84,6 +86,7 @@
   "devDependencies": {
     "@types/node": "catalog:tooling",
     "@vite-hub/internal": "workspace:*",
+    "h3-v1": "npm:h3@^1.15.11",
     "publint": "catalog:tooling",
     "typescript": "catalog:tooling",
     "vite": "catalog:vite",

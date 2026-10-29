@@ -69,77 +69,21 @@ function hasCloudflareSqlExecInternal(sql: unknown, allowOwnExec: boolean): sql 
     // Workerd's getter must reject a Map receiver, while Map.prototype.size
     // (including a proxy around it) succeeds. This keeps the check independent
     // of workerd's version-dependent getter name.
-    try {
-      const mapSize = Reflect.apply(databaseSize, new Map(), [])
-      if (Number.isFinite(mapSize)) return false
-    }
-    catch {
-      // A genuine SqlStorage getter rejects unrelated receivers.
-    }
-    // Set.prototype.size is another finite-number native accessor. Reject it
-    // as well so a counterfeit carrier cannot pass by only failing the Map
-    // probe while retaining the Set brand.
-    try {
-      const setSize = Reflect.apply(databaseSize, new Set(), [])
-      if (Number.isFinite(setSize)) return false
-    }
-    catch {
-      // A genuine SqlStorage getter rejects unrelated receivers.
-    }
-
-    // URLSearchParams.prototype.size is another native finite-number
-    // accessor that can be copied onto a decorated carrier.
-    if (typeof URLSearchParams === "function") {
+    const hasFiniteDatabaseSize = (createReceiver: () => object): boolean => {
       try {
-        const paramsSize = Reflect.apply(databaseSize, new URLSearchParams(), [])
-        if (Number.isFinite(paramsSize)) return false
+        return Number.isFinite(Reflect.apply(databaseSize, createReceiver(), []))
       }
       catch {
-        // A genuine SqlStorage getter rejects unrelated receivers.
+        return false
       }
     }
-
-    // ArrayBuffer.prototype.byteLength is another finite-number native
-    // accessor that can be copied onto a decorated carrier. Reject it too.
-    try {
-      const byteLength = Reflect.apply(databaseSize, new ArrayBuffer(0), [])
-      if (Number.isFinite(byteLength)) return false
-    }
-    catch {
-      // A genuine SqlStorage getter rejects unrelated receivers.
-    }
-
-    // DataView.prototype.byteLength is another finite-number native accessor
-    // that can be copied onto a decorated carrier.
-    try {
-      const byteLength = Reflect.apply(databaseSize, new DataView(new ArrayBuffer(0)), [])
-      if (Number.isFinite(byteLength)) return false
-    }
-    catch {
-      // A genuine SqlStorage getter rejects unrelated receivers.
-    }
-
-    // %TypedArray%.prototype.byteLength is another finite-number native
-    // accessor that can be copied onto a decorated typed-array carrier.
-    try {
-      const byteLength = Reflect.apply(databaseSize, new Uint8Array(0), [])
-      if (Number.isFinite(byteLength)) return false
-    }
-    catch {
-      // A genuine SqlStorage getter rejects unrelated receivers.
-    }
-
-    // SharedArrayBuffer.prototype.byteLength is a separate native accessor
-    // that can likewise be copied onto a decorated carrier.
-    if (typeof SharedArrayBuffer === "function") {
-      try {
-        const byteLength = Reflect.apply(databaseSize, new SharedArrayBuffer(0), [])
-        if (Number.isFinite(byteLength)) return false
-      }
-      catch {
-        // A genuine SqlStorage getter rejects unrelated receivers.
-      }
-    }
+    if (hasFiniteDatabaseSize(() => new Map())) return false
+    if (hasFiniteDatabaseSize(() => new Set())) return false
+    if (typeof URLSearchParams === "function" && hasFiniteDatabaseSize(() => new URLSearchParams())) return false
+    if (hasFiniteDatabaseSize(() => new ArrayBuffer(0))) return false
+    if (hasFiniteDatabaseSize(() => new DataView(new ArrayBuffer(0)))) return false
+    if (hasFiniteDatabaseSize(() => new Uint8Array(0))) return false
+    if (typeof SharedArrayBuffer === "function" && hasFiniteDatabaseSize(() => new SharedArrayBuffer(0))) return false
 
     // The native getter must enforce workerd's internal SqlStorage brand.
     // A fabricated getter (including a Proxy-wrapped arrow or bound function)

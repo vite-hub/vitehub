@@ -217,7 +217,7 @@ function isBase64(value: string): boolean {
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof Buffer !== "undefined") return Buffer.from(bytes).toString("base64")
+  if (typeof Buffer !== "undefined") return Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64")
   let binary = ""
   for (let offset = 0; offset < bytes.length; offset += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(offset, offset + 0x8000))
@@ -226,6 +226,8 @@ function bytesToBase64(bytes: Uint8Array): string {
 }
 
 function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+  // deserializeResponse validates the record before reaching this permissive decoder.
+  if (typeof Buffer !== "undefined") return Buffer.from(value, "base64")
   const binary = atob(value)
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)

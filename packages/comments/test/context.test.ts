@@ -44,11 +44,11 @@ describe("page context", () => {
     expect(vueComponentsOf(document.querySelector("p")!)).toEqual([])
   })
 
-  it("reads the page, route, element, and browser, without the comment mode query", () => {
+  it("reads the page, route, element, and browser, without query parameters or the hash", () => {
     const { button } = mountFakeVue()
-    history.replaceState(null, "", "/pricing?plan=pro&comments#comment-1")
+    history.replaceState(null, "", "/pricing?plan=pro&comments&code=oauth-code&token=reset-token&X-Amz-Signature=secret#comment-1")
     document.title = "Pricing"
-    const context = captureContext(button, "comments")
+    const context = captureContext(button)
     expect(context).toMatchObject({
       title: "Pricing",
       route: "/pricing",
@@ -56,7 +56,7 @@ describe("page context", () => {
       components: [{ name: "App" }, { name: "PricingCard" }],
       environment: { viewport: { width: innerWidth, height: innerHeight } },
     })
-    expect(context.url).toMatch(/\/pricing\?plan=pro$/)
+    expect(context.url).toBe(`${location.origin}/pricing`)
   })
 
   it("describes a context for the Console and Agents", () => {
@@ -78,5 +78,31 @@ describe("page context", () => {
       { label: "Build", value: "main @ 0123456789ab" },
     ])
     expect(describeCommentContext(null)).toEqual([])
+  })
+
+  it.each([
+    ['<input type="checkbox">', "checkbox"],
+    ['<input type="radio">', "radio"],
+    ['<input type="submit">', "button"],
+    ['<input type="reset">', "button"],
+    ['<input type="image">', "button"],
+    ['<input type="range">', "slider"],
+    ['<input type="number">', "spinbutton"],
+    ['<input type="search">', "searchbox"],
+    ['<input list="suggestions"><datalist id="suggestions"></datalist>', "combobox"],
+    ['<input list="missing">', "textbox"],
+    ['<input type="email">', "textbox"],
+    ['<input type="password">', undefined],
+    ['<input type="hidden">', undefined],
+    ['<input type="file">', undefined],
+    ['<a href="/pricing">Pricing</a>', "link"],
+    ["<a>Placeholder</a>", undefined],
+    ["<select><option>One</option></select>", "combobox"],
+    ["<select multiple><option>One</option></select>", "listbox"],
+    ['<select size="3"><option>One</option></select>', "listbox"],
+    ['<input type="checkbox" role="switch">', "switch"],
+  ])("captures the role of %s", (html, role) => {
+    document.body.innerHTML = html
+    expect(captureContext(document.body.firstElementChild!).element?.role).toBe(role)
   })
 })

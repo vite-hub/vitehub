@@ -1,375 +1,110 @@
-import { execFile } from "node:child_process"
-import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
-import { basename, dirname, join, relative, resolve, sep } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
-import { promisify } from "node:util"
+import { readFileSync } from "node:fs"
+import { resolve } from "node:path"
 
-import { addViteHubPageToolRoutes } from "@vite-hub/internal/build/page-tools"
+import { scanModule } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
-import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
-import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
-import { viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 
-import { commentsConsoleSection } from "./console.ts"
-import { findCommentsEntry, findContentEntry } from "./entry.ts"
-import { commentsRealtimeDefinition, commentsRoute } from "./page.ts"
+import { findCommentsEntry as findLiveEntry } from "./entry.ts"
+import { hubComments as liveComments } from "./live-vite.ts"
+import { hubComments as operationComments, findCommentsEntry as findOperationEntry } from "./operations-core/vite.ts"
 
-import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
-import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, UserConfig } from "vite"
+import type { DatabaseContributionContext } from "@vite-hub/database/vite"
+import type { CommentsRealtimeContributionContext, CommentsVitePluginOptions, CommentsVitePlugin as LivePlugin } from "./live-vite.ts"
+import type { HubCommentsOptions as OperationOptions, CommentsVitePlugin as OperationPlugin } from "./operations-core/vite.ts"
 
-export { commentsConsoleSection }
-export { findCommentsEntry } from "./entry.ts"
+export { injectLoader, loaderTag, loaderUrl, mountPath, overlayRoute, renderOverlayMiddleware, scriptNonce } from "./overlay.ts"
+export type { CommentsOverlayAssets, CommentsOverlayOptions } from "./overlay.ts"
+export { commentsOverlayMiddlewarePath } from "./operations-core/vite.ts"
 
-/** Module paths that generated files import. The `vite-hub` distribution passes its own subpaths. */
-export interface CommentsImports {
-  /** Exports `defineCommentsPlugin`, `createCommentsHandler`, and `viteHubPageSessionHandler`. */
-  runtime: string
-  /** Exports `commentsRealtime`. */
-  realtime: string
-  /** Exports `commentsAuthSession`. */
-  auth: string
-  /** Exports `commentsSchema`. */
-  database: string
-  /** Exports `databases`, the runtime Database registry. */
-  databases: string
-  /** Exports `parseContentField`. */
-  contentClient: string
+export { commentsConsoleSection } from "./console.ts"
+export { mountedCommentsRoute } from "./page.ts"
+export { commentsConsoleSection as commentsOperationsConsoleSection } from "./operations-core/console.ts"
+export { COMMENTS_VITE_PLUGIN_NAME, commentsNitroPluginPath, commentsDatabaseModulePath, renderCommentsDatabaseModule, renderCommentsNitroPlugin, usesComments } from "./operations-core/vite.ts"
+export { componentNames, readCommentsBuild, readCommentsComponents, readCommentsDatabase, renderCommentsHandler, renderCommentsPlugin } from "./live-vite.ts"
+export type { CommentsComponent, CommentsImports, CommentsRealtimeContributionContext, CommentsVitePluginOptions } from "./live-vite.ts"
+
+export type HubCommentsOptions = Omit<OperationOptions, "imports"> & CommentsVitePluginOptions & {
+  operationsImports?: OperationOptions["imports"]
+}
+export type CommentsVitePlugin = OperationPlugin & { api: LivePlugin["api"] }
+
+export function findCommentsEntry(projectRoot: string, serverDirs?: readonly string[]): string | undefined
+export function findCommentsEntry(options: { projectRoot: string, serverDirs?: readonly string[] }): string | undefined
+export function findCommentsEntry(options: string | { projectRoot: string, serverDirs?: readonly string[] }, serverDirs?: readonly string[]): string | undefined {
+  return typeof options === "string" ? findLiveEntry(options, serverDirs) : findOperationEntry(options)
 }
 
-export interface CommentsVitePluginOptions {
-  /** Whether the app configures ViteHub Auth, so Comments reads its session. Default `false`. */
-  auth?: boolean
-  /**
-   * The Console of the app: a module and its `consoleRealtimeAccess` export. With it, the people that the Console lets
-   * use its `comments` section are the people of Comments, and opening the Console turns the page tools on for them.
-   */
-  console?: { module: string }
-  imports?: Partial<CommentsImports>
-}
-
-export interface CommentsRealtimeContributionContext {
-  authority: "cloudflare" | "memory"
-  directory: string
-  projectRoot: string
-  serverDirs?: string[]
-}
-
-export type CommentsVitePlugin = Plugin & {
-  api: {
-    /**
-     * The `comments` Realtime Definition of the page presence rooms, for `hubRealtime({ contribute })`. Realtime calls
-     * it only when the host has a room authority; without one, pages show comments without presence.
-     */
-    contributeRealtime(context: CommentsRealtimeContributionContext): Promise<{ definitions: Array<{ handler: string, name: string }> } | undefined>
-  }
-  vitehub: ViteHubInspectionPluginMetadata & { databases: (context: DatabaseContributionContext) => Promise<DatabaseContributionEntry[]> }
-}
-
-const defaultImports: CommentsImports = {
-  runtime: "@vite-hub/comments/runtime",
-  realtime: "@vite-hub/comments/realtime",
-  auth: "@vite-hub/comments/runtime/auth",
-  database: "@vite-hub/comments/database",
-  databases: "@vite-hub/database/drizzle",
-  contentClient: "@vite-hub/content/client",
-}
-
-/**
- * The Database name in `defineComments({ database: "name" })`, read without running the file. Undefined means the
- * default or only Database.
- */
-export async function readCommentsDatabase(file: string): Promise<string | undefined> {
-  const source = await readFile(file, "utf8").catch(() => "")
-  return /\bdatabase\s*:\s*["'`]([\w-]+)["'`]/.exec(source)?.[1]
-}
-
-/** A directory of prebuilt browser scripts in this package: `overlay`, or `page` for the page tools loader. */
-function builtDirectory(name: "overlay" | "page"): string {
-  const here = dirname(fileURLToPath(import.meta.url))
-  // Built: dist/vite.js next to dist/<name>. From source in tests: src/vite.ts, so use the built copy.
-  return here.endsWith("src") ? resolve(here, `../dist/${name}`) : resolve(here, name)
-}
-
-/** The directory of the prebuilt overlay script in this package. */
-export function commentsOverlayDirectory(): string {
-  return builtDirectory("overlay")
-}
-
-/** CI and host variables that name the commit and branch of a build, in the order they are read. */
-const buildVariables: ReadonlyArray<readonly [commit: string, branch: string]> = [
-  ["VERCEL_GIT_COMMIT_SHA", "VERCEL_GIT_COMMIT_REF"],
-  ["WORKERS_CI_COMMIT_SHA", "WORKERS_CI_BRANCH"],
-  ["CF_PAGES_COMMIT_SHA", "CF_PAGES_BRANCH"],
-  ["COMMIT_REF", "BRANCH"],
-  ["GITHUB_SHA", "GITHUB_HEAD_REF"],
-]
-
-async function git(root: string, args: string[]): Promise<string | undefined> {
-  try {
-    const { stdout } = await promisify(execFile)("git", args, { cwd: root, encoding: "utf8", timeout: 3000 })
-    return stdout.trim() || undefined
-  }
-  catch {
-    return undefined
-  }
-}
-
-/** The commit and branch of the build, from the CI or host, else from Git. Empty outside a Git checkout. */
-export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<{ commit?: string, branch?: string }> {
-  for (const [commitName, branchName] of buildVariables) {
-    const commit = env[commitName]
-    if (!commit) continue
-    const branch = env[branchName] || (commitName === "GITHUB_SHA" ? env.GITHUB_REF_NAME : undefined)
-    return branch ? { commit, branch } : { commit }
-  }
-  const [commit, branch] = await Promise.all([git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
-  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}) }
-}
-
-const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
-
-const pascal = (segment: string): string => segment.replace(/(?:^|[-_.\s]+)(\w)/g, (_, letter: string) => letter.toUpperCase())
-
-/**
- * The names that a production build may give the component of a `.vue` file: its file name, which `<script setup>`
- * uses; under `pages/`, the Nuxt route name, such as `blog-id` for `pages/blog/[id].vue`; under `components/`, the
- * Nuxt name, such as `ViewerThread` for `components/viewer/Thread.vue`.
- */
-export function componentNames(file: string): string[] {
-  const names = new Set([basename(file, ".vue")])
-  const parts = file.replace(/\.vue$/, "").split("/")
-  const pages = parts.lastIndexOf("pages")
-  if (pages !== -1) {
-    const route = parts.slice(pages + 1).filter(part => part !== "index" && !/^\(.*\)$/.test(part)).map(part => part.replace(/[[\].]/g, "")).join("-")
-    names.add(route || "index")
-  }
-  const directory = parts.lastIndexOf("components")
-  if (directory !== -1) {
-    const segments = parts.slice(directory + 1).map(pascal)
-    const last = segments.pop()!
-    const prefix = segments.join("")
-    names.add(last.startsWith(prefix) ? last : `${prefix}${last}`)
-  }
-  return [...names]
-}
-
-/**
- * The Vue files of a project by component name, relative to the project root. `<script setup>` components carry the
- * name of their file in production builds, so the name finds the file. It skips dot directories and build output.
- */
-export async function readCommentsComponents(root: string, limit = 5000): Promise<Record<string, string[]>> {
-  const components: Record<string, string[]> = {}
-  let count = 0
-  async function walk(directory: string, depth: number): Promise<void> {
-    if (depth > 12 || count >= limit) return
-    const entries = await readdir(directory, { withFileTypes: true }).catch(() => [])
-    for (const entry of entries) {
-      if (entry.name.startsWith(".") || skippedDirectories.has(entry.name)) continue
-      const path = join(directory, entry.name)
-      if (entry.isDirectory()) await walk(path, depth + 1)
-      else if (entry.isFile() && entry.name.endsWith(".vue") && count < limit) {
-        count++
-        const file = relative(root, path).split(sep).join("/")
-        for (const name of componentNames(file)) {
-          const files = components[name] ??= []
-          if (!files.includes(file)) files.push(file)
-        }
-      }
+/** A default export opts into Operations; the named `comments` export retains the live-site API. */
+export function commentsEntryMode(file: string): "operations" | "live" {
+  const module = scanModule(readFileSync(file, "utf8"), file)
+  let named = false
+  for (const statement of module.program.body) {
+    if (statement.type === "ExportDefaultDeclaration") {
+      if (statement.declaration.type !== "TSInterfaceDeclaration") return "operations"
+      continue
     }
+    if (statement.type !== "ExportNamedDeclaration" || statement.exportKind === "type") continue
+    const exports = statement.specifiers.filter(specifier => specifier.exportKind !== "type")
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "default")) return "operations"
+    if (statement.declaration?.type === "VariableDeclaration" && statement.declaration.declarations.some(declaration => declaration.id.type === "Identifier" && declaration.id.name === "comments")) named = true
+    if (exports.some(specifier => (specifier.exported.type === "Identifier" ? specifier.exported.name : specifier.exported.value) === "comments")) named = true
   }
-  await walk(root, 0)
-  return components
+  return named ? "live" : "operations"
 }
 
-const overlayBaseURL = `${commentsRoute}/assets`
-const version = "1"
-
-/** Generated session reader: the Console user of a request, else the ViteHub Auth user. */
-function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImports): { imports: string[], value: string } {
-  if (options.console) {
-    return {
-      imports: [
-        `import { consoleRealtimeAccess } from ${JSON.stringify(options.console.module)}`,
-        `import { commentsConsoleSession } from ${JSON.stringify(imports.runtime)}`,
-      ],
-      value: `commentsConsoleSession(consoleRealtimeAccess(${JSON.stringify(commentsConsoleSection.id)}))`,
-    }
-  }
-  return options.auth
-    ? { imports: [`import { commentsAuthSession } from ${JSON.stringify(imports.auth)}`], value: "commentsAuthSession" }
-    : { imports: [], value: "undefined" }
-}
-
-export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: { commit?: string, branch?: string } }): string {
-  const session = sessionLines(input.session, input.imports)
-  return [
-    `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,
-    `import components from "./components.mjs"`,
-    `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
-    ...session.imports,
-    ...(input.content
-      ? [
-          `import * as contentModule from ${JSON.stringify(pathToFileURL(input.content).href)}`,
-          `import { parseContentField } from ${JSON.stringify(input.imports.contentClient)}`,
-        ]
-      : []),
-    "",
-    "export default createCommentsHandler({",
-    "  comments,",
-    `  session: ${session.value},`,
-    ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
-    `  realtime: ${input.realtime},`,
-    `  build: ${JSON.stringify(input.build ?? {})},`,
-    "  components,",
-    "})",
-    "",
-  ].join("\n")
-}
-
-export function renderCommentsPlugin(input: { definition: string, database?: string, session: CommentsVitePluginOptions, imports: CommentsImports }): string {
-  const session = sessionLines(input.session, input.imports)
-  return [
-    `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
-    `import { databases } from ${JSON.stringify(input.imports.databases)}`,
-    `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
-    ...session.imports,
-    "",
-    "// The Database that `defineComments({ database })` names, else `default`, else the only one.",
-    "function database() {",
-    `  const name = ${JSON.stringify(input.database ?? null)}`,
-    "  if (name) return databases[name]?.db",
-    "  // Without a default Database, `databases.default` is a placeholder that throws when read.",
-    "  try {",
-    "    if (databases.default.db.select) return databases.default.db",
-    "  }",
-    "  catch {}",
-    "  const names = Object.keys(databases).filter(key => key !== \"default\")",
-    "  return names.length === 1 ? databases[names[0]].db : undefined",
-    "}",
-    "",
-    `export default defineCommentsPlugin({ comments, database, overlay: ${JSON.stringify(`${overlayBaseURL}/overlay.js?v=${version}`)}, session: ${session.value} })`,
-    "",
-  ].join("\n")
-}
-
-/**
- * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
- * `/api/_vitehub/comments/**`, installs the runtime with its Database, adds the tables to that Database, serves the
- * overlay script, and registers it as the `comments` page tool. It also serves the page tools session and loader at
- * `/_vitehub/page`, so the overlay works without the Console. Apps without the file are unaffected.
- */
-export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVitePlugin {
-  const imports: CommentsImports = { ...defaultImports, ...options.imports }
+/** Select one runtime and schema so the two entry forms never install competing thread tables. */
+export function hubComments(options: HubCommentsOptions = {}): CommentsVitePlugin {
+  const operations = operationComments({ ...options, imports: options.operationsImports })
+  const live = liveComments(options)
   let projectRoot: string | undefined
-  let serverDirs: string[] | undefined
-  let realtime = false
-  const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
-
+  let serverDirs: readonly string[] | undefined
+  function select(context?: DatabaseContributionContext): OperationPlugin | LivePlugin {
+    const root = projectRoot ?? context?.projectRoot ?? context?.rootDir ?? process.cwd()
+    const entry = findCommentsEntry({ projectRoot: root, serverDirs: serverDirs ?? context?.serverDirs })
+    return entry && commentsEntryMode(entry) === "live" ? live : operations
+  }
   return {
-    name: "@vite-hub/comments/vite",
+    name: operations.name,
+    enforce: "pre",
     api: {
-      async contributeRealtime(context) {
-        const definition = findCommentsEntry(context.projectRoot, context.serverDirs)
-        if (!definition) return
-        realtime = true
-        const file = join(context.directory, "comments.mjs")
-        const session = sessionLines(options, imports)
-        await mkdir(context.directory, { recursive: true })
-        await writeFile(file, [
-          `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
-          `import { comments } from ${JSON.stringify(pathToFileURL(definition).href)}`,
-          ...session.imports,
-          "",
-          `export default commentsRealtime(comments, { session: ${session.value} })`,
-          "",
-        ].join("\n"))
-        return { definitions: [{ handler: file, name: commentsRealtimeDefinition }] }
+      setComponents: live.api.setComponents,
+      async contributeRealtime(context: CommentsRealtimeContributionContext) {
+        const entry = findCommentsEntry({ projectRoot: context.projectRoot, serverDirs: context.serverDirs })
+        if (entry && commentsEntryMode(entry) === "live") return live.api.contributeRealtime(context)
+      },
+    },
+    config: {
+      async handler(config, environment) {
+        const configuredRoot = Reflect.get(config, VITEHUB_PROJECT_ROOT)
+        projectRoot = typeof configuredRoot === "string" ? resolve(configuredRoot) : resolveViteHubProjectRoot(resolve(config.root ?? process.cwd()))
+        serverDirs = Reflect.get(config, VITEHUB_SERVER_DIRS)
+        const hook = select().config
+        return typeof hook === "function" ? hook.call(this, config, environment) : hook?.handler.call(this, config, environment)
+      },
+    },
+    async configResolved(config) {
+      const hook = select().configResolved
+      if (typeof hook === "function") await hook.call(this, config)
+      else await hook?.handler.call(this, config)
+    },
+    transformIndexHtml: {
+      order: "post",
+      handler(html, context) {
+        const hook = select().transformIndexHtml
+        return typeof hook === "function" ? hook.call(this, html, context) : hook?.handler.call(this, html, context)
       },
     },
     vitehub: {
-      inspect: () => ({
-        definitions: [{
-          kind: "comments",
-          label: "Comments",
-          list: () => {
-            const definition = discover()
-            if (!definition) return []
-            return [{
-              fields: [
-                { label: "Route", value: `${commentsRoute}/**` },
-                { label: "Presence", value: realtime ? `Realtime Definition "${commentsRealtimeDefinition}"` : "off: the host has no Realtime authority" },
-                { label: "Page tool", value: `?${viteHubPageToolsQuery} or the ${viteHubPageToolsCookie} cookie, for people that authorize allows to read` },
-              ],
-              file: relativeDefinitionFile(projectRoot ?? process.cwd(), definition),
-              name: "comments",
-              source: "server-comments",
-            }]
-          },
-        }],
-      }),
-      async databases(context) {
-        const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
-        const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
-        if (!definition) return []
-        const database = await readCommentsDatabase(definition)
-        return [{
-          ...(database ? { database } : {}),
-          definition: { export: "commentsSchema", module: imports.database },
-          dialect: "sqlite",
-          name: "comments",
-          reason: "Stores the comment threads of `server/comments.ts`.",
-        }]
+      databases: context => select(context).vitehub.databases(context),
+      inspect: () => {
+        const inspect = select().vitehub.inspect
+        return typeof inspect === "function" ? inspect() : inspect
       },
-    },
-    // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
-    enforce: "pre",
-    config: {
-      async handler(config) {
-        // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
-        const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
-        projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
-        serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
-        const directory = resolve(projectRoot, ".vitehub/nitro/comments")
-        const definition = discover()
-        if (!definition) {
-          await rm(directory, { force: true, recursive: true })
-          return
-        }
-        const handler = join(directory, "handler.mjs")
-        const plugin = join(directory, "plugin.mjs")
-        const pageSession = join(directory, "page-session.mjs")
-        await mkdir(directory, { recursive: true })
-        const [build, components] = await Promise.all([readCommentsBuild(projectRoot), readCommentsComponents(projectRoot)])
-        await Promise.all([
-          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
-          writeFile(join(directory, "components.mjs"), `export default ${JSON.stringify(components)}\n`),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), session: options, imports })),
-          writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
-        ])
-        const kit = createNitroServerKit(Reflect.get(config, "nitro"))
-        kit.addHandler({ handler, route: `${commentsRoute}/**` })
-        kit.addPlugin(plugin)
-        addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page") })
-        const nitro = kit.config
-        const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
-        const overlay = commentsOverlayDirectory()
-        if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "dir") === overlay)) {
-          assets.push({ baseURL: overlayBaseURL, dir: overlay, maxAge: 300 })
-        }
-        nitro.publicAssets = assets
-        Reflect.set(config, "nitro", nitro)
+      operations: async () => {
+        if (select() !== operations) return []
+        const contributions = operations.vitehub.operations
+        return typeof contributions === "function" ? contributions() : contributions
       },
-    },
-    // A single page app whose `index.html` Vite serves: load the page tools in the browser when the hint is present.
-    transformIndexHtml() {
-      if (!discover()) return
-      return [{
-        tag: "script",
-        attrs: { type: "module" },
-        children: `if(new URLSearchParams(location.search).has(${JSON.stringify(viteHubPageToolsQuery)})||document.cookie.split("; ").includes(${JSON.stringify(`${viteHubPageToolsCookie}=1`)}))import(${JSON.stringify(viteHubPageToolsLoader)})`,
-        injectTo: "body",
-      }]
     },
   }
 }

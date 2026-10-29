@@ -70,10 +70,43 @@ describe("public package export contracts", () => {
     }
   })
 
+  it("keeps Comments dependencies installed and classifies its optional Vite peer", () => {
+    const manifest = readPackageManifest("comments")
+    expect(manifest.dependencies?.["drizzle-orm"]).toEqual(expect.any(String))
+    expect(manifest.peerDependencies?.["@vite-hub/database"]).toEqual(expect.any(String))
+    expect(manifest.peerDependenciesMeta?.["@vite-hub/database"]?.optional).not.toBe(true)
+    for (const subpath of ["database", "database/postgres", "operations", "server"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments/${subpath}`)
+      expect(contract?.optionalRuntimePeers).toEqual([])
+      expect(contract?.optionalDeclarationPeers).toEqual([])
+    }
+    for (const subpath of ["", "/client", "/rpc", "/testing"]) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === `@vite-hub/comments${subpath}`)
+      expect(contract?.optionalRuntimePeers).toEqual([])
+      expect(contract?.optionalDeclarationPeers).toEqual([])
+    }
+    const plugin = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/comments/vite")
+    expect(plugin?.optionalRuntimePeers).toEqual(["vite"])
+    expect(plugin?.optionalDeclarationPeers).toEqual(["vite"])
+  })
+
   it("keeps Schedule KV adapter declarations independent from its runtime peer", () => {
     const adapter = publicPackageExportContracts.find(contract => contract.specifier === "@vite-hub/schedule/runtime/kv")
     expect(adapter?.optionalDeclarationPeers).toEqual([])
     expect(adapter?.optionalRuntimePeers).toEqual(["@vite-hub/kv"])
+  })
+
+  it("classifies the Logs Evlog boundary for isolated consumers", () => {
+    for (const [specifier, declarations, runtime] of [
+      ["vite-hub/logs", ["evlog"], ["evlog"]],
+      ["vite-hub/logs/memory", ["evlog"], []],
+      ["vite-hub/logs/source", [], []],
+      ["vite-hub/logs/host", [], []],
+    ] as const) {
+      const contract = publicPackageExportContracts.find(contract => contract.specifier === specifier)
+      expect(contract?.optionalDeclarationPeers, specifier).toEqual(declarations)
+      expect(contract?.optionalRuntimePeers, specifier).toEqual(runtime)
+    }
   })
 
   it("keeps lazy optional peer exports runnable without their declaration peers", () => {
@@ -88,7 +121,7 @@ describe("public package export contracts", () => {
       ["@vite-hub/kv/vite", "vite"],
       ["@vite-hub/queue/vite", "vite"],
       ["@vite-hub/realtime/vite", "vite"],
-      ["@vite-hub/sandbox-task/vite", "vite"],
+      ["@vite-hub/sandbox/task/vite", "vite"],
       ["@vite-hub/workflow/runtime/openworkflow", "openworkflow"],
       ["@vite-hub/workflow/runtime/openworkflow-worker", "openworkflow"],
       ["@vite-hub/workspace/nitro", "vite"],
@@ -157,7 +190,7 @@ describe("public package export contracts", () => {
   })
 
   it("keeps Sandbox Task's public request contract limited to readable payloads", () => {
-    const source = readFileSync(join(packageDir("sandbox-task"), "src/internal/shared/request-payload.ts"), "utf8")
+    const source = readFileSync(join(packageDir("sandbox"), "src/task/internal/shared/request-payload.ts"), "utf8")
     expect(source).toMatch(/json: \(\) => Promise<unknown>/)
     expect(source).not.toMatch(/json\?:/)
   })

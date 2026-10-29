@@ -1,8 +1,7 @@
-import { viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-loader"
 import { connectRealtimeRoom } from "@vite-hub/realtime/client"
 
 import { createAnchor, fieldAttribute, fieldElementOf, placeAnchor, selectorOf } from "../anchor.ts"
-import { commentRoom, commentsRealtimeDefinition, normalizeCommentPage } from "../page.ts"
+import { commentRoom, commentsApiRoute, commentsRealtimeDefinition, commentsRoute, normalizeCommentPage } from "../page.ts"
 import { api, readGuest, saveGuest } from "./api.ts"
 import { captureContext } from "./context.ts"
 import { documentStyles, overlayStyles } from "./styles.ts"
@@ -13,6 +12,10 @@ import type { CommentAnchor, CommentAuthor, CommentContext, CommentMention } fro
 import type { CommentsApiError, CommentsSession, PageThread } from "./api.ts"
 
 type Mode = "view" | "comment" | "edit"
+
+function contentConsolePath(): string {
+  return `${commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)}/_vitehub/content`
+}
 
 interface Cursor {
   selector: string
@@ -70,14 +73,17 @@ function avatar(person: { id: string, name: string, image?: string | null }): HT
   return h("span", { className: "avatar", style: `background:${colorOf(person.id)}`, "aria-hidden": "true" }, person.image ? h("img", { src: person.image, alt: "" }) : initials(person.name))
 }
 
-/** Whether the host page shows its dark scheme: a `dark` class, as Nuxt UI and Tailwind set, or `color-scheme`. */
+/** Follows the host's theme classes, `data-theme`, or `color-scheme`, then the system preference. */
 function hostIsDark(): boolean {
   const root = document.documentElement
   if (root.classList.contains("dark")) return true
   if (root.classList.contains("light")) return false
+  if (root.dataset.theme === "dark") return true
+  if (root.dataset.theme === "light") return false
   const scheme = getComputedStyle(root).colorScheme
   if (scheme === "dark") return true
-  return scheme.includes("dark") && matchMedia("(prefers-color-scheme: dark)").matches
+  if (scheme === "light") return false
+  return matchMedia("(prefers-color-scheme: dark)").matches
 }
 
 function ago(iso: string): string {
@@ -136,11 +142,13 @@ class CommentsOverlay extends HTMLElement {
   private frame = 0
   private hover?: Element
   private drafted = new Set<string>()
-  private editing?: { element: HTMLElement, field: string, digest: string, original: string }
+  private editing?: { element: HTMLElement, field: string, digest: string, original: string, initial: string }
   private editStop?: () => void
   private toastTimer?: ReturnType<typeof setTimeout>
   private toast?: HTMLElement
   private lastCursor = 0
+  private loadRevision = 0
+  private navigationRevision = 0
   private readonly cleanups: Array<() => void> = []
 
   async connectedCallback() {
@@ -154,6 +162,7 @@ class CommentsOverlay extends HTMLElement {
     this.cleanups.push(() => style.remove())
 
     const [error, session] = await api.session()
+    if (!this.isConnected) return
     if (error || !session.can.read) {
       // The page tools session allowed the overlay, so this is an error or a change of access since then.
       this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
@@ -168,8 +177,11 @@ class CommentsOverlay extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this.loadRevision++
+    this.navigationRevision++
     for (const cleanup of this.cleanups.splice(0)) cleanup()
     this.room?.destroy()
+    this.room = undefined
     cancelAnimationFrame(this.frame)
   }
 
@@ -291,7 +303,7 @@ class CommentsOverlay extends HTMLElement {
     event.preventDefault()
     event.stopPropagation()
     this.openThread = undefined
-    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target, viteHubPageToolsQuery), x: event.clientX, y: event.clientY }
+    this.draft = { anchor: createAnchor(target, event.clientX, event.clientY), context: captureContext(target), x: event.clientX, y: event.clientY }
     this.render()
   }
 
@@ -307,7 +319,7 @@ class CommentsOverlay extends HTMLElement {
     }
     if (isTyping(event) || event.metaKey || event.ctrlKey || event.altKey) return
     if (event.key === "c" && this.session?.can.comment) this.setMode(this.mode === "comment" ? "view" : "comment")
-    if (event.key === "e" && this.session?.content) this.setMode(this.mode === "edit" ? "view" : "edit")
+    if (event.key === "e" && this.session?.content && this.session.can.comment) this.setMode(this.mode === "edit" ? "view" : "edit")
   }
 
   private setMode(mode: Mode) {
@@ -323,6 +335,7 @@ class CommentsOverlay extends HTMLElement {
   private async navigated() {
     const page = normalizeCommentPage(location.pathname)
     if (page === this.page) return
+    const revision = ++this.navigationRevision
     this.page = page
     this.threads = []
     this.openThread = undefined
@@ -331,7 +344,7 @@ class CommentsOverlay extends HTMLElement {
     this.room = undefined
     this.render()
     await this.load()
-    this.joinRoom()
+    if (revision === this.navigationRevision) this.joinRoom()
   }
 
   private openFromHash() {
@@ -350,28 +363,36 @@ class CommentsOverlay extends HTMLElement {
 
   private async load() {
     const page = this.page
+    const revision = ++this.loadRevision
     const [error, threads] = await api.threads(page)
-    if (page !== this.page) return
+    if (page !== this.page || revision !== this.loadRevision || !this.isConnected) return
     if (error) {
       this.showToast(error.why, "error")
       return
     }
-    this.threads = threads
+    // Retained cards keep their callbacks while polling refreshes their data.
+    const current = new Map(this.threads.map(thread => [thread.id, thread]))
+    this.threads = threads.map(thread => {
+      const existing = current.get(thread.id)
+      return existing ? Object.assign(existing, thread) : thread
+    })
     this.renderToolbar()
     this.render()
   }
 
-  /** The signed-in person. A guest of a Console without accounts names itself like any guest. */
+  /** The server-identified person. Only the unnamed Console placeholder needs a browser guest identity. */
   private account(): CommentAuthor | undefined {
     const user = this.session?.user
-    return user && !user.guest ? user : undefined
+    return user && !(user.guest && user.id === "guest:console") ? user : undefined
   }
 
-  private joinRoom() {
-    if (!this.session?.realtime) return
+  private joinRoom(reconnect = false) {
+    if (!this.session?.realtime || !this.isConnected || (this.room && !reconnect)) return
+    this.room?.destroy()
     const guest = readGuest()
-    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : this.session.user ?? undefined)
-    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true })
+    const identity = this.account() ?? (guest ? { id: `guest:${guest.id}`, name: `${guest.name} (guest)` } : undefined)
+    const baseURL = commentsApiRoute(import.meta.url).slice(0, -commentsRoute.length)
+    const room = connectRealtimeRoom(commentsRealtimeDefinition, commentRoom(this.page), { identity, changes: true, baseURL })
     room.onUpdate(() => {
       this.renderToolbar()
       this.schedule()
@@ -384,6 +405,7 @@ class CommentsOverlay extends HTMLElement {
 
   /** Tells the other people on this page that its threads changed. They read them again. */
   private changed() {
+    this.loadRevision++
     this.room?.notify({ operation: "update", path: commentRoom(this.page) })
   }
 
@@ -392,7 +414,7 @@ class CommentsOverlay extends HTMLElement {
   }
 
   private ensureAuthor(nameInput?: HTMLInputElement): boolean {
-    if (this.session?.user) return true
+    if (this.account()) return true
     if (readGuest()) return true
     const name = nameInput?.value.trim()
     if (!name) {
@@ -400,6 +422,7 @@ class CommentsOverlay extends HTMLElement {
       return false
     }
     saveGuest(name)
+    this.joinRoom(true)
     return true
   }
 
@@ -436,7 +459,7 @@ class CommentsOverlay extends HTMLElement {
 
   private async removeComment(thread: PageThread, commentId: string) {
     const first = thread.comments[0]?.id === commentId
-    const [error] = first ? await api.remove(thread.id) : await api.removeComment(thread.id, commentId)
+    const [error] = await api.removeComment(thread.id, commentId)
     if (error) return this.failed(error)
     if (first) {
       this.threads = this.threads.filter(candidate => candidate.id !== thread.id)
@@ -457,10 +480,10 @@ class CommentsOverlay extends HTMLElement {
     const [error, value] = await api.field(field)
     if (error) return this.failed(error)
     if (!value.editable || value.value === null) {
-      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", "/_vitehub/content"] })
+      this.showToast("This field is not plain text. Edit it in the Console.", "info", { link: ["Open Content", contentConsolePath()] })
       return
     }
-    this.editing = { element, field, digest: value.digest, original: element.textContent ?? "" }
+    this.editing = { element, field, digest: value.digest, original: element.textContent ?? "", initial: value.value }
     element.textContent = value.value
     element.setAttribute("data-vitehub-editing", "")
     element.contentEditable = "plaintext-only"
@@ -495,21 +518,22 @@ class CommentsOverlay extends HTMLElement {
     if (!editing) return
     this.editing = undefined
     this.editStop?.()
-    const { element, field, digest, original } = editing
+    const { element, field, digest, original, initial } = editing
     element.contentEditable = "inherit"
     element.removeAttribute("data-vitehub-editing")
     const value = (element.textContent ?? "").trim()
-    if (!save || value === original.trim()) {
+    if (!save) {
       element.textContent = original
       return
     }
+    if (value === initial.trim()) return
     const [error] = await api.saveField({ field, value, ifDigest: digest })
     if (error) {
       element.textContent = original
       return this.failed(error)
     }
     this.drafted.add(field)
-    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", "/_vitehub/content"] })
+    this.showToast("Saved as a draft. Publish it in the Console.", "info", { link: ["Review and publish", contentConsolePath()] })
     this.schedule()
   }
 
@@ -535,7 +559,7 @@ class CommentsOverlay extends HTMLElement {
     const count = `${open} open ${open === 1 ? "thread" : "threads"}`
     this.toolbar.replaceChildren(...present(
       session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "comment"), title: "Comment (C)", onClick: () => this.setMode(this.mode === "comment" ? "view" : "comment") }, icons.comment(), "Comment", h("kbd", {}, "C")),
-      session.content && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
+      session.content && session.can.comment && h("button", { className: "tool", "aria-pressed": String(this.mode === "edit"), title: "Edit text (E)", onClick: () => this.setMode(this.mode === "edit" ? "view" : "edit") }, icons.edit(), "Edit", h("kbd", {}, "E")),
       h("span", { className: "sep" }),
       h("button", { className: "tool", "aria-pressed": String(this.panel), title: "Comments on this page", "aria-label": `Comments on this page, ${count}`, onClick: () => {
         this.panel = !this.panel
@@ -639,7 +663,7 @@ class CommentsOverlay extends HTMLElement {
       const box = element.getBoundingClientRect()
       const x = box.left + (cursor.x / 1000) * box.width
       const y = box.top + (cursor.y / 1000) * box.height
-      const color = user.color ?? colorOf(user.id)
+      const color = typeof user.color === "string" && /^#[\da-f]{6}$/i.test(user.color) ? user.color : colorOf(user.id)
       const arrow = svg(`<path d="M4 2l16 7-7 2-3 8z" fill="${color}" stroke="#000" stroke-width="1.5"/>`)
       nodes.push(h("div", { className: "cursor", style: `left:${x}px;top:${y}px` }, arrow, h("span", { style: `background:${color}` }, user.name ?? "Someone")))
     }
@@ -674,7 +698,8 @@ class CommentsOverlay extends HTMLElement {
     }
     if (this.toast) nodes.push(this.toast)
     // Keep focus and typed text: only replace the cards when what they show changed.
-    const key = JSON.stringify([this.panel, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, this.threads.length, Boolean(this.toast)])
+    const panelThreads = this.panel ? this.visibleThreads().map(thread => [thread.id, thread.status, thread.updatedAt, thread.comments.length, thread.comments[0]?.body]) : undefined
+    const key = JSON.stringify([this.panel, panelThreads, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, thread?.can, this.threads.length, Boolean(this.toast)])
     if (this.floating.dataset.key === key) {
       for (const card of this.floating.querySelectorAll<HTMLElement>(".card")) {
         const fresh = nodes.find((node): node is HTMLElement => node instanceof HTMLElement && node.dataset.card === card.dataset.card)
@@ -737,12 +762,12 @@ class CommentsOverlay extends HTMLElement {
 
   private renderThread(thread: PageThread): HTMLElement {
     const session = this.session!
-    const me = this.account()?.id ?? (readGuest() ? `guest:${readGuest()!.id}` : undefined)
+    const can = thread.can ?? session.can
     const resolved = thread.status === "resolved"
     const card = h("div", { className: "card", role: "dialog", "aria-label": "Comment thread", "data-card": `thread-${thread.id}` },
       h("div", { className: "card-head" },
         h("span", { className: "grow" }, thread.anchor.field ? `On ${thread.anchor.field}` : resolved ? `Resolved by ${thread.resolvedBy?.name ?? "someone"}` : `${thread.comments.length} ${thread.comments.length === 1 ? "comment" : "comments"}`),
-        session.can.resolve && h("button", { className: "icon", title: resolved ? "Reopen" : "Resolve", "aria-label": resolved ? "Reopen" : "Resolve", onClick: () => void this.setStatus(thread, !resolved) }, resolved ? icons.reopen() : icons.check()),
+        can.resolve && h("button", { className: "icon", title: resolved ? "Reopen" : "Resolve", "aria-label": resolved ? "Reopen" : "Resolve", onClick: () => void this.setStatus(thread, !resolved) }, resolved ? icons.reopen() : icons.check()),
         h("button", { className: "icon", "aria-label": "Close", onClick: () => {
           this.openThread = undefined
           this.render()
@@ -752,9 +777,9 @@ class CommentsOverlay extends HTMLElement {
         h("div", { className: "message-head" },
           h("span", { className: "name" }, comment.author.guest ? `${comment.author.name} (guest)` : comment.author.name),
           h("time", { className: "time", datetime: comment.createdAt, title: new Date(comment.createdAt).toLocaleString() }, ago(comment.createdAt)),
-          (comment.author.id === me || session.can.resolve) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
+          session.user && !session.user.guest && (can.resolve || (can.comment && !comment.author.guest && comment.author.id === session.user.id)) && h("button", { className: "icon danger", title: "Delete", "aria-label": "Delete comment", onClick: () => void this.removeComment(thread, comment.id) }, icons.trash())),
         renderBody(comment.body, comment.mentions)))),
-      !resolved && session.can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
+      !resolved && can.comment && this.renderCompose("Reply", (body, mentions, name) => this.reply(thread, body, mentions, name)),
     )
     return card
   }
@@ -775,13 +800,20 @@ class CommentsOverlay extends HTMLElement {
     let options: CommentMention[] = []
     let selected = 0
     let query: { start: number, text: string } | undefined
+    let sending = false
 
     const send = async () => {
       const body = input.value.trim()
-      if (!body) return
+      if (!body || sending) return
+      sending = true
       button.disabled = true
-      await submit(body, mentions, name)
-      button.disabled = false
+      try {
+        await submit(body, mentions, name)
+      }
+      finally {
+        sending = false
+        button.disabled = !input.value.trim()
+      }
     }
     const pick = (person: CommentMention) => {
       if (!query) return
@@ -801,7 +833,7 @@ class CommentsOverlay extends HTMLElement {
       } }, avatar(person), person.name)))
     }
     input.addEventListener("input", async () => {
-      button.disabled = !input.value.trim()
+      button.disabled = sending || !input.value.trim()
       const before = input.value.slice(0, input.selectionStart)
       const match = /(^|\s)@([^\s@]{0,32})$/.exec(before)
       if (!match) {

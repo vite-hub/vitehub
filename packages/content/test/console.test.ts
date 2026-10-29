@@ -99,6 +99,17 @@ async function failure(promise: unknown) {
 }
 
 describe("Content Console actions", { timeout: 30_000 }, () => {
+  it("keeps setup available for a read-only runtime without collections", async () => {
+    const content = defineContent({ source: { items: async () => [] }, logger: false })
+    cleanup.push(() => content.dispose())
+    const actions = createContentConsoleActions({ content })
+
+    await expect(actions.collections(anonymous)).resolves.toEqual([])
+    const setup = await actions.setup!(anonymous)
+    expect(setup.schedule).toBeUndefined()
+    expect(setup.access).toMatchObject({ message: expect.stringContaining("authorize") })
+  })
+
   it("lists the collections a user may read, with what they may do", async () => {
     const { actions } = await setup()
     const collections = await actions.collections(writer)
@@ -630,6 +641,7 @@ describe("Content Console section", () => {
 
   it("names the fix for scheduled publishes when no Schedule Definition calls publishDue()", async () => {
     const root = await temporaryRoot()
+    await writeFile(join(root, "content.ts"), `import { defineContent } from "vite-hub/content"\nimport cms from "vite-hub/content/presets/cms"\nexport const content = defineContent({ extends: cms })\n`)
     const schedule = async (name: string, source: string) => {
       const file = join(root, `${name}.ts`)
       await writeFile(file, source)
@@ -651,6 +663,16 @@ describe("Content Console section", () => {
     })
     // Without Schedule, no Schedule Definition runs, even one that calls publishDue().
     await expect(inspect({ projectRoot: root }, join(root, "content.ts"))).resolves.toMatchObject({ schedule: { message: expect.stringContaining("Enable Schedule") } })
+  })
+
+  it.each(["vite-hub/content", "@vite-hub/content"])("does not ask for a schedule runner with the GitHub cms store from %s", async (module) => {
+    const root = await temporaryRoot()
+    const file = join(root, "content.ts")
+    await writeFile(file, `import { defineContent } from "${module}"\nimport cms from "${module}/presets/cms"\nexport const content = defineContent({ extends: [cms, { store: "github", repo: "onmax/docs" }] })\n`)
+
+    const inspect = contentConsoleSection.inspect!
+    await expect(inspect({ projectRoot: root }, file)).resolves.toEqual({})
+    await expect(inspect({ projectRoot: root, schedules: [] }, file)).resolves.toEqual({})
   })
 
   it("shows the section only when server/content.ts defines document collections", async () => {

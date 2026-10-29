@@ -57,17 +57,19 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
  * Whether a request asks for the page tools: the `?vitehub` query, or the `vitehub-tools=1` cookie that the session
  * route sets. It is a hint, never a credential. Paths under `/_vitehub` and `/api/` never get the page tools.
  */
-export function hasViteHubPageToolsHint(request: Request): boolean {
+export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  if (url.pathname.startsWith("/_vitehub") || url.pathname.startsWith("/api/")) return false
+  if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
+  const path = url.pathname.slice(base.length)
+  if (path.startsWith("/_vitehub") || path.startsWith("/api/")) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
   return Boolean(cookie && cookie.split(";").some(part => part.trim() === `${viteHubPageToolsCookie}=1`))
 }
 
 /** Whether ViteHub adds the loader to the page of this request: it has the hint, and a tool is registered. */
-function wantsLoader(nitroApp: object, request: Request): boolean {
-  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request)
+function wantsLoader(nitroApp: object, request: Request, base: string): boolean {
+  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, base)
 }
 
 function loaderTag(nonce?: string): string {
@@ -149,12 +151,12 @@ export function scriptNonce(headers: Headers): string | undefined {
 /**
  * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. The page then
  * varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other responses return
- * unchanged.
+ * unchanged. `policyHeaders` supplies the effective CSP when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response): Response {
+export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
-  const tag = loaderTag(scriptNonce(response.headers))
+  const tag = loaderTag(scriptNonce(policyHeaders))
   const decoder = new TextDecoder()
   const encoder = new TextEncoder()
   let tail = ""
@@ -193,7 +195,7 @@ export function injectPageToolsLoader(response: Response): Response {
 interface Nitro2Event {
   web?: { request?: Request }
   node?: {
-    req?: { url?: string, headers?: Record<string, string> }
+    req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
     res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
@@ -201,7 +203,9 @@ interface Nitro2Event {
 /** The Web request of an H3 1 event. Only the path, query, and headers matter to the hint. */
 function nitro2Request(event: Nitro2Event): Request | undefined {
   const node = event.node?.req
-  return event.web?.request ?? (node?.url ? new Request(new URL(node.url, "http://localhost"), { headers: node.headers }) : undefined)
+  // H3 strips the application base from `url` and keeps the public path in `originalUrl`.
+  const path = node?.originalUrl || node?.url
+  return event.web?.request ?? (path ? new Request(new URL(path, "http://localhost"), { headers: node?.headers }) : undefined)
 }
 
 /**
@@ -212,7 +216,7 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
  *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
  */
-export function installViteHubPageTools(nitroApp: unknown): void {
+export function installViteHubPageTools(nitroApp: unknown, base = ""): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
   const { installed } = state()
   if (installed.has(nitroApp)) return
@@ -224,7 +228,7 @@ export function installViteHubPageTools(nitroApp: unknown): void {
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response) : response
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request, base) ? injectPageToolsLoader(response) : response
     })
     return
   }
@@ -236,7 +240,7 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   }])
   Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
     const request = nitro2Request(context.event)
-    if (!request || !wantsLoader(nitroApp, request)) return
+    if (!request || !wantsLoader(nitroApp, request, base)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
     html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
@@ -246,6 +250,12 @@ export function installViteHubPageTools(nitroApp: unknown): void {
   Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
     if (!(response.body instanceof Response)) return
     const request = nitro2Request(event)
-    if (request && wantsLoader(nitroApp, request)) response.body = injectPageToolsLoader(response.body)
+    if (request && wantsLoader(nitroApp, request, base)) {
+      // H3 preserves Node response headers unless the returned Response replaces them.
+      const headers = new Headers(response.body.headers)
+      const policy = event.node?.res?.getHeader?.("content-security-policy")
+      if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
+      response.body = injectPageToolsLoader(response.body, headers)
+    }
   }])
 }

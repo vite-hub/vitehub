@@ -124,6 +124,13 @@ export const closingHosts = [
 // Icons match the docs navigation, so a tile and its section look the same.
 export const landingPrimitives = [
   {
+    id: "logs",
+    name: "Logs",
+    description: "Structured logs with Evlog",
+    to: "/docs/logs",
+    icon: "i-lucide-logs",
+  },
+  {
     id: "kv",
     name: "KV",
     description: "State and cache",
@@ -413,7 +420,7 @@ export const portabilityExamples = [
     path: "server/api/release-notes.post.ts",
     code: [
       'import { defineEventHandler } from "h3"',
-      'import { runSandboxTask } from "vite-hub/sandbox-task"',
+      'import { runSandboxTask } from "vite-hub/sandbox/task"',
       "",
       "export default defineEventHandler(async () => {",
       '  const response = await runSandboxTask("release-notes", { notes: "ship it" })',

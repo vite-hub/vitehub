@@ -270,6 +270,8 @@ function resetExample() {
 
 .component-preview-source :deep(.code-block-wrapper) {
   margin: 0;
+  border: 0;
+  border-radius: 0;
 }
 
 .component-preview-source :deep(pre) {

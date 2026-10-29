@@ -6,13 +6,12 @@
       "node",
       "vitest/globals"
     ],
-    "baseUrl": "../..",
     "paths": {
       "#vitehub/channels/registry": [
-        "packages/channels/src/runtime/empty-registry.ts"
+        "../../packages/channels/src/runtime/empty-registry.ts"
       ],
       "@vite-hub/internal/*": [
-        "packages/internal/src/*.ts"
+        "../../packages/internal/src/*.ts"
       ]
     }
   },

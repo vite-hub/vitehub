@@ -23,7 +23,8 @@ export type ConsoleMediaActionName = (typeof consoleMediaActionNames)[number]
 export const maximumConsoleMediaUploadBytes: number = 32 * 1024 * 1024
 
 /** Largest JSON request of a media action. */
-export const maximumConsoleMediaRequestBytes: number = 256 * 1024
+import { maximumConsoleMediaRequestBytes } from "./limits.ts"
+export { maximumConsoleMediaRequestBytes }
 
 const listLimit = 200
 const searchScanLimit = 5_000

@@ -18,11 +18,37 @@ import { consoleAuthPageResponse, consoleAuthSignInPage, createConsoleAuthDefini
 import { resolveConsoleAuthConfig, writeConsoleAuthHandlers } from "../src/console/auth-build.ts"
 import { createInlineConsoleAuth } from "../src/console/auth-inline.ts"
 import { consoleVitePlugin } from "../src/console/vite.ts"
+import { installConsoleDevelopment } from "../src/console/runtime/server/development.ts"
 import { installConsoleProjectNameScope, installConsoleSectionScope, resolveConsoleAuth } from "../src/console/internal.ts"
 
 import type { ConsoleInvocationScope } from "../src/console/internal.ts"
 
 describe("independent Console Auth", () => {
+  it.each([false, true])("uses build-time development=%s for auth page framing and keeps OAuth outside the frame", async (development) => {
+    installConsoleDevelopment("/tmp/vitehub-console-auth", development)
+    vi.stubEnv("NODE_ENV", development ? "production" : "development")
+    try {
+      const request = new Request("http://localhost/portal/_vitehub", { headers: { accept: "text/html" } })
+      const redirect = consoleAuthPageResponse(request, new Response(null, { status: 401 }), "/portal/")
+      expect(redirect?.status).toBe(302)
+      const response = consoleAuthSignInPage("github", new Request(redirect!.headers.get("location")!), "/portal/")
+      expect(response.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+      expect(response.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      const html = await response.text()
+      expect(html).toContain(`href="/portal/_vitehub?auth_start=1"${development ? ' target="_top"' : ""}>Sign in with GitHub`)
+
+      const denied = consoleAuthPageResponse(request, new Response("Forbidden", { status: 403 }), "/portal/")
+      expect(denied?.status).toBe(403)
+      expect(denied?.headers.get("content-security-policy")).toContain(`frame-ancestors '${development ? "self" : "none"}'`)
+      expect(denied?.headers.get("x-frame-options")).toBe(development ? "SAMEORIGIN" : "DENY")
+      expect(await denied?.text()).toContain("Switch account")
+    }
+    finally {
+      installConsoleDevelopment("/tmp/vitehub-console-auth", false)
+      vi.unstubAllEnvs()
+    }
+  })
+
   it.each([
     ["", ""],
     ["./", ""],
@@ -237,7 +263,7 @@ describe("independent Console Auth", () => {
 
       // Every stateless Console call carries the session cookie and is authorized on its own.
       const rpcCall = (headers: Record<string, string>) => new Request("https://example.com/portal/_vitehub/rpc/__call", {
-        body: JSON.stringify({ method: "vitehub:console:sections" }),
+        body: JSON.stringify({ operation: "sections.list" }),
         headers: { "content-type": "application/json", ...headers },
         method: "POST",
       })
@@ -563,6 +589,8 @@ describe("independent Console Auth", () => {
       const options = definition.options({ env: {}, requestOrigin: "http://internal.example.com", request })
       if (!(options.database instanceof DatabaseSync)) throw new TypeError("Expected a SQLite database.")
       database = options.database
+      // Inline Console Auth needs a file. Without fsync, its migrations take milliseconds instead of seconds on a busy disk.
+      database.exec("PRAGMA synchronous = OFF")
       await prepareConsoleAuth(input, definition, request)
       const response = await requireAuthAccessRoutes(request, [0], definition, [0])
       expect(response?.status).toBe(302)

@@ -1,10 +1,10 @@
 # @vite-hub/blob
 
 <p>
-  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://img.shields.io/badge/ViteHub-vitehub.dev-646cff?style=flat-square"></a>
-  <img alt="TypeScript" src="https://img.shields.io/badge/TypeScript-ready-3178c6?style=flat-square">
-  <img alt="Vite" src="https://img.shields.io/badge/Vite-config-646cff?style=flat-square">
-  <img alt="Storage" src="https://img.shields.io/badge/Blob-stores-0f766e?style=flat-square">
+  <a href="https://vitehub.dev"><img alt="ViteHub" src="https://comark-ui.onmax.me/badge.svg?label=ViteHub&amp;value=vitehub.dev"></a>
+  <img alt="TypeScript" src="https://comark-ui.onmax.me/badge.svg?label=TypeScript&amp;value=ready">
+  <img alt="Vite" src="https://comark-ui.onmax.me/badge.svg?label=Vite&amp;value=config">
+  <img alt="Storage" src="https://comark-ui.onmax.me/badge.svg?label=Blob&amp;value=stores">
 </p>
 
 `@vite-hub/blob` gives server code one object-storage API across local files and hosted blob providers.
@@ -112,6 +112,8 @@ export default defineConfig({
 Blob stores binary objects and small object metadata. Keep catalogs, indexes, permissions, search records, domain records, and richer metadata queries in KV, Database, or another NoSQL/catalog store next to Blob.
 
 Pass the cursor returned by `blob.list()` unchanged to the next list call on the same Blob Store. Keep `prefix` and `folded` unchanged. Netlify Blobs listings and folded files-sdk listings fail if they cannot decode the cursor.
+
+Filesystem listings skip child directories removed or replaced by files during traversal, so unaffected blobs remain visible. Permission and path-safety errors still propagate. A store root that is a regular file still fails.
 
 ## Uploads
 
@@ -270,6 +272,6 @@ blob: {
 
 `hubBlob()` contributes the `vitehub blob` CLI namespace: `list [--prefix] [--limit] [--cursor]`, `head <pathname>`, `get <pathname> [--output <file>]`, `put <pathname> <file> [--content-type]`, `del <pathname>`, `media <pathname>`, and `variants <pathname>`. Each command accepts `--store <name>` and `--json`. Write commands print what they changed. The `created` and `deleted` labels are best-effort metadata observations before each mutation. They can be stale with eventual consistency or concurrent writers. Deletion is unconditional and can remove an object replaced concurrently. There is no `sign` command.
 
-The commands call a guarded endpoint that exists only on the Vite Development Server. The endpoint forwards each operation into the Nitro dev environment, so it uses the same Blob storage as the running app. `get` returns the raw bytes. `put` sends the file as base64 JSON, so it accepts files up to 8 MiB. Nuxt and plain Vite do not run Nitro in the Vite process, so the endpoint returns status 501 there. `handleBlobDevRequest()` from `@vite-hub/blob/runtime/dev` is the Nitro handler; it is not a public runtime API.
+Each command runs a `blob.*` operation of the app through the Console RPC (`@vite-hub/blob/operations`), on the dev server or, with `--url`, on a deployed app. `get` and `put` carry the file as base64 JSON, so they accept files up to 8 MiB. The Console Blob page uploads and deletes objects with the same operations.
 
 Learn more at [vitehub.dev](https://vitehub.dev).

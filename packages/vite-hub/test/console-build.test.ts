@@ -31,7 +31,7 @@ function event(): ConsoleRequestEvent {
 }
 
 async function generatedBuild(file: string, root: string, sections: Parameters<typeof writeConsoleNitroPlugin>[2]): Promise<string> {
-  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [], ["default"])
+  await writeConsoleNitroPlugin(file, root, sections, [], { agents: [], content: {} }, [])
   const build = buildPattern.exec(await readFile(file, "utf8"))?.[1]
   if (!build) throw new TypeError("Expected the generated Console plugin to install a build id.")
   return build
@@ -81,7 +81,8 @@ describe("Console build id", () => {
       const first = await generatedBuild(file, root, ["kv"])
       expect(await generatedBuild(file, root, ["kv"])).toBe(first)
       expect(await generatedBuild(file, root, ["kv", "blob"])).not.toBe(first)
-      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain(`import { installConsoleBuild, installConsoleDevelopment, installConsoleOperations, installConsoleProjectName, installConsoleSections } from "vite-hub/console/sections"`)
+      expect(await readFile(file, "utf8")).toContain("installConsoleOperations([], { invoke: false })")
     }
     finally {
       await rm(root, { force: true, recursive: true })

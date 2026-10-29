@@ -163,16 +163,16 @@ describe("vitehub agent invocations export", () => {
     ]
     const methods: string[] = []
     const fetch = vi.fn(async (_url: string, init?: RequestInit) => {
-      const { input, method } = JSON.parse(String(init?.body))
-      methods.push(method)
-      if (method === "vitehub:console:invocation") return Response.json({ ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
+      const { input, operation } = JSON.parse(String(init?.body))
+      methods.push(operation)
+      if (operation === "invocations.get") return Response.json({ ok: true, value: { invocation: summary(input.id, { status: input.id === "a" ? "running" : "cancelled" }), observations: [] } })
       return Response.json({ ok: true, value: pages.shift() })
     })
     // SAFETY: The mock implements the fetch call shape that the CLI uses.
     const result = await run(["export", "--url", "https://agent.example.com"], fetch as unknown as typeof globalThis.fetch)
 
     expect(lines(result.stdout).map(line => line.id)).toEqual(["a", "b"])
-    expect(methods).toEqual(["vitehub:console:invocations", "vitehub:console:invocations", "vitehub:console:invocation", "vitehub:console:invocation"])
+    expect(methods).toEqual(["invocations.list", "invocations.list", "invocations.get", "invocations.get"])
   })
 
   it.each([

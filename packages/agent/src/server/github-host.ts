@@ -37,7 +37,7 @@ export interface GitHubHostOptions {
   credentials: (context: GitHubHostCredentialContext) => GitHubHostCredentials | Promise<GitHubHostCredentials>
   /** A `fetch` for Forge requests, for tests and runtimes without a global one. */
   fetch?: typeof fetch
-  identity?: { email?: string, login?: string }
+  identity?: { appId?: number, email?: string, login?: string }
   maxBuffer?: number
   /** Forge request timeout in milliseconds. Default 60000. */
   timeout?: number
@@ -100,6 +100,8 @@ export interface GitHubHost {
   channel(options?: Omit<GitHubChannelOptions, 'app'>): AgentChannelDefinition
   /** Return the verified login configured for this host, when available. */
   identity(): string | undefined
+  /** Immutable GitHub App ID for managed activity ownership. */
+  appId?(): number | undefined
   /** Resolve credentials and Git binding for the current checkout callback. */
   environment(): Promise<Record<string, string>>
   access(input?: GitHubHostAccessOptions): Promise<GitHubHostAccess>
@@ -144,7 +146,7 @@ export interface GitHubAppEnvironment {
 export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
   const configuredInstallations = new Map(Object.entries(app.installations ?? {}).map(([name, id]) => [name.toLowerCase(), id]));
   const installations = new Map<string, number>()
-  let identity: Promise<{ login: string, email: string }> | undefined
+  let identity: Promise<{ appId: number, login: string, email: string }> | undefined
   const client = githubAppCredentials(app)
   const installation = async (repository: string, signal?: AbortSignal) => {
     signal?.throwIfAborted()
@@ -166,9 +168,9 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
       return { appId: app.appId, installationId, owner: owner(context.repository), privateKey: app.privateKey, token: app.token }
     },
     /** The App bot's login and noreply email, used as the commit author. */
-    async identity(): Promise<{ login: string, email: string }> {
+    async identity(): Promise<{ appId: number, login: string, email: string }> {
       identity ??= (async () => {
-        const { login } = await client.app().catch((error: unknown) => {
+        const { id: appId, login } = await client.app().catch((error: unknown) => {
           const status = forgeErrorStatus(error)
           if (status !== undefined) throw agentDiagnostics.AGENT_R0757({ message: `GitHub App request /app failed with ${status}.`, cause: error })
           if (error instanceof ForgeResponseError) throw agentDiagnostics.AGENT_R0757({ message: error.message, cause: error })
@@ -176,7 +178,7 @@ export function createGitHubAppCredentials(app: GitHubAppEnvironment) {
         })
         const provider = await forgeProvider({ forge: "github", userAgent: app.userAgent })
         const user = await provider.users.get(login).catch(() => undefined)
-        return { login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
+        return { appId, login, email: user?.id ? `${user.id}+${login}@users.noreply.github.com` : `${login}@users.noreply.github.com` }
       })()
       identity.catch(() => { identity = undefined })
       return await identity
@@ -539,13 +541,16 @@ export function createGitHubHost(options: GitHubHostOptions): GitHubHost {
     identity() {
       return identity.login?.trim() || undefined
     },
+    appId() {
+      return identity.appId
+    },
     channel(channelOptions = {}) {
       const login = host.identity()
       return github({
         ...channelOptions,
         app: {
           token: async (_context, scope) => (await access(scope)).token,
-          ...(login ? { identity: { login } } : {}),
+          ...(login ? { identity: { login, appId: host.appId?.() } } : {}),
         },
       })
     },

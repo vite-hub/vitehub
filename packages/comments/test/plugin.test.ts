@@ -1,7 +1,9 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 
 import { respondViteHubPageSession } from "@vite-hub/internal/runtime/page-tools"
 
+import { commentsApiRoute } from "../src/page.ts"
+import { commentsConsoleSession } from "../src/runtime/console-session.ts"
 import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
 
@@ -57,28 +59,86 @@ describe("Comments page tool", () => {
     expect((await pageSession(app, "")).body).toEqual({ tools: [] })
   })
 
-  it("adds the loader to pages with the hint on Nitro 3, never on Console or API routes", async () => {
-    const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html" } }) }
-    install(nitroApp)
-    install(nitroApp)
-    const page = async (url: string, cookie = "") => (await nitroApp.fetch(new Request(url, { headers: { cookie } }))).text()
-    expect(await page("http://site.test/?vitehub")).toBe(`<html><body>Page${loaderTag}</body></html>`)
-    expect(await page("http://site.test/", "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag}</body></html>`)
-    expect(await page("http://site.test/")).toBe("<html><body>Page</body></html>")
-    expect(await page("http://site.test/?comments", "vitehub-comments=1")).toBe("<html><body>Page</body></html>")
-    expect(await page("http://site.test/_vitehub/content?vitehub")).toBe("<html><body>Page</body></html>")
-    expect(await page("http://site.test/api/x?vitehub")).toBe("<html><body>Page</body></html>")
+  it.each([true, false])("checks Console read access before Comments identity: %s", async (allowed) => {
+    const app = {}
+    const identify = vi.fn(() => ({ id: "custom", name: "Custom" }))
+    const consoleSession = commentsConsoleSession({
+      authorize: async ({ kind }) => allowed && kind !== "write",
+      user: async () => null,
+      identify: async () => null,
+    })
+    defineCommentsPlugin({ comments: defineComments({ identify, authorize: () => true }), database: () => undefined, overlay: "/o.js", consoleSession })(app)
+    expect((await pageSession(app, "")).body.tools).toHaveLength(allowed ? 1 : 0)
+    expect(identify).toHaveBeenCalledTimes(allowed ? 1 : 0)
   })
 
-  it("adds the loader in Nuxt's render:html hook", () => {
+  it("finds the API from the mounted overlay URL", () => {
+    expect(commentsApiRoute("https://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/portal/api/_vitehub/comments")
+    expect(commentsApiRoute("https://site.test/api/_vitehub/comments/assets/overlay.js?v=1")).toBe("/api/_vitehub/comments")
+  })
+
+  it.each(["", "/portal"])("adds one loader on Nitro 3 under mount %s, never on Console or API routes", async (mount) => {
+    const nitroApp = { fetch: (_request: Request) => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html" } }) }
+    const overlay = `${mount}/api/_vitehub/comments/assets/overlay.js`
+    install(nitroApp, {}, overlay)
+    install(nitroApp, {}, overlay)
+    const page = async (path: string, cookie = "") => (await nitroApp.fetch(new Request(`http://site.test${path}`, { headers: { cookie } }))).text()
+    expect(await page(`${mount}/?vitehub`)).toBe(`<html><body>Page${loaderTag}</body></html>`)
+    expect(await page(`${mount}/`, "vitehub-tools=1")).toBe(`<html><body>Page${loaderTag}</body></html>`)
+    expect(await page(`${mount}/`)).toBe("<html><body>Page</body></html>")
+    expect(await page(`${mount}/?comments`, "vitehub-comments=1")).toBe("<html><body>Page</body></html>")
+    for (const path of ["/_vitehub/content", "/api/x"]) {
+      expect(await page(`${mount}${path}?vitehub`, "vitehub-tools=1")).toBe("<html><body>Page</body></html>")
+    }
+    if (mount) expect(await page("/outside?vitehub")).toBe("<html><body>Page</body></html>")
+  })
+
+  it.each([
+    { mount: "", stripBase: false },
+    { mount: "/portal", stripBase: false },
+    { mount: "/portal", stripBase: true },
+  ])("adds a nonced loader in Nuxt's render:html hook under mount $mount (base stripped: $stripBase)", ({ mount, stripBase }) => {
     let render: ((html: { bodyAppend: string[] }, context: unknown) => void) | undefined
-    install({ hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } })
-    const page = (url: string) => {
+    install({ hooks: { hook: (name: string, handler: typeof render) => { if (name === "render:html") render = handler } } }, {}, `${mount}/api/_vitehub/comments/assets/overlay.js`)
+    const headers: Record<string, string> = {}
+    const page = (path: string) => {
       const html = { bodyAppend: [] as string[] }
-      render!(html, { event: { node: { req: { url, headers: {} }, res: { setHeader() {} } } } })
+      const req = { url: stripBase ? path.slice(mount.length) : path, originalUrl: stripBase ? path : undefined, headers: {} }
+      render!(html, { event: { node: { req, res: { setHeader: (name: string, value: string) => { headers[name] = value }, getHeader: () => "script-src 'nonce-n1'" } } } })
       return html.bodyAppend
     }
-    expect(page("/")).toEqual([])
-    expect(page("/?vitehub")).toEqual([loaderTag])
+    expect(page(`${mount}/`)).toEqual([])
+    expect(headers).toEqual({})
+    expect(page(`${mount}/?vitehub`)).toEqual([loaderTag.replace(" data-vitehub", ' nonce="n1" data-vitehub')])
+    expect(headers).toEqual({ "cache-control": "private, no-store" })
+    expect(page(`${mount}/_vitehub?vitehub`)).toEqual([])
+    expect(page(`${mount}/api/x?vitehub`)).toEqual([])
+  })
+
+  it.each([
+    { mount: "", stripBase: false },
+    { mount: "/portal", stripBase: false },
+    { mount: "/portal", stripBase: true },
+  ])("adds the loader to Nitro 2 Response pages under mount $mount (base stripped: $stripBase)", async ({ mount, stripBase }) => {
+    let respond: ((event: unknown, response: { body?: unknown }) => void) | undefined
+    install({ hooks: { hook: (name: string, handler: typeof respond) => { if (name === "beforeResponse") respond = handler } } }, {}, `${mount}/api/_vitehub/comments/assets/overlay.js`)
+    const send = (path: string, body: unknown, cookie = "") => {
+      const response = { body }
+      const req = { url: stripBase ? path.slice(mount.length) : path, originalUrl: stripBase ? path : undefined, headers: { cookie } }
+      respond!({ node: { req } }, response)
+      return response.body
+    }
+    const file = () => new Response("<html><body>Page</body></html>", { headers: { "content-type": "text/html", "cache-control": "public, max-age=3600" } })
+    const plain = file()
+    expect(send(`${mount}/guide/`, plain)).toBe(plain)
+    expect(send(`${mount}/guide/`, "<html></html>", "vitehub-tools=1")).toBe("<html></html>")
+    expect(send(`${mount}/_vitehub?vitehub`, plain)).toBe(plain)
+    expect(send(`${mount}/api/x?vitehub`, plain)).toBe(plain)
+    if (mount && !stripBase) expect(send("/outside?vitehub", plain)).toBe(plain)
+    const page = send(`${mount}/guide/`, file(), "theme=dark; vitehub-tools=1")
+    expect(page).toBeInstanceOf(Response)
+    if (!(page instanceof Response)) return
+    expect(page.headers.get("cache-control")).toBe("private, no-store")
+    expect(await page.text()).toBe(`<html><body>Page${loaderTag}</body></html>`)
   })
 })

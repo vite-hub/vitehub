@@ -53,8 +53,12 @@ export interface DocumentsOptions<TFields extends ContentFields> {
    * Workspace glob for the collection's files, such as `posts/**\/*.md` or `authors/*.json`. The part before the first
    * wildcard is the collection folder; a document id is the path below it without the extension
    * (`posts/2026/hello.md` → `2026/hello`). The extension sets the format: `.json` and `.yaml`/`.yml` store data only.
+   *
+   * Pass a list to take files from several folders, such as `['content/posts/**\/*.md', 'content/news/*.md']`. All globs
+   * share one extension. A document id is then the path below the folder that all globs share, without the extension
+   * (`content/news/launch.md` → `news/launch`), or the whole path without the extension when they share none.
    */
-  path: string
+  path: string | readonly string[]
   /** Document fields: frontmatter for Markdown, the whole object for JSON and YAML. A Markdown body is always `body`. */
   fields: TFields
   /**
@@ -79,7 +83,9 @@ export interface DocumentsOptions<TFields extends ContentFields> {
   components?: Record<string, DocumentComponent>
   /**
    * The public URL of each document, such as `/blog/:id`. Reads expose it as `document.url`; canonical links, sitemaps,
-   * and previews use it. Omit it for documents without their own page.
+   * and previews use it, and `content.resolve(path)` maps a page back to its document with it, for an Edit button. A
+   * document whose URL is null has no page. Without `url`, documents have no public URL, and `resolve()` maps the id
+   * after a slash, without a trailing `/index`: `guides/index` is `/guides`, and `index` is `/`.
    */
   url?: ContentDocumentUrl<ContentFieldsOutput<TFields>>
   /**
@@ -151,8 +157,10 @@ const collectionDefinition: unique symbol = Symbol.for("vitehub.content.document
 
 interface CollectionDefinitionBase<TFields extends ContentFields> {
   readonly [collectionDefinition]: true
-  /** The collection glob, or the file path of a singleton. */
+  /** The collection glob, or the file path of a singleton. A collection with several globs lists them, separated by a comma. */
   readonly path: string
+  /** Every glob of the collection, in definition order, or the file path of a singleton. */
+  readonly paths: readonly string[]
   readonly fields: TFields
   readonly format: ContentFormat
   /** How each document maps to its public URL, when it has one. */
@@ -210,31 +218,37 @@ function definitionFields<TFields extends ContentFields>(helper: string, path: s
  */
 export function documents<const TFields extends ContentFields>(options: DocumentsOptions<TFields>): DocumentsDefinition<TFields> {
   if (Object(options) !== options) throw invalidDefinition("documents() requires { path, fields }.")
-  if (String(options.path) !== options.path || !options.path) throw invalidDefinition("documents() requires a path glob such as 'posts/**/*.md'.")
-  if (!/[*?]/.test(options.path)) {
-    throw invalidDefinition(`documents() path ${JSON.stringify(options.path)} has no wildcard. Use singleton({ path: ${JSON.stringify(options.path)} }) for one document, or a glob such as 'posts/*.md'.`)
+  const globs = ([] as string[]).concat(options.path)
+  if (!globs.length || globs.some(glob => String(glob) !== glob || !glob)) throw invalidDefinition("documents() requires a path glob such as 'posts/**/*.md', or a list of them.")
+  if (new Set(globs).size !== globs.length) throw invalidDefinition(`documents() paths ${JSON.stringify(globs)} list a glob twice.`)
+  for (const glob of globs) {
+    if (!/[*?]/.test(glob)) {
+      throw invalidDefinition(`documents() path ${JSON.stringify(glob)} has no wildcard. Use singleton({ path: ${JSON.stringify(glob)} }) for one document, or a glob such as 'posts/*.md'.`)
+    }
   }
-  const compiled = compileDocumentsPath(options.path)
-  const fields = definitionFields("documents", options.path, options.fields)
+  const display = globs.join(", ")
+  const compiled = compileDocumentsPath(globs)
+  const fields = definitionFields("documents", display, options.fields)
   if (options.search !== undefined && (!Array.isArray(options.search) || options.search.some(field => String(field) !== field))) {
-    throw invalidDefinition(`documents(${JSON.stringify(options.path)}) search must be a list of field names.`)
+    throw invalidDefinition(`documents(${JSON.stringify(display)}) search must be a list of field names.`)
   }
-  assertUrl("documents", options.path, options.url, options.fields)
+  assertUrl("documents", display, options.url, options.fields)
   const definition: { -readonly [K in keyof DocumentsDefinition<TFields>]: DocumentsDefinition<TFields>[K] } = {
     [collectionDefinition]: true,
     kind: "documents",
     fields,
     format: compiled.format,
-    path: options.path,
-    editing: editingOptions("documents", options.path, options.editing),
+    path: display,
+    paths: [...globs],
+    editing: editingOptions("documents", display, options.editing),
   }
   if (options.search) definition.search = [...options.search]
-  if (options.components !== undefined) definition.components = documentComponents(options.path, options.components)
+  if (options.components !== undefined) definition.components = documentComponents(display, options.components)
   if (options.url !== undefined) definition.url = options.url
-  const label = labelOption("documents", options.path, options.label, true)
+  const label = labelOption("documents", display, options.label, true)
   if (label?.plural) definition.label = label.plural
   if (label?.singular) definition.singularLabel = label.singular
-  const titleField = titleFieldOption("documents", options.path, options.titleField, options.fields)
+  const titleField = titleFieldOption("documents", display, options.titleField, options.fields)
   if (titleField) definition.titleField = titleField
   return definition
 }
@@ -320,6 +334,7 @@ export function singleton<const TFields extends ContentFields>(options: Singleto
     fields,
     format: compiled.format,
     path: compiled.path,
+    paths: [compiled.path],
     editing: editingOptions("singleton", options.path, options.editing),
   }
   if (options.url !== undefined) definition.url = options.url
@@ -351,6 +366,11 @@ function assertUrl(helper: string, path: string, url: unknown, fields: ContentFi
       throw invalidDefinition(`${helper}(${JSON.stringify(path)}) url ${JSON.stringify(url)} uses :${name}, which is neither :id nor a field.`)
     }
   }
+}
+
+/** Whether `url` is a pattern whose only placeholder is `:id`, so a document's URL needs no read of the document. */
+export function contentUrlNeedsOnlyId(url: ContentDocumentUrl<any>): boolean {
+  return String(url) === url && [...url.matchAll(urlToken)].every(([, name]) => name === "id")
 }
 
 /**
@@ -426,8 +446,13 @@ function invalidDefinition(message: string) {
 // Paths
 
 export interface CompiledDocumentsPath {
-  /** Folder before the first wildcard, or of the single file, with a trailing slash, or "" for the Workspace root. */
+  /**
+   * Folder before the first wildcard, or of the single file, with a trailing slash, or "" for the Workspace root. With
+   * several globs, the folder that all of them share.
+   */
   base: string
+  /** The folder of each glob, in definition order. Reading a revision lists these folders and no others. */
+  bases: readonly string[]
   /** File extension including the dot, such as `.md`. */
   extension: string
   format: ContentFormat
@@ -454,8 +479,40 @@ function normalizeDefinitionPath(helper: string, path: string, example: string):
   return normalized
 }
 
-/** Compile a collection glob. Supports `*`, `**`, and `?`; the last segment must end with `*.<extension>`. */
-export function compileDocumentsPath(glob: string): CompiledDocumentsPath {
+/** The folder that every folder in `bases` is inside, with a trailing slash, or "". */
+function commonBase(bases: readonly string[]): string {
+  const split = bases.map(base => base.split("/").filter(Boolean))
+  const shared: string[] = []
+  for (const [index, segment] of (split[0] ?? []).entries()) {
+    if (!split.every(parts => parts[index] === segment)) break
+    shared.push(segment)
+  }
+  return shared.map(segment => `${segment}/`).join("")
+}
+
+/**
+ * Compile a collection glob, or several. Supports `*`, `**`, and `?`; the last segment must end with `*.<extension>`,
+ * and every glob of a collection has the same extension.
+ */
+export function compileDocumentsPath(globs: string | readonly string[]): CompiledDocumentsPath {
+  const list = ([] as string[]).concat(globs)
+  const compiled = list.map(compileOneGlob)
+  const extension = compiled[0]!.extension
+  const other = compiled.find(entry => entry.extension !== extension)
+  if (other) {
+    throw invalidDefinition(`documents() paths ${JSON.stringify(list)} must share one extension, but ${JSON.stringify(compiled[0]!.glob)} ends with ${JSON.stringify(extension)} and ${JSON.stringify(other.glob)} with ${JSON.stringify(other.extension)}.`)
+  }
+  const bases = compiled.map(entry => entry.base)
+  return {
+    base: commonBase(bases),
+    bases,
+    extension,
+    format: contentFormatOf(extension),
+    match: path => compiled.some(entry => entry.regex.test(path)),
+  }
+}
+
+function compileOneGlob(glob: string) {
   const normalized = normalizeDefinitionPath("documents", glob, "posts/**/*.md")
   const extension = /\*(\.[\w-]+)$/.exec(normalized)?.[1]
   if (!extension) throw invalidDefinition(`documents() path ${JSON.stringify(glob)} must end with one extension, such as 'posts/**/*.md'.`)
@@ -474,8 +531,7 @@ export function compileDocumentsPath(glob: string): CompiledDocumentsPath {
     else if (char === "?") pattern += "[^/]"
     else pattern += escapeRegExp(char)
   }
-  const regex = new RegExp(`^${pattern}$`)
-  return { base, extension, format: contentFormatOf(extension), match: path => regex.test(path) }
+  return { base, extension, glob, regex: new RegExp(`^${pattern}$`) }
 }
 
 /** Compile the fixed path of a singleton. Its id is the file name without the extension. */
@@ -490,6 +546,7 @@ export function compileSingletonPath(path: string): CompiledDocumentsPath & { pa
   if (!extension) throw invalidDefinition(`singleton() path ${JSON.stringify(path)} must end with an extension, such as 'settings.json' or 'pages/home.md'.`)
   return {
     base: normalized.slice(0, slash + 1),
+    bases: [normalized.slice(0, slash + 1)],
     extension,
     format: contentFormatOf(extension),
     id: name.slice(0, -extension.length),
@@ -523,9 +580,13 @@ function segmentsOverlap(left: string, right: string): boolean {
  * Whether two collection paths can name the same Workspace file. A `documents()` glob and a `singleton()` file are both
  * paths of segments; `**` matches any number of segments. `defineContent()` uses it so one file belongs to one collection.
  */
-export function collectionPathsOverlap(left: Pick<ContentCollectionDefinition, "path">, right: Pick<ContentCollectionDefinition, "path">): boolean {
-  const a = left.path.replace(/^\.?\/+/, "").split("/")
-  const b = right.path.replace(/^\.?\/+/, "").split("/")
+export function collectionPathsOverlap(left: Pick<ContentCollectionDefinition, "paths">, right: Pick<ContentCollectionDefinition, "paths">): boolean {
+  return left.paths.some(first => right.paths.some(second => globsOverlap(first, second)))
+}
+
+function globsOverlap(left: string, right: string): boolean {
+  const a = left.replace(/^\.?\/+/, "").split("/")
+  const b = right.replace(/^\.?\/+/, "").split("/")
   const seen = new Set<string>()
   const walk = (i: number, j: number): boolean => {
     const key = `${i},${j}`

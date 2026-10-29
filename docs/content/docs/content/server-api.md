@@ -185,16 +185,17 @@ await posts.remove('old-post')
 | Option | Behavior |
 | --- | --- |
 | `ifDigest` | The document digest you edited on `draft`. `null` requires that the document does not exist yet. Omit it to overwrite the draft. |
+| `ifPublishedDigest` | The digest you reviewed on `published`, or `null` if absent. On the GitHub store, explicitly replaces this document's publish base after you reapply your edit to the published version. A changed published ref refuses the save; `ifDigest` still protects the draft independently. |
 | `message` | Revision message. Defaults to a message such as `Save posts/hello`. |
 | `metadata` | JSON-safe revision metadata, such as the author. Content reserves the `content` key. |
 | `session` | The caller's [session](/docs/content/editing-together) token. Its own edit lease does not block the write, and the write renews it. |
 | `lease` | `'override'` writes even while another session holds the edit lease. Without it, the write fails with `CONTENT_LEASE_HELD` while another session holds a live lease. |
 
-Saving content identical to the draft keeps the current draft revision. A first save on an empty draft starts the draft from `published`, so no published file is lost.
+Saving content identical to the draft keeps the current draft revision unless `ifPublishedDigest` is supplied to record a reviewed base. A first save on an empty draft starts the draft from `published`, so no published file is lost.
 
 ### Conflicts
 
-Saves of different documents never conflict. When another save moved the draft head, Content commits again on the new head. A save fails with `WORKSPACE_CONFLICT` only when `ifDigest` no longer matches this document. The error `details` carry `collection`, `id`, `path`, `ref: 'draft'`, `expected`, and `actual`. Load the document again, merge, and save with the new digest.
+When another save moved the draft head, Content commits again on the new head. A save fails with `WORKSPACE_CONFLICT` when `ifDigest` no longer matches this document. The error `details` carry `collection`, `id`, `path`, `ref: 'draft'`, `expected`, and `actual`. Load the document again, merge, and save with the new digest. With `ifPublishedDigest`, the published version must also match and its branch must stay at the checked revision until the save commits; otherwise the conflict names the published ref.
 
 ### Status
 

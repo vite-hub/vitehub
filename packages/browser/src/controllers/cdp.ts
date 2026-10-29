@@ -107,6 +107,7 @@ async function cloudflareSocket(
     },
   }) as Response & { webSocket?: CDPSocket | null }
   if (!response.webSocket) {
+    void response.body?.cancel().catch(() => {})
     throw browserProviderError("cdp", "connect through the Cloudflare Browser binding", { status: response.status })
   }
   response.webSocket.accept?.()
@@ -125,8 +126,8 @@ async function localSocket(
     let settled = false
     const cleanup = () => {
       socket.removeEventListener("open", onOpen)
-      socket.removeEventListener("error", onError)
-      socket.removeEventListener("close", onClose)
+      socket.removeEventListener("error", onFailure)
+      socket.removeEventListener("close", onFailure)
       if (setupTimer !== undefined) clearTimeout(setupTimer)
     }
     const onOpen = () => {
@@ -135,13 +136,7 @@ async function localSocket(
       cleanup()
       resolve()
     }
-    const onError = () => {
-      if (settled) return
-      settled = true
-      cleanup()
-      reject(browserProviderError("cdp", "connect to the browser"))
-    }
-    const onClose = () => {
+    const onFailure = () => {
       if (settled) return
       settled = true
       cleanup()
@@ -161,8 +156,8 @@ async function localSocket(
     }
     setupTimer = setTimeout(onTimeout, CDP_SOCKET_SETUP_TIMEOUT_MS)
     socket.addEventListener("open", onOpen, { once: true })
-    socket.addEventListener("error", onError, { once: true })
-    socket.addEventListener("close", onClose, { once: true })
+    socket.addEventListener("error", onFailure, { once: true })
+    socket.addEventListener("close", onFailure, { once: true })
   })
   return socket
 }
@@ -223,17 +218,28 @@ export function cdp(options: CDPControllerOptions = {}): BrowserController<CDPCl
             const methodListeners = listeners.get(method) ?? new Set()
             methodListeners.add(listener)
             listeners.set(method, methodListeners)
+            let active = true
             return () => {
+              if (!active) return
+              active = false
               methodListeners.delete(listener)
               if (methodListeners.size === 0) listeners.delete(method)
             }
           },
           async send<TResult>(method: string, params: object = {}, sessionId?: string): Promise<TResult> {
             if (releasing) throw browserProviderError("cdp", "send a command after release")
+            if (socket.readyState !== 1) throw browserProviderError("cdp", "send a command without an open connection")
             return await new Promise<TResult>((resolve, reject) => {
               const id = ++nextId
+              const message = JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) })
               pending.set(id, { reject, resolve: value => resolve(value as TResult) })
-              socket.send(JSON.stringify({ id, method, params, ...(sessionId ? { sessionId } : {}) }))
+              try {
+                socket.send(message)
+              }
+              catch (error) {
+                pending.delete(id)
+                reject(error)
+              }
             })
           },
         },

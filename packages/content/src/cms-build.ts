@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { readFile } from "node:fs/promises"
 import { join, relative, resolve } from "node:path"
 
+import { cmsGitHubDefaults, cmsOptionKeys, cmsOptionProblem, cmsOptionsProblem, cmsStoreOf } from "./cms-options.ts"
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
 
 import type { CmsPresetOptions } from "./presets/cms.ts"
@@ -9,8 +10,6 @@ import type { CmsPresetOptions } from "./presets/cms.ts"
 /** Import paths that select the `cms` preset in `server/content.ts`. */
 export const cmsPresetModules: readonly string[] = ["vite-hub/content/presets/cms", "@vite-hub/content/presets/cms"]
 
-const cmsOptionKeys: ReadonlySet<string> = new Set(["blob", "database", "workspace"])
-const namePattern = /^[a-z0-9][a-z0-9._-]*(?:\/[a-z0-9][a-z0-9._-]*)*$/i
 
 /** How `server/content.ts` selects the `cms` preset, read from its source without running it. */
 export interface CmsPresetUsage {
@@ -20,9 +19,27 @@ export interface CmsPresetUsage {
   options: CmsPresetOptions
 }
 
+/** The GitHub store of the `cms` preset, with defaults filled in. */
+export interface CmsGitHubPlan {
+  /** `owner/name`. Without it the store reads `VITEHUB_WORKSPACE_GITHUB_REPOSITORY` when it is first used. */
+  repo?: string
+  /** The published branch. */
+  branch: string
+  /** The branch that holds drafts. */
+  draftBranch: string
+  /** The folder in the repository, or `""` for the repository root. */
+  root: string
+  publish: "commit" | "pr"
+}
+
 /** The resources that the `cms` preset borrows, resolved for one app. */
 export interface CmsPresetPlan extends CmsPresetUsage {
-  blob: string
+  /** Where documents live: the Blob + Database store, or a GitHub repository. */
+  store: "blob-database" | "github"
+  /** The Blob store. Undefined for the GitHub store, which keeps files in Git. */
+  blob?: string
+  /** Set for the GitHub store. */
+  github?: CmsGitHubPlan
   database: string
   /**
    * How the Database was chosen: the default-or-only rule, the `database` option, or `preset` when the app has no
@@ -226,7 +243,7 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     }
   }
 
-  const usage = "Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { database, blob, workspace }] }) in the exported content Definition."
+  const usage = `Pass it as defineContent({ extends: cms }) or defineContent({ extends: [cms, { ${cmsOptionKeys.join(", ")} }] }) in the exported content Definition.`
   if (!selections.length) throw presetError(file, projectRoot, `imports the Content cms preset but does not select it with extends. ${usage}`)
   if (selections.length > 1) throw presetError(file, projectRoot, `selects the Content cms preset more than once. ${usage}`)
   const selection = selections[0]
@@ -243,8 +260,8 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     if (!isNode(property) || key === undefined || property.kind !== "init" || property.method === true) {
       throw presetError(file, projectRoot, "cms preset options must be plain properties with string literal values, because the build reads them without running the file.")
     }
-    if (!cmsOptionKeys.has(key)) {
-      throw presetError(file, projectRoot, `unknown cms preset option ${JSON.stringify(key)}. Use database, blob, or workspace.`)
+    if (!cmsOptionKeys.includes(key)) {
+      throw presetError(file, projectRoot, `unknown cms preset option ${JSON.stringify(key)}. Use ${cmsOptionKeys.join(", ")}.`)
     }
     const valueNode = unwrap(property.value)
     // `database: undefined` keeps the default, like omitting the key.
@@ -253,12 +270,13 @@ function readCmsPresetUsageInternal(source: string, file: string, projectRoot: s
     if (value === undefined) {
       throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a string literal, because the build reads it without running the file.`)
     }
-    if (!namePattern.test(value)) {
-      throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} must be a name of letters, numbers, dots, underscores, dashes, and slashes.`)
-    }
-    // SAFETY: key is one of the option names checked above.
-    options[key as keyof CmsPresetOptions] = value
+    const problem = cmsOptionProblem(key, value)
+    if (problem) throw presetError(file, projectRoot, `cms preset option ${JSON.stringify(key)} ${problem}`)
+    // SAFETY: key is one of the option names and value is a valid string for it, both checked above.
+    Reflect.set(options, key, value)
   }
+  const problem = cmsOptionsProblem(options)
+  if (problem) throw presetError(file, projectRoot, `cms preset ${problem}`)
   return { file, options }
 }
 
@@ -270,22 +288,36 @@ export interface CmsDatabaseChoices {
 
 /** Pick the Database, Blob store, and Workspace name that the preset uses. Fails with the option to set. */
 export function resolveCmsPresetPlan(usage: CmsPresetUsage, databases: CmsDatabaseChoices, projectRoot: string): CmsPresetPlan {
-  const blob = usage.options.blob ?? "default"
+  const store = cmsStoreOf(usage.options)
+  // The GitHub store keeps files in Git. It still needs the Database, for editor sessions.
+  const stored = store === "github"
+    ? { store, github: githubPlan(usage.options) } satisfies Pick<CmsPresetPlan, "github" | "store">
+    : { store, blob: usage.options.blob ?? "default" } satisfies Pick<CmsPresetPlan, "blob" | "store">
   const workspace = usage.options.workspace ?? "content"
   const choices = databases.names.length ? [...databases.names].sort().map(name => JSON.stringify(name)).join(", ") : "none"
   if (usage.options.database !== undefined) {
     if (!databases.names.includes(usage.options.database)) {
       throw cmsRequirementError(usage.file, projectRoot, `option database is ${JSON.stringify(usage.options.database)}, but no Database Definition has that name. Database Definitions: ${choices}.`)
     }
-    return { ...usage, blob, database: usage.options.database, databaseReason: "option", workspace }
+    return { ...usage, ...stored, database: usage.options.database, databaseReason: "option", workspace }
   }
   const resolution = databases.resolveDefault(databases.names)
   // Without a Database Definition the preset adds the `default` Database, so the app needs no database files.
-  if (resolution.status === "none") return { ...usage, blob, database: "default", databaseReason: "preset", workspace }
+  if (resolution.status === "none") return { ...usage, ...stored, database: "default", databaseReason: "preset", workspace }
   if (resolution.status === "ambiguous") {
     throw cmsRequirementError(usage.file, projectRoot, `it needs one Database, but the app has several and none is named "default": ${choices}. Choose one with extends: [cms, { database: ${JSON.stringify(resolution.names[0])} }].`)
   }
-  return { ...usage, blob, database: resolution.name, databaseReason: resolution.reason, workspace }
+  return { ...usage, ...stored, database: resolution.name, databaseReason: resolution.reason, workspace }
+}
+
+function githubPlan(options: CmsPresetOptions): CmsGitHubPlan {
+  return {
+    ...(options.repo === undefined ? {} : { repo: options.repo }),
+    branch: options.branch ?? cmsGitHubDefaults.branch,
+    draftBranch: options.draftBranch ?? cmsGitHubDefaults.draftBranch,
+    root: options.root ?? cmsGitHubDefaults.root,
+    publish: options.publish ?? cmsGitHubDefaults.publish,
+  }
 }
 
 /** Read the Definition file and its preset usage. */
@@ -301,6 +333,11 @@ const contentFilePattern = /^content\.[cm]?[jt]s$/
  * Content plugins report those cases.
  */
 export function usesCmsPresetSync(input: { projectRoot: string, serverDirs?: readonly string[] }, parseAst: ParseAst): boolean {
+  return cmsPresetStoreSync(input, parseAst) !== undefined
+}
+
+/** The selected preset store, without executing the Content Definition. */
+export function cmsPresetStoreSync(input: { projectRoot: string, serverDirs?: readonly string[] }, parseAst: ParseAst): "blob-database" | "github" | undefined {
   const root = resolve(input.projectRoot)
   const serverDirs = input.serverDirs?.map(directory => resolve(root, directory)) ?? [resolve(root, "server")]
   const files = serverDirs.flatMap((directory) => {
@@ -313,17 +350,18 @@ export function usesCmsPresetSync(input: { projectRoot: string, serverDirs?: rea
       return []
     }
   })
-  if (files.length !== 1) return false
+  if (files.length !== 1) return undefined
   const file = files[0]!
   const source = readFileSync(file, "utf8")
   // Vite asks once per plugin while it filters them, so parse each version of the file once.
   if (lastPresetCheck?.file !== file || lastPresetCheck.source !== source) {
-    lastPresetCheck = { file, source, uses: Boolean(readCmsPresetUsage(source, file, root, parseAst)) }
+    const usage = readCmsPresetUsage(source, file, root, parseAst)
+    lastPresetCheck = { file, source, store: usage ? cmsStoreOf(usage.options) : undefined }
   }
-  return lastPresetCheck.uses
+  return lastPresetCheck.store
 }
 
-let lastPresetCheck: { file: string, source: string, uses: boolean } | undefined
+let lastPresetCheck: { file: string, source: string, store: "blob-database" | "github" | undefined } | undefined
 
 /** Import paths that the generated Workspace module uses. */
 export interface CmsWorkspaceImports {
@@ -345,10 +383,11 @@ export interface CmsWorkspaceImports {
 export const cmsWorkspaceExport = "contentWorkspace"
 
 /**
- * The generated Workspace Definition module. It only reads the Database registry and creates a lazy Blob store when
- * it loads, so the build can load it to bundle Workspace assets.
+ * The generated Workspace Definition module. It only reads the Database registry and creates a lazy store when it
+ * loads, so the build can load it to bundle Workspace assets. The GitHub store reads its token on first use.
  */
 export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: Omit<CmsWorkspaceImports, "databaseDefinition">): string {
+  if (plan.store === "github" && plan.github) return renderGitHubWorkspaceModule(plan, plan.github, imports)
   const missing = `[vitehub] The Content cms preset needs Database ${JSON.stringify(plan.database)}, but it is not configured at runtime. Enable database in vitehub() and keep its Database Definition.`
   return [
     "// Generated by @vite-hub/content for the cms preset in server/content.ts. Do not edit.",
@@ -365,10 +404,35 @@ export function renderCmsWorkspaceModule(plan: CmsPresetPlan, imports: Omit<CmsW
     "",
     `export const ${cmsWorkspaceExport} = defineWorkspace({`,
     "  store: createBlobDatabaseWorkspaceStore({",
-    `    blob: blob.store(${JSON.stringify(plan.blob)}),`,
+    `    blob: blob.store(${JSON.stringify(plan.blob ?? "default")}),`,
     "    database,",
     `    workspace: ${JSON.stringify(plan.workspace)},`,
     "  }),",
+    "})",
+    "",
+  ].join("\n")
+}
+
+function renderGitHubWorkspaceModule(plan: CmsPresetPlan, github: CmsGitHubPlan, imports: Omit<CmsWorkspaceImports, "databaseDefinition">): string {
+  return [
+    "// Generated by @vite-hub/content for the cms preset in server/content.ts. Do not edit.",
+    `import { useDatabase } from ${JSON.stringify(imports.database)}`,
+    `import { defineWorkspace } from ${JSON.stringify(imports.workspace)}`,
+    "",
+    "// The Database holds editor sessions only. Documents and their history live in the repository.",
+    `const database = useDatabase(${JSON.stringify(plan.database)})?.db`,
+    "",
+    `export const ${cmsWorkspaceExport} = defineWorkspace({`,
+    "  store: {",
+    '    provider: "github",',
+    ...(github.repo ? [`    repository: ${JSON.stringify(github.repo)},`] : []),
+    `    branch: ${JSON.stringify(github.branch)},`,
+    `    root: ${JSON.stringify(github.root)},`,
+    `    refs: { published: ${JSON.stringify(github.branch)}, draft: ${JSON.stringify(github.draftBranch)} },`,
+    "    database,",
+    "  },",
+    // The Workspace can reach the whole folder, and at the repository root the whole repository. Content allows its collection globs on top of this rule.
+    '  rules: { "**": { write: false } },',
     "})",
     "",
   ].join("\n")

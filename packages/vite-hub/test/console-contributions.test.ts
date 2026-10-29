@@ -74,7 +74,7 @@ describe("Console section contributions", () => {
       kind: "record-table",
       records: [{ cells: {}, fields: [], id: "t1", link: { href: "/pricing?comments#comment-t1", label: "Open on page" }, activity: [activity[0]] }],
     })
-    for (const href of ["javascript:alert(1)", "//evil.test/x", "http://site.test/"]) {
+    for (const href of ["javascript:alert(1)", "//evil.test/x", "/\\evil.test/x", "/\t/evil.test/x", "/\n/evil.test/x", "/\r/evil.test/x", "http://site.test/"]) {
       expect(parse({ href, label: "Open" })).toEqual({ kind: "record-table", records: [{ cells: {}, fields: [], id: "t1", activity: [activity[0]] }] })
     }
   })

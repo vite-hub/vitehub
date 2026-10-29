@@ -190,7 +190,7 @@ onBeforeUnmount(() => request?.abort());
           </UTooltip>
         </template>
       </ConsolePageHeader>
-      <ConsolePageToolbar v-if="entries.length">
+      <ConsolePageToolbar v-if="entries.length" width="4xl">
         <UInput
           v-model="search"
           class="w-full sm:w-64"
