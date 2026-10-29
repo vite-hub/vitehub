@@ -88,6 +88,30 @@ describe("MCP owner contributions", () => {
     expect(config.handlers[0]?.handler).toBe("/runtime/server/mcp-discovery.js")
   })
 
+  it.each(["oauth-protected-resource", "oauth-authorization-server"])("delegates the application-owned bare %s route through config replay", async (name) => {
+    const route = `/.well-known/${name}`
+    const application = { route, handler: "/app/metadata.js", method: "get" }
+    const config: { handlers: typeof application[]; virtual?: Record<string, unknown> } = { handlers: [application], virtual: { "virtual:app": "export default 1" } }
+    installConsoleAccess({ mode: "auth", oauth: { path: "/_vitehub/mcp", auth: () => { throw new Error("Application discovery must bypass Console Auth") } } })
+    for (const base of ["/", "/portal/"]) {
+      addConsoleRpcHandler(config, "/runtime", base, [], true)
+      expect(config.handlers).toContainEqual(application)
+      expect(config.handlers.filter(handler => handler.route === route)).toEqual([application])
+      expect(config.handlers[0]).toMatchObject({ middleware: true, route: "/**" })
+      const source = config.virtual?.[config.handlers[0]!.handler]
+      if (typeof source !== "string") throw new TypeError("Missing configured discovery middleware")
+      // Load the generated wrapper against its source entry, without requiring a distribution build.
+      const entry = new URL("../src/console/runtime/server/mcp-discovery.ts", import.meta.url).href
+      const module = await import(/* @vite-ignore */ `data:text/javascript,${encodeURIComponent(source.replace(JSON.stringify("/runtime/server/mcp-discovery.js"), JSON.stringify(entry)))}`)
+      const request = new Request(`http://app.test${route}`)
+      await expect(module.default({ req: request })).resolves.toBeUndefined()
+      expect(config.handlers).toContainEqual(expect.objectContaining({ route: `${route}/**`, handler: expect.stringMatching(/mcp-(metadata|authorization-server)\.js$/) }))
+    }
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], false)
+    expect(config.handlers).toContainEqual(application)
+    expect(config.virtual).toEqual({ "virtual:app": "export default 1" })
+  })
+
   it.each(["/", "/portal/"])("routes GET probes to MCP with base %s", async (base) => {
     installConsoleAccess({ mode: "open" })
     installConsoleSections("/mcp-test", ["comments"])

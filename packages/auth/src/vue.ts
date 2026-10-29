@@ -112,6 +112,8 @@ type ClientSession<Client extends VueAuthClient<any>> = Client["$Infer"]["Sessio
 export interface UserSession<Client extends VueAuthClient<any> = typeof authClient> {
   data: ComputedRef<ClientSession<Client> | null>
   error: ComputedRef<BetterFetchError | null>
+  /** The id of the administrator who opened this session as `user`, or `null`. Better Auth's admin plugin sets it. */
+  impersonatedBy: ComputedRef<string | null>
   loggedIn: ComputedRef<boolean>
   pending: ComputedRef<boolean>
   ready: ComputedRef<boolean>
@@ -120,6 +122,8 @@ export interface UserSession<Client extends VueAuthClient<any> = typeof authClie
   signIn: Client["signIn"]
   signOut: Client["signOut"]
   signUp: Client["signUp"]
+  /** End the impersonation session and restore the administrator's own session. */
+  stopImpersonating: () => Promise<void>
   user: ComputedRef<ClientSession<Client>["user"] | null>
 }
 
@@ -128,6 +132,10 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
   return {
     data: computed(() => state.value.data),
     error: computed(() => state.value.error),
+    impersonatedBy: computed(() => {
+      const value: unknown = state.value.data?.session ? Reflect.get(state.value.data.session, "impersonatedBy") : undefined
+      return typeof value === "string" && value ? value : null
+    }),
     loggedIn: computed(() => Boolean(state.value.data?.session && state.value.data?.user)),
     pending: computed(() => state.value.isPending || state.value.isRefetching),
     ready: computed(() => !state.value.isPending),
@@ -136,6 +144,11 @@ export function useUserSession<Client extends VueAuthClient<any> = typeof authCl
     signIn: client.signIn,
     signOut: client.signOut,
     signUp: client.signUp,
+    async stopImpersonating() {
+      // The path works without Better Auth's `adminClient()` plugin on the client.
+      await client.$fetch("/admin/stop-impersonating", { method: "POST", body: {}, throw: true })
+      await state.value.refetch()
+    },
     user: computed(() => state.value.data?.user ?? null),
   }
 }

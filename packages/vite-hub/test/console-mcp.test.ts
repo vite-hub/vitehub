@@ -15,7 +15,7 @@ import { consoleRealtimeAccess, installConsoleAccess } from "../src/console/runt
 import type { ConsoleAuthorize } from "../src/console/auth.ts"
 import type { ConsoleOAuthConfig } from "../src/console/runtime/server/bearer.ts"
 import consoleMcpAuthorizationServerHandler from "../src/console/runtime/server/mcp-authorization-server.ts"
-import consoleMcpDiscoveryHandler from "../src/console/runtime/server/mcp-discovery.ts"
+import consoleMcpDiscoveryHandler, { createConsoleMcpDiscoveryHandler } from "../src/console/runtime/server/mcp-discovery.ts"
 import consoleMcpHandler from "../src/console/runtime/server/mcp.ts"
 import { installConsoleSections } from "../src/console/runtime/server/sections.ts"
 import consoleMcpMetadataHandler from "../src/console/runtime/server/mcp-metadata.ts"
@@ -400,6 +400,24 @@ describe("MCP sign-in with OAuth access tokens", () => {
   }
 
   const bearer = (token: string) => ({ authorization: `Bearer ${token}` })
+
+  it.each(["oauth-protected-resource", "oauth-authorization-server"])("preserves an application-owned bare %s route", async (name) => {
+    const prefix = `/.well-known/${name}`
+    const application = vi.fn(() => Response.json({ owner: "application" }))
+    const discovery = createConsoleMcpDiscoveryHandler([prefix])
+    const handler = defineHandler(async event => await discovery(event) ?? application())
+    for (const plugins of [undefined, {}]) {
+      const issuer = await authorizationServer({ plugins })
+      installOAuth(issuer.auth)
+      const response = await handler.fetch(new Request(`${app}${prefix}`))
+      expect(response.status).toBe(200)
+      await expect(response.json()).resolves.toEqual({ owner: "application" })
+      const suffix = name === "oauth-protected-resource" ? "/_vitehub/mcp" : "/api/auth"
+      const scoped = await handler.fetch(new Request(`${app}${prefix}${suffix}`))
+      expect(scoped.status).toBe(plugins ? 503 : 200)
+    }
+    expect(application).toHaveBeenCalledTimes(2)
+  })
 
   it("delegates other resources' OAuth discovery to the application", async () => {
     const issuer = await authorizationServer()

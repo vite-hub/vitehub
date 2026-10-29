@@ -22,6 +22,7 @@ export function mountPath(base: string | undefined, path: string): string {
 }
 
 type NitroHandler = { handler: string; method?: string | string[]; middleware?: boolean; route: string }
+const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 
 /**
@@ -55,7 +56,7 @@ export function addConsolePageHandlers(
 }
 
 export function addConsoleRpcHandler(
-  nitro: { handlers?: Array<{ handler: string; route: string }> },
+  nitro: { handlers?: Array<{ handler: string; route: string }>; virtual?: Record<string, unknown> },
   consoleRuntimeRoot: string,
   base?: string,
   sections: readonly string[] = [],
@@ -80,12 +81,27 @@ export function addConsoleRpcHandler(
     { absolute: true, suffix: "/.well-known/oauth-authorization-server/**", handler: join(consoleRuntimeRoot, "server/mcp-authorization-server.js"), method: "get" },
   ]
   const ownedHandlers = new Set(registrations.map(registration => registration.handler))
+  ownedHandlers.add(configuredMcpDiscovery)
   const ownedSuffixes = new Set(registrations.map(registration => registration.suffix))
   const retainedHandlers = handlers.filter(candidate => {
     if (!ownedHandlers.has(candidate.handler)) return true
     return !Array.from(ownedSuffixes).some(suffix => candidate.route === suffix || candidate.route.endsWith(suffix))
   })
   handlers.splice(0, handlers.length, ...retainedHandlers)
+
+  const delegatedPaths = registrations.filter(registration => registration.absolute && !registration.middleware && !registration.suffix.endsWith("/**"))
+    .filter(registration => retainedHandlers.some(candidate => candidate.route === registration.suffix && !candidate.middleware
+      && (!candidate.method || [candidate.method].flat().some(method => method.toLowerCase() === "get"))))
+    .map(registration => registration.suffix)
+  if (nitro.virtual) delete nitro.virtual[configuredMcpDiscovery]
+  if (oauth && delegatedPaths.length) {
+    nitro.virtual = {
+      ...nitro.virtual,
+      [configuredMcpDiscovery]: `import { createConsoleMcpDiscoveryHandler } from ${JSON.stringify(join(consoleRuntimeRoot, "server/mcp-discovery.js"))}\nexport default createConsoleMcpDiscoveryHandler(${JSON.stringify(delegatedPaths)})\n`,
+    }
+    const discovery = registrations.find(registration => registration.middleware)
+    if (discovery) discovery.handler = configuredMcpDiscovery
+  }
 
   for (const registration of registrations) {
     // Other Console access modes leave the application's origin-wide OAuth discovery routes alone.

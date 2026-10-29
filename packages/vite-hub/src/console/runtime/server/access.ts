@@ -2,7 +2,7 @@ import { installOperationSectionResolver, operationAccessAllows } from "@vite-hu
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { consoleMountBase } from "../console-route.ts"
-import { consoleDiagnosticBody, type ConsoleDiagnosticCode } from "../diagnostics.ts"
+import { consoleDiagnosticBody, isConsoleImpersonationRejection, type ConsoleDiagnosticCode } from "../diagnostics.ts"
 import { markBearerRejection, mcpChallenge, resolveConsoleOAuth, verifyConsoleBearer, type ConsoleOAuthConfig, type ConsoleOAuthState } from "./bearer.ts"
 import { consoleRequestError, consoleRequestURL, isConsoleDevelopmentRuntime, type ConsoleRequestEvent } from "./request.ts"
 
@@ -17,13 +17,15 @@ import type { ConsoleSectionId } from "../sections.ts"
  * - `local`: the development server only. Production requests fail closed.
  * - `auth`: a ViteHub Auth Session. `check` is built on `withAuthorization()`.
  * - `cloudflare-access`: the Cloudflare Access application token.
+ * `impersonation: true` is `console.impersonation`. The Auth section can then start and stop impersonation.
  */
 export type ConsoleAccessPolicy =
-  | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
+  | { mode: "open", authorize?: ConsoleAuthorize, impersonation?: boolean, signInPage?: string }
   | { mode: "local" }
   | {
     mode: "auth" | "cloudflare-access"
     authorize?: ConsoleAuthorize
+    impersonation?: boolean
     check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>
     /** Accept an OAuth access token, as MCP clients send it, in place of a session. See `verifyConsoleBearer()`. */
     oauth?: ConsoleOAuthConfig
@@ -102,6 +104,9 @@ export function installConsoleAccess(policy: ConsoleAccessPolicy): void {
   if ("signInPage" in policy && policy.signInPage !== undefined && !isConsoleSignInPage(policy.signInPage)) {
     throw new TypeError("[vitehub] The Console sign-in page must be a path on the same origin, such as /sign-in.")
   }
+  if ("impersonation" in policy && policy.impersonation !== undefined && typeof policy.impersonation !== "boolean") {
+    throw new TypeError("[vitehub] console.impersonation must be true or false.")
+  }
   if (policy.mode === "open" && !policy.authorize && !isConsoleDevelopmentRuntime() && !scope[openWarningKey]) {
     scope[openWarningKey] = true
     globalThis.console?.warn(consoleOpenAccessWarning)
@@ -135,6 +140,12 @@ export function consoleSignInPage(pathname: string): string | undefined {
   return isConsoleSignInPage(mounted) ? mounted : undefined
 }
 
+/** Whether `console.impersonation` is on. Without it, the Console has no impersonation route or action. */
+export function consoleImpersonation(): boolean {
+  const policy = scope[policyKey]
+  return Boolean(policy && "impersonation" in policy && policy.impersonation === true)
+}
+
 /** The app Auth mount used by the Console's own browser client. */
 export function consoleAppAuthBasePath(event: ConsoleRequestEvent): Promise<string> | undefined {
   const policy = scope[policyKey]
@@ -166,7 +177,8 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
     return undefined
   }
   const policy = scope[policyKey]
-  if (access.status === 403 && page.endsWith("/_vitehub/sign-in") && policy && "signIn" in policy && policy.signIn) {
+  // An impersonation session gets the page that leads back to the administrator's session, whatever the sign-in page.
+  if (access.status === 403 && policy && "signIn" in policy && policy.signIn && (page.endsWith("/_vitehub/sign-in") || await isConsoleImpersonationRejection(access))) {
     return policy.signIn(event, access)
   }
   if (access.status !== 401) return undefined
