@@ -499,7 +499,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     await writeFile(componentsFile, `export default JSON.parse(${JSON.stringify(JSON.stringify(components))})\n`)
   }
 
-  return {
+  const integration: CommentsVitePlugin = {
     name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
     nitro: options.standalone ? {
       async setup(nitro) {
@@ -613,6 +613,12 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         kit.addHandler({ handler, route: `${route}/**` })
         kit.addPlugin(plugin)
         const nitro = kit.config
+        // Nuxt forwards Nitro config without loading Vite's plugin.nitro convention.
+        if (integration.nitro) {
+          const modules = Array.isArray(nitro.modules) ? [...nitro.modules] : []
+          if (!modules.includes(integration.nitro)) modules.push(integration.nitro)
+          nitro.modules = modules
+        }
         const assets = Array.isArray(nitro.publicAssets) ? [...nitro.publicAssets] : []
         const overlay = commentsOverlayDirectory()
         if (!assets.some(asset => Object(asset) === asset && Reflect.get(Object(asset), "dir") === overlay)) {
@@ -634,4 +640,5 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
       }]
     },
   }
+  return integration
 }

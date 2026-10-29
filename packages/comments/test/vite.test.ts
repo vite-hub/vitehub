@@ -33,7 +33,7 @@ async function configure(plugin: Plugin, root: string, command: ConfigEnv["comma
   const hook = plugin.config as { handler: (config: UserConfig, env: ConfigEnv) => Promise<void> }
   await hook.handler(config, env)
   if (plugin.nitro) {
-    const instance = await createNitro({ ...config.nitro, rootDir: root, dev: env.command === "serve" && !env.isPreview, modules: [plugin.nitro] })
+    const instance = await createNitro({ ...config.nitro, rootDir: root, dev: env.command === "serve" && !env.isPreview })
     await instance.close()
     return instance.options
   }
