@@ -1,3 +1,4 @@
+import { createLogBuffer } from "../../packages/vite-hub/src/logs/memory.ts"
 import { authFixture } from "./auth-fixture.ts";
 import type { IncomingMessage, ServerResponse } from "node:http"
 import { randomUUID } from "node:crypto"
@@ -34,7 +35,13 @@ for (const record of fixture.invocations) {
   store.create(input)
 }
 const invocations = defineAgentInvocations({ content: "content", store })
+const logs = createLogBuffer({ maxEntries: 256 })
+for (let index = 0; index < 120; index++) {
+ const failed = index % 13 === 0
+ logs.append({ id: `evt_${index}`, timestamp: new Date(Date.UTC(2026, 9, 28, 14, 32, index)).toISOString(), level: failed ? "error" : index % 9 === 0 ? "warn" : "info", service: index % 3 === 0 ? "agent" : "api", message: failed ? "Payment provider request failed" : index % 3 === 0 ? "Agent invocation completed" : "HTTP request completed", data: { requestId: `req_${index}`, method: "POST", path: failed ? "/api/checkout" : "/api/agents/support", status: failed ? 502 : 200, duration: 42 + index, ...(failed ? { error: { code: "PAYMENT_UNAVAILABLE", why: "The payment provider did not respond before the deadline.", fix: "Check the provider status, then retry with the same idempotency key.", docs: "https://vitehub.dev", data: { provider: "payments", attempt: 1 } } } : { agent: { name: "support", tokens: 234 + index } }) } })
+}
 const sections = [
+  "logs",
   "auth",
   "env",
   "connections",
@@ -553,6 +560,11 @@ async function handleAPI(request: IncomingMessage, response: ServerResponse, url
       path: entry.path,
       status: missing.has(entry.path ?? "") ? "missing" : entry.path === "env.server.openai.apiKey" ? "error" : entry.hasDefault && entry.path === "env.server.typesafe.model" ? "defaulted" : "available",
     })) : undefined })
+    return true
+  }
+  if (path === "/api/_vitehub/console/logs") {
+    const page = await logs.source.query({ text: url.searchParams.get("text") ?? undefined, level: (await import("../../packages/vite-hub/src/logs/source.ts")).parseLogQuery({ level: url.searchParams.get("level") ?? undefined }).level, cursor: url.searchParams.get("cursor") ?? undefined })
+    json(response, { source: logs.source.info, page })
     return true
   }
   if (path === "/api/_vitehub/console/sections") {

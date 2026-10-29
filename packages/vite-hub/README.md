@@ -237,3 +237,9 @@ Console image uploads require invocation to be enabled. The Console fixes the Ag
 ## Logs
 
 `vite-hub/logs` uses Evlog's public logger API and adds a read-only `LogSource` contract for existing pipelines. A bounded local buffer supports development inspection without adding an exporter. Read the [Logs contract](src/logs/README.md) for retention, redaction and source ownership.
+
+Enable the Console page with `vitehub({ console: { auth: false }, logs: true })` during local development. It attaches a bounded buffer to Evlog's existing drain and reuses an installed Evlog Nitro module. Pass `logs: { evlog: { redact: true }, maxEntries: 256 }` to configure Evlog when ViteHub owns its setup. If another integration already installed Evlog, configure the options there. Local Logs activates the shared Evlog producer even when `observability.evlog.enabled` is false, preserving Observability's other Evlog settings and one request-error logger.
+
+For production, use `logs: { source: './server/logs.ts' }`. That server module must default-export a `LogSource` from `vite-hub/logs/source` that reads the existing backend. This form starts no logger, buffer, SDK, or exporter. `logs: true` fails a production build because a temporary process buffer cannot provide shared production history. The source owns retention and cursor semantics and must apply each advertised filter.
+
+Explorer and Stream keep selected event data in the right inspector. Search includes structured fields. Follow refreshes the newest page every two seconds and is a polling view, not guaranteed delivery of every event. The browser retains at most 1,000 loaded events. The Console shows local retention limits and dropped or evicted counts. The same read operation is available as `vitehub logs list --level error --limit 50 --json` and through Console RPC `logs.list`, under the same section access policy.

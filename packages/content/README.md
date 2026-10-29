@@ -51,6 +51,10 @@ configured on the content runtime.
 
 Use `contentSource(input, { prefix, schema })` to configure a Source. Adapted Sources retain one reader per asynchronous load, including overlapping refreshes. `defineContentHandler()` adapts the Comark Web handler to H3 events.
 
+Set `route: false` in `defineContent()` to disable the public `/api/content/**` route.
+Server reads, Console editing, draft preview, and configured SEO routes remain available.
+`defineContentHandler(content)` also returns 404 when this option is false.
+
 ## Markdown rendering
 
 Content parses Markdown with the [Comark UI](https://comark-ui.onmax.me) preset, excluding the HTML-only `annotate`, `diff`, and `quiz` plugins that have no Vue renderers. Callouts, steps, tabs, cards, badges, diagrams, and tables use its parsers. `markdown.plugins` adds plugins; a plugin with a preset plugin's name replaces it. Content plugins still go in `plugins`. HTML-only blocks need an explicit parser plugin and application component override.

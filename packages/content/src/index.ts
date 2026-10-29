@@ -252,6 +252,8 @@ export type DefineContentOptions<
   TCollections extends ContentCollections = ContentCollections,
 > = Omit<ContentOptions, "basePath" | "plugins" | "source" | "sources"> & {
   plugins?: TPlugins
+  /** Generate and serve `/api/content/**`. False keeps server methods and Console editing available. */
+  route?: boolean
   /** One read-only Source, served as the `default` instance. */
   source?: ContentSourceInput
   /** Named read-only Sources. Each name becomes a Content instance. */
@@ -334,6 +336,8 @@ export interface ContentDocumentsRuntime<TCollections extends ContentCollections
   can(context: ContentCanContext<CollectionName<TCollections>>): Promise<boolean>
   /** Draft preview: a signed cookie that makes every Content read in its requests use the `draft` ref. */
   readonly preview: ContentPreview
+  /** Whether the public Content HTTP route is enabled. Server methods and Console editing remain available. */
+  readonly route: boolean
   /** `defineContent({ live })`: `auto` edits Markdown documents live where the host can, `false` never does. */
   readonly live: "auto" | false
   /**
@@ -376,7 +380,7 @@ export function defineContent<
   if (options.extends !== undefined && options.workspace !== undefined) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ extends }) sets workspace. Remove workspace, or name the Workspace in the preset options." })
   }
-  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", ...sharedOptions } = options
+  const { source, sources, collections, authorize, seo: seoOptions, live = "auto", route = true, ...sharedOptions } = options
   if (live !== "auto" && live !== false) {
     throw contentErrorDiagnostics.CONTENT_R0006({ message: "[vitehub] defineContent({ live }) must be 'auto' or false." })
   }
@@ -532,6 +536,7 @@ export function defineContent<
     preview,
     seo,
     live,
+    route,
     hasPolicy: authorize !== undefined,
     sitemap: async (sitemapOptions?: ContentSitemapOptions) =>
       documentsRuntime ? await contentSitemapEntries([...documentsRuntime.collections.values()], siteFor(sitemapOptions)) : [],
@@ -633,10 +638,11 @@ export function defineContent<
  * cookie reads the `draft` ref and gets `Cache-Control: private, no-store`.
  */
 export function defineContentHandler(
-  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview },
+  content: Pick<ComarkContent, "handler"> & { preview?: ContentPreview, route?: boolean },
 ): ContentHandler {
   // SAFETY: ContentHandler preserves the callable and fetch contracts exposed by H3's handler.
   return defineEventHandler(async (event: H3Event) => {
+    if (content.route === false) return new Response("Not Found", { status: 404 })
     const dispatch = () => serveContent(content, event)
     return await (content.preview
       ? content.preview.run(event, dispatch)
