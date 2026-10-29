@@ -236,7 +236,16 @@ export default defineConnection({
               ><div class="flex items-center justify-end gap-2">
                 <template v-if="connectionNextStep(row.original)">
                   <UButton
-                    v-if="connectionNextStep(row.original)?.kind === 'connect'"
+                    v-if="connectionNextStep(row.original)?.kind === 'cli'"
+                    label="Sign in with CLI"
+                    :aria-label="`Show sign-in command for ${row.original.name}`"
+                    color="neutral"
+                    size="xs"
+                    variant="outline"
+                    @click.stop="open(row.original.name, 'details')"
+                  />
+                  <UButton
+                    v-else-if="connectionNextStep(row.original)?.kind === 'connect'"
                     :label="connectionNextStep(row.original)?.label"
                     :aria-label="`${connectionNextStep(row.original)?.label} ${row.original.name}`"
                     :to="connectionConnectURL(managementBase, row.original.name, returnTo)"

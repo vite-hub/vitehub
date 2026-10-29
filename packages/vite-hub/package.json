@@ -549,6 +549,12 @@
       "require": "./dist/connections/agent.js",
       "default": "./dist/connections/agent.js"
     },
+    "./connections/chatgpt": {
+      "types": "./dist/connections/chatgpt.d.ts",
+      "import": "./dist/connections/chatgpt.js",
+      "require": "./dist/connections/chatgpt.js",
+      "default": "./dist/connections/chatgpt.js"
+    },
     "./connections/google": {
       "types": "./dist/connections/google.d.ts",
       "import": "./dist/connections/google.js",
@@ -968,6 +974,12 @@
       "import": "./dist/ui/avatar-stack.js",
       "require": "./dist/ui/avatar-stack.js",
       "default": "./dist/ui/avatar-stack.js"
+    },
+    "./ui/comments": {
+      "types": "./dist/ui/comments.d.ts",
+      "import": "./dist/ui/comments.js",
+      "require": "./dist/ui/comments.js",
+      "default": "./dist/ui/comments.js"
     },
     "./ui/connection-status": {
       "types": "./dist/ui/connection-status.d.ts",

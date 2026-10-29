@@ -589,6 +589,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const plugins = nitroConfig.rollupConfig.plugins as unknown as Plugin[]
     expect(plugins.map(plugin => plugin.name)).toEqual([
+      "vite-hub/nitro-optional-peers",
       "vite-hub/nitro-h3",
       "vite-hub/nitro-file-url",
       "vite-hub/nitro-cache-bypass",
@@ -2021,11 +2022,11 @@ describe("ViteHub Nuxt integration", () => {
     }, development.nuxt)).rejects.toThrow("console.retention maxRecords must be a positive safe integer or false")
   })
 
-  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("rejects bare Console enablement with dataDir %s", async (dataDir) => {
+  it.each([undefined, "/tmp/vitehub-nuxt/persistent data"])("requires app Auth for bare Console enablement with dataDir %s", async (dataDir) => {
     const production = createNuxt(false)
 
     await expect(viteHubNuxtModule({ console: JSON.parse("true"), preset: "node", dataDir }, production.nuxt))
-      .rejects.toThrow('console: { auth: false } for no sign-in, or console: { auth: "app" }')
+      .rejects.toThrow("requires a discovered ViteHub Auth Definition")
     await expect(viteHubNuxtModule({ console: JSON.parse("{}"), preset: "node", dataDir }, createNuxt(true).nuxt))
       .rejects.toThrow("console.auth is required")
   })
@@ -2060,7 +2061,7 @@ describe("ViteHub Nuxt integration", () => {
 
       await expect(viteHubNuxtModule({
         auth: true,
-        console: { auth: "app" },
+        console: true,
         preset: "node",
       }, production.nuxt)).resolves.toBeUndefined()
 
@@ -2762,6 +2763,7 @@ describe("ViteHub Nuxt integration", () => {
       rollupConfig: {
         plugins: [
           expect.objectContaining({ name: "vite-hub/nitro-cloudflare-workers-dev" }),
+          expect.objectContaining({ name: "vite-hub/nitro-optional-peers" }),
           expect.objectContaining({ name: "vite-hub/nitro-h3" }),
           expect.objectContaining({ name: "vite-hub/nitro-file-url" }),
           expect.objectContaining({ name: "vite-hub/nitro-cache-bypass" }),

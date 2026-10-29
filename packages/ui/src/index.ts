@@ -12,6 +12,7 @@ export * from "./components/attachment.ts";
 export * from "./components/avatar-stack.ts";
 export * from "./components/bubble.ts";
 export * from "./components/code-block.ts";
+export * from "./components/comments.ts";
 export * from "./components/connection-status.ts";
 export * from "./components/marker.ts";
 export * from "./components/message.ts";
