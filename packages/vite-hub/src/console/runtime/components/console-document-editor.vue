@@ -143,6 +143,8 @@ const restoring = ref(false);
 /** The version on the site, when it changed after this draft started from it. `published` is its digest, or null when the site deleted it. */
 const siteConflict = ref<{ site: ConsoleDocument | null, published: string | null }>();
 const siteConflictOpen = ref(false);
+const siteConflictLoading = ref(false);
+const siteConflictError = ref<string>();
 const resolvingSite = ref(false);
 const bodyEditor = ref<InstanceType<typeof ConsoleMarkdownEditor>>();
 const titleInput = ref<HTMLTextAreaElement>();
@@ -1152,10 +1154,22 @@ function onHeaderAction(action: HeaderAction | undefined): void {
 
 /** Shows the version on the site next to the draft, so the person chooses before a publish erases either. */
 async function openSiteConflict(): Promise<void> {
-  const published = base.value?.conflict?.published ?? null;
-  const site = published === null ? null : await props.client.get(props.collection.name, id.value, "published").catch(() => null);
-  siteConflict.value = { site, published: site?.digest ?? published };
+  if (siteConflictLoading.value) return;
   siteConflictOpen.value = true;
+  siteConflict.value = undefined;
+  siteConflictError.value = undefined;
+  siteConflictLoading.value = true;
+  try {
+    const site = await props.client.get(props.collection.name, id.value, "published");
+    // Only a successful read confirms the version (or its absence) that the person can acknowledge.
+    siteConflict.value = { site, published: site?.digest ?? null };
+  }
+  catch (error) {
+    siteConflictError.value = `Couldn't load the site version. ${consoleErrorMessage(error, "Try again.")}`;
+  }
+  finally {
+    siteConflictLoading.value = false;
+  }
 }
 
 /**
@@ -1692,7 +1706,12 @@ const menuItems = computed(() => [[
     @update:open="(open) => { if (!open) siteConflictOpen = false }"
   >
     <template #body>
-      <div v-if="siteConflict" class="grid gap-3">
+      <ConsoleLoading v-if="siteConflictLoading" label="Loading the site version…" />
+      <div v-else-if="siteConflictError" class="grid justify-items-start gap-3">
+        <p role="alert" class="text-sm text-muted">{{ siteConflictError }}</p>
+        <UButton variant="outline" label="Retry" @click="openSiteConflict" />
+      </div>
+      <div v-else-if="siteConflict" class="grid gap-3">
         <p class="text-xs text-muted">
           <span class="font-medium text-highlighted">Removed lines</span> are on the site,
           <span class="font-medium text-highlighted">added lines</span> are your draft.
@@ -1705,7 +1724,7 @@ const menuItems = computed(() => [[
       <div class="flex w-full flex-wrap justify-end gap-2">
         <UButton variant="ghost" label="Keep editing" @click="siteConflictOpen = false" />
         <UButton v-if="siteConflict?.site" variant="outline" label="Use the site version" :loading="resolvingSite" @click="resolveSiteConflict('site')" />
-        <UButton label="Keep my draft" :loading="resolvingSite" @click="resolveSiteConflict('draft')" />
+        <UButton label="Keep my draft" :disabled="!siteConflict" :loading="resolvingSite" @click="resolveSiteConflict('draft')" />
       </div>
     </template>
   </UModal>
