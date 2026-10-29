@@ -8,6 +8,7 @@ import { viteHubErrorDiagnostics } from "../../../error-diagnostics.ts"
 
 import type { AnyOperation, OperationContext, OperationDefinition } from "@vite-hub/internal/operations"
 import type { ConsoleAccess } from "./access.ts"
+import type { ConsoleDatabaseResponse } from "./database.get.ts"
 import type { ConsoleRequestEvent } from "./request.ts"
 
 /** Document actions that only read. A read-only section grant keeps them. */
@@ -123,8 +124,8 @@ const blobList = defineConsoleOperation({
 })
 
 const databasesBrowse = defineConsoleOperation({
-  cli: { namespace: "databases", command: "browse" },
-  description: "Read the rows of a database table.",
+  cli: { namespace: "db", command: "rows", positional: ["table"] },
+  description: "Read the rows of a database table, one page at a time. Without a table it reads the tables only.",
   input: v.strictObject({
     database: optionalText,
     direction: v.optional(v.picklist(["asc", "desc"])),
@@ -136,7 +137,28 @@ const databasesBrowse = defineConsoleOperation({
   }),
   kind: "read",
   name: "databases.browse",
-  run: async (input, context) => (await import("./database.get.ts")).default(legacyEvent("database", "GET", { query: input }, context)),
+  run: async (input, context) => {
+    const result = await (await import("./database.get.ts")).default(legacyEvent("database", "GET", { query: input }, context))
+    // The Console page reads the tables first and shows an empty page for a name that vanished. A command or a tool that
+    // names a table that does not exist should hear about it, not read an empty list.
+    if (input.table && context.surface !== "console" && !(result instanceof Response) && result.table !== input.table) {
+      throw consoleRequestError(404, `The database has no table "${input.table}".`)
+    }
+    return result
+  },
+  section: "databases",
+})
+
+const databasesTables = defineConsoleOperation({
+  cli: { namespace: "db", command: "tables" },
+  description: "List the tables of a database with their columns and relationships.",
+  input: v.strictObject({ database: optionalText }),
+  kind: "read",
+  name: "databases.tables",
+  run: async (input, context) => {
+    const { database, databases, relationships, tables } = actionResult(await (await import("./database.get.ts")).default(legacyEvent("database", "GET", { query: input }, context))) as ConsoleDatabaseResponse
+    return { database, databases, relationships, tables }
+  },
   section: "databases",
 })
 
@@ -279,16 +301,6 @@ const mediaAction = defineConsoleOperation({
   section: input => input.section,
 })
 
-const schedulesRun = defineConsoleOperation({
-  cli: { positional: ["name"] },
-  description: "Run a manual Schedule Definition now.",
-  input: v.strictObject({ name: v.pipe(text, v.minLength(1)) }),
-  kind: "write",
-  name: "schedules.run",
-  run: async (input, context) => (await import("./schedule-run.ts")).consoleScheduleRunHandler(legacyEvent("schedule-run", "POST", { body: input }, context)),
-  section: "schedules",
-})
-
 const searchQuery = defineConsoleOperation({
   cli: { namespace: "search", command: "query", positional: ["search"] },
   description: "Search the Agent Invocations of the Console.",
@@ -333,6 +345,7 @@ const statusGet = defineConsoleOperation({
 })
 
 const usageGet = defineConsoleOperation({
+  cli: { default: true },
   description: "Read token use and cost evidence of Agent Invocations.",
   input: v.strictObject({ agent: optionalText, cursor: optionalText, search: optionalText, status: optionalText, window: optionalText }),
   kind: "read",
@@ -365,6 +378,7 @@ export const consoleOperations: readonly AnyOperation[] = [
   agentsList,
   blobList,
   databasesBrowse,
+  databasesTables,
   definitionsList,
   documentsAction,
   envGet,
@@ -378,7 +392,6 @@ export const consoleOperations: readonly AnyOperation[] = [
   kvList,
   logsList,
   mediaAction,
-  schedulesRun,
   searchQuery,
   sectionsList,
   skillsInspect,

@@ -31,6 +31,10 @@ export { setAgentWorkflowCapabilityLoaders, setAgentWorkflowRuntimeLoaders } fro
 export { setAgentHostCapabilities } from "../internal/host-capabilities.ts"
 export type { AgentWorkflowCapabilityLoaders, AgentWorkflowRuntimeLoaders } from "../internal/workflow-runtime-loaders.ts"
 
+export { ChannelUnknownError, installChannelsConsoleHost } from "../channels-console-host.ts"
+export { channelConversationArchive } from "../internal/channel-conversation.ts"
+export type { AgentChannelConversation, AgentChannelInfo, AgentChannelRetention } from "./routes.ts"
+
 export type {
   AgentChannelChatRouteAdmissionContext,
   AgentChannelChatRouteAdmissionOptions,

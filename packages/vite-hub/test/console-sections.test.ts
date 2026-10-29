@@ -50,6 +50,7 @@ describe("Console section preferences", () => {
       "agents",
       "skills",
       "usage",
+      "channels",
       "blob",
       "databases",
       "kv",
@@ -61,16 +62,17 @@ describe("Console section preferences", () => {
       "schedules",
     ])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
-    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "workflows"])
-    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true })).toEqual(["agents", "skills", "usage", "channels", "workflows"])
+    expect(resolveConsoleSectionIds({ agent: true, preset: "netlify" })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({ agent: true, preset: "netlify", workflow: { provider: "vercel" } })).toEqual([
       "agents",
       "skills",
       "usage",
+      "channels",
       "workflows",
     ])
-    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage"])
-    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage"])
+    expect(resolveConsoleSectionIds({ agent: true, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
+    expect(resolveConsoleSectionIds({ agent: true, queue: false, schedule: false, workflow: false })).toEqual(["agents", "skills", "usage", "channels"])
     expect(resolveConsoleSectionIds({})).toEqual([])
     expect(resolveConsoleSectionIds({ env: true })).toEqual(["env"])
     expect(resolveConsoleSectionIds({ connections: true })).toEqual(["connections"])
@@ -187,6 +189,7 @@ describe("Console Go to shortcuts", () => {
       skills: "g i",
       comments: "g n",
       usage: "g u",
+      channels: "g v",
       databases: "g d",
       kv: "g k",
       logs: "g l",

@@ -1,5 +1,9 @@
 import * as v from "valibot"
 
+import { defineComments as defineOperationsComments } from "./operations-core/define.ts"
+import type { CommentsDefinition } from "./operations-core/define.ts"
+import type { DefineCommentsOptions } from "./definition.ts"
+
 import { commentsErrors } from "./errors.ts"
 import { normalizeCommentPage } from "./page.ts"
 import { createThreadSchema, describeIssue, replySchema } from "./schema.ts"
@@ -15,7 +19,7 @@ import type {
   CommentsErrorCode,
   CommentThread,
   CreateCommentThreadInput,
-  DefineCommentsOptions,
+  DefineCommentsOptions as LiveCommentsOptions,
   ListCommentThreadsOptions,
   ReplyInput,
 } from "./types.ts"
@@ -28,7 +32,7 @@ type Codes<T extends CommentsErrorCode> = T
 
 /** The Comments runtime of an app: the `comments` export of `server/comments.ts`. */
 export interface Comments {
-  readonly options: DefineCommentsOptions
+  readonly options: LiveCommentsOptions
   /** Threads with their comments, newest activity first. */
   list(options?: ListCommentThreadsOptions): Promise<Result<CommentThread[], Codes<"COMMENTS_NOT_INSTALLED">>>
   get(id: string): Promise<Result<CommentThread, Codes<"COMMENTS_NOT_INSTALLED" | "COMMENTS_NOT_FOUND">>>
@@ -51,10 +55,19 @@ export interface Comments {
 const runtimes = new WeakMap<Comments, CommentsStore>()
 
 /**
- * Defines Comments for the app. Export it as `comments` from `server/comments.ts`; ViteHub then stores threads in the
- * Database, serves the Comments API, and adds the overlay to pages for the people that `authorize` allows.
+ * Defines Comments for the app. A default export from `server/comments.ts` selects numbered, authorized Operations.
+ * A named `comments` export selects the live-site API, overlay, and presence rooms.
  */
-export function defineComments(options: DefineCommentsOptions = {}): Comments {
+export function defineComments(input?: DefineCommentsOptions): Comments & CommentsDefinition
+export function defineComments(input: LiveCommentsOptions): Comments & CommentsDefinition
+export function defineComments(input: CommentsDefinition): Comments & CommentsDefinition
+export function defineComments(configuration: DefineCommentsOptions | LiveCommentsOptions | CommentsDefinition = {}): Comments & CommentsDefinition {
+  // Each runtime calls only its own context variant; the shared factory stores both policies independently.
+  const input = configuration as DefineCommentsOptions
+  const options: LiveCommentsOptions = {
+    ...input,
+    authorize: input.authorize ? context => input.authorize!(context) : undefined,
+  }
   const store = () => runtimes.get(comments)
   const notInstalled = (): [ReturnType<typeof commentsErrors.COMMENTS_NOT_INSTALLED>, undefined] => [commentsErrors.COMMENTS_NOT_INSTALLED(), undefined]
   const notFound = (id: string): [ReturnType<typeof commentsErrors.COMMENTS_NOT_FOUND>, undefined] => [commentsErrors.COMMENTS_NOT_FOUND({ id }), undefined]
@@ -147,7 +160,10 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
       return [undefined, all.filter(person => !needle || person.name.toLowerCase().includes(needle)).slice(0, 20).map(({ id, name }) => ({ id, name }))]
     },
   }
-  return comments
+  return Object.freeze(Object.assign(comments, defineOperationsComments({
+    ...input,
+    authorize: input.authorize ? async context => await input.authorize!(context) === true : undefined,
+  })))
 }
 
 /**
@@ -157,3 +173,32 @@ export function defineComments(options: DefineCommentsOptions = {}): Comments {
 export function installComments(comments: Comments, runtime: { database: CommentsDatabase }): void {
   runtimes.set(comments, createCommentsStore(runtime.database))
 }
+
+export { builtinCommentSubjects, defineCommentSubject } from "./operations-core/define.ts"
+export type { CommentAction, CommentMentionEvent, CommentsAuthorize, CommentsDefinition, CommentSubjectDefinition } from "./operations-core/define.ts"
+export type { DefineCommentsOptions, CommentsAuthorizeContext } from "./definition.ts"
+export { commentsErrorDiagnostics } from "./client-errors.ts"
+export type {
+  CommentUser,
+  CommentActor,
+  CommentStatus,
+  CommentSubject,
+  PageAnchor,
+  ElementAnchor,
+  TextAnchor,
+  AreaAnchor,
+  ImageAnchor,
+  CommentAnchor as ClientCommentAnchor,
+  CommentMessage,
+  CommentThread as ClientCommentThread,
+  CommentListQuery,
+  CommentGetInput,
+  CommentCreateInput,
+  CommentReplyInput,
+  CommentEditInput,
+  CommentDeleteInput,
+  CommentStatusInput,
+  CommentUsersInput,
+  CommentEvent,
+  CommentsTransport,
+} from "./client-types.ts"

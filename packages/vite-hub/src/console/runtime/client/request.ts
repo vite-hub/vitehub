@@ -143,6 +143,10 @@ interface ConsoleRoute {
 const consoleRoutes: Record<string, ConsoleRoute> = {
   "agents": { operation: "agents.list" },
   "blob": { booleans: { folded: "true", showVitehub: "true" }, numbers: ["limit"], operation: "blob.list", strings: ["cursor", "prefix", "store"] },
+  "channels": { operation: "channels.list" },
+  "channels/conversation": { numbers: ["limit"], operation: "channels.conversation", strings: ["agent", "channel", "cursor", "thread"] },
+  "channels/export": { booleans: { media: "true" }, operation: "conversations.export", strings: ["agent", "channel", "format", "thread"] },
+  "channels/threads": { numbers: ["limit"], operation: "channels.threads", strings: ["agent", "channel", "cursor"] },
   "database": { numbers: ["limit", "offset"], operation: "databases.browse", strings: ["database", "direction", "search", "sort", "table"] },
   "definitions": { operation: "definitions.list", strings: ["section"] },
   "env": { booleans: { status: "1" }, operation: "env.get" },
@@ -217,7 +221,13 @@ export function consoleOperationCall(path: string, call: { body?: unknown, metho
     if (call.method === "POST") return { input: body, operation: "kv.get" }
     return { input: inputFromQuery({ numbers: ["limit"], operation: "kv.list", strings: ["cursor", "prefix", "store"] }, call.query), operation: "kv.list" }
   }
-  if (route === "schedule-run") return { input: body, operation: "schedules.run" }
+  if (route === "workflow") {
+    // A POST names its operation: start a run, read it, cancel it, or resume a signal.
+    const { action, ...input } = body
+    if (action !== "start" && action !== "get" && action !== "cancel" && action !== "resume") throw new ConsoleRequestError(400, "Unsupported Workflow action.")
+    return { input, operation: `workflow.${action}` }
+  }
+  if (route === "schedule-run") return { input: body, operation: "schedule.run" }
   const known = Object.hasOwn(consoleRoutes, route) ? consoleRoutes[route] : undefined
   if (!known) throw new ConsoleRequestError(404, "Console operation not found.")
   return { input: inputFromQuery(known, call.query), operation: known.operation }
@@ -260,9 +270,22 @@ export async function requestConsole(
     query[key] = Array.isArray(value) ? value.map(String) : String(value)
   }
   const call = consoleOperationCall(path, { body: options.body, method: options.method ?? "GET", query })
+  return requestConsoleOperation(path, call.operation, call.input, options)
+}
+
+/**
+ * Call one named operation over the Console RPC. `path` is any Console API path of the app, such as the definitions
+ * route, and only locates the application mount.
+ */
+export async function requestConsoleOperation(
+  path: string,
+  operation: string,
+  input: Record<string, unknown>,
+  options: { keepalive?: boolean, signal?: AbortSignal } = {},
+): Promise<unknown> {
   // Each call is one complete request, so hosts can route consecutive calls to different instances.
   // The operation comes first so the server can find large calls within the first bytes.
-  const requestBody = JSON.stringify({ operation: call.operation, input: call.input })
+  const requestBody = JSON.stringify({ operation, input })
   let response: Response
   try {
     response = await fetch(consoleRpcCallURL(path), {

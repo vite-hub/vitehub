@@ -20,7 +20,7 @@ import type { ConsoleSectionId } from "../sections.ts"
 export type ConsoleAccessPolicy =
   | { mode: "open", authorize?: ConsoleAuthorize, signInPage?: string }
   | { mode: "local" }
-  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
+  | { mode: "auth" | "cloudflare-access", authorize?: ConsoleAuthorize, check?: (event: ConsoleRequestEvent) => Promise<Response | undefined>, signInPage?: string, authBasePath?: (event: object) => Promise<string>, signIn?: (event: object, denied?: Response) => Promise<Response>, user?: (event: ConsoleRequestEvent) => Promise<ConsoleUser | undefined> }
 
 export type ConsoleAccessMode = ConsoleAccessPolicy["mode"]
 
@@ -122,6 +122,21 @@ export function consoleSignInPage(pathname: string): string | undefined {
   return isConsoleSignInPage(mounted) ? mounted : undefined
 }
 
+/** The app Auth mount used by the Console's own browser client. */
+export function consoleAppAuthBasePath(event: ConsoleRequestEvent): Promise<string> | undefined {
+  const policy = scope[policyKey]
+  return policy && "authBasePath" in policy ? policy.authBasePath?.(event) : undefined
+}
+
+/** Serve the built-in app Auth page before the application's protected Console routes. */
+export function consoleAppSignIn(event: ConsoleRequestEvent): Promise<Response> | undefined {
+  const policy = scope[policyKey]
+  const url = consoleRequestURL(event)
+  if (policy && "signIn" in policy && policy.signIn && url.pathname === `${consoleMountBase(url.pathname)}/_vitehub/sign-in`) {
+    return policy.signIn(event)
+  }
+}
+
 /**
  * Send a signed-out visit to a Console page to the sign-in page of the installed policy. The `redirect` query parameter
  * is the Console page that the visitor asked for. Returns `undefined` when the policy has no sign-in page, the request
@@ -132,8 +147,16 @@ export async function consoleSignInRedirect(event: ConsoleRequestEvent): Promise
   const page = consoleSignInPage(url.pathname)
   const method = (event.method ?? event.req?.method ?? event.node?.req?.method ?? "GET").toUpperCase()
   if (!page || (method !== "GET" && method !== "HEAD")) return undefined
-  const access = await checkConsoleAccess(event)
-  if (!isRuntimeResponse(access) || access.status !== 401) return undefined
+  const access = checkedEvents.get(event) ?? await checkConsoleAccess(event)
+  if (!isRuntimeResponse(access)) {
+    checkedEvents.set(event, access)
+    return undefined
+  }
+  const policy = scope[policyKey]
+  if (access.status === 403 && page.endsWith("/_vitehub/sign-in") && policy && "signIn" in policy && policy.signIn) {
+    return policy.signIn(event, access)
+  }
+  if (access.status !== 401) return undefined
   const target = new URL(page, url)
   target.searchParams.set("redirect", `${url.pathname}${url.search}`)
   return new Response(null, {
@@ -278,6 +301,18 @@ export async function readConsoleAccessUser(access: ConsoleAccess): Promise<Cons
   return access.user ?? await deferredUsers.get(access)?.()
 }
 
+/**
+ * The user that an operation sees. A development server without sign-in (`local` access, or `open` with
+ * `console.auth: false`) has no accounts, so the person is the local developer: `{ id: "local", name: "You" }`.
+ * Production servers never invent a user.
+ */
+export async function readConsoleOperationUser(access: ConsoleAccess): Promise<ConsoleUser | undefined> {
+  const user = await readConsoleAccessUser(access)
+  if (user) return user
+  // SAFETY: The local developer has the id and name that a Console user needs.
+  return (access.mode === "local" || access.mode === "open") && isConsoleDevelopmentRuntime() ? { id: "local", name: "You" } as ConsoleUser : undefined
+}
+
 /** Whether the access includes the section, with a read-only grant (`"<section>:read"`) too. */
 export function consoleAccessAllows(access: ConsoleAccess, section: ConsoleSectionId | undefined): boolean {
   if (!consoleAccessGrant.isValid(access)) return false
@@ -343,8 +378,8 @@ export interface ConsoleRealtimeUser {
 export interface ConsoleRealtimeAccess {
   /** The signed-in Console user, a Cloudflare Access email, or a guest of an open Console. Null without Console access. */
   identify(context: { event: unknown }): Promise<ConsoleRealtimeUser | null>
-  /** Whether the request has Console access that includes the section. */
-  authorize(context: { event: unknown }): Promise<boolean>
+  /** Whether the request includes the section; writes require its full grant instead of a read-only grant. */
+  authorize(context: { event: unknown, kind?: "read" | "write" }): Promise<boolean>
   /** The Console user that owner policies, such as `content.can()`, get: the same user as Console actions, or null. */
   user(context: { event: unknown }): Promise<ConsoleUser | null>
 }
@@ -391,8 +426,9 @@ export function consoleRealtimeAccess(section: ConsoleSectionId): ConsoleRealtim
       // An open Console has no accounts: each connection is a guest.
       return { id: `guest-${crypto.randomUUID()}`, name: "Guest" }
     },
-    async authorize({ event }) {
-      return Boolean(await access(event))
+    async authorize({ event, kind }) {
+      const allowed = await access(event)
+      return Boolean(allowed && (kind !== "write" || consoleAccessWrites(allowed, section)))
     },
     async user({ event }) {
       const allowed = await access(event)

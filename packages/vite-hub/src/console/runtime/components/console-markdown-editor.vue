@@ -22,6 +22,7 @@ import { useConsoleMediaPicker } from "../client/media";
 import { useConsoleToast } from "../client/toast";
 import ConsoleComarkComponent from "./console-comark-component.vue";
 import ConsoleMediaDialog from "./console-media-dialog.vue";
+import ConsoleLoading from "./console-loading.vue";
 
 import type { DropdownMenuItem, EditorCustomHandlers, EditorToolbarItem } from "@nuxt/ui";
 import type { Editor, JSONContent } from "@tiptap/vue-3";
@@ -59,7 +60,8 @@ const model = defineModel<string>({ required: true });
 const toast = useConsoleToast();
 const lossy = ref<string>();
 // Mirrors `editor.isEditable`, which is not reactive.
-const editable = ref(!props.disabled);
+const editable = ref(Boolean(props.live) && !props.disabled);
+const hydrating = ref(!props.live);
 // The last Markdown this component wrote or loaded, so an incoming value that matches it is not applied back.
 let written = model.value;
 // The Markdown as loaded and what the editor serializes it to. An unchanged document writes back the loaded text, so
@@ -67,8 +69,11 @@ let written = model.value;
 let loaded = model.value;
 let canonical: string | undefined;
 let loading = 0;
+let loadVersion = 0;
 let pending: ReturnType<typeof setTimeout> | undefined;
+let flushing: Promise<void> | undefined;
 let flushVersion = 0;
+let committing = 0;
 
 const live = props.live;
 const components = computed(() => consoleEditorComponents(props.components));
@@ -151,7 +156,7 @@ const extensions = codec.extensions().map(extension => extension.extend({
   },
 }));
 const editor = useEditor({
-  editable: !props.disabled,
+  editable: Boolean(props.live) && !props.disabled,
   editorProps: { attributes: { "aria-label": props.label ?? "Body", "aria-multiline": "true", class: "vitehub-markdown-editor__content", role: "textbox" } },
   extensions: [
     ...extensions,
@@ -173,9 +178,22 @@ const editor = useEditor({
 });
 const getMarkdown = () => editor.value ? codec.toMarkdown(editor.value.getJSON()) : Promise.resolve(null);
 
-async function flush(): Promise<void> {
+function flush(): Promise<void> {
+  if (!flushing) {
+    flushing = writeMarkdown().finally(() => {
+      flushing = undefined;
+      // An edit may have arrived while the preceding snapshot was being serialized.
+      if (pending) void flush();
+    });
+  }
+  return flushing;
+}
+
+async function writeMarkdown(): Promise<void> {
   const version = flushVersion;
+  if (pending) clearTimeout(pending);
   pending = undefined;
+  if (hydrating.value || lossy.value) return;
   const markdown = await getMarkdown();
   if (version !== flushVersion || props.active === false) return;
   if (markdown === null) return;
@@ -191,26 +209,41 @@ function schedule(): void {
 
 /** Writes pending rich-text edits to the model now, for example before a save. A live room saves on its own. */
 async function commit(): Promise<void> {
-  if (!pending || live) return;
-  clearTimeout(pending);
-  await flush();
+  if (live || (!pending && !flushing)) return;
+  committing++;
+  setEditable();
+  try {
+    do { await flush(); } while (pending || flushing);
+  }
+  finally {
+    committing--;
+    setEditable();
+  }
 }
 
 /** Loads through the same Comark UI codec as a live room, without creating an edit. */
 async function load(markdown: string): Promise<void> {
   const instance = editor.value;
   if (!instance) return;
-  const token = ++loading;
+  const token = ++loadVersion;
+  loading = token;
+  hydrating.value = true;
   lossy.value = undefined;
+  flushVersion++;
+  if (pending) clearTimeout(pending);
+  pending = undefined;
+  setEditable();
   try {
     const [document, result] = await Promise.all([codec.fromMarkdown(markdown), codec.verify(markdown)]);
     if (token !== loading || instance.isDestroyed) return;
     instance.chain().setMeta("addToHistory", false).setContent(document, { emitUpdate: false }).run();
+    const serialized = await getMarkdown();
+    if (token !== loading || instance.isDestroyed) return;
     loaded = markdown;
     written = markdown;
-    canonical = await codec.toMarkdown(instance.getJSON());
-    if (token !== loading) return;
+    canonical = serialized ?? undefined;
     if (!result.writable) lossy.value = "The editor cannot keep this Markdown unchanged. Edit this body in Source.";
+    publishOutline();
   }
   catch (error) {
     if (token !== loading) return;
@@ -219,8 +252,8 @@ async function load(markdown: string): Promise<void> {
   finally {
     if (token === loading) {
       loading = 0;
+      hydrating.value = false;
       setEditable();
-      publishOutline();
     }
   }
 }
@@ -254,7 +287,7 @@ watch(() => props.active, (active) => {
 });
 
 function setEditable(): void {
-  editable.value = !props.disabled && !lossy.value;
+  editable.value = !committing && !props.disabled && !lossy.value && !hydrating.value;
   editor.value?.setEditable(editable.value, false);
 }
 
@@ -292,6 +325,8 @@ function focus(position: "end" | "start" = "start"): void {
 }
 
 onBeforeUnmount(() => {
+  loading = 0;
+  flushVersion++;
   if (pending) clearTimeout(pending);
   clearTimeout(outlineTimer);
 });
@@ -452,12 +487,13 @@ watch(editor, (instance) => {
 
 <template>
   <section class="vitehub-markdown-editor relative" :aria-label="label ?? 'Body'">
+    <ConsoleLoading v-if="hydrating" label="Loading editor…" />
     <p v-if="lossy" class="mb-4 flex items-start gap-2 rounded-md bg-elevated/60 px-3 py-2 text-[13px] text-muted" role="status">
       <UIcon name="i-lucide-lock" class="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-      <span>Read-only here. {{ lossy }} <span class="text-xs text-dimmed">⌘/</span></span>
+      <span>Read-only here. {{ lossy }} Switch to Source to read or edit the Markdown.</span>
     </p>
     <template v-if="editor">
-      <EditorContent :editor="editor" />
+      <EditorContent v-show="!hydrating" :editor="editor" :aria-busy="hydrating" />
       <UEditorToolbar
         :editor="editor"
         layout="bubble"

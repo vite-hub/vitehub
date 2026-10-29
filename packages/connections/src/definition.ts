@@ -2,6 +2,7 @@ import * as v from "valibot"
 
 import { isSafeEndpoint, isValidApiKeyProvider } from "./api-key.ts"
 import { isValidLoginProvider } from "./oauth-login.ts"
+import { chatgptProviderSchema } from "./chatgpt.ts"
 import { connectionsErrorDiagnostics } from "./error-diagnostics.ts"
 import type { ConnectionApiSelection, ConnectionDefinition, ConnectionInstancesDefinition } from "./types.ts"
 
@@ -104,7 +105,10 @@ const loginDefinitionSchema = v.looseObject({
   ...rulesSchema,
 })
 const definitionSchema = v.pipe(
-  v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema]),
+  v.union([oauthDefinitionSchema, apiKeyDefinitionSchema, loginDefinitionSchema, v.strictObject({
+    provider: chatgptProviderSchema,
+    access: v.record(v.string(), v.strictObject({ read: v.optional(v.boolean()) })),
+  })]),
   // The `"mcp"` preset allows only the provider's `mcp` endpoint, so a provider without one would deny every call.
   v.check(definition => definition.provider.mcp !== undefined || !Object.values(definition.access ?? {}).includes("mcp")),
 )

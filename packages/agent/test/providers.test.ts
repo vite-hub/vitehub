@@ -132,6 +132,7 @@ const hostedAgentRoot = join(import.meta.dirname, "../../../fixtures/tutorials/a
 function agentProviderOutputAliases(extra: Array<{ find: string; replacement: string }> = []) {
   return [
     ...extra,
+    { find: "@vite-hub/agent/env-identity", replacement: resolve(import.meta.dirname, "../src/env-identity.ts") },
     { find: "@vite-hub/agent/server/registry", replacement: resolve(import.meta.dirname, "../src/server/registry.ts") },
     { find: "@vite-hub/agent/server/internal", replacement: resolve(import.meta.dirname, "../src/server/internal.ts") },
     { find: "@vite-hub/agent/server/workspace", replacement: resolve(import.meta.dirname, "../src/server/workspace.ts") },
@@ -2933,7 +2934,7 @@ export default defineAgent({
         expect(queuePlugin).toContain('import { resumeWebhookQueues, warmWebhookRoutes } from "./chat-webhook-route"')
         expect(queuePlugin).not.toContain("nitroApp.hooks.hook('request'")
         expect(queuePlugin).toContain("startWebhookQueues(startedAt)")
-        expect(webhookRoute).toContain('import { createAgentWebhookWarmup } from "@vite-hub/agent/server/internal"')
+        expect(webhookRoute).toContain('import { createAgentWebhookWarmup, installChannelsConsoleHost } from "@vite-hub/agent/server/internal"')
         expect(webhookRoute).toContain("() => handler.warm({ agentIdentity: agentIdentities[name], state: viteHubChatStateResolver, webhookState: viteHubChatStateResolver }),")
         const resumeWebhookQueues = vi.fn((_waitUntil: unknown, _before: number) => vi.fn())
         const warmWebhookRoutes = vi.fn(async () => undefined)
@@ -12783,6 +12784,11 @@ describe("server helpers", () => {
       const miniDiscordTranscripts = miniDiscord._chatInstance()!.transcripts
       const miniSlackTranscripts = miniSlack._chatInstance()!.transcripts
       const coordinatorTranscripts = coordinatorDiscord._chatInstance()!.transcripts
+      // ViteHub keeps the messages of a Channel with transcripts by itself, for the identity of the person.
+      const savedByMini = await miniSlackTranscripts.count({ userKey: "account:verified" })
+      const savedByCoordinator = await coordinatorTranscripts.count({ userKey: "account:verified" })
+      expect(savedByMini).toBeGreaterThanOrEqual(2)
+      expect(savedByCoordinator).toBeGreaterThanOrEqual(1)
       await miniDiscordTranscripts.append(
         // SAFETY: This synthetic test input exercises a hook that does not inspect the omitted host-only context.
         { adapter: { name: "discord" }, id: "discord:456" } as never,
@@ -12803,17 +12809,17 @@ describe("server helpers", () => {
         { userKey: "account:verified" },
       )
 
-      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(2)
-      await expect(miniSlackTranscripts.list({ userKey: "account:verified" })).resolves.toMatchObject([
-        { platform: "discord", text: "discord" },
-        { platform: "slack", text: "slack" },
-      ])
-      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(2)
-      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(1)
+      await expect(miniSlackTranscripts.count({ userKey: "account:verified" })).resolves.toBe(savedByMini + 2)
+      await expect(miniSlackTranscripts.list({ limit: 200, userKey: "account:verified" })).resolves.toEqual(expect.arrayContaining([
+        expect.objectContaining({ platform: "discord", text: "discord" }),
+        expect.objectContaining({ platform: "slack", text: "slack" }),
+      ]))
+      await expect(state.getList("chat:mini:transcripts:user:account:verified")).resolves.toHaveLength(savedByMini + 2)
+      await expect(state.getList("chat:work-coordinator:transcripts:user:account:verified")).resolves.toHaveLength(savedByCoordinator + 1)
       await expect(state.getList("chat:mini:discord:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(state.getList("chat:mini:slack:transcripts:user:account:verified")).resolves.toEqual([])
       await expect(miniSlackTranscripts.delete({ userKey: "account:verified" })).resolves.toEqual({
-        deleted: 2,
+        deleted: savedByMini + 2,
       })
       await expect(miniDiscordTranscripts.list({ userKey: "account:verified" })).resolves.toEqual([])
     } finally {
@@ -14218,6 +14224,8 @@ describe("server helpers", () => {
       }
       await expect(drain).resolves.toEqual({ active: 1, interrupted: 1, unsettled: 0 })
       await Promise.allSettled(waitUntilTasks)
+      const interrupted = await state.get<Record<string, { transcriptUserKey?: string | null }>>("chat:support:telegram:vitehub:interrupted-chat")
+      expect(Object.values(interrupted ?? {}).map(record => record.transcriptUserKey)).toEqual(["telegram:123"])
       const restartNotice = scenario === "citation notice" ? "Restarted. [source link unavailable]" : "The server restarted while I was working on this. I'll retry it automatically."
       expect([...firstAdapter.postMessage.mock.calls, ...firstAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
 
@@ -14321,7 +14329,9 @@ describe("server helpers", () => {
       await vi.waitFor(() => expect(prompts).toHaveLength(2), { timeout: 10_000 })
       expect(prompts[1]).toContain("[Retry after interruption]")
       expect(prompts[1]).toContain("review the pull request")
-      expect([...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()).toContainEqual(expect.stringContaining(restartNotice))
+      const noticeCalls = [...secondAdapter.postMessage.mock.calls, ...secondAdapter.editMessage.mock.calls].flat()
+      if (scenario === "retry failure") expect(noticeCalls).not.toContainEqual(expect.stringContaining(restartNotice))
+      else expect(noticeCalls).toContainEqual(expect.stringContaining(restartNotice))
       if (scenario === "second restart") {
         await drainInlineChatInvocations({ timeoutMs: 0 })
       }
@@ -17194,6 +17204,7 @@ describe("server helpers", () => {
         return [{ id, status: async () => ({ status: "queued" }) }]
       })
       const errorFallbackText = vi.fn(() => "Could not process message.")
+      let transcriptIdentity = "account:original"
       const agent = defineAgent({
         channels: {
           telegram: testTelegram(telegram, {
@@ -17203,7 +17214,7 @@ describe("server helpers", () => {
               // SAFETY: createTestChatAdapter implements the Adapter contract exercised by this resolver fixture.
               return adapter as never
             },
-            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, state },
+            messages: { concurrency: "steer", delivery: "manual", errorFallbackText, identity: () => transcriptIdentity, state },
           }),
         },
         driver: { run: () => "unused" },
@@ -17238,6 +17249,7 @@ describe("server helpers", () => {
         expect(ownershipKey).toBeDefined()
         await state.forceReleaseLock(ownershipKey!)
 
+        transcriptIdentity = "account:current"
         await expect(handler(request(91_147, "beta"), "telegram", reclaimerRuntime)).resolves.toMatchObject({ status: 200 })
         expect(createBatch.mock.calls.length).toBeGreaterThan(1)
         const queue = `${ownershipKey}:queue`
@@ -17296,6 +17308,22 @@ describe("server helpers", () => {
         )
         expect(adapter.postMessage).toHaveBeenNthCalledWith(1, "telegram:456", "Could not process message.")
         expect(adapter.postMessage).toHaveBeenNthCalledWith(2, "telegram:456", "Could not process message.")
+        // Read after the provider window expires, with the identity resolver changed since the first delivery.
+        adapter.fetchMessages.mockResolvedValue({ messages: [] })
+        const conversation = await handler.conversation(request(91_147, "beta"), { channel: "telegram", threadId: "telegram:456" }, reclaimerRuntime)
+        const fallbacks = conversation.messages.filter(message => message.role === "assistant")
+        expect(fallbacks).toHaveLength(2)
+        expect(fallbacks.every(message => message.source === "transcript" && message.text === "Could not process message.")).toBe(true)
+        const chat = adapter._chatInstance()
+        if (!(chat instanceof Chat)) throw new Error("Expected the conversation's Chat client")
+        for (const userKey of ["account:original", "account:current"]) {
+          const entries = await chat.history.user.list({ threadId: "telegram:456", userKey })
+          expect(entries.filter(entry => entry.role === "assistant")).toEqual([
+            expect.objectContaining({ text: "Could not process message." }),
+          ])
+        }
+        const { channelConversationArchive } = await import("../src/internal/channel-conversation.ts")
+        expect(channelConversationArchive(conversation).messages.filter(message => message.role === "assistant")).toEqual(fallbacks)
         expect(remainingFallbackProgressFailures).toBe(0)
         expect(queueReplaceHead).toHaveBeenCalledWith(
           expect.any(String),
@@ -17513,11 +17541,27 @@ describe("server helpers", () => {
       title: "bounds a fallback post that never settles and keeps it reserved for retry",
     },
   ] as const)("$title", async ({ boundary, deliveryFailure, firstDeliveryCount, finalDeliveryCount }) => {
-    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback } = await import("../src/server/routes.ts")
+    const { deliverDurableSteerErrorFallbacks, postChatErrorFallback, recordTranscriptsOfThread } = await import("../src/server/routes.ts")
     const { createLibsqlAgentState } = await import("../src/state/sqlite.ts")
     const stateDir = await mkdtemp(join(tmpdir(), "vitehub-chat-steer-fallback-recovery-"))
     const state = createLibsqlAgentState({ url: `file:${join(stateDir, "state.sqlite")}` })
     const queue = "durable-steer-fallback-recovery"
+    const adapter = createTestChatAdapter()
+    const chat = new Chat({
+      // SAFETY: createTestChatAdapter implements the Adapter methods used by the transcript store.
+      adapters: { telegram: adapter as unknown as Adapter },
+      identity: () => "account:original",
+      state,
+      transcripts: { maxPerUser: 50 },
+      userName: "vitehub",
+    })
+    const recorder: Parameters<typeof recordTranscriptsOfThread>[1] = {
+      inbound: async () => {},
+      outbound: async (_adapter, threadId, id, text, userKey) => {
+        if (!userKey) return
+        await chat.history.user.append(chat.thread(threadId), { platformMessageId: id, role: "assistant", text }, { userKey })
+      },
+    }
     const entry = {
       enqueuedAt: Date.now(),
       expiresAt: Number.MAX_SAFE_INTEGER,
@@ -17551,7 +17595,7 @@ describe("server helpers", () => {
       const delivered = await postChatErrorFallback(
         new Error("failed"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
-        { post } as never,
+        recordTranscriptsOfThread({ adapter, id: "telegram:456", post } as never, recorder, "account:original"),
         // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
         entry.message.errorDeliveries[0]!.message as never,
         { errorFallbackText: "Fallback" },
@@ -17604,6 +17648,7 @@ describe("server helpers", () => {
       expect(reserved.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("reserved")
       if (deliveryFailure === "timeout") {
         await vi.waitFor(() => expect(lateDeliveryDelete).toHaveBeenCalledOnce())
+        await expect(chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })).resolves.toEqual([])
       }
 
       // SAFETY: This fixture is intentionally constructed with the asserted test-only contract.
@@ -17614,6 +17659,14 @@ describe("server helpers", () => {
         message?: { errorDeliveries?: Array<{ fallbackStatus?: string }> }
       }
       expect(delivered.message?.errorDeliveries?.[0]?.fallbackStatus).toBe("delivered")
+      if (deliveryFailure === "timeout") {
+        const transcripts = await chat.history.user.list({ threadId: "telegram:456", userKey: "account:original" })
+        expect(transcripts).toEqual([expect.objectContaining({ platformMessageId: "fallback", role: "assistant", text: "Fallback", userKey: "account:original" })])
+        const { channelConversationArchive, stitchChannelConversation } = await import("../src/internal/channel-conversation.ts")
+        const messages = stitchChannelConversation({ invocations: [], provider: [], threadId: "telegram:456", transcripts })
+        expect(messages).toEqual([expect.objectContaining({ id: "fallback", source: "transcript", text: "Fallback" })])
+        expect(channelConversationArchive({ agent: "calories", channel: "telegram", messages, provider: "telegram", retention: { durable: true, maxMessages: 50, ttlMs: 0 }, threadId: "telegram:456" }).messages).toEqual(messages)
+      }
       queueReplaceHead.mockRestore()
     } finally {
       await state.disconnect()
@@ -24430,6 +24483,8 @@ describe("server helpers", () => {
       get(target, property, receiver) {
         if (property !== "appendToList") return Reflect.get(target, property, receiver)
         return async (...args: Parameters<typeof state.appendToList>) => {
+          // Only the delivery journal fails; transcript entries and participant indexes use separate lists.
+          if (String(args[0]).includes("transcripts:")) return await state.appendToList(...args)
           eventAppends += 1
           if (eventAppends > 2) throw new Error("journal unavailable")
           return await state.appendToList(...args)
