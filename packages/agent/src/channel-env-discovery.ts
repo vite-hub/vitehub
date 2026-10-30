@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { resolve, sep } from "node:path"
 
 import { forgeEnv } from "@vite-hub/forge"
+import { discoverServerChannelModules, listMatchingFiles } from "@vite-hub/internal/definition-catalog"
 import { builtInChannelEnv } from "./channel-env.ts"
 import { discoverAgentDefinitions, tokenizeAgentSource } from "./discovery.ts"
 import { builtInGatewayEnv } from "./internal/gateway-env.ts"
@@ -145,7 +146,7 @@ function staticOptionKeys(tokens: string[], start: number, empty: string, typesc
 }
 
 /**
- * Find built-in Channel factory calls, such as `telegram({ ... })` imported from
+ * Find built-in Channel factory and `.connector()` calls, such as `telegram({ ... })` imported from
  * `vite-hub/agent/channels`, and Channel shorthands such as `channels: { telegram: { ... } }`.
  * Source is TypeScript by default. JavaScript files must disable type argument handling.
  */
@@ -186,10 +187,22 @@ export function discoverBuiltInChannelUses(
   const uses: Array<DiscoveredChannelUse & { index: number }> = []
   for (let i = 0; i < tokens.length; i++) {
     if (tokens[i - 1] === "." || tokens[i - 1] === "as") continue
-    const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript)
+    const factory = !isShadowedAt(tokens, i, tokens[i]!, shadowBindings, lineBreaks) && factoryCall(tokens, i, bindings, namespaces, known, lineBreaks, typescript, options.modules === undefined)
     if (factory) {
       const start = skipOptionAssertions(tokens, factory.open + 1, typescript)
-      const optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
+      let optionKeys = staticOptionKeys(tokens, start, ")", typescript, factory.name)
+      // Telegram connectors accept botToken inside adapter options, unlike the Agent Channel.
+      if (factory.connector && factory.name === "telegram" && optionKeys) {
+        const settings = localObject(tokens, start, declarations, typescript)
+        if (settings !== undefined) visitObjectProperties(tokens, settings, (key, value) => {
+          if (key !== "adapter" || value === undefined) return
+          const adapter = localObject(tokens, value, declarations, typescript)
+          if (adapter === undefined) return
+          const adapterKeys = staticOptionKeys(tokens, adapter, "}", typescript)
+          if (adapterKeys?.has("postMessage")) return
+          optionKeys = adapterKeys
+        })
+      }
       const stringOptions = new Map<string, string>()
       let object = start
       while (tokens[object] === "(") object = skipOptionAssertions(tokens, object + 1, typescript)
@@ -823,7 +836,8 @@ function factoryCall(
   names: ReadonlySet<string>,
   lineBreaks: ReadonlySet<number>,
   typescript: boolean,
-): { name: string, open: number } | undefined {
+  connectors = false,
+): { name: string, open: number, connector: boolean } | undefined {
   if (tokens[index - 1] === "#") return undefined
   let name = bindings.get(tokens[index]!)
   let next = index + 1
@@ -840,6 +854,8 @@ function factoryCall(
     }
   }
   if (!name) return undefined
+  const connector = connectors && ["teams", "discord", "telegram"].includes(name) && tokens[next] === "." && tokens[next + 1] === "connector"
+  if (connector) next += 2
   if (tokens[next] === "?" && tokens[next + 1] === ".") next += 2
   if (tokens[next] === "<") {
     if (!typescript) return undefined
@@ -853,7 +869,7 @@ function factoryCall(
   // Method keys are declarations. A call can precede a ternary colon, so also
   // require the key to follow a property boundary or a method modifier.
   if (["{", ":"].includes(after!) && (afterType || followsDecorator(tokens, index) || ["{", "}", ",", ";", "async", "get", "set", "*", "static", "public", "private", "protected", "abstract", "declare", "override"].includes(previous)) && isMethodContainer(tokens, index)) return undefined
-  return { name, open: next }
+  return { name, open: next, connector }
 }
 
 // Decorator calls can separate a method key from its property boundary.
@@ -905,13 +921,21 @@ function agentHandlers(options: { rootDir: string, serverDirs?: string[] }): Set
 }
 
 /**
- * Declare the Server Env of each built-in Channel used by a discovered Agent.
- * A value is required when an Agent uses the Channel with static options that omit it.
+ * Declare the Server Env of each built-in Channel used by a discovered Agent or outbound Channel.
+ * A value is required when a Channel or connector uses static options that omit it.
  */
 export function discoverAgentChannelEnv(options: { rootDir: string, serverDirs?: string[] }): AgentChannelEnv {
   const fields: Readonly<Record<string, Readonly<Record<string, ChannelEnvField>>>> = builtInChannelEnv
   const declared: AgentChannelEnv = {}
-  for (const handler of agentHandlers(options)) {
+  const serverDirs = options.serverDirs ?? [resolve(options.rootDir, "server")]
+  const channelDirectories = serverDirs.map(directory => `${resolve(directory, "channels")}${sep}`)
+  const handlers = new Set([
+    ...agentHandlers(options),
+    ...discoverServerChannelModules(serverDirs).map(definition => definition.handler),
+    ...listMatchingFiles(options.rootDir, name => /\.channel\.(?:c|m)?[jt]s$/i.test(name))
+      .filter(handler => !channelDirectories.some(directory => resolve(handler).startsWith(directory))),
+  ])
+  for (const handler of handlers) {
     const source = readFileSync(handler, "utf8")
     for (const { kind, optionKeys } of discoverBuiltInChannelUses(source, Object.keys(fields), { typescript: /\.(?:c|m)?ts$/i.test(handler) })) {
       const group = declared[kind] ??= {}
