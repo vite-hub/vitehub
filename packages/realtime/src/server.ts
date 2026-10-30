@@ -458,10 +458,12 @@ function migrateLegacyDocument(sql: RealtimeRoomSql, key: string, clientUpdateCo
 function parseRoomPath(url: string): { definitionName: string, documentId: string, searchParams: URLSearchParams, workspaceEvents: boolean } {
   const parsed = new URL(url)
   const path = parsed.pathname
-  if (!path.startsWith(routePrefix)) throw new HTTPError({ status: 404 })
+  // Nitro may leave the app base on the request URL. The registered route already owns that prefix.
+  const at = path.indexOf(routePrefix)
+  if (at === -1) throw new HTTPError({ status: 404 })
   let parts: string[]
   try {
-    parts = path.slice(routePrefix.length).split("/").map(decodeURIComponent)
+    parts = path.slice(at + routePrefix.length).split("/").map(decodeURIComponent)
   }
   catch {
     throw new HTTPError({ status: 400, message: "Realtime route components must be valid URL encoding." })

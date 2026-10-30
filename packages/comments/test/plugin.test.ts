@@ -10,7 +10,7 @@ import { defineComments } from "../src/index.ts"
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
 import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=2" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=3" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -21,7 +21,8 @@ function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay
     const person = request instanceof Request ? /person=(\w+)/.exec(request.headers.get("cookie") ?? "")?.[1] : undefined
     return person ? { id: person, name: person } : null
   }
-  defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay, session })(nitroApp)
+  const base = commentsApiRoute(new URL(overlay, "http://localhost").href).slice(0, -"/api/_vitehub/comments".length)
+  defineCommentsPlugin({ comments: defineComments(options), database: () => undefined, overlay: overlay.slice(base.length), base, session })(nitroApp)
   console.warn = warn
 }
 
