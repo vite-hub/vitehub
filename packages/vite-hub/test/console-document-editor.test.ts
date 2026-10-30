@@ -4,27 +4,44 @@ import { defineComponent, h, ref } from "vue"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { createConsoleDocumentsClient } from "../src/console/runtime/client/documents"
+import { readConsoleLocalDraft, writeConsoleLocalDraft } from "../src/console/runtime/client/preview"
+import { ConsoleRequestError } from "../src/console/runtime/client/request"
+import { useConsoleToast } from "../src/console/runtime/client/toast"
 import ConsoleDocumentEditor from "../src/console/runtime/components/console-document-editor.vue"
 import ConsoleDocumentDiff from "../src/console/runtime/components/console-document-diff.vue"
 
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
 
+const claimLease = vi.hoisted(() => vi.fn(async () => true))
+const beforeRouteLeave = vi.hoisted(() => vi.fn<(guard: () => Promise<false | undefined>) => void>())
+const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string }, from: { path: string }) => Promise<false | undefined> | undefined) => void>())
+const window: EventTarget = Reflect.get(globalThis, "window")
+
 vi.mock("vue-router", () => ({
-  onBeforeRouteLeave: vi.fn(),
+  onBeforeRouteLeave: beforeRouteLeave,
+  onBeforeRouteUpdate: beforeRouteUpdate,
   useRoute: () => ({ query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
-vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({ default: { render: () => null } }))
+vi.mock("../src/console/runtime/components/console-markdown-editor.vue", () => ({
+  default: { name: "ConsoleMarkdownEditor", props: ["modelValue"], emits: ["update:modelValue"], setup: (_props: unknown, { expose }: { expose: (exposed: object) => void }) => {
+    expose({ commit: async () => undefined })
+    return () => null
+  } },
+}))
 vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/console/runtime/client/presence")>(),
   useConsoleDocumentPresence: () => ({
-    claim: async () => true,
+    acquire: claimLease,
+    claim: claimLease,
     holder: ref(null),
     mayWrite: ref(true),
     mode: ref("free"),
     others: ref([]),
     ownOtherTab: ref(false),
     presence: ref(null),
+    refresh: vi.fn(async () => undefined),
+    resume: vi.fn(),
     unreachable: ref(false),
   }),
 }))
@@ -65,7 +82,21 @@ const UModal = defineComponent({
 const wrappers: Array<{ unmount(): void }> = []
 afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
+  sessionStorage.clear()
+  claimLease.mockClear()
+  beforeRouteLeave.mockClear()
+  beforeRouteUpdate.mockClear()
 })
+
+const stubs = {
+  ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
+  ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
+  UButton,
+  UModal,
+  UTooltip: { template: "<slot />" },
+  UFieldGroup: { template: "<slot />" },
+  UDropdownMenu: true, UEmpty: true, UFormField: true, UInputDate: true, UInputTime: true,
+}
 
 async function mountEditor(published: () => Promise<ConsoleDocument | null>, initial = draft) {
   const client = {
@@ -75,17 +106,7 @@ async function mountEditor(published: () => Promise<ConsoleDocument | null>, ini
   }
   const wrapper = shallowMount(ConsoleDocumentEditor, {
     props: { changes: 0, client, collection, documentId: "hello" },
-    global: {
-      stubs: {
-        ConsolePageHeader: { template: "<header><slot name='right' /></header>" },
-        ConsoleStatus: { props: ["label"], template: "<span>{{ label }}</span>" },
-        UButton,
-        UModal,
-        UTooltip: { template: "<slot />" },
-        UFieldGroup: { template: "<slot />" },
-        UDropdownMenu: true, UEmpty: true, UFormField: true, UInputDate: true, UInputTime: true,
-      },
-    },
+    global: { stubs },
   })
   wrappers.push(wrapper)
   await flushPromises()
@@ -160,5 +181,629 @@ describe("Published conflict comparison", () => {
     await wrapper.get('[data-label="Keep my draft"]').trigger("click")
     await flushPromises()
     expect(client.save).toHaveBeenCalledWith("posts", "hello", expect.objectContaining({ data: draft.data, ifPublishedDigest: null }))
+  })
+})
+
+const conflictError = (ref?: "published") => new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: ref ? { ref, documents: [] } : {} })
+
+/**
+ * A store with the checks of the Content store: a save names the shared draft digest it replaces and, after a site
+ * change, the site digest it compared. A collection without a live room, so saves pass this tab's edit lease.
+ */
+function conflictStore() {
+  let version = 0
+  const store = {
+    site: { ...site, data: { title: "Site from Git" }, digest: "site-2" } as ConsoleDocument,
+    shared: { ...draft, data: { title: "Shared, saved by someone else" }, digest: "shared-2", conflict: { published: "site-1" } } as ConsoleDocument,
+    move(data: Record<string, unknown>) {
+      store.shared = { ...store.shared, data, digest: `shared-moved-${++version}` }
+    },
+  }
+  const client = {
+    ...createConsoleDocumentsClient("", "content"),
+    get: vi.fn(async (_collection: string, _id: string, ref?: "draft" | "published") => structuredClone(ref === "published" ? store.site : store.shared)),
+    save: vi.fn(async (_collection: string, _id: string, input: { data?: Record<string, unknown>, ifDigest?: string | null, ifPublishedDigest?: string | null, live?: boolean }) => {
+      if (input.ifDigest !== store.shared.digest) throw conflictError()
+      if (input.ifPublishedDigest !== undefined && input.ifPublishedDigest !== store.site.digest) throw conflictError()
+      store.shared = { ...store.shared, conflict: input.ifPublishedDigest === undefined ? store.shared.conflict : undefined, data: input.data ?? {}, digest: `shared-saved-${++version}` }
+      return structuredClone(store.shared)
+    }),
+    publish: vi.fn(async (_collection: string, documents: Array<{ digest: string | null, id: string }>) => {
+      if (documents[0]?.digest !== store.shared.digest) throw conflictError()
+      if (store.shared.conflict) throw conflictError("published")
+      store.site = { ...store.shared, conflict: undefined, state: "published" }
+      return { documents: [{ id: "hello" }] }
+    }),
+  }
+  return { store, client }
+}
+
+const privateEdit = { title: "PRIVATE local edit" }
+
+/** Opens the editor in Local only, with private edits that started from an older shared draft, then reviews Publish shared draft. */
+async function reviewSharedPublish() {
+  const { store, client } = conflictStore()
+  writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "", data: { title: "Shared start" } }, version: { body: "", data: privateEdit } })
+  const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "hello" }, global: { stubs } })
+  wrappers.push(wrapper)
+  await flushPromises()
+  await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+  await flushPromises()
+  // The review shows the shared draft. It also changed on the site, so Publish opens the comparison and publishes nothing.
+  expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: store.shared.data } })
+  await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+  await flushPromises()
+  expect(client.publish).not.toHaveBeenCalled()
+  return { store, client, wrapper }
+}
+
+function savedPrivateData(client: ReturnType<typeof conflictStore>["client"]): boolean {
+  return client.save.mock.calls.some(([, , input]) => input.data?.title === privateEdit.title)
+}
+
+describe("Publish shared draft from Local only, when the site changed too", () => {
+  it("compares the reviewed shared draft, never the private edits", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toEqual(expect.objectContaining({ before: { body: "", data: store.site.data }, after: { body: "", data: store.shared.data } }))
+    expect(wrapper.text()).toContain("Your local edits are not part of it")
+    expect(wrapper.find('[data-label="Keep my draft"]').exists()).toBe(false)
+    expect(wrapper.find('[data-label="Keep the shared draft"]').exists()).toBe(true)
+    expect(client.save).not.toHaveBeenCalled()
+  })
+
+  it("keeps the shared draft with the lease and both digests, then publishes it, and the private edits stay in the tab", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    const reviewed = store.shared
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    expect(claimLease).toHaveBeenCalled()
+    expect(client.save).toHaveBeenCalledOnce()
+    const [, , input] = client.save.mock.calls[0]!
+    expect(input).toMatchObject({ data: reviewed.data, ifDigest: reviewed.digest, ifPublishedDigest: "site-2" })
+    expect(input).not.toHaveProperty("live")
+    // The review opens again with the kept shared draft, and publishing it now succeeds.
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: reviewed.data } })
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.publish).toHaveBeenLastCalledWith("posts", [{ digest: store.shared.digest, id: "hello" }])
+    expect(store.site.data).toEqual(reviewed.data)
+    expect(savedPrivateData(client)).toBe(false)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+    expect(wrapper.find('header [data-label="Publish shared draft"]').exists()).toBe(true)
+  })
+
+  it("uses the site version for the shared draft only", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Use the site version"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenCalledOnce()
+    expect(client.save.mock.calls[0]![2]).toMatchObject({ data: { title: "Site from Git" }, ifDigest: "shared-2", ifPublishedDigest: "site-2" })
+    expect(store.shared.data).toEqual({ title: "Site from Git" })
+    expect(savedPrivateData(client)).toBe(false)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+  })
+
+  it("saves nothing when the person keeps editing", async () => {
+    const { wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Keep editing"]').trigger("click")
+    await flushPromises()
+    expect(client.save).not.toHaveBeenCalled()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
+  })
+
+  it.each([
+    ["a newer shared save", (store: ReturnType<typeof conflictStore>["store"]) => store.move({ title: "Shared, saved again" })],
+    ["another site change", (store: ReturnType<typeof conflictStore>["store"]) => { store.site = { ...store.site, digest: "site-3" } }],
+  ])("overwrites nothing after %s while comparing, and reviews again", async (_name, race) => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    race(store)
+    const before = structuredClone(store.shared)
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save.mock.settledResults[0]?.type).toBe("rejected")
+    expect(store.shared).toEqual(before)
+    expect(wrapper.find('[data-label="Keep the shared draft"]').exists()).toBe(false)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: { body: "", data: store.shared.data } })
+    expect(savedPrivateData(client)).toBe(false)
+  })
+
+  it("saves the private edits only through Apply, after its own comparison with the newer shared draft", async () => {
+    const { store, wrapper, client } = await reviewSharedPublish()
+    await wrapper.get('[data-label="Keep the shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('[data-label="Cancel"]').trigger("click")
+    await wrapper.get('[data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    // The private edits started from shared-1, so Apply refuses and compares first.
+    expect(client.save.mock.settledResults.at(-1)?.type).toBe("rejected")
+    expect(store.shared.data.title).not.toBe(privateEdit.title)
+    // Only an explicit choice in that comparison saves them, over the exact shared draft it showed.
+    const compared = store.shared.digest
+    await wrapper.get('[data-label="Overwrite with mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ data: privateEdit, ifDigest: compared }))
+    expect(store.shared.data).toEqual(privateEdit)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+})
+
+/** The value of a form control. Browser types stay out of this test program. */
+const valueOf = (element: unknown): unknown => Reflect.get(Object(element), "value")
+
+/** A deferred result, so a test can type while a request is in flight. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+
+describe("Apply local edits while the person keeps typing", () => {
+  const markdown: ConsoleDocumentCollection = { ...collection, format: "markdown", path: "posts/*.md" }
+  const shared: ConsoleDocument = { ...draft, conflict: undefined, body: "Shared body", data: { title: "Shared" }, digest: "shared-1", path: "posts/hello.md" }
+  const applied = { body: "Applied body", data: { title: "Applied title" } }
+  const typed = { body: "Typed during apply", data: { title: "Typed title" } }
+
+  async function openLocal() {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: shared.body, data: shared.data }, version: applied })
+    const request = deferred<ConsoleDocument>()
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async (): Promise<ConsoleDocument | null> => structuredClone(shared)),
+      save: vi.fn((_collection: string, _id: string, _input: { body?: string, data?: Record<string, unknown>, ifDigest?: string | null }) => request.promise),
+    }
+    const mount = () => {
+      const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: markdown, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } } })
+      wrappers.push(wrapper)
+      return wrapper
+    }
+    const wrapper = mount()
+    await flushPromises()
+    await wrapper.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenCalledOnce()
+    // The person keeps typing in the title and the body while the save is in flight.
+    await wrapper.get("textarea").setValue(typed.data.title)
+    wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).vm.$emit("update:modelValue", typed.body)
+    await flushPromises()
+    return { client, request, wrapper, mount }
+  }
+
+  function sentEdits(client: Awaited<ReturnType<typeof openLocal>>["client"]) {
+    return client.save.mock.calls.map(([, , input]) => ({ body: input.body, data: input.data }))
+  }
+
+  it("saves only the version it sent, and keeps later edits local, stored, and unsaved", async () => {
+    const { client, request, wrapper, mount } = await openLocal()
+    request.resolve({ ...shared, ...structuredClone(applied), digest: "shared-2" })
+    await flushPromises()
+
+    expect(sentEdits(client)).toEqual([applied])
+    expect(valueOf(wrapper.get("textarea").element)).toBe(typed.data.title)
+    expect(wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe(typed.body)
+    expect(wrapper.text()).toContain("Local edits · not saved")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ base: "shared-2", start: applied, version: typed })
+
+    // A reload opens the same local edits.
+    wrapper.unmount()
+    const reloaded = mount()
+    await flushPromises()
+    expect(valueOf(reloaded.get("textarea").element)).toBe(typed.data.title)
+    expect(reloaded.text()).toContain("Local edits · not saved")
+
+    // The next Apply sends them over the shared draft that the first one saved.
+    client.save.mockResolvedValueOnce({ ...shared, ...structuredClone(typed), digest: "shared-3" })
+    await reloaded.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-2" }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  it("keeps every edit local after a failed save", async () => {
+    const { client, request, wrapper } = await openLocal()
+    request.reject(new ConsoleRequestError(500, "Server Error", { code: "INTERNAL" }))
+    await flushPromises()
+    expect(sentEdits(client)).toEqual([applied])
+    expect(valueOf(wrapper.get("textarea").element)).toBe(typed.data.title)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ base: "shared-1", start: { body: shared.body, data: shared.data }, version: typed })
+    expect(wrapper.text()).toContain("Local edits · not saved")
+  })
+
+  it("keeps every edit local after a conflict, and overwrites only with the latest edits on request", async () => {
+    const { client, request, wrapper } = await openLocal()
+    const theirs = { ...shared, data: { title: "Someone else" }, digest: "shared-other" }
+    client.get.mockResolvedValue(structuredClone(theirs))
+    request.reject(conflictError())
+    await flushPromises()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(typed)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ after: typed })
+    client.save.mockResolvedValueOnce({ ...theirs, ...structuredClone(typed), digest: "shared-3" })
+    await wrapper.get('[data-label="Overwrite with mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-other" }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  for (const [name, failure] of [
+    ["offline", new TypeError("Failed to fetch")],
+    ["a server error", new ConsoleRequestError(503, "The store is down.", { code: "UNAVAILABLE" })],
+  ] as const) {
+    it(`never offers to create the shared draft again when the read after a refused Apply fails ${name}`, async () => {
+      const { client, request, wrapper } = await openLocal()
+      const stored = readConsoleLocalDraft(sessionStorage, "posts", "hello")
+      client.get.mockRejectedValueOnce(failure)
+      request.reject(conflictError())
+      await flushPromises()
+
+      // The read failed: no comparison, no Overwrite, no Create again, and the local edits and their base stay.
+      expect(wrapper.find(`section[title="Couldn't read the shared draft"]`).exists()).toBe(true)
+      expect(wrapper.get('section [role="alert"]').text()).toBeTruthy()
+      expect(wrapper.find('section[title="The shared draft was deleted"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Create again from mine"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Overwrite with mine"]').exists()).toBe(false)
+      expect(wrapper.findComponent(ConsoleDocumentDiff).exists()).toBe(false)
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ ...stored, version: typed })
+      expect(client.save).toHaveBeenCalledOnce()
+
+      // Retry reads it: the newer shared draft opens the comparison, and Overwrite names the digest compared.
+      const theirs = { ...shared, data: { title: "Someone else" }, digest: "shared-other" }
+      client.get.mockResolvedValueOnce(structuredClone(theirs))
+      await wrapper.get('section [data-label="Retry"]').trigger("click")
+      await flushPromises()
+      expect(wrapper.find(`section[title="The shared draft changed"]`).exists()).toBe(true)
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: { body: theirs.body, data: theirs.data }, after: typed })
+      client.save.mockResolvedValueOnce({ ...theirs, ...structuredClone(typed), digest: "shared-3" })
+      await wrapper.get('section [data-label="Overwrite with mine"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-other" }))
+    })
+  }
+
+  it("offers Create again only when Retry confirms that the shared draft is gone", async () => {
+    const { client, request, wrapper } = await openLocal()
+    client.get.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    request.reject(conflictError())
+    await flushPromises()
+    await wrapper.get('section [data-label="Retry"]').trigger("click")
+    await flushPromises()
+    // A second failure still offers Retry only.
+    expect(wrapper.find(`section[title="Couldn't read the shared draft"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-label="Create again from mine"]').exists()).toBe(false)
+
+    client.get.mockResolvedValueOnce(null)
+    await wrapper.get('section [data-label="Retry"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(`section[title="The shared draft was deleted"]`).exists()).toBe(true)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: null, after: typed })
+    client.save.mockResolvedValueOnce({ ...shared, ...structuredClone(typed), digest: "recreated" })
+    await wrapper.get('section [data-label="Create again from mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: null }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  it("leaves Local only when nothing changed during the save", async () => {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: shared.body, data: shared.data }, version: applied })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      save: vi.fn(async () => ({ ...shared, ...structuredClone(applied), digest: "shared-2" })),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: markdown, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('article [data-label="Apply to shared draft"]').trigger("click")
+    await flushPromises()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+    expect(wrapper.text()).not.toContain("Local edits · not saved")
+    expect(valueOf(wrapper.get("textarea").element)).toBe(applied.data.title)
+  })
+})
+
+describe("Leaving Local only with pending body edits", () => {
+  it.each(["Collaborative", "route leave", "collection", "document", "unload"])("confirms before losing an unchanged deleted draft through %s", async (destination) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn<() => Promise<ConsoleDocument | null>>(async () => structuredClone(shared)),
+      list: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
+      save: vi.fn(),
+    }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    const changes = ref(0)
+    const Host = defineComponent(() => () => h(ConsoleDocumentEditor, { changes: changes.value, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" }))
+    const wrapper = shallowMount(Host, { global: { stubs: { ...stubs, ConsoleDocumentEditor: false, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    client.get.mockResolvedValue(null)
+    changes.value = 1
+    await flushPromises()
+    expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+    expect(wrapper.text()).not.toContain("Local edits · not saved")
+
+    if (destination === "Collaborative") {
+      const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+      items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+      await flushPromises()
+    }
+    else if (destination === "unload") {
+      const close = new Event("beforeunload", { cancelable: true })
+      expect(window.dispatchEvent(close)).toBe(false)
+    }
+    else if (destination === "route leave") {
+      expect(await beforeRouteLeave.mock.calls.at(-1)![0]()).toBe(false)
+    }
+    else {
+      expect(await beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination === "collection" ? "/content/posts" : "/content/posts/other" }, { path: "/content/posts/hello" })).toBe(false)
+    }
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(start)
+    expect(client.save).not.toHaveBeenCalled()
+    if (destination !== "unload") {
+      expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+      await wrapper.get('[data-label="Keep editing locally"]').trigger("click")
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(start)
+      await wrapper.get('[data-label="Discard…"]').trigger("click")
+      await wrapper.get('[data-label="Discard local edits"]').trigger("click")
+      await flushPromises()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+    }
+  })
+
+  it.each([false, true])("waits for the body commit before deciding whether to discard (body changed: %s)", async (changed) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)), save: vi.fn() }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    const commit = vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (changed) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+    items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+    await flushPromises()
+    expect(commit).toHaveBeenCalledOnce()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeDefined()
+    expect(body.vm.$.isUnmounted).toBe(false)
+
+    pending.resolve()
+    await flushPromises()
+    expect(client.save).not.toHaveBeenCalled()
+    if (changed) {
+      expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.body).toBe("Pending local body")
+      expect(body.props("modelValue")).toBe("Pending local body")
+    }
+    else {
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(wrapper.text()).not.toContain("Local edits · not saved")
+    }
+  })
+})
+
+describe("Shared changes while Local only", () => {
+  it("keeps pending local body edits mounted when a dismissed publish succeeds", async () => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const pending = deferred<{ documents: Array<{ id: string }> }>()
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      publish: vi.fn(() => pending.promise),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await wrapper.get('section [data-label="Cancel"]').trigger("click")
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+
+    // The person resumes typing before the publish response; the Markdown model write is still pending.
+    pending.resolve({ documents: [{ id: "hello" }] })
+    await flushPromises()
+    expect(body.vm.$.isUnmounted).toBe(false)
+    body.vm.$emit("update:modelValue", "Pending local body")
+    await flushPromises()
+    expect(body.props("modelValue")).toBe("Pending local body")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toMatchObject({ base: shared.digest, version: { body: "Pending local body" } })
+    expect(client.publish).toHaveBeenCalledWith("posts", [{ digest: shared.digest, id: "hello" }])
+  })
+
+  it.each([
+    [false, "leave"], [true, "leave"],
+    [false, "/content/posts"], [true, "/content/posts"],
+    [false, "/content/posts/other"], [true, "/content/posts/other"],
+  ] as const)("guards navigation after committing the local body (changed: %s, to: %s)", async (changed, destination) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)) }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    const commit = vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (changed) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const current = { path: "/content/posts/hello" }
+    // History/outline query changes keep this document open and do not flush or block editing.
+    await beforeRouteUpdate.mock.calls.at(-1)![0](current, current)
+    expect(commit).not.toHaveBeenCalled()
+    const navigate = () => destination === "leave"
+      ? beforeRouteLeave.mock.calls.at(-1)![0]()
+      : beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination }, current)
+    const leave = navigate()
+    pending.resolve()
+    expect(await leave).toBe(changed ? false : undefined)
+    await flushPromises()
+    expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(changed)
+    if (changed) {
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.body).toBe("Pending local body")
+      expect(body.vm.$.isUnmounted).toBe(false)
+      const close = new Event("beforeunload", { cancelable: true })
+      window.dispatchEvent(close)
+      expect(close.defaultPrevented).toBe(true)
+      await wrapper.get('[data-label="Discard local edits"]').trigger("click")
+      await flushPromises()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(await navigate()).toBeUndefined()
+    }
+  })
+
+  it("reads the shared draft in place, without remounting the body editor, while the exit commit is pending", async () => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const moved: ConsoleDocument = { ...shared, body: "Someone else's body", digest: "moved-digest" }
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async (): Promise<ConsoleDocument | null> => structuredClone(shared)), save: vi.fn() }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    // The list refresh counter that the Console bumps when someone else changes the collection.
+    const changes = ref(0)
+    const Host = defineComponent(() => () => h(ConsoleDocumentEditor, { changes: changes.value, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" }))
+    const wrapper = shallowMount(Host, { global: { stubs: { ...stubs, ConsoleDocumentEditor: false, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (!body.vm.$.isUnmounted) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+    items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+    await flushPromises()
+
+    // Someone saves the shared draft while the body editor still serializes the last keystrokes.
+    client.get.mockResolvedValue(structuredClone(moved))
+    changes.value = 1
+    await flushPromises()
+    expect(body.vm.$.isUnmounted).toBe(false)
+    expect(wrapper.findComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe("Shared body")
+
+    pending.resolve()
+    await flushPromises()
+    expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toMatchObject({ base: shared.digest, version: { body: "Pending local body" } })
+    expect(client.save).not.toHaveBeenCalled()
+  })
+})
+
+describe("Local only edits on the third review", () => {
+  it("keeps the local edits of a singleton when its shared draft is gone", async () => {
+    const settings: ConsoleDocumentCollection = { ...collection, kind: "singleton", label: "Settings", name: "settings", path: "settings.json" }
+    writeConsoleLocalDraft(sessionStorage, "settings", "settings", { base: "shared-1", start: { body: "", data: { title: "Shared" } }, version: { body: "", data: privateEdit } })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => null),
+      list: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
+      save: vi.fn(async () => saved),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: settings, documentId: "settings" }, global: { stubs } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    expect(wrapper.getComponent({ name: "ConsoleSchemaForm" }).props("modelValue")).toEqual(privateEdit)
+    expect(wrapper.text()).toContain("Local edits · not saved")
+    expect(readConsoleLocalDraft(sessionStorage, "settings", "settings")?.version.data).toEqual(privateEdit)
+    expect(client.save).not.toHaveBeenCalled()
+    // The recovery actions show for a singleton too.
+    expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+    expect(wrapper.get('[data-label="Apply to shared draft"]').attributes("disabled")).toBeUndefined()
+    expect(wrapper.get('[data-label="Copy"]').attributes("aria-label")).toBe("Copy your local edits")
+  })
+
+  for (const [name, listed] of [["deleted from the draft", "deleted"], ["gone from the draft and the site", undefined]] as const) {
+    it(`keeps local edits reachable, and creates nothing on its own, when the shared draft is ${name}`, async () => {
+      writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "Shared body", data: { title: "Shared" } }, version: { body: "PRIVATE body", data: privateEdit } })
+      const recreated: ConsoleDocument = { ...saved, body: "PRIVATE body", data: privateEdit, digest: "recreated" }
+      const client = {
+        ...createConsoleDocumentsClient("", "content"),
+        get: vi.fn(async () => null),
+        list: vi.fn(async () => ({ items: listed ? [{ ...draft, state: listed }] : [], nextCursor: null, total: listed ? 1 : 0 })),
+        publish: vi.fn(),
+        // The store refuses a save that names a digest of a draft that no longer exists.
+        save: vi.fn(async (_collection: string, _id: string, input: { ifDigest?: string | null }) => {
+          if (input.ifDigest !== null) throw new ConsoleRequestError(409, "Conflict", { code: "WORKSPACE_CONFLICT", details: {} })
+          return recreated
+        }),
+      }
+      const menu = defineComponent({ name: "UDropdownMenu", props: { items: { type: Array, default: () => [] } }, setup: (_props, { slots }) => () => h("div", slots.default?.()) })
+      const posts: ConsoleDocumentCollection = { ...collection, format: "markdown", path: "posts/*.md" }
+      const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection: posts, documentId: "hello" }, global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
+      wrappers.push(wrapper)
+      await flushPromises()
+
+      // The editor, its banner, and the editing menu stay, instead of the empty state that hid them.
+      expect(wrapper.findComponent({ name: "UEmpty" }).exists()).toBe(false)
+      expect(wrapper.getComponent({ name: "ConsoleSchemaForm" }).props("modelValue")).toEqual(privateEdit)
+      expect(wrapper.getComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe("PRIVATE body")
+      expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+      expect(wrapper.findAllComponents(menu).some(item => JSON.stringify(item.props("items")).includes("Local only"))).toBe(true)
+      expect(wrapper.find('[aria-label="Editing: Local only"]').exists()).toBe(true)
+      // Nothing to publish without a shared draft.
+      expect(wrapper.find('[data-label="Publish shared draft"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Publish deletion"]').exists()).toBe(false)
+      expect(wrapper.get('[data-label="Discard…"]').attributes("disabled")).toBeUndefined()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual({ body: "PRIVATE body", data: privateEdit })
+
+      // Apply compares first: the deleted draft is not created again until the person chooses it.
+      await wrapper.get('[data-label="Apply to shared draft"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledOnce()
+      expect(client.save.mock.calls[0]![2]).toMatchObject({ ifDigest: "shared-1" })
+      expect(wrapper.text()).toContain("Local edits · not saved")
+      await wrapper.get('section [data-label="Create again from mine"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenCalledTimes(2)
+      expect(client.save.mock.calls[1]![2]).toMatchObject({ body: "PRIVATE body", data: privateEdit, ifDigest: null })
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(client.publish).not.toHaveBeenCalled()
+    })
+  }
+
+  it("says a pull request opened, not published, when Publish shared draft opens one", async () => {
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: "shared-1", start: { body: "", data: { title: "Shared" } }, version: { body: "", data: privateEdit } })
+    const shared: ConsoleDocument = { ...draft, conflict: undefined, data: { title: "Shared" }, digest: "shared-1" }
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async (_collection: string, _id: string, ref?: "draft" | "published") => structuredClone(ref === "published" ? site : shared)),
+      publish: vi.fn(async () => ({ documents: [{ id: "hello" }], pending: true, pullRequest: { number: 12, url: "https://github.com/acme/site/pull/12" } })),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, { props: { changes: 0, client, collection, documentId: "hello" }, global: { stubs } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    expect(client.publish).toHaveBeenCalledWith("posts", [{ digest: "shared-1", id: "hello" }])
+    const toast = useConsoleToast().toasts.value.at(-1)
+    expect(toast?.title).toContain("Pull request #12 opened")
+    expect(toast?.title).not.toContain("published")
+    expect(toast?.action?.label).toBe("Open pull request")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.data).toEqual(privateEdit)
   })
 })

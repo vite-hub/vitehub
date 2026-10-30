@@ -692,6 +692,15 @@ export interface ViteHubConsoleDocumentSessions {
   sessions: ViteHubConsoleDocumentSession[]
 }
 
+/** A token for one preview frame form, from the `preview` action. */
+export interface ViteHubConsoleDocumentPreview {
+  /** The search parameter and form field name, such as `vitehub-content-preview`. */
+  parameter: string
+  token: string
+  /** ISO timestamp. */
+  expiresAt: string
+}
+
 /** The signed-in Console user, or `null` when the Console access mode has no user. */
 export interface ViteHubConsoleDocumentActionContext {
   user: Record<string, unknown> | null
@@ -712,6 +721,13 @@ export interface ViteHubConsoleDocumentActions {
   list(input: ViteHubConsoleDocumentListInput, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPage>
   /** Reads the draft, or the published version with `ref: "published"`. Returns null when that ref has no such document. */
   get(input: { collection: string, id: string, ref?: "draft" | "published" }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocument | null>
+  /**
+   * Signs a short token for the side browser of the editor, for this one document. The page at the document URL renders
+   * the posted version of it in place of its draft: it receives a form POST to `url?parameter` whose `parameter` field
+   * holds `{ token, document }` as JSON. Every other read of the page stays published. Check read access to the
+   * document first.
+   */
+  preview(input: { collection: string, id: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleDocumentPreview>
   /** Reads the stored file on the draft, or at one earlier `revision`, without validating it. Null when it does not exist there. */
   raw(input: { collection: string, id: string, revision?: string }, context: ViteHubConsoleDocumentActionContext): MaybePromise<ViteHubConsoleRawDocument | null>
   /**
@@ -758,7 +774,7 @@ export interface ViteHubConsoleDocumentActions {
 
 export type ViteHubConsoleDocumentActionName = Exclude<keyof ViteHubConsoleDocumentActions, "collections" | "mediaAccess" | "setup">
 
-export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
+export const viteHubConsoleDocumentActionNames: readonly ViteHubConsoleDocumentActionName[] = ["get", "list", "overview", "preview", "publish", "raw", "references", "remove", "restore", "revisions", "save", "schedule", "search", "session", "sessions", "unschedule"]
 
 /** Creates the document actions from the namespace of the application module that `entry` found. */
 export type ViteHubConsoleDocumentActionsFactory = (module: Record<string, unknown>) => ViteHubConsoleDocumentActions

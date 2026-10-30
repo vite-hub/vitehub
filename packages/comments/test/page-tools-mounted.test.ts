@@ -51,8 +51,8 @@ describe("mounted page tools", () => {
         const response = await app.fetch(new Request(new URL(url, pageURL)))
         expect(response.status).toBe(200)
         const script = await response.text()
-        // Give the built module its browser URL while executing it in Node.
-        compileFunction(script.replaceAll("import.meta.url", JSON.stringify(new URL(url, pageURL).href)), ["fetch"])(fetch)
+        // Give the built module its browser URL and page hint while executing it in Node.
+        compileFunction(script.replaceAll("import.meta.url", JSON.stringify(new URL(url, pageURL).href)), ["fetch", "location", "document"])(fetch, new URL(pageURL), { cookie: "" })
       }
       await executeLoader(src!)
       await vi.waitFor(() => expect(authorize).toHaveBeenCalledOnce())
