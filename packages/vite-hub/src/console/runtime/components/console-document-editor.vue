@@ -184,7 +184,12 @@ const localStorageFailed = ref(false);
 const localExitOpen = ref(false);
 const applyingLocal = ref(false);
 /** A shared draft newer than the one the local edits started from, met while applying them. */
-const localConflict = ref<{ theirs: ConsoleDocument | null }>();
+/**
+ * What a refused Apply found: the newer shared draft, null when the shared draft is gone, or why it could not be read.
+ * A failed read is not a deletion, so it never offers to create the draft again.
+ */
+const localConflict = ref<{ theirs: ConsoleDocument | null } | { failed: string }>();
+const readingConflict = ref(false);
 const sharedPublishOpen = ref(false);
 const sharedPublish = ref<{ draft: ConsoleDocument | null, site: ConsoleDocument | null }>();
 const sharedPublishLoading = ref(false);
@@ -1107,7 +1112,7 @@ async function applyLocal(ifDigest: string | null = localBase.value): Promise<vo
     const issues = consoleFieldIssues(error);
     if (isConsoleConflict(error)) {
       localExitOpen.value = false;
-      localConflict.value = { theirs: await props.client.get(props.collection.name, props.documentId).catch(() => null) };
+      await readLocalConflict();
     }
     else if (issues) {
       fieldErrors.value = groupConsoleFieldIssues(humanizeConsoleFieldIssues(fields.value, issues));
@@ -1121,6 +1126,22 @@ async function applyLocal(ifDigest: string | null = localBase.value): Promise<vo
   finally {
     applyingLocal.value = false;
     viewLocally();
+  }
+}
+
+/** Reads the shared draft that refused an Apply, to compare it with the local edits. The local edits and their base stay. */
+async function readLocalConflict(): Promise<void> {
+  if (props.documentId === undefined) return;
+  readingConflict.value = true;
+  try {
+    const theirs = await props.client.get(props.collection.name, props.documentId);
+    if (local.value) localConflict.value = { theirs };
+  }
+  catch (error) {
+    if (local.value) localConflict.value = { failed: consoleErrorMessage(error, "The request failed.") };
+  }
+  finally {
+    readingConflict.value = false;
   }
 }
 
@@ -2358,15 +2379,20 @@ const menuItems = computed(() => [[
 
   <UModal
     :open="Boolean(localConflict)"
-    :title="localConflict && !localConflict.theirs ? 'The shared draft was deleted' : 'The shared draft changed'"
-    :description="localConflict && !localConflict.theirs
-      ? 'Someone deleted the shared draft after your local edits started from it, so nothing was saved. Create it again from your local edits, or keep them here.'
-      : 'Someone saved the shared draft after your local edits started from it, so nothing was saved. Compare them, then choose.'"
+    :title="localConflict && 'failed' in localConflict ? 'Couldn\'t read the shared draft' : localConflict && !localConflict.theirs ? 'The shared draft was deleted' : 'The shared draft changed'"
+    :description="localConflict && 'failed' in localConflict
+      ? 'Someone changed the shared draft after your local edits started from it, so nothing was saved. Read it again to compare. Your local edits stay here.'
+      : localConflict && !localConflict.theirs
+        ? 'Someone deleted the shared draft after your local edits started from it, so nothing was saved. Create it again from your local edits, or keep them here.'
+        : 'Someone saved the shared draft after your local edits started from it, so nothing was saved. Compare them, then choose.'"
     :ui="{ content: 'sm:max-w-3xl' }"
     @update:open="(open) => { if (!open) localConflict = undefined }"
   >
     <template #body>
-      <div v-if="localConflict" class="grid gap-3">
+      <p v-if="localConflict && 'failed' in localConflict" class="text-sm text-error" role="alert">
+        {{ localConflict.failed }}
+      </p>
+      <div v-else-if="localConflict" class="grid gap-3">
         <p class="text-xs text-muted">
           <span class="font-medium text-highlighted">Removed lines</span> are in the shared draft,
           <span class="font-medium text-highlighted">added lines</span> are your local edits.
@@ -2377,8 +2403,11 @@ const menuItems = computed(() => [[
     <template #footer>
       <div class="flex w-full flex-wrap justify-end gap-2">
         <UButton variant="ghost" label="Keep editing locally" @click="localConflict = undefined" />
-        <UButton variant="outline" label="Discard mine" :disabled="applyingLocal" @click="discardLocal" />
-        <UButton color="error" :label="localConflict?.theirs ? 'Overwrite with mine' : 'Create again from mine'" :loading="applyingLocal" @click="applyLocal(localConflict?.theirs?.digest ?? null)" />
+        <UButton v-if="localConflict && 'failed' in localConflict" label="Retry" :loading="readingConflict" @click="readLocalConflict" />
+        <template v-else-if="localConflict">
+          <UButton variant="outline" label="Discard mine" :disabled="applyingLocal" @click="discardLocal" />
+          <UButton color="error" :label="localConflict.theirs ? 'Overwrite with mine' : 'Create again from mine'" :loading="applyingLocal" @click="applyLocal(localConflict.theirs?.digest ?? null)" />
+        </template>
       </div>
     </template>
   </UModal>

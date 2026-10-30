@@ -346,7 +346,7 @@ describe("Apply local edits while the person keeps typing", () => {
     const request = deferred<ConsoleDocument>()
     const client = {
       ...createConsoleDocumentsClient("", "content"),
-      get: vi.fn(async () => structuredClone(shared)),
+      get: vi.fn(async (): Promise<ConsoleDocument | null> => structuredClone(shared)),
       save: vi.fn((_collection: string, _id: string, _input: { body?: string, data?: Record<string, unknown>, ifDigest?: string | null }) => request.promise),
     }
     const mount = () => {
@@ -418,6 +418,64 @@ describe("Apply local edits while the person keeps typing", () => {
     await wrapper.get('[data-label="Overwrite with mine"]').trigger("click")
     await flushPromises()
     expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-other" }))
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+  })
+
+  for (const [name, failure] of [
+    ["offline", new TypeError("Failed to fetch")],
+    ["a server error", new ConsoleRequestError(503, "The store is down.", { code: "UNAVAILABLE" })],
+  ] as const) {
+    it(`never offers to create the shared draft again when the read after a refused Apply fails ${name}`, async () => {
+      const { client, request, wrapper } = await openLocal()
+      const stored = readConsoleLocalDraft(sessionStorage, "posts", "hello")
+      client.get.mockRejectedValueOnce(failure)
+      request.reject(conflictError())
+      await flushPromises()
+
+      // The read failed: no comparison, no Overwrite, no Create again, and the local edits and their base stay.
+      expect(wrapper.find(`section[title="Couldn't read the shared draft"]`).exists()).toBe(true)
+      expect(wrapper.get('section [role="alert"]').text()).toBeTruthy()
+      expect(wrapper.find('section[title="The shared draft was deleted"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Create again from mine"]').exists()).toBe(false)
+      expect(wrapper.find('[data-label="Overwrite with mine"]').exists()).toBe(false)
+      expect(wrapper.findComponent(ConsoleDocumentDiff).exists()).toBe(false)
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toEqual({ ...stored, version: typed })
+      expect(client.save).toHaveBeenCalledOnce()
+
+      // Retry reads it: the newer shared draft opens the comparison, and Overwrite names the digest compared.
+      const theirs = { ...shared, data: { title: "Someone else" }, digest: "shared-other" }
+      client.get.mockResolvedValueOnce(structuredClone(theirs))
+      await wrapper.get('section [data-label="Retry"]').trigger("click")
+      await flushPromises()
+      expect(wrapper.find(`section[title="The shared draft changed"]`).exists()).toBe(true)
+      expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: { body: theirs.body, data: theirs.data }, after: typed })
+      client.save.mockResolvedValueOnce({ ...theirs, ...structuredClone(typed), digest: "shared-3" })
+      await wrapper.get('section [data-label="Overwrite with mine"]').trigger("click")
+      await flushPromises()
+      expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: "shared-other" }))
+    })
+  }
+
+  it("offers Create again only when Retry confirms that the shared draft is gone", async () => {
+    const { client, request, wrapper } = await openLocal()
+    client.get.mockRejectedValueOnce(new TypeError("Failed to fetch")).mockRejectedValueOnce(new TypeError("Failed to fetch"))
+    request.reject(conflictError())
+    await flushPromises()
+    await wrapper.get('section [data-label="Retry"]').trigger("click")
+    await flushPromises()
+    // A second failure still offers Retry only.
+    expect(wrapper.find(`section[title="Couldn't read the shared draft"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-label="Create again from mine"]').exists()).toBe(false)
+
+    client.get.mockResolvedValueOnce(null)
+    await wrapper.get('section [data-label="Retry"]').trigger("click")
+    await flushPromises()
+    expect(wrapper.find(`section[title="The shared draft was deleted"]`).exists()).toBe(true)
+    expect(wrapper.getComponent(ConsoleDocumentDiff).props()).toMatchObject({ before: null, after: typed })
+    client.save.mockResolvedValueOnce({ ...shared, ...structuredClone(typed), digest: "recreated" })
+    await wrapper.get('section [data-label="Create again from mine"]').trigger("click")
+    await flushPromises()
+    expect(client.save).toHaveBeenLastCalledWith("posts", "hello", expect.objectContaining({ ...typed, ifDigest: null }))
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
   })
 
