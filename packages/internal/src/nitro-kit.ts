@@ -8,6 +8,8 @@
 
 export interface NitroServerHandler {
   handler: string
+  /** Import the handler on its first request instead of when the server starts. */
+  lazy?: boolean
   method?: string | string[]
   middleware?: boolean
   route?: string
