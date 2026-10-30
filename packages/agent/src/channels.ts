@@ -737,6 +737,13 @@ export interface TeamsSendOptions {
    * Without a stored receipt, ViteHub posts as usual. Use it to keep one message current.
    */
   update?: boolean
+  /**
+   * The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its
+   * message, ViteHub deletes the message stored for `replace` and removes its receipt. Without a stored receipt,
+   * ViteHub deletes nothing, so a repeated send is safe. Use it to remove a temporary message, such as "Drafting…",
+   * when the final message is posted as a new message.
+   */
+  replace?: string
 }
 
 export interface TeamsConnector {
@@ -2834,7 +2841,7 @@ function teamsHash(value: string): string {
 }
 
 /** The part of the @vite-hub/kv storage that teams.connector() uses for thread roots and receipts. */
-type TeamsKV = Pick<import("@vite-hub/kv").KVStorage, "get" | "set">
+type TeamsKV = Pick<import("@vite-hub/kv").KVStorage, "del" | "get" | "set">
 
 let teamsKVModule: Promise<TeamsKV> | undefined
 
@@ -2855,6 +2862,28 @@ async function teamsKVGet(kv: TeamsKV, key: string): Promise<Record<string, unkn
 
 async function teamsKVSet(kv: TeamsKV, key: string, value: { id: string } | { threadId: string }): Promise<void> {
   const [error] = await kv.set(key, value)
+  if (error) throw error
+}
+
+/** The Teams adapter reports a 404 as a NetworkError that keeps the Teams API error as `originalError`. */
+function isTeamsNotFound(error: unknown): boolean {
+  const cause = isRecord(error) ? error.originalError : undefined
+  if (!isRecord(cause)) return false
+  const status = isRecord(cause.innerHttpError) ? cause.innerHttpError.statusCode : cause.statusCode ?? cause.status
+  return status === 404
+}
+
+/** Deletes the message stored under `receiptKey`, then its receipt. Without a stored receipt, it does nothing. */
+async function deleteTeamsReceipt(adapter: Adapter, kv: TeamsKV, receiptKey: string, threadId: string): Promise<void> {
+  const stored = await teamsKVGet(kv, receiptKey)
+  if (!hasRuntimeType(stored?.id, "string")) return
+  try {
+    await adapter.deleteMessage(threadId, stored.id)
+  }
+  catch (error) {
+    if (!isTeamsNotFound(error)) throw error
+  }
+  const [error] = await kv.del(receiptKey)
   if (error) throw error
 }
 
@@ -2892,10 +2921,14 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
     return adapter
   }
   return {
-    async send(text, { recipient, thread, idempotencyKey, update }) {
+    async send(text, { recipient, thread, idempotencyKey, update, replace }) {
       if (!hasRuntimeType(recipient, "string") || !recipient) throw new TypeError("[vitehub] Teams send requires a recipient.")
       if (thread !== undefined && (!isRecord(thread) || !hasRuntimeType(thread.key, "string") || !thread.key)) throw new TypeError("[vitehub] Teams thread requires a non-empty key.")
+      if (replace !== undefined && (!hasRuntimeType(replace, "string") || !replace || replace === idempotencyKey)) {
+        throw new TypeError("[vitehub] Teams replace requires the idempotency key of an earlier send.")
+      }
       const teams = await useAdapter()
+      if (replace && !teams.deleteMessage) throw new TypeError("[vitehub] The Teams adapter cannot delete messages.")
       if (!thread) {
         const target = async () => {
           if (!recipient.startsWith("user:")) return recipient
@@ -2903,10 +2936,11 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
           return await teams.openDM(recipient.slice(5))
         }
         const post = async () => ({ id: (await teams.postMessage(await target(), { markdown: text })).id })
-        if (!idempotencyKey) return await post()
+        if (!idempotencyKey && !replace) return await post()
         const kv = await teamsKV()
-        const receiptKey = `teams:messages:${teamsHash(`${recipient}\0${idempotencyKey}`)}`
-        return await withTeamsLock(receiptKey, async () => {
+        const receiptKeyFor = (key: string) => `teams:messages:${teamsHash(`${recipient}\0${key}`)}`
+        const receiptKey = idempotencyKey ? receiptKeyFor(idempotencyKey) : undefined
+        const receipt = !receiptKey ? await post() : await withTeamsLock(receiptKey, async () => {
           const stored = await teamsKVGet(kv, receiptKey)
           if (hasRuntimeType(stored?.id, "string")) {
             if (update) await teams.editMessage(await target(), stored.id, { markdown: text })
@@ -2916,6 +2950,11 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
           await teamsKVSet(kv, receiptKey, receipt)
           return receipt
         })
+        if (replace) {
+          const replacedKey = receiptKeyFor(replace)
+          await withTeamsLock(replacedKey, async () => await deleteTeamsReceipt(teams, kv, replacedKey, await target()))
+        }
+        return receipt
       }
       if (recipient.startsWith("user:") || /;messageid=/.test(decodeTeamsThread(teams, recipient).conversationId)) {
         throw new TypeError("[vitehub] A Teams thread requires a channel recipient without a message ID.")
@@ -2925,7 +2964,7 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
       const kv = await teamsKV()
       const key = `teams:threads:${teamsHash(`${recipient}\0${thread.key}`)}`
       const receiptKey = idempotencyKey ? `${key}:messages:${teamsHash(idempotencyKey)}` : undefined
-      return await withTeamsLock(key, async () => {
+      const receipt = await withTeamsLock(key, async () => {
         const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
         const savedRoot = await teamsKVGet(kv, `${key}:root`)
         let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
@@ -2949,6 +2988,14 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
         if (receiptKey) await teamsKVSet(kv, receiptKey, { id: message.id })
         return { id: message.id }
       })
+      if (replace) {
+        await withTeamsLock(key, async () => {
+          const savedRoot = await teamsKVGet(kv, `${key}:root`)
+          // Teams deletes a message in a channel thread through the root thread ID, like an edit.
+          if (hasRuntimeType(savedRoot?.threadId, "string")) await deleteTeamsReceipt(teams, kv, `${key}:messages:${teamsHash(replace)}`, savedRoot.threadId)
+        })
+      }
+      return receipt
     },
   }
 }

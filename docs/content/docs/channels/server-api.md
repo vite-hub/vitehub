@@ -91,6 +91,7 @@ if (error) throw error
 | `thread` | Optional. Every send with the same `key` replies under one root message in a Teams channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
 | `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
+| `replace` | Optional. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
 
 Use `update` to keep one message current, such as a status card that changes as work progresses:
 
@@ -102,5 +103,21 @@ const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
 })
 if (error) throw error
 ```
+
+Use `replace` to remove a temporary message when the final message must be new. Teams does not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
+
+```ts
+const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}` } }
+const [draftingError] = await useChannel('teams').send('Drafting a suggested reply...', { ...options, idempotencyKey: `ticket:${ticketId}:drafting` })
+if (draftingError) throw draftingError
+const [error] = await useChannel('teams').send(suggestion, {
+  ...options,
+  idempotencyKey: `ticket:${ticketId}:suggestion`,
+  replace: `ticket:${ticketId}:drafting`,
+})
+if (error) throw error
+```
+
+ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that Teams no longer has counts as deleted.
 
 ViteHub stores roots and receipts in KV under `teams:` and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
