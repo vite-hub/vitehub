@@ -244,6 +244,8 @@ interface AgentTriggerResolutionOptions {
   rawBody?: string | Uint8Array
   /** Persisted queue delivery ID, used when replayed bytes were stored as text. */
   deliveryId?: string
+  /** When the webhook request first arrived, for timestamped signatures. See `AgentWebhookVerificationOptions.receivedAt`. */
+  receivedAt?: number
 }
 
 /** Binds `prepare` and each task of a trigger to the context that its `invoke` receives. */
@@ -535,7 +537,7 @@ function stripeSignatureTolerance(signature: AgentWebhookRegistrationDefinition[
 }
 
 // Verifies `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`. Any matching `v1` passes, as during secret rotation.
-async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number): Promise<boolean> {
+async function verifyStripeSignature(secret: string, header: string, rawBody: Uint8Array, toleranceSeconds: number, receivedAt = Date.now()): Promise<boolean> {
   if (!Number.isFinite(toleranceSeconds) || toleranceSeconds < 0) return false
   let timestamp: string | undefined
   let signatureCount = 0
@@ -554,7 +556,7 @@ async function verifyStripeSignature(secret: string, header: string, rawBody: Ui
   if (!timestamp || !/^\d+$/.test(timestamp) || !signatures.length) return false
   const timestampSeconds = Number(timestamp)
   if (!Number.isSafeInteger(timestampSeconds)) return false
-  if (Math.floor(Date.now() / 1000) - timestampSeconds > toleranceSeconds) return false
+  if (Math.floor(receivedAt / 1000) - timestampSeconds > toleranceSeconds) return false
   const prefix = new TextEncoder().encode(`${timestamp}.`)
   const payload = new Uint8Array(prefix.length + rawBody.length)
   payload.set(prefix)
@@ -571,6 +573,11 @@ function webhookVerificationError(message: string): AgentHttpError {
 
 export interface AgentWebhookVerificationOptions {
   rawBody?: Uint8Array
+  /**
+   * When the request first arrived, in milliseconds. Timestamped signatures are checked
+   * against it, so a replay of a stored request is not rejected as expired. Defaults to now.
+   */
+  receivedAt?: number
   requireSecretHeader?: boolean
 }
 
@@ -672,7 +679,7 @@ export async function verifyAgentWebhookRequest<TRuntimeConfig extends AgentRunt
     const stripeTolerance = stripeSignatureTolerance(registration.signature)
     if (stripeTolerance !== undefined) {
       const rawBody = await readRawBody()
-      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance)) {
+      if (await verifyStripeSignature(secretToken, headerValue, rawBody, stripeTolerance, options.receivedAt)) {
         return { registration, verified: true }
       }
       continue
@@ -760,6 +767,7 @@ export async function resolveAgentTriggerInvocation<
   }
   if (options?.verifyWebhook !== false && trigger.webhooks?.length && context.request) {
     await verifyAgentWebhookRequest(trigger.webhooks, context.request, createAgentCallbackContext(context), {
+      ...(options?.receivedAt === undefined ? {} : { receivedAt: options.receivedAt }),
       requireSecretHeader: requiresWebhookSecretHeader(trigger.webhooks),
     })
   }
