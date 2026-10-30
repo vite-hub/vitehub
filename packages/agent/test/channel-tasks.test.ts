@@ -4,7 +4,7 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
-import { defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } from "../src/index.ts"
+import { agentInvocationId, defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } from "../src/index.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -14,6 +14,7 @@ const cleanups: Array<() => Promise<void> | void> = []
 
 afterEach(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+  vi.unstubAllGlobals()
 })
 
 type Ticket = { id: string, kind: "triage" | "mirror" | "plain" }
@@ -21,7 +22,7 @@ type Ticket = { id: string, kind: "triage" | "mirror" | "plain" }
 function ticketsAgent(options: {
   invoke?: (ticket: Ticket) => void
   prepare?: (invocation: AgentTriggerAcceptedInvocation) => AgentTriggerPrepareResult
-  taskPrepare?: (input: { prompt?: unknown, data?: unknown }) => unknown
+  taskPrepare?: (input: { prompt?: unknown, data?: unknown }, invocation: AgentTriggerAcceptedInvocation) => unknown
   delayMs?: number
   /** Answer without the webhook queue. */
   inline?: boolean
@@ -52,7 +53,7 @@ function ticketsAgent(options: {
                 agent: triageAgent,
                 ...(options.taskFailed ? { failed: options.taskFailed } : {}),
                 prepare: options.taskPrepare
-                  ? (_context, { input }) => options.taskPrepare!(input) as undefined
+                  ? (_context, invocation) => options.taskPrepare!(invocation.input, invocation) as undefined
                   : undefined,
               },
               mirror: { run: (_context, { input }) => { mirror(input) } },
@@ -195,6 +196,50 @@ describe("Channel trigger tasks", () => {
     await vi.waitFor(() => expect(host).toHaveBeenCalledOnce())
     expect(prepare).toHaveBeenCalledOnce()
     expect(host).toHaveBeenCalledWith(expect.objectContaining({ input: expect.objectContaining({ prompt: "prepared" }) }))
+  })
+
+  it("gives prepare the reference of the Invocation that the accepted input starts", async () => {
+    vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+    const state = await stateFile()
+    const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
+    const taskPrepare = vi.fn((_input: unknown, _invocation: AgentTriggerAcceptedInvocation) => undefined)
+    const { agent, host, triage } = ticketsAgent({ prepare, taskPrepare })
+    const { send } = serve(agent, state)
+
+    await send({ id: "15", kind: "plain" })
+    await send({ id: "16", kind: "triage" })
+    await vi.waitFor(() => {
+      expect(host).toHaveBeenCalledOnce()
+      expect(triage).toHaveBeenCalledOnce()
+    })
+    const id = await agentInvocationId("ticket-15", "support")
+    expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id })
+    // The task Agent owns the Invocation of its task. It has no public URL here.
+    expect(taskPrepare.mock.calls[0]?.[1].invocation).toEqual({ id: await agentInvocationId("ticket-16", "triage") })
+  })
+
+  it("gives a task's run the Invocation reference only when the delivery has a run ID", async () => {
+    const runtime = { ...createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() }), capabilities: {} }
+    const run = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
+    const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
+    const agent = defineAgent({
+      name: "support",
+      channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger<{ runId?: string, task?: string }>({
+        prepare: (_context, invocation) => prepare(invocation),
+        tasks: { mirror: { run: (_context, invocation) => run(invocation) } },
+        invoke: (_context, { runId, task }) => ({ input: { prompt: "x" }, ...(runId ? { run: { runId } } : {}), ...(task ? { task } : {}) }),
+      }) } }) },
+      driver: { run: () => "ok" },
+      runtime: false,
+    })
+
+    await runAgentTrigger(agent, runtime, "tickets.opened", { runId: "run-1", task: "mirror" })
+    await runAgentTrigger(agent, runtime, "tickets.opened", { task: "mirror" })
+    await runAgentTrigger(agent, runtime, "tickets.opened", {})
+    expect(run.mock.calls[0]?.[0].invocation).toEqual({ id: await agentInvocationId("run-1", "support") })
+    expect(run.mock.calls[1]?.[0]).not.toHaveProperty("invocation")
+    expect(prepare).toHaveBeenCalledOnce()
+    expect(prepare.mock.calls[0]?.[0]).not.toHaveProperty("invocation")
   })
 
   it("retries a delivery whose prepare answers with a 5xx Response", async () => {

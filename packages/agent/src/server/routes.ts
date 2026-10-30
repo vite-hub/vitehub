@@ -2,7 +2,7 @@ import { formatChannelCitationMessage, formatChannelCitationStream, formatChanne
 import { isDurableAgentState, requireAtomicAgentStateLock, type AgentStateCacheMutation, type AtomicAgentStateLockAdapter } from "../internal/state-lock.ts"
 import { parseStandardSchema } from "@vite-hub/internal/http-request"
 import { runWithActiveCloudflareEnv } from "@vite-hub/internal/runtime/cloudflare-env"
-import { consoleInvocationUrl, createExecutionContext, createRuntimeContext as createHostRuntimeContext, getViteHubErrorShape, resolvePublicUrl, ViteHubError } from "@vite-hub/runtime"
+import { createExecutionContext, createRuntimeContext as createHostRuntimeContext, getViteHubErrorShape, ViteHubError } from "@vite-hub/runtime"
 import { Chat, Message, StreamingPlan, ThreadImpl, convertEmojiPlaceholders } from "chat"
 
 import {
@@ -38,7 +38,7 @@ import { createAgentInvocationContextStore } from "../invocation-context.ts"
 import { withAgentInvocationResponseOwner } from "../internal/agent-invocation-response-owner.ts"
 import { sameInlineInvoker } from "../internal/inline-invoker.ts"
 import { isResponse } from "../internal/response.ts"
-import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations } from "../invocations.ts"
+import { agentInvocationId, bindAgentInvocations, recoverInterruptedAgentInvocations, runInvocationReference } from "../invocations.ts"
 import { hasRuntimeType, isRuntimeRecord } from "../internal/runtime-type.ts"
 import { isAgentInvocationCancellationError } from "../internal/invocation-cancellation.ts"
 import { finalChannelOutputContextKey, hasOnlyPortableAgentWorkflowCapabilities, requireAgentWorkflowContextKey } from "../internal/final-channel-output.ts"
@@ -1626,19 +1626,6 @@ function routeAgentInvocationName(agent: AgentInput<ViteAgentRouteRuntimeContext
   return (isRuntimeRecord(agent) && hasRuntimeType(agent.name, "string") && agent.name) || identity?.name
 }
 
-/** The Invocation ID and Console URL of a run. */
-async function runInvocationReference(agentName: string | undefined, run: AgentRunMetadata | undefined): Promise<AgentInvocationReference | undefined> {
-  if (!run?.runId) return
-  try {
-    const id = await agentInvocationId(run.runId, agentName)
-    const origin = agentName ? resolvePublicUrl({ agentName }) : undefined
-    return { id, ...(origin && agentName ? { consoleUrl: consoleInvocationUrl(origin, agentName, id) } : {}) }
-  }
-  catch {
-    return undefined
-  }
-}
-
 async function notifyQueuedWebhookFailure(
   agent: AgentInput<ViteAgentRouteRuntimeContext>,
   handlerOptions: AgentChannelWebhookRouteOptions,
@@ -2100,7 +2087,7 @@ async function executeQueuedWebhookDelivery(
       armExecutionTimeout(webhookQueueExecutionTimeout(executionAgent, invocation.input))
       // `prepare` and a task's `run` see the queue's abort signal, as an Agent Invocation does.
       const abortSignal = accepted.input.abortSignal ? AbortSignal.any([accepted.input.abortSignal, ownershipAbort.signal]) : ownershipAbort.signal
-      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }), executionTimeout])
+      const prepared = await Promise.race([prepareAgentTriggerInvocation({ ...accepted, input: { ...accepted.input, abortSignal } }, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions))), executionTimeout])
       if (isResolvedAgentTriggerHandledInvocation(prepared)) {
         invocation = undefined
         handledResponse = prepared.response
@@ -9828,7 +9815,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           // A handled answer, such as `ignored()`, is the webhook response.
           let prepared: Awaited<ReturnType<typeof prepareAgentTriggerInvocation<ViteAgentRouteRuntimeConfig>>>
           try {
-            prepared = await prepareAgentTriggerInvocation(invocation)
+            prepared = await prepareAgentTriggerInvocation(invocation, routeAgentInvocationName(agent, routeAgentIdentity(handlerOptions)))
           } catch (error) {
             if (webhookLock && webhookState) await webhookState.state.releaseLock(webhookLock)
             if (deliveryClaimKey && webhookState) await webhookState.state.delete(deliveryClaimKey)

@@ -952,8 +952,14 @@ export type AgentChannelTriggerDefinition<
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
-/** The accepted input and run metadata that `prepare` and a task's `run` receive. */
-export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
+/** The accepted input, run metadata and Invocation reference that `prepare` and a task's `run` receive. */
+export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run"> & {
+  /**
+   * Present when the delivery has a run ID. It is the Invocation that the accepted input starts:
+   * the task Agent's Invocation for a task with `agent`, otherwise the Invocation of the Agent that owns the trigger.
+   */
+  invocation?: AgentInvocationReference
+}
 
 /**
  * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
