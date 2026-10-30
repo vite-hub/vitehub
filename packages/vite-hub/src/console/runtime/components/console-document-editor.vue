@@ -1030,11 +1030,11 @@ async function startLocal(): Promise<void> {
   }
 }
 
-/** Back to Collaborative. Changed local edits ask to apply or discard them first. */
+/** Back to Collaborative. Changed local edits, or the only copy of a deleted draft, ask before discarding. */
 async function requestShared(): Promise<void> {
   if (!local.value) return;
   await bodyEditor.value?.commit();
-  if (localChanged.value) {
+  if (localChanged.value || sharedGone.value) {
     localExitOpen.value = true;
     return;
   }
@@ -1493,7 +1493,7 @@ function onKeydown(event: KeyboardEvent): void {
 
 function onBeforeUnload(event: BeforeUnloadEvent): void {
   // Local-only edits survive a reload of this tab, but not closing it.
-  if (!dirty.value && !localChanged.value) return;
+  if (!dirty.value && !localChanged.value && !sharedGone.value) return;
   event.preventDefault();
 }
 
@@ -1854,7 +1854,7 @@ watch(() => props.changes, (next, previous) => {
 async function beforeLeaveDocument(): Promise<false | undefined> {
   await bodyEditor.value?.commit();
   // Leaving would remove this editor's unload guard while its local edits still live only in sessionStorage.
-  if (localChanged.value) {
+  if (localChanged.value || sharedGone.value) {
     localExitOpen.value = true;
     return false;
   }

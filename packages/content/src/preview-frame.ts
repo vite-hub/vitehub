@@ -175,7 +175,7 @@ function domainMatches(host: string, domain: string): boolean {
 
 /**
  * Keeps the cookies that a redirect sets in `jar`, when the browser would keep them: not for another domain or a
- * public suffix, and not `Secure` from plain HTTP other than localhost. Name, domain and path identify a cookie.
+ * broader public suffix, and not `Secure` from plain HTTP other than localhost. Name, domain and path identify a cookie.
  */
 function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL): void {
   for (const line of setCookies) {
@@ -187,9 +187,16 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
       const equals = part.indexOf("=")
       return [(equals < 0 ? part : part.slice(0, equals)).trim().toLowerCase(), equals < 0 ? "" : part.slice(equals + 1).trim()] as const
     }))
-    const domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
+    let domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
     // Include private suffixes (such as github.io), which browsers also isolate between tenants.
-    if (domain && (!domainMatches(from.hostname, domain) || !getDomain(domain, { allowPrivateDomains: true }))) continue
+    if (domain) {
+      if (!domainMatches(from.hostname, domain)) continue
+      if (!getDomain(domain, { allowPrivateDomains: true })) {
+        // RFC 6265 keeps an exact-host public suffix (also localhost, single-label and IP hosts) as host-only.
+        if (domain !== from.hostname) continue
+        domain = undefined
+      }
+    }
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
     // Cookie prefixes: __Secure- needs Secure, and __Host- also needs Path=/ and no Domain.
     if (/^__secure-/i.test(name) && !attributes.has("secure")) continue

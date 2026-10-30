@@ -504,6 +504,57 @@ describe("Apply local edits while the person keeps typing", () => {
 })
 
 describe("Leaving Local only with pending body edits", () => {
+  it.each(["Collaborative", "route leave", "collection", "document", "unload"])("confirms before losing an unchanged deleted draft through %s", async (destination) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn<() => Promise<ConsoleDocument | null>>(async () => structuredClone(shared)),
+      list: vi.fn(async () => ({ items: [], nextCursor: null, total: 0 })),
+      save: vi.fn(),
+    }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    client.get.mockResolvedValue(null)
+    await wrapper.setProps({ changes: 1 })
+    await flushPromises()
+    expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
+    expect(wrapper.text()).not.toContain("Local edits · not saved")
+
+    if (destination === "Collaborative") {
+      const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+      items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+      await flushPromises()
+    }
+    else if (destination === "unload") {
+      const close = new Event("beforeunload", { cancelable: true })
+      expect(window.dispatchEvent(close)).toBe(false)
+    }
+    else if (destination === "route leave") {
+      expect(await beforeRouteLeave.mock.calls.at(-1)![0]()).toBe(false)
+    }
+    else {
+      expect(await beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination === "collection" ? "/content/posts" : "/content/posts/other" }, { path: "/content/posts/hello" })).toBe(false)
+    }
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(start)
+    expect(client.save).not.toHaveBeenCalled()
+    if (destination !== "unload") {
+      expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+      await wrapper.get('[data-label="Keep editing locally"]').trigger("click")
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version).toEqual(start)
+      await wrapper.get('[data-label="Discard…"]').trigger("click")
+      await wrapper.get('[data-label="Discard local edits"]').trigger("click")
+      await flushPromises()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+    }
+  })
+
   it.each([false, true])("waits for the body commit before deciding whether to discard (body changed: %s)", async (changed) => {
     const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
     const start = { body: shared.body!, data: shared.data }

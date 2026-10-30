@@ -600,6 +600,36 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(seen).toEqual({ bounce: "accepted=1", account: null, home: "accepted=1" })
   })
 
+  it.each(["localhost", "bar", "127.0.0.1", "co.uk", "github.io"])("keeps an exact-host Domain cookie on %s as host-only", async (host) => {
+    const { content } = await setup()
+    const other = host === "127.0.0.1" ? "localhost" : `sub.${host}`
+    const seen: Record<string, string | null> = {}
+    const app = new H3()
+      .get("/login", () => new Response(null, { status: 302, headers: { location: "/account", "set-cookie": `session=local; Domain=${host}; Path=/` } }))
+      .get("/account", (event) => {
+        seen.account = event.req.headers.get("cookie")
+        return Response.redirect(`https://${other}/bounce`, 302)
+      })
+      .get("/bounce", (event) => {
+        seen.bounce = event.req.headers.get("cookie")
+        return Response.redirect(`https://${host}/home`, 302)
+      })
+      .get("/home", (event) => {
+        seen.home = event.req.headers.get("cookie")
+        return { ok: true }
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://${host}/login?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": other },
+      body: frameForm(token),
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toEqual({ account: "session=local", bounce: null, home: "session=local" })
+  })
+
   it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
     const { content, posts } = await setup()
     const seen: Array<string | null> = []
