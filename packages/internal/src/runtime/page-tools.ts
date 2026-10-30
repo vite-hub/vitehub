@@ -189,7 +189,7 @@ interface Nitro2Event {
   web?: { request?: Request }
   node?: {
     req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
-    res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
+    res?: { statusCode?: number, removeHeader?: (name: string) => void, setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
 
@@ -228,8 +228,8 @@ export interface ViteHubPageToolsInstallOptions {
  * It reads that app's registry and configured base on each request, so plugin order does not matter.
  * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls. The tag uses `options.base`.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
- *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets. The tag uses the base of
- *   the request.
+ *   as a `Response`, string, or uncompressed byte buffer explicitly declared as UTF-8, including prerendered files.
+ *   The tag uses the base of the request.
  */
 export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
@@ -265,16 +265,33 @@ export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageT
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
-  Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
-    if (!(response.body instanceof Response)) return
+  Reflect.apply(hook, hooks, ["beforeResponse", async (event: Nitro2Event, response: { body?: unknown }) => {
     const request = nitro2Request(event)
     const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
-    if (request && wantsLoader(nitroApp, request, base)) {
+    if (!request || !wantsLoader(nitroApp, request, base)) return
+    if (response.body instanceof Response) {
       // H3 preserves Node response headers unless the returned Response replaces them.
       const headers = new Headers(response.body.headers)
       const policy = event.node?.res?.getHeader?.("content-security-policy")
       if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
       response.body = injectPageToolsLoader(response.body, base, headers)
+      return
     }
+    const res = event.node?.res
+    const type = res?.getHeader?.("content-type")
+    if (typeof type !== "string" || !type.toLowerCase().startsWith("text/html")) return
+    if (res?.getHeader?.("content-encoding") || (res?.statusCode ?? 200) !== 200) return
+    const body = response.body
+    if (typeof body !== "string" && !(body instanceof Uint8Array)) return
+    // Without an HTTP charset, HTML may select a legacy encoding from its metadata or fallback sniffing.
+    const charset = /;\s*charset\s*=\s*"?([^";]*)/i.exec(type)?.[1]?.trim()
+    if (body instanceof Uint8Array && !/^utf-?8$/i.test(charset ?? "")) return
+    const html = typeof body === "string" ? body : new TextDecoder().decode(body)
+    const policy = res?.getHeader?.("content-security-policy")
+    const tag = loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined)
+    response.body = await new Response(new Blob([html]).stream().pipeThrough(pageToolsHtmlTransform(tag))).text()
+    res?.removeHeader?.("content-length")
+    res?.removeHeader?.("etag")
+    res?.setHeader?.("cache-control", "private, no-store")
   }])
 }

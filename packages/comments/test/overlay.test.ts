@@ -62,7 +62,12 @@ beforeEach(async () => {
   room.states.mockReturnValue(new Map())
   const { default: start } = await import("../src/overlay/index.ts")
   mountBar()
-  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, bar, signal: new AbortController().signal, open: false, exit: vi.fn() })
+  start({
+    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
+    bar, signal: new AbortController().signal, open: false, exit: vi.fn(),
+    createWindow: () => { throw new Error("Unexpected retained window") },
+    openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+  })
   overlay = document.querySelector<HTMLElement>("vitehub-comments")!
   shadow = overlay.shadowRoot!
   await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
@@ -118,7 +123,12 @@ describe("Comments overlay", () => {
     const { default: start } = await import("../src/overlay/index.ts")
     mountBar()
     const controller = new AbortController()
-    const cleanup = start({ tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, bar, signal: controller.signal, open: false, exit: vi.fn() })
+    const cleanup = start({
+      tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
+      bar, signal: controller.signal, open: false, exit: vi.fn(),
+      createWindow: () => { throw new Error("Unexpected retained window") },
+      openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+    })
     overlay = document.querySelector<HTMLElement>("vitehub-comments")!
     controller.abort()
     if (typeof cleanup === "function") cleanup()

@@ -170,7 +170,7 @@ describe("the Console Nitro configuration", () => {
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=3")`)
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=8")`)
       expect(transform(page!)).toBeUndefined()
       const script = page?.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1]
       if (!script) throw new TypeError("Expected a page tools loader script")
@@ -185,7 +185,7 @@ describe("the Console Nitro configuration", () => {
         // Replace only the dynamic import so the browser's hint gate runs without fetching a browser module.
         runInNewContext(script.replace("import(", "load("), { URLSearchParams, location: { search }, document: { cookie }, load })
         expect(load).toHaveBeenCalledTimes(imports)
-        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=3`)
+        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=8`)
       }
     }
     finally {
