@@ -1,4 +1,4 @@
-import { auth, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
+import { auth, discoverOAuthServerInfo, extractWWWAuthenticateParams, UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport, StreamableHTTPError } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { McpError, ResultSchema } from "@modelcontextprotocol/sdk/types.js"
@@ -274,20 +274,33 @@ function serverInfo(client: Client, protocolVersion: string | undefined): Consol
   return info
 }
 
-class SignedOutError extends Error {}
+/** What a `401` asked for in `WWW-Authenticate`: where its resource metadata is, and which scope. */
+type Challenge = ReturnType<typeof extractWWWAuthenticateParams>
+
+class SignedOutError extends Error {
+  constructor(message: string, readonly challenge?: Challenge) {
+    super(message)
+  }
+}
 
 /**
  * Run `run` with an MCP client of the connection. The client reuses the MCP session of the connection when the server
  * gave one, and starts a new session when the server forgot it. A grant that the server rejects marks the connection
  * signed out.
  */
-async function withClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, keepSignIn?: boolean, timeoutMs?: number } = {}): Promise<T> {
+async function withClient<T>(connection: StoredConnection, run: (client: Client) => Promise<T>, options: { fresh?: boolean, timeoutMs?: number } = {}): Promise<T> {
   let authorizing = false
+  let challenge: Challenge | undefined
+  const fetchWithTimeout = withTimeout(options.timeoutMs ?? requestTimeoutMs)
   const attempt = async (sessionId: string | undefined) => {
     const transport = new StreamableHTTPClientTransport(new URL(connection.url), {
       ...(connection.auth === "oauth" ? { authProvider: oauthProvider(connection, () => { authorizing = true }) } : {}),
       ...(connection.bearer ? { requestInit: { headers: { authorization: `Bearer ${connection.bearer}` } } } : {}),
-      fetch: withTimeout(options.timeoutMs ?? requestTimeoutMs),
+      fetch: async (input, init) => {
+        const response = await fetchWithTimeout(input, init)
+        if (response.status === 401) challenge = extractWWWAuthenticateParams(response)
+        return response
+      },
       ...(sessionId ? { sessionId } : {}),
     })
     if (sessionId && connection.protocolVersion) transport.setProtocolVersion(connection.protocolVersion)
@@ -324,12 +337,12 @@ async function withClient<T>(connection: StoredConnection, run: (client: Client)
   }
   catch (error) {
     if (error instanceof UnauthorizedError || (error instanceof StreamableHTTPError && error.code === 401)) {
-      // Only a new connection opens the sign-in that the server asked for. Other requests leave none behind.
-      if (connection.oauth?.pending && !(options.keepSignIn && connection.oauth.pending.url)) delete connection.oauth.pending
-      connection.status = connection.oauth?.pending ? "authorizing" : "signed-out"
+      // A request leaves no sign-in behind. Connect and reconnect start one with `startAuthorization()`.
+      if (connection.oauth?.pending) delete connection.oauth.pending
+      connection.status = "signed-out"
       connection.error = connection.auth === "bearer" ? "The server rejected this token." : "The server rejected the grant. Sign in again."
       delete connection.sessionId
-      throw new SignedOutError(connection.error)
+      throw new SignedOutError(connection.error, challenge)
     }
     if (error instanceof McpError) throw error
     connection.status = "failed"
@@ -441,14 +454,35 @@ export async function listConsoleMcp(caller: ConsoleMcpCaller, options: { shared
   }
 }
 
-/** Start the authorization code flow of an OAuth connection. Returns the URL that the browser opens. */
-async function startAuthorization(connection: StoredConnection, prompt: "login" | undefined): Promise<string> {
+/**
+ * The scope of a sign-in: the one that the server asked for, else the one in its resource metadata, as the MCP SDK
+ * picks it. When the authorization server offers `offline_access`, the Console adds it (SEP-2207), so the server can
+ * issue a refresh token.
+ */
+function signInScope(discovery: OAuthDiscoveryState, requested: string | undefined): string | undefined {
+  const scope = requested || discovery.resourceMetadata?.scopes_supported?.join(" ")
+  if (scope?.split(" ").includes("offline_access") || !discovery.authorizationServerMetadata?.scopes_supported?.includes("offline_access")) return scope
+  return scope ? `${scope} offline_access` : "offline_access"
+}
+
+/**
+ * Start the authorization code flow of an OAuth connection. Returns the URL that the browser opens. `challenge` is the
+ * `WWW-Authenticate` of the `401` that asked for the sign-in.
+ */
+async function startAuthorization(connection: StoredConnection, prompt: "login" | undefined, challenge?: Challenge): Promise<string> {
   const oauth = connection.oauth!
   oauth.pending = { expiresAt: Date.now() + pendingLifetimeMs, state: randomId(), ...(prompt ? { prompt } : {}) }
   oauth.tokens = undefined
   delete connection.sessionId
+  const fetchFn = withTimeout(requestTimeoutMs)
   try {
-    const result = await auth(oauthProvider(connection), { fetchFn: withTimeout(requestTimeoutMs), serverUrl: connection.url })
+    // The Console discovers before the SDK does, because the scope depends on the authorization server metadata.
+    const known = oauth.discovery?.resourceMetadataUrl
+    const resourceMetadataUrl = challenge?.resourceMetadataUrl ?? (known ? new URL(known) : undefined)
+    const found = await discoverOAuthServerInfo(connection.url, { fetchFn, ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}) })
+    oauth.discovery = { ...found, ...(resourceMetadataUrl ? { resourceMetadataUrl: resourceMetadataUrl.href } : {}) }
+    const scope = signInScope(oauth.discovery, challenge?.scope)
+    const result = await auth(oauthProvider(connection), { fetchFn, serverUrl: connection.url, ...(resourceMetadataUrl ? { resourceMetadataUrl } : {}), ...(scope ? { scope } : {}) })
     if (result === "REDIRECT" && oauth.pending.url) {
       connection.status = "authorizing"
       delete connection.error
@@ -488,37 +522,19 @@ export async function connectConsoleMcp(caller: ConsoleMcpCaller, input: { label
     status: "failed",
     url: url.href,
   }
-  if (!token) {
-    // Without a token, the OAuth client stays unused until the server asks for credentials.
-    connection.auth = "oauth"
-    connection.oauth = {
-      redirectUrl: `${origin}${mount}${consoleMcpCallbackPath}`,
-      ...(input.prompt ? { pending: { expiresAt: Date.now() + pendingLifetimeMs, prompt: input.prompt, state: randomId() } } : {}),
-    }
-  }
   try {
-    try {
-      await withClient(connection, async () => {}, { fresh: true, keepSignIn: true })
-      if (!connection.oauth?.tokens) connection.auth = connection.bearer ? "bearer" : "none"
-      delete connection.oauth
-      store().connections.set(connection.id, connection)
-      return { connection: describe(connection) }
-    }
-    catch (error) {
-      if (!(error instanceof SignedOutError) || !connection.oauth) throw error
-    }
-    const pendingUrl = connection.oauth.pending?.url
+    await withClient(connection, async () => {}, { fresh: true })
     store().connections.set(connection.id, connection)
-    if (pendingUrl) {
-      connection.status = "authorizing"
-      delete connection.error
-      return { authorizationUrl: pendingUrl.href, connection: describe(connection) }
-    }
-    return { authorizationUrl: await startAuthorization(connection, input.prompt), connection: describe(connection) }
+    return { connection: describe(connection) }
   }
   catch (error) {
-    if (error instanceof SignedOutError) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
-    throw error
+    if (!(error instanceof SignedOutError)) throw error
+    if (token) throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
+    // Without a token, a server that asks for credentials gets the MCP authorization flow.
+    connection.auth = "oauth"
+    connection.oauth = { redirectUrl: `${origin}${mount}${consoleMcpCallbackPath}` }
+    store().connections.set(connection.id, connection)
+    return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
   }
 }
 
@@ -580,7 +596,7 @@ export async function reconnectConsoleMcp(caller: ConsoleMcpCaller, input: { id:
   catch (error) {
     if (!(error instanceof SignedOutError)) throw error
     if (connection.auth !== "oauth") throw consoleRequestError(409, error.message, "CONSOLE_MCP_SIGNED_OUT")
-    return { authorizationUrl: await startAuthorization(connection, input.prompt), connection: describe(connection) }
+    return { authorizationUrl: await startAuthorization(connection, input.prompt, error.challenge), connection: describe(connection) }
   }
   return { connection: describe(connection) }
 }
