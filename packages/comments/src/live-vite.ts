@@ -8,8 +8,11 @@ import { addViteHubPageToolRoutes, viteHubPageToolsBase, viteHubPageToolsIndexHt
 import { argumentExpression, objectProperties, scanModule, staticString, unwrapExpression } from "@vite-hub/internal/build/scan-module"
 import { resolveViteHubProjectRoot, VITEHUB_PROJECT_ROOT, VITEHUB_SERVER_DIRS } from "@vite-hub/internal/build/vite"
 import { relativeDefinitionFile } from "@vite-hub/internal/inspect"
+import { includedNitro } from "@vite-hub/internal/build/included-nitro"
 import { createNitroServerKit } from "@vite-hub/internal/nitro-kit"
 import { viteHubPageToolsCookie, viteHubPageToolsQuery } from "@vite-hub/internal/runtime/page-tools-shared"
+import { parseDatabaseLocation } from "@vite-hub/database/config"
+import { parseJSONC, parseTOML } from "confbox"
 
 import { commentsConsoleSection } from "./console.ts"
 import { findCommentsEntry, findContentEntry } from "./entry.ts"
@@ -17,7 +20,8 @@ import { commentsRealtimeDefinition, commentsRoute, mountedCommentsRoute } from 
 
 import type { DatabaseContributionContext, DatabaseContributionEntry } from "@vite-hub/database/vite"
 import type { ViteHubInspectionPluginMetadata } from "@vite-hub/internal/inspect"
-import type { Plugin, UserConfig } from "vite"
+import type { Plugin, PluginOption, UserConfig } from "vite"
+import type { CommentBuild } from "./types.ts"
 
 export { commentsConsoleSection }
 export { mountedCommentsRoute } from "./page.ts"
@@ -37,6 +41,30 @@ export interface CommentsImports {
   databases: string
   /** Exports `parseContentField`. */
   contentClient: string
+  /** Exports `connectDatabase`, for Workers. Its `/node` subpath also opens SQLite files. */
+  connect: string
+}
+
+/** Options of `comments()`, for apps that use Comments without `vite-hub`. */
+export interface CommentsOptions {
+  /**
+   * Where threads are stored. Comments creates its tables there on first use, so there is no migration.
+   *
+   * - Not set: `DATABASE_URL`, else `TURSO_DATABASE_URL`, else the Cloudflare D1 binding `DB`, read at runtime.
+   * - `"d1:COMMENTS"`: the Cloudflare D1 binding `COMMENTS`. Comments adds it to the Wrangler config.
+   * - `"env:COMMENTS_DATABASE_URL"`: the libSQL URL in that variable, with its token in `COMMENTS_AUTH_TOKEN`.
+   * - `"file:./data/comments.sqlite"`: a SQLite file on Node, relative to the server's working directory.
+   *
+   * The development server uses `.vitehub/data/comments.sqlite`, unless `database` is a file or a set variable.
+   */
+  database?: string
+}
+
+/** The storage of a `comments()` build: where to connect, the file to use without a connection, and whether it needs Node. */
+export interface StandaloneDatabase {
+  where?: string
+  fallback?: string
+  node: boolean
 }
 
 export interface CommentsVitePluginOptions {
@@ -48,6 +76,11 @@ export interface CommentsVitePluginOptions {
    */
   console?: { module: string }
   imports?: Partial<CommentsImports>
+  /**
+   * Comments without `vite-hub`, as `comments()` sets it: it turns on without `server/comments.ts`, keeps threads in a
+   * SQLite file that it opens itself, and signs people in with GitHub.
+   */
+  standalone?: CommentsOptions
 }
 
 export interface CommentsRealtimeContributionContext {
@@ -83,6 +116,7 @@ const defaultImports: CommentsImports = {
   database: "@vite-hub/comments/database",
   databases: "@vite-hub/database/drizzle",
   contentClient: "@vite-hub/content/client",
+  connect: "@vite-hub/comments/runtime/connect",
 }
 
 /**
@@ -166,16 +200,39 @@ async function git(root: string, args: string[]): Promise<string | undefined> {
   }
 }
 
-/** The commit and branch of the build, from the CI or host, else from Git. Empty outside a Git checkout. */
-export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<{ commit?: string, branch?: string }> {
+/** `owner/name` of a GitHub or Enterprise remote. The forge's API URL selects the server at runtime. */
+export function githubRepository(remote: string | undefined): string | undefined {
+  return remote ? /^(?:(?:https?|ssh|git):\/\/[^/]+\/|(?:[^@/:]+@)?[\w.-]+:)([\w.-]+\/[\w.-]+?)(?:\.git)?\/?$/.exec(remote.trim())?.[1] : undefined
+}
+
+/** The pull request that the CI or host builds, when it names one. */
+function pullRequestOf(env: Record<string, string | undefined>): number | undefined {
+  const value = env.VERCEL_GIT_PULL_REQUEST_ID
+    || (env.PULL_REQUEST === "true" ? env.REVIEW_ID : undefined)
+    || /^refs\/pull\/(\d+)\//.exec(env.GITHUB_REF ?? "")?.[1]
+  const number = Number(value)
+  return Number.isSafeInteger(number) && number > 0 ? number : undefined
+}
+
+/**
+ * The build of the app, from the CI or host, else from Git: the commit and branch, the GitHub repository, and the pull
+ * request when the host names it. Empty outside a Git checkout.
+ */
+export async function readCommentsBuild(root: string, env: Record<string, string | undefined> = process.env): Promise<CommentBuild> {
+  const repository = env.GITHUB_REPOSITORY
+    || (env.VERCEL_GIT_PROVIDER === "github" && env.VERCEL_GIT_REPO_OWNER && env.VERCEL_GIT_REPO_SLUG ? `${env.VERCEL_GIT_REPO_OWNER}/${env.VERCEL_GIT_REPO_SLUG}` : undefined)
+    || githubRepository(env.REPOSITORY_URL)
+    || githubRepository(await git(root, ["remote", "get-url", "origin"]))
+  const pullRequest = pullRequestOf(env)
+  const extra = { ...(repository ? { repository } : {}), ...(pullRequest ? { pullRequest } : {}) }
   for (const [commitName, branchName] of buildVariables) {
     const commit = env[commitName]
     if (!commit) continue
     const branch = env[branchName] || (commitName === "GITHUB_SHA" ? env.GITHUB_REF_NAME : undefined)
-    return branch ? { commit, branch } : { commit }
+    return { commit, ...(branch ? { branch } : {}), ...extra }
   }
   const [commit, branch] = await Promise.all([git(root, ["rev-parse", "HEAD"]), git(root, ["rev-parse", "--abbrev-ref", "HEAD"])])
-  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}) }
+  return { ...(commit ? { commit } : {}), ...(branch && branch !== "HEAD" ? { branch } : {}), ...extra }
 }
 
 const skippedDirectories = new Set(["node_modules", "dist", "coverage", "public"])
@@ -253,10 +310,28 @@ function sessionLines(options: CommentsVitePluginOptions, imports: CommentsImpor
     : { imports: [], option: "session", value: "undefined" }
 }
 
-export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: { commit?: string, branch?: string } }): string {
+/** The session reader of presence and MCP: the Console or Auth user, else the person signed in with GitHub. */
+function sessionWithGitHubLines(options: CommentsVitePluginOptions, imports: CommentsImports, repository?: string, base?: string): { imports: string[], option: "session" | "consoleSession", value: string, githubLogin?: true } {
+  if (options.auth || options.console) return sessionLines(options, imports)
+  const route = mountedCommentsRoute(base)
+  return {
+    imports: [
+      `import { createCommentsGitHubLogin } from ${JSON.stringify(imports.runtime)}`,
+      `const githubLogin = createCommentsGitHubLogin(${JSON.stringify({ ...(repository ? { repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })})`,
+    ],
+    option: "session",
+    value: "githubLogin.user",
+    githubLogin: true,
+  }
+}
+
+export function renderCommentsHandler(input: { definition: string, content?: string, session: CommentsVitePluginOptions, realtime: boolean, imports: CommentsImports, build?: CommentBuild, base?: string }): string {
   const session = sessionLines(input.session, input.imports)
+  const route = mountedCommentsRoute(input.base)
+  // An app with neither Auth nor the Console gets Sign in with GitHub, which works once the server has an OAuth client.
+  const githubLogin = !input.session.auth && !input.session.console
   return [
-    `import { createCommentsHandler } from ${JSON.stringify(input.imports.runtime)}`,
+    `import { createCommentsHandler${githubLogin ? ", createCommentsGitHubLogin" : ""} } from ${JSON.stringify(input.imports.runtime)}`,
     `import components from "./components.mjs"`,
     `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
     ...session.imports,
@@ -270,6 +345,7 @@ export function renderCommentsHandler(input: { definition: string, content?: str
     "export default createCommentsHandler({",
     "  comments,",
     `  ${session.option}: ${session.value},`,
+    ...(githubLogin ? [`  githubLogin: createCommentsGitHubLogin(${JSON.stringify({ ...(input.build?.repository ? { repository: input.build.repository } : {}), ...(route !== commentsRoute ? { basePath: `${route}/auth` } : {}) })}),`] : []),
     ...(input.content ? ["  content: contentModule.content ? { runtime: contentModule.content, parseField: parseContentField } : undefined,"] : []),
     `  realtime: ${input.realtime},`,
     `  build: ${JSON.stringify(input.build ?? {})},`,
@@ -279,8 +355,27 @@ export function renderCommentsHandler(input: { definition: string, content?: str
   ].join("\n")
 }
 
-export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, base?: string }): string {
-  const session = sessionLines(input.session ?? {}, input.imports)
+export function renderCommentsPlugin(input: { definition: string, database?: string, session?: CommentsVitePluginOptions, imports: CommentsImports, standalone?: StandaloneDatabase, development?: boolean, build?: CommentBuild, base?: string }): string {
+  const session = sessionWithGitHubLines(input.session ?? {}, input.imports, input.build?.repository, input.base)
+  if (input.standalone) {
+    const { where, fallback, node } = input.standalone
+    const options = [`name: "comments"`, "setup: commentsTables", ...(fallback ? [`fallback: ${JSON.stringify(fallback)}`] : [])]
+
+    return [
+      `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
+      // A Worker build imports no node:sqlite.
+      `import { connectDatabase } from ${JSON.stringify(node ? `${input.imports.connect}/node` : input.imports.connect)}`,
+      `import { commentsTables } from ${JSON.stringify(input.imports.database)}`,
+      `import { comments } from ${JSON.stringify(pathToFileURL(input.definition).href)}`,
+      ...session.imports,
+      "",
+      `const database = () => connectDatabase(${where === undefined ? "undefined" : JSON.stringify(where)}, { ${options.join(", ")} })`,
+      "",
+      `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+      "",
+    ].join("\n")
+  }
+
   return [
     `import { defineCommentsPlugin } from ${JSON.stringify(input.imports.runtime)}`,
     `import { databases } from ${JSON.stringify(input.imports.databases)}`,
@@ -300,10 +395,87 @@ export function renderCommentsPlugin(input: { definition: string, database?: str
     "  return names.length === 1 ? databases[names[0]].db : undefined",
     "}",
     "",
-    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
+    `export default defineCommentsPlugin({ comments, database, ${session.option}: ${session.value}, ${session.githubLogin ? "githubLogin, " : ""}development: ${input.development === true}, overlay: ${JSON.stringify(`${commentsRoute}/assets/overlay.js?v=${version}`)}, base: ${JSON.stringify(input.base ?? "")} })`,
     "",
   ].join("\n")
 }
+
+/** `server/comments.ts` for an app without one: Comments with its defaults. */
+async function writeDefaultDefinition(directory: string, imports: CommentsImports): Promise<string> {
+  const file = join(directory, "definition.mjs")
+  const index = imports.runtime.replace(/\/runtime$/, "")
+  await writeFile(file, [
+    `import { defineComments } from ${JSON.stringify(index)}`,
+    "",
+    "// Add `server/comments.ts` to choose who may comment, notify people, or post to pull requests.",
+    "export const comments = defineComments()",
+    "",
+  ].join("\n"))
+  return file
+}
+
+/**
+ * The storage of `comments()`. A build connects to the `database` option, else to what it finds at runtime. The
+ * development server uses `.vitehub/data/comments.sqlite`, unless the option is a file, or a variable that is set.
+ */
+async function standaloneDatabase(projectRoot: string, options: CommentsOptions, command: "build" | "serve"): Promise<StandaloneDatabase> {
+  const where = options.database || undefined
+  // Fails the build on a location that Comments cannot use.
+  const location = parseDatabaseLocation(where, "comments")
+  if (where && /[?&]authToken=/.test(where)) console.warn("[vitehub] The token in `comments({ database })` ends up in the build. Use `env:` with a variable instead.")
+  if (command !== "serve") return { ...(where ? { where } : {}), node: location.kind === "file" }
+  if (location.kind === "file") return { where, node: true }
+  const data = resolve(projectRoot, ".vitehub/data")
+  await mkdir(data, { recursive: true })
+  // Threads written on this computer stay out of Git.
+  await writeFile(join(data, ".gitignore"), "*\n", { flag: "wx" }).catch(() => {})
+  const file = `file:${join(data, "comments.sqlite")}`
+  // Without a location, the development server keeps threads local instead of writing to the app's database.
+  return where?.startsWith("env:") ? { where, fallback: file, node: true } : { where: file, node: true }
+}
+
+/**
+ * Adds the D1 binding of `database: "d1:NAME"` to the Wrangler config of the build, unless the app's Wrangler file has
+ * it. Without an id, `wrangler deploy` creates the database.
+ */
+async function addD1Binding(projectRoot: string, nitro: Record<string, unknown>, where: string | undefined): Promise<void> {
+  if (!where?.startsWith("d1:")) return
+  const binding = where.slice(3)
+  for (const file of ["wrangler.jsonc", "wrangler.json", "wrangler.toml"]) {
+    const source = await readFile(join(projectRoot, file), "utf8").catch(() => "")
+    if (!source) continue
+    const config = file.endsWith(".toml") ? parseTOML(source) : parseJSONC(source, { allowTrailingComma: true })
+    if (config === null || typeof config !== "object") continue
+    const entries: unknown = Reflect.get(config, "d1_databases")
+    if (Array.isArray(entries) && entries.some(entry => entry !== null && typeof entry === "object" && Reflect.get(entry, "binding") === binding)) return
+  }
+  const cloudflare: Record<string, unknown> = Object(nitro.cloudflare ?? {})
+  const wrangler: Record<string, unknown> = Object(cloudflare.wrangler ?? {})
+  const bindings: unknown[] = Array.isArray(wrangler.d1_databases) ? wrangler.d1_databases : []
+  if (bindings.some(entry => Object(entry).binding === binding)) return
+  nitro.cloudflare = { ...cloudflare, wrangler: { ...wrangler, d1_databases: [...bindings, { binding, database_name: "comments" }] } }
+}
+
+/** Whether `vite-hub` is in the app, so it runs Comments and `comments()` steps aside. */
+function hasViteHubComments(config: UserConfig): boolean {
+  const find = (value: unknown): boolean => Array.isArray(value)
+    ? value.some(find)
+    : value !== null && typeof value === "object" && Reflect.get(value, "name") === "@vite-hub/comments/vite"
+  return find(config.plugins)
+}
+
+/**
+ * Comments for any Vite app, without `vite-hub`: the comment overlay on every page with `?vitehub`, threads in a
+ * SQLite file, and Sign in with GitHub. It adds Nitro, the server, unless the app has it. With `vite-hub`, it does
+ * nothing, because `vitehub()` runs Comments.
+ */
+export function comments(options: CommentsOptions = {}): PluginOption[] {
+  const plugin = hubComments({ standalone: options })
+  plugin.apply = config => !hasViteHubComments(config)
+  return [plugin, ...includedNitro({ unless: hasViteHubComments })]
+}
+
+export default comments
 
 /**
  * Comments build integration. When the app has `server/comments.ts`, it serves the Comments API at
@@ -320,6 +492,8 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   let route = commentsRoute
   let appBase = ""
   const discover = () => findCommentsEntry(projectRoot ?? process.cwd(), serverDirs)
+  // Without `vite-hub`, Comments is on without `server/comments.ts`.
+  const enabled = () => Boolean(options.standalone) || Boolean(discover())
   async function writeComponents(): Promise<void> {
     if (!projectRoot || !componentsFile) return
     const components = await readCommentsComponents(projectRoot, 5000, resolvedComponents)
@@ -327,7 +501,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
   }
 
   return {
-    name: "@vite-hub/comments/vite",
+    name: options.standalone ? "@vite-hub/comments" : "@vite-hub/comments/vite",
     api: {
       async setComponents(components) {
         resolvedComponents = components
@@ -338,7 +512,8 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         if (!definition) return
         realtime = true
         const file = join(context.directory, "comments.mjs")
-        const session = sessionLines(options, imports)
+        const { repository } = await readCommentsBuild(context.projectRoot)
+        const session = sessionWithGitHubLines(options, imports, repository, appBase)
         await mkdir(context.directory, { recursive: true })
         await writeFile(file, [
           `import { commentsRealtime } from ${JSON.stringify(imports.realtime)}`,
@@ -373,6 +548,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         }],
       }),
       async databases(context) {
+        if (options.standalone) return []
         const root = projectRoot ?? context.projectRoot ?? context.rootDir ?? context.root ?? process.cwd()
         const definition = findCommentsEntry(root, serverDirs ?? context.serverDirs?.slice())
         if (!definition) return []
@@ -389,7 +565,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     // `vitehub()` adds this plugin after Realtime, so Realtime's contribution says whether presence runs.
     enforce: "pre",
     config: {
-      async handler(config) {
+      async handler(config, env) {
         // SAFETY: Vite passes its user config with ViteHub's shared keys attached.
         const viteConfig = config as UserConfig & { [VITEHUB_PROJECT_ROOT]?: string, [VITEHUB_SERVER_DIRS]?: string[] }
         const { base, mount } = viteHubPageToolsBase(config)
@@ -398,25 +574,37 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
         projectRoot = viteConfig[VITEHUB_PROJECT_ROOT] ? resolve(viteConfig[VITEHUB_PROJECT_ROOT]) : resolveViteHubProjectRoot(resolve(config.root || process.cwd()))
         serverDirs = viteConfig[VITEHUB_SERVER_DIRS]?.slice()
         const directory = resolve(projectRoot, ".vitehub/nitro/comments")
-        const definition = discover()
-        if (!definition) {
+        if (!enabled()) {
           componentsFile = undefined
           await rm(directory, { force: true, recursive: true })
           return
         }
+        await mkdir(directory, { recursive: true })
+        const definition = discover() ?? await writeDefaultDefinition(directory, imports)
+        const standalone = options.standalone ? await standaloneDatabase(projectRoot, options.standalone, env.command) : undefined
         const handler = join(directory, "handler.mjs")
         const plugin = join(directory, "plugin.mjs")
         const pageSession = join(directory, "page-session.mjs")
-        await mkdir(directory, { recursive: true })
         componentsFile = join(directory, "components.mjs")
         const build = await readCommentsBuild(projectRoot)
+        const pluginInput = { definition, database: await readCommentsDatabase(definition), session: options, imports, build, base, development: env.command === "serve" && !env.isPreview, ...(standalone === undefined ? {} : { standalone }) }
         await Promise.all([
-          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build })),
+          writeFile(handler, renderCommentsHandler({ definition, content: findContentEntry(projectRoot, serverDirs), session: options, realtime, imports, build, base })),
           writeComponents(),
-          writeFile(plugin, renderCommentsPlugin({ definition, database: await readCommentsDatabase(definition), session: options, imports, base })),
+          writeFile(plugin, renderCommentsPlugin(pluginInput)),
           writeFile(pageSession, `export { viteHubPageSessionHandler as default } from ${JSON.stringify(imports.runtime)}\n`),
         ])
         const kit = createNitroServerKit(Reflect.get(config, "nitro"))
+        if (standalone) await addD1Binding(projectRoot, kit.config, standalone.where)
+        if (standalone && env.command === "build") {
+          const modules = Array.isArray(kit.config.modules) ? [...kit.config.modules] : []
+          // Nitro resolves the preset and its Node support after Vite config hooks. Runtime variables may name files.
+          modules.push(async (nitro: { options: { node: boolean } }) => {
+            parseDatabaseLocation(standalone.where, "comments", { node: nitro.options.node })
+            await writeFile(plugin, renderCommentsPlugin({ ...pluginInput, standalone: { ...standalone, node: nitro.options.node } }))
+          })
+          kit.config.modules = modules
+        }
         kit.addHandler({ handler, route: `${mount}${commentsRoute}/**` })
         kit.addPlugin(plugin)
         addViteHubPageToolRoutes(kit, { handler: pageSession, loader: builtDirectory("page"), mount })
@@ -432,7 +620,7 @@ export function hubComments(options: CommentsVitePluginOptions = {}): CommentsVi
     },
     // The shared marker lets Comments and the Console add one SPA loader together.
     transformIndexHtml(html) {
-      return discover() ? viteHubPageToolsIndexHtml(html, appBase) : undefined
+      return enabled() ? viteHubPageToolsIndexHtml(html, appBase) : undefined
     },
   }
 }

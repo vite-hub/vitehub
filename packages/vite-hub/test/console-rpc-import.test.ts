@@ -15,11 +15,11 @@ describe("Console RPC module", () => {
     }
   }, 60_000)
 
-  it("loads on h3 1, because Nuxt 4 bundles every h3 import as its own h3 1", async () => {
+  it.each(["rpc", "mcp", "mcp-metadata", "mcp-authorization-server"])("loads %s on h3 1, because Nuxt 4 bundles every h3 import as its own h3 1", async (name) => {
     vi.resetModules()
     vi.doMock("h3", () => import("h3-v1"))
     try {
-      const { default: handler } = await import("../src/console/runtime/server/rpc.ts")
+      const { default: handler } = await import(`../src/console/runtime/server/${name}.ts`)
 
       expect(handler).toBeTypeOf("function")
     }

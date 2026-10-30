@@ -66,6 +66,20 @@ afterEach(() => {
 })
 
 describe("loadViteHubPageTools", () => {
+  it.each([
+    ["?vitehub", "", 1],
+    ["?vitehub=comments", "", 1],
+    ["", "session=ada;vitehub-tools=1", 1],
+    ["", "", 0],
+    ["?other=1", "vitehub-tools=0", 0],
+  ])("requests a session only with a hint (query %j, cookie %j)", async (search, cookie, calls) => {
+    history.replaceState(null, "", `/${search}`)
+    vi.spyOn(document, "cookie", "get").mockReturnValue(cookie)
+    const fetch = session({ tools: [] })
+    await expect(loadViteHubPageTools()).resolves.toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(calls)
+  })
+
   it("starts tools and keeps exit usable when Trusted Types blocks HTML sinks", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool] })
@@ -95,8 +109,8 @@ describe("loadViteHubPageTools", () => {
   })
 
   it("asks the session route below the app base of the loader", async () => {
-    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=7")).toBe("/portal/_vitehub/page/session")
-    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=7")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=8")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=8")).toBe("/_vitehub/page/session")
     expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
     page("/portal/?vitehub")
     const fetch = session({ tools: [] })
@@ -190,6 +204,21 @@ describe("loadViteHubPageTools", () => {
     session({ tools: [{ ...comments, script: "/broken.js" }] })
     await expect(loadViteHubPageTools({ load: modules().load })).resolves.toEqual([])
     expect(document.querySelector("vitehub-pill")).toBeNull()
+  })
+
+  it("does not mount or remember a window created after startup exits", async () => {
+    page("/?vitehub=comments")
+    session({ tools: [comments] })
+    const load = async () => ({ default: (context: ViteHubPageToolContext) => {
+      context.exit()
+      const window = context.createWindow({ id: comments.id, title: comments.label, trigger: context.bar })
+      window.show()
+    } })
+
+    await expect(loadViteHubPageTools({ load })).resolves.toEqual([])
+    expect(document.querySelector("vitehub-pill")).toBeNull()
+    expect(document.querySelector("vitehub-window")).toBeNull()
+    expect(sessionStorage.getItem("vitehub-open:/_vitehub/page/session:comments")).toBe("false")
   })
 
   it("cleans up exactly once when a tool exits during startup", async () => {

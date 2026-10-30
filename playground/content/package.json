@@ -8,6 +8,7 @@
     "db:migrate": "vitehub db migrate"
   },
   "dependencies": {
+    "@comark/html": "catalog:markdown",
     "@libsql/client": "catalog:database",
     "comark-content": "catalog:markdown",
     "drizzle-orm": "catalog:database",

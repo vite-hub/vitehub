@@ -122,6 +122,32 @@ async function startEdit() {
 }
 
 describe("Comments overlay", () => {
+  it("does not resume startup when the pill exits during the session request", async () => {
+    overlay.remove()
+    vi.clearAllMocks()
+    const pending = deferred<Awaited<ReturnType<typeof api.session>>>()
+    vi.mocked(api.session).mockReturnValueOnce(pending.promise)
+    const pushState = history.pushState
+    const replaceState = history.replaceState
+    const { default: start } = await import("../src/overlay/index.ts")
+    mountBar()
+    const controller = new AbortController()
+    const cleanup = start({ tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, bar, signal: controller.signal, open: false, exit: vi.fn() })
+    overlay = document.querySelector<HTMLElement>("vitehub-comments")!
+    controller.abort()
+    if (typeof cleanup === "function") cleanup()
+    pill.remove()
+    pending.resolve([undefined, { user: null, can: { read: true, comment: true, resolve: false }, realtime: true, content: false }])
+    await pending.promise
+    expect(overlay.isConnected).toBe(false)
+    expect(api.threads).not.toHaveBeenCalled()
+    expect(connectRealtimeRoom).not.toHaveBeenCalled()
+    expect(history.pushState).toBe(pushState)
+    expect(history.replaceState).toBe(replaceState)
+    expect(vi.getTimerCount()).toBe(0)
+    expect(document.querySelector("style[data-vitehub-comments]")).toBeNull()
+  })
+
   it.each(["dark", "light"])("follows the host's data-theme=%s on mount and when it changes", async (theme) => {
     overlay.remove()
     const opposite = theme === "dark" ? "light" : "dark"

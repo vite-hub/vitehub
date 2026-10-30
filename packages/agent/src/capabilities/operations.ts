@@ -23,8 +23,8 @@ export interface OperationsCapabilityOptions {
    */
   user?: (actor: AgentActor) => MaybePromise<OperationUser | null | undefined>
   /**
-   * Let the Agent pass `lease: "override"` to `content.save`, so it can write over a document that a person is
-   * editing. Default: false.
+   * Let the Agent pass `lease: "override"` to `content.save`, `content.remove`, and `content.restore`, so it can write
+   * over a document that a person is editing. Default: false.
    */
   overrideLeases?: boolean
   /**

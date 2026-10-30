@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { runInNewContext } from "node:vm"
 
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 import { afterEach, describe, expect, it, vi } from "vitest"
@@ -134,6 +135,9 @@ describe("the Console Nitro configuration", () => {
       expect(config.nitro?.handlers.some(handler => handler.route.includes("/page/session"))).toBe(false)
       expect(config.nitro?.publicAssets.some(asset => asset.baseURL.includes("/_vitehub/"))).toBe(false)
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain("export default function viteHubConsolePlugin() {}")
+      const htmlHook = plugin.transformIndexHtml
+      const transform = typeof htmlHook === "function" ? htmlHook : htmlHook?.handler
+      if (transform) expect(await Reflect.apply(transform, undefined, ["", { path: "/", filename: join(root, "index.html") }])).toBeUndefined()
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -141,6 +145,7 @@ describe("the Console Nitro configuration", () => {
   })
 
   it.each([
+    ["/", ""],
     ["/portal/", "/portal"],
     ["https://site.test/portal/", ""],
     ["./", ""],
@@ -156,13 +161,32 @@ describe("the Console Nitro configuration", () => {
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers).toContainEqual({ handler: expect.stringMatching(/server[/\\]page-session\.js$/), route: `${path}/_vitehub/page/session` })
-      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/page/assets` }))
+      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/page/assets`, dir: expect.stringMatching(/runtime[/\\]page$/) }))
+      expect(config.nitro?.publicAssets).toContainEqual(expect.objectContaining({ baseURL: `${path}/_vitehub/assets`, dir: expect.stringMatching(/public[/\\]console$/) }))
       await expect(readFile(join(root, ".vitehub/nitro/console/plugin.mjs"), "utf8")).resolves.toContain(`installConsolePageTool(nitroApp, { base: ${JSON.stringify(path || "/")} })`)
+      await expect(sessionTools({ mode: "open" }, {}, path)).resolves.toMatchObject({
+        body: { tools: [{ id: "console", script: `${path}/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__` }] },
+      })
       // A single page app gets one loader below the base, also with Comments.
       const transform = plugin.transformIndexHtml as (html: string) => string | undefined
       const page = transform("<html><body></body></html>")
-      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=7")`)
+      expect(page).toContain(`import("${path}/_vitehub/page/assets/loader.js?v=8")`)
       expect(transform(page!)).toBeUndefined()
+      const script = page?.match(/<script[^>]*>([\s\S]*?)<\/script>/)?.[1]
+      if (!script) throw new TypeError("Expected a page tools loader script")
+      for (const [search, cookie, imports] of [
+        ["?vitehub", "", 1],
+        ["?vitehub=comments", "", 1],
+        ["", "session=ada; vitehub-tools=1", 1],
+        ["", "", 0],
+        ["?other=1", "vitehub-tools=0", 0],
+      ] as const) {
+        const load = vi.fn()
+        // Replace only the dynamic import so the browser's hint gate runs without fetching a browser module.
+        runInNewContext(script.replace("import(", "load("), { URLSearchParams, location: { search }, document: { cookie }, load })
+        expect(load).toHaveBeenCalledTimes(imports)
+        if (imports) expect(load).toHaveBeenCalledWith(`${path}/_vitehub/page/assets/loader.js?v=8`)
+      }
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -171,11 +195,12 @@ describe("the Console Nitro configuration", () => {
 })
 
 describe("the Console below a Nitro baseURL", () => {
-  it("leaves the base to Nitro, so the Console and the page tools are served once below it", async () => {
+  it.each([false, { server: "./console-auth.ts" }] as const)("leaves the base to Nitro, including MCP discovery with auth %j", async (auth) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-page-tools-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
-      const plugin = consoleVitePlugin({ console: { auth: false }, preset: "node", sections: [] })
+      await writeFile(join(root, "console-auth.ts"), "export default {}")
+      const plugin = consoleVitePlugin({ console: { auth }, preset: "node", sections: [] })
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
@@ -185,9 +210,14 @@ describe("the Console below a Nitro baseURL", () => {
       const routes = config.nitro?.handlers.map(handler => handler.route)
       expect(routes).toContain("/_vitehub/**")
       expect(routes).toContain("/_vitehub/rpc/**")
+      expect(routes).toContain("/_vitehub/mcp")
       expect(routes).toContain("/_vitehub/page/session")
+      if (auth) {
+        expect(routes).toContain("/.well-known/oauth-protected-resource")
+        expect(routes).toContain("/.well-known/oauth-authorization-server")
+      }
       expect(routes?.some(route => route.startsWith("/portal/"))).toBe(false)
-      expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/page/assets"])
+      expect(config.nitro?.publicAssets.map(asset => asset.baseURL)).toEqual(["/_vitehub/assets", "/_vitehub/.well-known/skills", "/_vitehub/page/assets"])
     }
     finally {
       await rm(root, { force: true, recursive: true })

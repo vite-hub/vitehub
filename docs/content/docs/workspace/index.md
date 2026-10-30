@@ -1,7 +1,8 @@
 ---
 title: Workspace
 navigation.title: Overview
-description: Give your server a folder of files to read and write, with rules for each path and a record of every change.
+description: Give your server and your AI agents one folder of files to read and write, with rules for each path and a record of every change.
+seo.title: AI agent workspace with path rules and diffs
 navigation.order: 1
 icon: i-lucide-folder-git-2
 ---

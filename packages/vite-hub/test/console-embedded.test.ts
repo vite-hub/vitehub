@@ -20,6 +20,8 @@ describe("embedded Console access", () => {
     const allowed = await page(event("/_vitehub?embed=1"))
     expect(allowed.headers.get("x-frame-options")).toBe("SAMEORIGIN")
     expect(allowed.headers.get("content-security-policy")).toContain("frame-ancestors 'self'")
+    expect(allowed.headers.get("content-security-policy")).toContain("frame-src 'self'")
+    expect(allowed.headers.get("content-security-policy")).toContain("form-action 'self'")
     expect(allowed.headers.get("cache-control")).toBe("no-store")
   })
 

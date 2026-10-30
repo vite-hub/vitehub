@@ -8,8 +8,9 @@ import { defineCommentsPlugin } from "../src/runtime/plugin.ts"
 import { defineComments } from "../src/index.ts"
 
 import type { CommentsUser, DefineCommentsOptions } from "../src/types.ts"
+import type { CommentsGitHubLogin } from "../src/runtime/github-login.ts"
 
-const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=7" data-vitehub-page-tools></script>`
+const loaderTag = (mount: string) => `<script type="module" src="${mount}/_vitehub/page/assets/loader.js?v=8" data-vitehub-page-tools></script>`
 
 /** Installs Comments with a session that reads the person from a `person` cookie. */
 function install(nitroApp: unknown, options: DefineCommentsOptions = {}, overlay = "/o.js"): void {
@@ -36,6 +37,24 @@ beforeEach(() => {
 })
 
 describe("Comments page tool", () => {
+  it.each([null, { id: "gh-ada", name: "Ada", github: { login: "ada", write: false } }])("offers the overlay for GitHub sign-in or account switching: %j", async (user) => {
+    vi.spyOn(console, "warn").mockImplementation(() => {})
+    const app = {}
+    const githubLogin: CommentsGitHubLogin = { configured: () => true, user: async () => user, handle: async () => new Response(null) }
+    const options = { comments: defineComments(), database: () => undefined, overlay: "/o.js", githubLogin }
+    defineCommentsPlugin(options)(app)
+    const session = await pageSession(app, "")
+    expect(session.body.tools).toHaveLength(1)
+    expect(session.cookie).toContain("vitehub-tools=1;")
+    defineCommentsPlugin({ ...options, consoleSession: async () => false })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    defineCommentsPlugin({ ...options, comments: defineComments({ identify: () => null }) })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    defineCommentsPlugin({ ...options, githubLogin: { ...githubLogin, configured: () => false } })(app)
+    expect((await pageSession(app, "")).body.tools).toEqual([])
+    vi.restoreAllMocks()
+  })
+
   it("keeps each app's overlay URL and authorization when another app installs Comments", async () => {
     const appA = {}
     const appB = {}

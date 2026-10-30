@@ -42,6 +42,7 @@ kbd { font: 500 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: va
 .people .avatar:first-child { margin-left: 0; }
 .avatar { width: 24px; height: 24px; flex: none; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #18181b; overflow: hidden; }
 .avatar img { width: 100%; height: 100%; object-fit: cover; outline: 1px solid rgb(0 0 0 / .1); outline-offset: -1px; border-radius: 50%; }
+.tool img.me { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; }
 
 .pin { position: fixed; transform: translate(-50%, -50%); }
 .layer .pin, .layer .pin * { pointer-events: auto; }
