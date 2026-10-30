@@ -469,6 +469,31 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(response.headers.getSetCookie()).toEqual(["session=abc; HttpOnly; Path=/auth", "seen=1; Path=/blog/../auth", "last=1; Path=/auth", "root=1; Path=/"])
   })
 
+  it("keeps a path-scoped cookie of a redirect for a later hop under its path, past a hop outside it", async () => {
+    const { content } = await setup()
+    const seen: Record<string, string | null> = {}
+    const app = new H3()
+      .get("/a/login", () => new Response(null, { status: 302, headers: { location: "/b/bounce", "set-cookie": "token=1; Path=/a" } }))
+      .get("/b/bounce", (event) => {
+        seen.bounce = event.req.headers.get("cookie")
+        return new Response(null, { status: 302, headers: { location: "/a/home" } })
+      })
+      .get("/a/home", (event) => {
+        seen.home = event.req.headers.get("cookie")
+        return { ok: true }
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://site.test/a/login?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", cookie: "keep=1" },
+      body: frameForm(token),
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toEqual({ bounce: "keep=1", home: "keep=1; token=1" })
+  })
+
   it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
     const { content, posts } = await setup()
     const seen: Array<string | null> = []

@@ -67,6 +67,7 @@ export async function followFrameRedirects(
 ): Promise<unknown> {
   let url = start.url
   let cookie = start.cookie
+  const jar: JarCookie[] = []
   let hash: string | undefined
   const setCookies: string[] = []
   for (let hop = 0; ; hop++) {
@@ -85,7 +86,8 @@ export async function followFrameRedirects(
     if (hop === maximumFrameRedirects) {
       return frameError(502, `The page redirects more than ${maximumFrameRedirects} times, so the preview stopped.`, setCookies)
     }
-    cookie = nextCookieHeader(cookie, cookies, url, target)
+    keepCookies(jar, cookies, url)
+    cookie = cookieHeaderFor(start.cookie, jar, target)
     // A server never sees the fragment. The browser takes the one of the redirect, else it keeps the one it has.
     if (target.hash) hash = target.hash
     target.hash = ""
@@ -151,13 +153,19 @@ function pathMatches(path: string, cookiePath: string): boolean {
   return path === cookiePath || (path.startsWith(cookiePath) && (cookiePath.endsWith("/") || path[cookiePath.length] === "/"))
 }
 
+/** A cookie that a followed redirect set, with the path the browser would keep it under. */
+interface JarCookie {
+  name: string
+  value: string
+  path: string
+  expired: boolean
+}
+
 /**
- * The `Cookie` header of the next page in a redirect chain: the cookies of this request, with the ones that a redirect
- * sets, changes, or expires, when the browser would keep them and send them to that page. A cookie that a redirect sets
- * takes the place of any cookie of the same name.
+ * Keeps the cookies that a redirect sets in `jar`, when the browser would keep them: not for another domain, and not
+ * `Secure` from plain HTTP other than localhost. A cookie of the same name and path takes the place of the earlier one.
  */
-export function nextCookieHeader(header: string | undefined, setCookies: readonly string[], from: URL, to: URL): string | undefined {
-  let pairs = (header ?? "").split(";").map(pair => pair.trim()).filter(Boolean)
+function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL): void {
   for (const line of setCookies) {
     const [pair = "", ...parts] = line.split(";")
     const separator = pair.indexOf("=")
@@ -167,18 +175,33 @@ export function nextCookieHeader(header: string | undefined, setCookies: readonl
       const equals = part.indexOf("=")
       return [(equals < 0 ? part : part.slice(0, equals)).trim().toLowerCase(), equals < 0 ? "" : part.slice(equals + 1).trim()] as const
     }))
-    // The browser drops a cookie for another domain, and a Secure cookie from plain HTTP other than localhost.
     const domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
     if (domain && from.hostname !== domain && !from.hostname.endsWith(`.${domain}`)) continue
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
     const attributePath = attributes.get("path")
     const path = attributePath?.startsWith("/") ? attributePath : defaultCookiePath(from)
-    if (!pathMatches(to.pathname, path)) continue
     const maxAge = attributes.get("max-age")
     const expires = attributes.get("expires")
     const expired = maxAge !== undefined && /^-?\d+$/.test(maxAge) ? Number(maxAge) <= 0 : expires !== undefined && Date.parse(expires) <= Date.now()
-    pairs = pairs.filter(entry => entry.slice(0, Math.max(0, entry.indexOf("="))).trim() !== name)
-    if (!expired) pairs.push(`${name}=${pair.slice(separator + 1).trim()}`)
+    const index = jar.findIndex(cookie => cookie.name === name && cookie.path === path)
+    const cookie = { name, value: pair.slice(separator + 1).trim(), path, expired }
+    if (index < 0) jar.push(cookie)
+    else jar[index] = cookie
+  }
+}
+
+/**
+ * The `Cookie` header of a page in a redirect chain: the cookies of the frame request, and the ones that redirects set
+ * whose path matches the page, as the browser would send them. A cookie that a redirect set or expired for the page
+ * takes the place of the request cookies of the same name.
+ */
+function cookieHeaderFor(header: string | undefined, jar: readonly JarCookie[], to: URL): string | undefined {
+  const matching = jar.filter(cookie => pathMatches(to.pathname, cookie.path))
+  const names = new Set(matching.map(cookie => cookie.name))
+  const pairs = (header ?? "").split(";").map(pair => pair.trim()).filter(pair => pair && !names.has(pair.slice(0, Math.max(0, pair.indexOf("="))).trim()))
+  // Longer paths first, as browsers order them.
+  for (const cookie of [...matching].sort((left, right) => right.path.length - left.path.length)) {
+    if (!cookie.expired) pairs.push(`${cookie.name}=${cookie.value}`)
   }
   return pairs.length ? pairs.join("; ") : undefined
 }
