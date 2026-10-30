@@ -23,6 +23,7 @@ vi.mock("vue-router", async () => {
   const current = (route.current = reactive({ query: {} }))
   return {
     onBeforeRouteLeave: vi.fn(),
+    onBeforeRouteUpdate: vi.fn(),
     useRoute: () => current,
     useRouter: () => ({ push: vi.fn(), replace: vi.fn(({ query }: { query: Record<string, string | null> }) => (current.query = query)) }),
   }

@@ -523,6 +523,46 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(seen).toEqual({ bounce: "keep=1", home: "keep=1; token=1" })
   })
 
+  it("keeps redirect cookies within their host or Domain scope across permitted hosts", async () => {
+    const { content } = await setup()
+    const seen: Record<string, string | null> = {}
+    const app = new H3()
+      .get("/a/login", () => {
+        const headers = new Headers({ location: "/b/bounce" })
+        headers.append("set-cookie", "session=internal; Path=/a")
+        headers.append("set-cookie", "shared=host; Path=/a")
+        headers.append("set-cookie", "shared=domain; Domain=site.test; Path=/a")
+        headers.append("set-cookie", "limited=1; Domain=internal.site.test; Path=/a")
+        return new Response(null, { status: 302, headers })
+      })
+      .get("/b/bounce", (event) => {
+        seen.bounce = event.req.headers.get("cookie")
+        return new Response(null, { status: 302, headers: { location: "https://public.site.test/a/account" } })
+      })
+      .get("/a/account", (event) => {
+        seen.account = event.req.headers.get("cookie")
+        return new Response(null, { status: 302, headers: { location: "https://internal.site.test/a/home", "set-cookie": "session=public; Path=/a" } })
+      })
+      .get("/a/home", (event) => {
+        seen.home = event.req.headers.get("cookie")
+        return { ok: true }
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://internal.site.test/a/login?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": "public.site.test", cookie: "keep=1" },
+      body: frameForm(token),
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toEqual({
+      bounce: "keep=1",
+      account: "shared=domain",
+      home: "keep=1; session=internal; shared=host; shared=domain; limited=1",
+    })
+  })
+
   it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
     const { content, posts } = await setup()
     const seen: Array<string | null> = []

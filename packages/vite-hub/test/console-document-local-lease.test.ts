@@ -14,6 +14,7 @@ import type { ConsoleDocument, ConsoleDocumentCollection, ConsoleDocumentPresenc
 
 vi.mock("vue-router", () => ({
   onBeforeRouteLeave: vi.fn(),
+  onBeforeRouteUpdate: vi.fn(),
   useRoute: () => ({ query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))

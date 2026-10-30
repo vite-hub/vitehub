@@ -13,9 +13,13 @@ import ConsoleDocumentDiff from "../src/console/runtime/components/console-docum
 import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/runtime/client/documents"
 
 const claimLease = vi.hoisted(() => vi.fn(async () => true))
+const beforeRouteLeave = vi.hoisted(() => vi.fn<(guard: () => Promise<false | undefined>) => void>())
+const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string }, from: { path: string }) => Promise<false | undefined> | undefined) => void>())
+const window: EventTarget = Reflect.get(globalThis, "window")
 
 vi.mock("vue-router", () => ({
-  onBeforeRouteLeave: vi.fn(),
+  onBeforeRouteLeave: beforeRouteLeave,
+  onBeforeRouteUpdate: beforeRouteUpdate,
   useRoute: () => ({ query: {} }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
@@ -80,6 +84,8 @@ afterEach(() => {
   for (const wrapper of wrappers.splice(0)) wrapper.unmount()
   sessionStorage.clear()
   claimLease.mockClear()
+  beforeRouteLeave.mockClear()
+  beforeRouteUpdate.mockClear()
 })
 
 const stubs = {
@@ -539,6 +545,85 @@ describe("Leaving Local only with pending body edits", () => {
 })
 
 describe("Shared changes while Local only", () => {
+  it("keeps pending local body edits mounted when a dismissed publish succeeds", async () => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const pending = deferred<{ documents: Array<{ id: string }> }>()
+    const client = {
+      ...createConsoleDocumentsClient("", "content"),
+      get: vi.fn(async () => structuredClone(shared)),
+      publish: vi.fn(() => pending.promise),
+    }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.get('header [data-label="Publish shared draft"]').trigger("click")
+    await flushPromises()
+    await wrapper.get('section [data-label="Publish shared draft"]').trigger("click")
+    await wrapper.get('section [data-label="Cancel"]').trigger("click")
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+
+    // The person resumes typing before the publish response; the Markdown model write is still pending.
+    pending.resolve({ documents: [{ id: "hello" }] })
+    await flushPromises()
+    expect(body.vm.$.isUnmounted).toBe(false)
+    body.vm.$emit("update:modelValue", "Pending local body")
+    await flushPromises()
+    expect(body.props("modelValue")).toBe("Pending local body")
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toMatchObject({ base: shared.digest, version: { body: "Pending local body" } })
+    expect(client.publish).toHaveBeenCalledWith("posts", [{ digest: shared.digest, id: "hello" }])
+  })
+
+  it.each([
+    [false, "leave"], [true, "leave"],
+    [false, "/content/posts"], [true, "/content/posts"],
+    [false, "/content/posts/other"], [true, "/content/posts/other"],
+  ] as const)("guards navigation after committing the local body (changed: %s, to: %s)", async (changed, destination) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)) }
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    const commit = vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (changed) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const current = { path: "/content/posts/hello" }
+    // History/outline query changes keep this document open and do not flush or block editing.
+    await beforeRouteUpdate.mock.calls.at(-1)![0](current, current)
+    expect(commit).not.toHaveBeenCalled()
+    const navigate = () => destination === "leave"
+      ? beforeRouteLeave.mock.calls.at(-1)![0]()
+      : beforeRouteUpdate.mock.calls.at(-1)![0]({ path: destination }, current)
+    const leave = navigate()
+    pending.resolve()
+    expect(await leave).toBe(changed ? false : undefined)
+    await flushPromises()
+    expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(changed)
+    if (changed) {
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.body).toBe("Pending local body")
+      expect(body.vm.$.isUnmounted).toBe(false)
+      const close = new Event("beforeunload", { cancelable: true })
+      window.dispatchEvent(close)
+      expect(close.defaultPrevented).toBe(true)
+      await wrapper.get('[data-label="Discard local edits"]').trigger("click")
+      await flushPromises()
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(await navigate()).toBeUndefined()
+    }
+  })
+
   it("reads the shared draft in place, without remounting the body editor, while the exit commit is pending", async () => {
     const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
     const start = { body: shared.body!, data: shared.data }

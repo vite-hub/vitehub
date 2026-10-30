@@ -87,7 +87,8 @@ export async function followFrameRedirects(
       return frameError(502, `The page redirects more than ${maximumFrameRedirects} times, so the preview stopped.`, setCookies)
     }
     keepCookies(jar, cookies, url)
-    cookie = cookieHeaderFor(start.cookie, jar, target)
+    // Request cookies have no Domain metadata: never assume they also belong to a forwarded host.
+    cookie = cookieHeaderFor(target.hostname === start.url.hostname ? start.cookie : undefined, jar, target)
     // A server never sees the fragment. The browser takes the one of the redirect, else it keeps the one it has.
     if (target.hash) hash = target.hash
     target.hash = ""
@@ -155,17 +156,24 @@ function pathMatches(path: string, cookiePath: string): boolean {
   return path === cookiePath || (path.startsWith(cookiePath) && (cookiePath.endsWith("/") || path[cookiePath.length] === "/"))
 }
 
-/** A cookie that a followed redirect set, with the path the browser would keep it under. */
+/** A cookie that a followed redirect set, with its browser scope. */
 interface JarCookie {
   name: string
   value: string
+  domain: string
+  hostOnly: boolean
   path: string
+  secure: boolean
   expired: boolean
+}
+
+function domainMatches(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`)
 }
 
 /**
  * Keeps the cookies that a redirect sets in `jar`, when the browser would keep them: not for another domain, and not
- * `Secure` from plain HTTP other than localhost. A cookie of the same name and path takes the place of the earlier one.
+ * `Secure` from plain HTTP other than localhost. A cookie of the same name, domain and path replaces the earlier one.
  */
 function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL): void {
   for (const line of setCookies) {
@@ -178,7 +186,7 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
       return [(equals < 0 ? part : part.slice(0, equals)).trim().toLowerCase(), equals < 0 ? "" : part.slice(equals + 1).trim()] as const
     }))
     const domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
-    if (domain && from.hostname !== domain && !from.hostname.endsWith(`.${domain}`)) continue
+    if (domain && !domainMatches(from.hostname, domain)) continue
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
     // Cookie prefixes: __Secure- needs Secure, and __Host- also needs Path=/ and no Domain.
     if (/^__secure-/i.test(name) && !attributes.has("secure")) continue
@@ -188,8 +196,8 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
     const maxAge = attributes.get("max-age")
     const expires = attributes.get("expires")
     const expired = maxAge !== undefined && /^-?\d+$/.test(maxAge) ? Number(maxAge) <= 0 : expires !== undefined && Date.parse(expires) <= Date.now()
-    const index = jar.findIndex(cookie => cookie.name === name && cookie.path === path)
-    const cookie = { name, value: pair.slice(separator + 1).trim(), path, expired }
+    const cookie = { name, value: pair.slice(separator + 1).trim(), domain: domain || from.hostname, hostOnly: !domain, path, secure: attributes.has("secure"), expired }
+    const index = jar.findIndex(entry => entry.name === name && entry.domain === cookie.domain && entry.path === path)
     if (index < 0) jar.push(cookie)
     else jar[index] = cookie
   }
@@ -197,11 +205,13 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
 
 /**
  * The `Cookie` header of a page in a redirect chain: the cookies of the frame request, and the ones that redirects set
- * whose path matches the page, as the browser would send them. A cookie that a redirect set or expired for the page
+ * whose scope matches the page, as the browser would send them. A cookie that a redirect set or expired for the page
  * takes the place of the request cookies of the same name.
  */
 function cookieHeaderFor(header: string | undefined, jar: readonly JarCookie[], to: URL): string | undefined {
-  const matching = jar.filter(cookie => pathMatches(to.pathname, cookie.path))
+  const matching = jar.filter(cookie => pathMatches(to.pathname, cookie.path)
+    && (cookie.hostOnly ? to.hostname === cookie.domain : domainMatches(to.hostname, cookie.domain))
+    && (!cookie.secure || to.protocol === "https:" || localHost(to.hostname)))
   const names = new Set(matching.map(cookie => cookie.name))
   const pairs = (header ?? "").split(";").map(pair => pair.trim()).filter(pair => pair && !names.has(pair.slice(0, Math.max(0, pair.indexOf("="))).trim()))
   // Longer paths first, as browsers order them.

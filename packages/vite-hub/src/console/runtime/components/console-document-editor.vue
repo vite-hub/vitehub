@@ -2,7 +2,7 @@
 import { Time, today } from "@internationalized/date";
 import { computed, markRaw, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, watch } from "vue";
 import { AvatarStack, ConnectionStatus, ConnectionStatusIndicator, ConnectionStatusLabel } from "@vite-hub/ui";
-import { onBeforeRouteLeave, useRoute, useRouter } from "vue-router";
+import { onBeforeRouteLeave, onBeforeRouteUpdate, useRoute, useRouter } from "vue-router";
 
 import {
   consoleDocumentSlug,
@@ -1201,7 +1201,7 @@ async function publishShared(): Promise<void> {
     else toast.show({ title: "Shared draft published. Your local edits are still here." });
     notifyChanged();
     previewReloads.value++;
-    await load();
+    await refreshShared();
   }
   catch (error) {
     if (consolePublishMismatches(error) || consolePublishedConflicts(error)) {
@@ -1851,13 +1851,23 @@ watch(() => props.changes, (next, previous) => {
   else if (!dirty.value && !creating.value && !saving.value && !publishing.value) void load();
 });
 
-onBeforeRouteLeave(async () => {
+async function beforeLeaveDocument(): Promise<false | undefined> {
   await bodyEditor.value?.commit();
+  // Leaving would remove this editor's unload guard while its local edits still live only in sessionStorage.
+  if (localChanged.value) {
+    localExitOpen.value = true;
+    return false;
+  }
   if (!dirty.value) return;
   // A pending autosave finishes before leaving. Anything that cannot save asks first.
   await settled();
   if (dirty.value && autosaves.value) await save({ auto: true });
   if (dirty.value && !window.confirm(creating.value ? "Leave without creating this document?" : "Leave without saving? Your changes will be lost.")) return false;
+}
+onBeforeRouteLeave(beforeLeaveDocument);
+onBeforeRouteUpdate((to, from) => {
+  // The document, collection list and other documents share a route record.
+  if (local.value && to.path !== from.path) return beforeLeaveDocument();
 });
 onMounted(() => {
   window.addEventListener("keydown", onKeydown);
