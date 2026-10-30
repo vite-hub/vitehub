@@ -2797,10 +2797,9 @@ async function createDiscordAdapterFromEnv(options: DiscordAdapterOptions, conte
   catch (error) {
     throw agentDiagnostics.AGENT_R0365({ message: "[vitehub] discord({ adapter: true }) requires @chat-adapter/discord to be installed.", cause: error })
   }
-  const env = await channelEnv("discord", context)
-  const applicationId = cleanSecret(adapterOptions.applicationId ?? env.applicationId)
-  const botToken = cleanSecret(adapterOptions.botToken ?? env.botToken)
-  const publicKey = cleanSecret(adapterOptions.publicKey ?? env.publicKey)
+  const applicationId = cleanSecret(adapterOptions.applicationId ?? await channelEnvValue("discord", "applicationId", context))
+  const botToken = cleanSecret(adapterOptions.botToken ?? await channelEnvValue("discord", "botToken", context))
+  const publicKey = cleanSecret(adapterOptions.publicKey ?? await channelEnvValue("discord", "publicKey", context))
   const adapterConfig: Record<string, unknown> = { ...adapterOptions }
   if (applicationId) adapterConfig.applicationId = applicationId
   if (botToken) adapterConfig.botToken = botToken
@@ -3126,11 +3125,11 @@ const telegramConnectorPlatform: ChatConnectorPlatform = {
 /** Sends Markdown to Telegram. It builds one adapter from `env.server.telegram`. Receipts live in KV under `telegram:`. */
 function telegramConnector(options: TelegramConnectorOptions = {}): ChatConnector {
   return chatConnector(telegramConnectorPlatform, connectorAdapter(options.adapter, async (input = {}) => {
-    const env = await channelEnv("telegram", {})
+    const context = {}
     const { createTelegramAdapter } = await import("@chat-adapter/telegram")
     const adapterOptions: Parameters<typeof createTelegramAdapter>[0] = {}
-    const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? env.apiBaseUrl)
-    const botToken = cleanSecret(input.botToken ?? env.botToken)
+    const apiBaseUrl = cleanSecret(input.apiBaseUrl ?? await channelEnvValue("telegram", "apiBaseUrl", context))
+    const botToken = cleanSecret(input.botToken ?? await channelEnvValue("telegram", "botToken", context))
     if (apiBaseUrl) adapterOptions.apiBaseUrl = apiBaseUrl
     if (input.apiUrl) adapterOptions.apiUrl = input.apiUrl
     if (botToken) adapterOptions.botToken = botToken
