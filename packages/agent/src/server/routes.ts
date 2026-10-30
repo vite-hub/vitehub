@@ -210,6 +210,7 @@ interface AgentRouteRuntimeOptions {
 }
 
 const webhookInboxPriorAttempts = Symbol("webhookInboxPriorAttempts")
+const webhookInboxReceivedAt = Symbol("webhookInboxReceivedAt")
 
 export interface AgentChannelWebhookRouteOptions extends AgentRouteRuntimeOptions {
   agentName?: string
@@ -9416,6 +9417,8 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
 
   const handler: AgentChannelWebhookRouteHandler = async (request, webhook, handlerOptions = {}) => {
     const webhookStartedAt = Date.now()
+    // A replayed inbox request keeps its first arrival time for signature timestamps and retention.
+    const webhookReceivedAt = (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxReceivedAt]?: number })[webhookInboxReceivedAt] ?? webhookStartedAt
     if (request.method !== "HEAD" && request.method !== "POST") {
       return createJsonErrorResponse(405, "Agent webhook route only accepts HEAD and POST requests.")
     }
@@ -9492,6 +9495,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
         try {
           await verifyAgentWebhookRequest([registration], request, context, {
             rawBody: rawBodyBytes,
+            receivedAt: webhookReceivedAt,
             requireSecretHeader: true,
           })
         } catch (error) {
@@ -9581,6 +9585,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
             input,
             {
               rawBody: rawBodyBytes,
+              receivedAt: webhookReceivedAt,
               ...(stateCommit ? { channelStateCommit: stateCommit } : {}),
             },
           )
@@ -9965,7 +9970,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
           inbox = await openWebhookInbox(webhookDeliveryState, {
             priorAttempts: (handlerOptions as AgentChannelWebhookRouteOptions & { [webhookInboxPriorAttempts]?: number })[webhookInboxPriorAttempts],
             id: await webhookInboxId(request, rawBodyBytes),
-            receivedAt: new Date(webhookStartedAt).toISOString(),
+            receivedAt: new Date(webhookReceivedAt).toISOString(),
             request: { body: rawBody, headers: requestHeaders(request), method: request.method, url: request.url },
             webhookId,
           })
@@ -10260,7 +10265,7 @@ export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRout
       for (const registration of registrations) await registrar.register(registration)
       if (inboxReplayBefore !== undefined) {
         // Requests that an earlier process stored but did not finish admitting go through the route again.
-        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts } as AgentChannelWebhookRouteOptions))
+        void replayWebhookInbox(inboxes, inboxReplayBefore, async (request, webhookId, priorAttempts, receivedAt) => await handler(request, webhookId, { ...handlerOptions, [webhookInboxPriorAttempts]: priorAttempts, [webhookInboxReceivedAt]: receivedAt } as AgentChannelWebhookRouteOptions))
           .catch(error => console.error("[vitehub] Webhook inbox replay failed.", error))
         inboxReplayBefore = undefined
       }

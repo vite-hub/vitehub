@@ -297,13 +297,13 @@ export async function drainDeferredWebhookAdmissions(options: DrainDeferredWebho
 
 /**
  * Sends each stored request that arrived before `before` through the webhook route again.
- * The route checks the signature again and counts the attempt. A request that reached the
- * attempt limit is dropped.
+ * The route checks the signature again, with timestamps measured from the request's first
+ * arrival, and counts the attempt. A request that reached the attempt limit is dropped.
  */
 export async function replayWebhookInbox(
   scopes: Iterable<WebhookInboxState>,
   before: number,
-  route: (request: Request, webhookId: string, priorAttempts: number) => Promise<Response>,
+  route: (request: Request, webhookId: string, priorAttempts: number, receivedAt: number) => Promise<Response>,
 ): Promise<void> {
   const states = new Map<string, StateAdapter>()
   for (const { keyPrefix, state } of scopes) states.set(keyPrefix, state)
@@ -340,7 +340,7 @@ export async function replayWebhookInbox(
           headers: stored.request.headers,
           method: stored.request.method,
         })
-        let response = await route(makeRequest(), stored.webhookId, attempts)
+        let response = await route(makeRequest(), stored.webhookId, attempts, Date.parse(stored.receivedAt))
         // A lock left by a crashed process is indistinguishable from a duplicate request
         // at the route boundary. If this process does not own it, take over once and retry.
         const currentOwner = await state.get(`${key}:owner`)
@@ -358,7 +358,7 @@ export async function replayWebhookInbox(
               : isRecord(currentOwner) && isRecord(takeoverOwner) && currentOwner.token === takeoverOwner.token
             if (sameOwner && !(isRecord(takeoverOwner) && takeoverOwner.settled === true)) {
               await forceReleaseLock(`${key}:admission`).catch(() => undefined)
-              response = await route(makeRequest(), stored.webhookId, attempts)
+              response = await route(makeRequest(), stored.webhookId, attempts, Date.parse(stored.receivedAt))
             }
           }
         }

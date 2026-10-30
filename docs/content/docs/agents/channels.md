@@ -264,7 +264,7 @@ With durable webhook State, such as SQLite, libSQL, or Cloudflare Durable Object
 
 - When admission finishes in time, the provider gets the trigger's own answer.
 - When admission is still running, the provider gets `202 { accepted: true, deferred: true, ok: true }`, and admission continues in the background. The provider does not see the trigger's own answer in this case, such as `ignored()` or a `Response` that the trigger returns.
-- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again. A request gets at most 3 admissions.
+- The stored request is removed when admission settles. If the process stops first, or admission ends in a 5xx, the next process sends the request through the route again at startup. It checks the signature again, and a timestamped signature such as `stripe-sha256` is checked against the request's first arrival, so a replay after the tolerance window still verifies. A request gets at most 3 admissions.
 
 The request is stored at `<scope>inbox:<id>` in webhook State. The ID is the provider's delivery header, such as `x-github-delivery`, or the SHA-256 of the raw body. Stopping the webhook queue waits up to `VITEHUB_SHUTDOWN_DRAIN_MS` for deferred admissions.
 
