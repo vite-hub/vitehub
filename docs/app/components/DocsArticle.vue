@@ -20,7 +20,7 @@ const bodyElement = computed(() => {
 });
 const pageUi = computed(() => ({
   root: hasCodePanel.value
-    ? "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0 xl:!grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] xl:!gap-10"
+    ? "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0 xl:!grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)] xl:!gap-8"
     : tocLinks.value.length
     ? "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0 xl:!grid-cols-[minmax(0,1fr)_var(--vh-toc-width)] xl:!gap-10"
     : "!grid !grid-cols-1 !gap-0 lg:!grid-cols-1 lg:!gap-0",
@@ -108,6 +108,7 @@ const mobileTocUi = {
   .vh-docs-article.has-code-panel {
     max-width: none;
     padding-right: 0;
+    padding-left: 1.5rem;
   }
 }
 
