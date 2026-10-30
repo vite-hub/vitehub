@@ -4,7 +4,10 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
 import { defineChannel, defineChannelTrigger, ignored } from "../src/channels.ts"
-import { agentInvocationId, defineAgent, resolveAgentTriggerInvocation, runAgentTrigger } from "../src/index.ts"
+import { agentInvocationId, defineAgent, resolveAgentTriggerInvocation, runAgentTrigger, streamAgentTrigger } from "../src/index.ts"
+import { markDiscoveredAgentName } from "../src/internal/discovered-agent-name.ts"
+import { setWorkflowJournalName } from "../src/internal/workflow-journal-name.ts"
+import { createMemoryAgentInvocationStore, defineAgentInvocations } from "../src/invocations.ts"
 import { createAgentRuntimeContext } from "../src/runtime/context.ts"
 import { createChannelWebhookRouteHandler } from "../src/server/internal.ts"
 import { createLibsqlAgentState } from "../src/state/sqlite.ts"
@@ -240,6 +243,40 @@ describe("Channel trigger tasks", () => {
     expect(run.mock.calls[1]?.[0]).not.toHaveProperty("invocation")
     expect(prepare).toHaveBeenCalledOnce()
     expect(prepare.mock.calls[0]?.[0]).not.toHaveProperty("invocation")
+  })
+
+  describe.each(["run", "stream"] as const)("%s trigger preparation", (mode) => {
+    it.each(["discovery", "workflow journal"])("matches the started Invocation using the %s name", async (source) => {
+      vi.stubGlobal("__VITEHUB_PUBLIC_URL__", { agents: { support: "https://agents.example.test" } })
+      const prepare = vi.fn((_invocation: AgentTriggerAcceptedInvocation) => undefined)
+      const invocations = defineAgentInvocations({ store: createMemoryAgentInvocationStore() })
+      const agent = defineAgent({
+        channels: { tickets: defineChannel("tickets", { messages: false, triggers: { opened: defineChannelTrigger({
+          prepare: (_context, invocation) => prepare(invocation),
+          invoke: () => ({ input: { prompt: "hello" }, run: { runId: "named-run" } }),
+        }) } }) },
+        driver: mode === "run"
+          ? { run: () => "done" }
+          : { async *run() { yield { id: "reply", text: "done", type: "text-delta" as const } } },
+        invocations,
+        runtime: false,
+      })
+      const runtime = createAgentRuntimeContext({ runtime: "unknown", waitUntil: vi.fn() })
+      if (source === "discovery") markDiscoveredAgentName(agent, "support")
+      else setWorkflowJournalName(runtime, agent, "support")
+
+      if (mode === "run") await runAgentTrigger(agent, runtime, "tickets.opened", {})
+      else {
+        const stream = await streamAgentTrigger(agent, runtime, "tickets.opened", {})
+        // SAFETY: This Driver returns an async generator, so streaming yields an async iterable.
+        for await (const _event of stream as AsyncIterable<unknown>) {}
+      }
+
+      const id = await agentInvocationId("named-run", "support")
+      expect(await invocations.getByRunId("named-run", "support")).toMatchObject({ id, status: "completed" })
+      expect(prepare).toHaveBeenCalledOnce()
+      expect(prepare.mock.calls[0]?.[0].invocation).toEqual({ consoleUrl: `https://agents.example.test/_vitehub/agents/support/invocations/${encodeURIComponent(id)}`, id })
+    })
   })
 
   it("retries a delivery whose prepare answers with a 5xx Response", async () => {

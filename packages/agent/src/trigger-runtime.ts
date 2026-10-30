@@ -8,6 +8,7 @@ import { AgentHttpError } from "./http-error.ts"
 import { hasRuntimeType, isRuntimeRecord } from "./internal/runtime-type.ts"
 import { isRuntimeFunction, isRuntimeString } from "./internal/runtime-value.ts"
 import { runInvocationReference } from "./invocations.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 
 import type {
   AgentCallbackContext,
@@ -970,7 +971,7 @@ export async function runAgentTriggerWith<
   triggerId: string,
   input: TInput,
 ): Promise<Response | AgentRunResult | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agent.name || context.agentIdentity?.name)
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   // SAFETY: A task Agent runs with the same runtime configuration as the Agent that owns the trigger.
   const executionAgent = (invocation.agent ?? agent) as AgentInput<AgentRuntimeContext<TRuntimeConfig>>
@@ -992,7 +993,7 @@ export async function streamAgentTriggerWith<
     output?: "events" | "ui-message-stream"
   } = {},
 ): Promise<Response | AsyncIterable<StreamEvent> | unknown> {
-  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agent.name || context.agentIdentity?.name)
+  const invocation = await prepareAgentTriggerInvocation(await resolveAgentTriggerInvocation<TRuntimeConfig, TInput, CALL_OPTIONS>(agent, context, triggerId, input), agentInvocationName(agent, context))
   if (isResolvedAgentTriggerHandledInvocation(invocation)) return invocation.response
   await options.onInvocation?.(invocation)
   const output = options.output || (invocation.trigger.output === "ui-message-stream" ? "ui-message-stream" : "events")
