@@ -137,8 +137,8 @@ export async function resolveChatErrorFallbackText<TRuntimeConfig extends AgentR
 ): Promise<string | undefined> {
   const originalText = await resolveChatErrorFallbackBody(options, args, callbackDelivered, resolveFallback)
   const text = originalText === undefined ? undefined : formatChannelCitationText(originalText)
-  // `errorConsoleLink` applies to the default text and to custom `errorFallbackText` results.
-  const consoleUrl = options?.errorConsoleLink ? args.invocation?.consoleUrl : undefined
+  // `consoleLink` applies to the default text and to custom `errorFallbackText` results.
+  const consoleUrl = options?.consoleLink ? args.invocation?.consoleUrl : undefined
   return text && consoleUrl && !text.includes(consoleUrl) ? `${text}\n\nDetails: ${consoleUrl}` : text
 }
 
