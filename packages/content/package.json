@@ -109,7 +109,6 @@
     "diff": "catalog:runtime",
     "h3": "catalog:unjs",
     "nostics": "catalog:runtime",
-    "tldts": "catalog:runtime",
     "yaml": "catalog:tooling"
   },
   "devDependencies": {
