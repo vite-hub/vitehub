@@ -1818,6 +1818,7 @@ async function executeQueuedWebhookDelivery(
   delivery: AgentWebhookQueueLease,
   handlerOptions: AgentChannelWebhookRouteOptions,
   lifecycleSignal: AbortSignal,
+  webhookQueue: AgentWebhookQueue<AgentChannelWebhookRouteOptions>,
 ): Promise<number | undefined> {
   if (delivery.failure) {
     // SAFETY: The queue persists invocation input and run metadata from this route contract.
@@ -1998,10 +1999,20 @@ async function executeQueuedWebhookDelivery(
     if (invocation?.input) {
       invocation = { ...invocation, input: migratePersistedForgeContext(invocation.input as Record<string, unknown>) as AgentRunInput }
     }
-    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State binding.
+    // Resolve the registration for every replay so persisted invocations receive the same request-scoped Channel State and queue bindings.
     const replayMatch = await Promise.race([runWithRuntimeCloudflareEnv(context, async () => {
       const match = await findAgentWebhookRegistration(agent, context, request, delivery.webhookId)
-      if (match?.registration.channelId) bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+      if (match?.registration.channelId) {
+        bindAgentChannelTriggerState(request, match.registration.channelId, { keyPrefix: `${delivery.scope}channel-state:`, state })
+        // A queued task can call `dispatch({ queue: true })` or `pull()`, as `invoke` can on the webhook route.
+        if (hasAgentWebhookQueue(state)) {
+          bindAgentChannelTriggerQueue(
+            request,
+            match.registration.channelId,
+            createQueuedChannelDispatch(agent, request, match.registration, delivery.webhookId, { keyPrefix: delivery.scope, state }, handlerOptions, webhookQueue),
+          )
+        }
+      }
       return match
     }), executionTimeout])
     let accepted: ResolvedAgentTriggerInvocation<ViteAgentRouteRuntimeConfig> | undefined
@@ -9406,8 +9417,9 @@ function createQueuedChannelDispatch(
 export function createChannelWebhookRouteHandler(agent: AgentInput<ViteAgentRouteRuntimeContext>): AgentChannelWebhookRouteHandler {
   const activeInvocationScope: WebhookActiveInvocationScope = { owner: "webhook" }
   const webhookQueue = createAgentWebhookQueue<AgentChannelWebhookRouteOptions>({
-    execute: async ({ backendId, delivery, lifecycleSignal, options, state }) =>
-      await executeQueuedWebhookDelivery(agent, state, activeInvocationScope, backendId, delivery, options, lifecycleSignal),
+    // The return type breaks the inference cycle through `webhookQueue`, which the callback passes on.
+    execute: async ({ backendId, delivery, lifecycleSignal, options, state }): Promise<number | undefined> =>
+      await executeQueuedWebhookDelivery(agent, state, activeInvocationScope, backendId, delivery, options, lifecycleSignal, webhookQueue),
     resolveBackendId: resolveWebhookStateBackendId,
     resolveWaitUntil: async options => await resolveRuntimeWaitUntil(options.waitUntil),
     retryMs: defaultWebhookQueueRetryMs,
