@@ -128,8 +128,23 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): un
       output[key] = resolveRegistryValue(child, env, childPath)
     }
   }
-  // resolveServerEnv() returns the same result to every caller while the env is unchanged.
-  return Object.freeze(output)
+  return output
+}
+
+/**
+ * Copy the namespace records of a resolved registry, so a caller that changes its result does not change the cached
+ * one. resolveRegistryValue() creates each namespace without a prototype, and provider getters keep their descriptor.
+ */
+function copyNamespaces(value: object): object {
+  const descriptors = Object.getOwnPropertyDescriptors(value)
+  for (const descriptor of Object.values(descriptors)) {
+    if (isNamespace(descriptor.value)) descriptor.value = copyNamespaces(descriptor.value)
+  }
+  return Object.create(null, descriptors)
+}
+
+function isNamespace(value: unknown): value is object {
+  return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === null
 }
 
 function providerFor(name: string, providers: EnvProviders | undefined): EnvProvider {
@@ -434,18 +449,21 @@ function serverEnvKey(registry: object, event: unknown): string | undefined {
 
 /**
  * Apps call `useServerEnv()` on hot paths, often once per listed row. The result is reused while every name the
- * registry reads holds the same value, so a call does not copy the whole env and parse each declaration again.
+ * registry reads holds the same value, so a call does not copy the whole env and parse each declaration again. Each
+ * call still gets its own records.
  */
 export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
   registry: EnvRuntimeRegistry<TServerEnv>,
   event?: unknown,
 ): TServerEnv {
   const key = serverEnvKey(registry, event)
-  const cached = key === undefined ? undefined : resolvedServerEnvs.get(registry)
-  if (cached && cached.key === key) return cached.value as TServerEnv
-  const value = resolveRegistryValue(registry, runtimeEnv(event), "env.server")
-  if (key !== undefined) resolvedServerEnvs.set(registry, { key, value })
-  return value as TServerEnv
+  if (key === undefined) return resolveRegistryValue(registry, runtimeEnv(event), "env.server") as TServerEnv
+  let cached = resolvedServerEnvs.get(registry)
+  if (cached?.key !== key) {
+    cached = { key, value: resolveRegistryValue(registry, runtimeEnv(event), "env.server") }
+    resolvedServerEnvs.set(registry, cached)
+  }
+  return (isNamespace(cached.value) ? copyNamespaces(cached.value) : cached.value) as TServerEnv
 }
 
 export async function loadServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
