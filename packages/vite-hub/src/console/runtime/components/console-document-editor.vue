@@ -1026,8 +1026,9 @@ async function startLocal(): Promise<void> {
 }
 
 /** Back to Collaborative. Changed local edits ask to apply or discard them first. */
-function requestShared(): void {
+async function requestShared(): Promise<void> {
   if (!local.value) return;
+  await bodyEditor.value?.commit();
   if (localChanged.value) {
     localExitOpen.value = true;
     return;
@@ -1037,7 +1038,7 @@ function requestShared(): void {
 
 function setEditing(next: "shared" | "local"): void {
   if (next === "local") void startLocal();
-  else requestShared();
+  else void requestShared();
 }
 
 function endLocal(): void {

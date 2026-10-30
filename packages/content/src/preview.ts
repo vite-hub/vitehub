@@ -792,7 +792,8 @@ async function followFrameRedirects(first: Request, page: (url: URL) => Request,
     const result = await render(request)
     if (!isResponseLike(result) || !isRedirect(result.status) || hop === maximumFrameRedirects) return result
     // A redirect that sets a cookie goes to the browser, which applies the cookie the way the next request expects.
-    if (result.headers.getSetCookie().length) return result
+    // A combined header is enough to detect cookies, including on hosts without Headers.getSetCookie().
+    if (result.headers.get("set-cookie") !== null) return result
     const location = result.headers.get("location")
     if (location === null || !URL.canParse(location, request.url)) return result
     const target = new URL(location, request.url)

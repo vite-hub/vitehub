@@ -353,6 +353,41 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(loop.status).toBe(302)
   })
 
+  it.each([false, true])("handles frame redirects without Headers.getSetCookie (sets cookie: %s)", async (setsCookie) => {
+    const { content, posts } = await setup()
+    const render = vi.fn(async (request: Request) => {
+      if (new URL(request.url).pathname === "/start") {
+        const response = new Response(null, { status: 302, headers: {
+          location: "/blog/hello",
+          ...(setsCookie ? { "set-cookie": "locale=en; Path=/" } : {}),
+        } })
+        // Older Fetch hosts expose a combined Set-Cookie header without this newer method.
+        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+        return response
+      }
+      return Response.json({ title: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id })
+    })
+    const nitroApp = { fetch: render }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://site.test/start?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://site.test" },
+      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" } } }) }),
+    }))
+    expect(response.headers.get("cache-control")).toBe("private, no-store")
+    if (setsCookie) {
+      expect(response.status).toBe(302)
+      expect(response.headers.get("set-cookie")).toBe("locale=en; Path=/")
+      expect(render).toHaveBeenCalledOnce()
+    }
+    else {
+      expect(response.status).toBe(200)
+      expect(await response.json()).toEqual({ title: "On screen", frame: "hello" })
+      expect(render).toHaveBeenCalledTimes(2)
+    }
+  })
+
   it("lets a frame token read the draft of its one document, and no other draft through any read", async () => {
     vi.stubEnv("VITEHUB_CONTENT_KEY", key)
     const workspace = await historyWorkspace()

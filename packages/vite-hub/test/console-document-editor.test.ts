@@ -36,6 +36,8 @@ vi.mock("../src/console/runtime/client/presence", async (importOriginal) => ({
     others: ref([]),
     ownOtherTab: ref(false),
     presence: ref(null),
+    refresh: vi.fn(async () => undefined),
+    resume: vi.fn(),
     unreachable: ref(false),
   }),
 }))
@@ -434,6 +436,47 @@ describe("Apply local edits while the person keeps typing", () => {
     expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
     expect(wrapper.text()).not.toContain("Local edits · not saved")
     expect(valueOf(wrapper.get("textarea").element)).toBe(applied.data.title)
+  })
+})
+
+describe("Leaving Local only with pending body edits", () => {
+  it.each([false, true])("waits for the body commit before deciding whether to discard (body changed: %s)", async (changed) => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async () => structuredClone(shared)), save: vi.fn() }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    const wrapper = shallowMount(ConsoleDocumentEditor, {
+      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
+      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } },
+    })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    const commit = vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (changed) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+    items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+    await flushPromises()
+    expect(commit).toHaveBeenCalledOnce()
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeDefined()
+    expect(body.exists()).toBe(true)
+
+    pending.resolve()
+    await flushPromises()
+    expect(client.save).not.toHaveBeenCalled()
+    if (changed) {
+      expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")?.version.body).toBe("Pending local body")
+      expect(body.props("modelValue")).toBe("Pending local body")
+    }
+    else {
+      expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toBeUndefined()
+      expect(wrapper.text()).not.toContain("Local edits · not saved")
+    }
   })
 })
 
