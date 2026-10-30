@@ -153,6 +153,26 @@ describe("teams.connector()", () => {
     expect([...store.keys()].filter(key => key.includes(":messages:"))).toHaveLength(1)
   })
 
+  it.each([false, true])("rejects replacing a channel root before posting or editing (update: %s)", async (update) => {
+    const { adapter, connector } = await setup()
+    const thread = { key: "ticket:root" }
+    const drafting = await connector.send("Drafting a suggested reply", { recipient: channel, thread, idempotencyKey: "drafting" })
+    if (update) await connector.send("Previous suggestion", { recipient: channel, thread, idempotencyKey: "suggestion" })
+    const saved = [...store]
+
+    await expect(connector.send("Suggested reply", { recipient: channel, thread, idempotencyKey: "suggestion", replace: "drafting", update })).rejects.toThrow("Teams replace cannot delete a channel thread root")
+
+    expect(adapter.postChannelMessage).toHaveBeenCalledOnce()
+    expect(adapter.postMessage).toHaveBeenCalledTimes(update ? 1 : 0)
+    expect(adapter.editMessage).not.toHaveBeenCalled()
+    expect(adapter.deleteMessage).not.toHaveBeenCalled()
+    expect([...store]).toEqual(saved)
+    await expect(connector.send("Drafting a suggested reply", { recipient: channel, thread, idempotencyKey: "drafting" })).resolves.toEqual(drafting)
+    await connector.send("Follow-up", { recipient: channel, thread })
+    const rootThread = encode({ conversationId: "19:general@thread.tacv2;messageid=100", serviceUrl: "https://smba.example" })
+    expect(adapter.postMessage).toHaveBeenLastCalledWith(rootThread, { markdown: "Follow-up" })
+  })
+
   it("deletes the replaced message without a thread and does nothing without a stored receipt", async () => {
     const { adapter, connector } = await setup()
     await connector.send("Working", { recipient: channel, idempotencyKey: "working" })

@@ -107,7 +107,7 @@ if (error) throw error
 Use `replace` to remove a temporary message when the final message must be new. Teams does not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
 
 ```ts
-const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}` } }
+const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
 const [draftingError] = await useChannel('teams').send('Drafting a suggested reply...', { ...options, idempotencyKey: `ticket:${ticketId}:drafting` })
 if (draftingError) throw draftingError
 const [error] = await useChannel('teams').send(suggestion, {
@@ -117,6 +117,8 @@ const [error] = await useChannel('teams').send(suggestion, {
 })
 if (error) throw error
 ```
+
+For a channel thread, set `thread.root` on the first send so the temporary message is a reply under a stable root. Without `thread.root`, the first text becomes the root. Replacing that root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
 ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that Teams no longer has counts as deleted.
 

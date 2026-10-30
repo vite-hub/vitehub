@@ -741,7 +741,8 @@ export interface TeamsSendOptions {
    * The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its
    * message, ViteHub deletes the message stored for `replace` and removes its receipt. Without a stored receipt,
    * ViteHub deletes nothing, so a repeated send is safe. Use it to remove a temporary message, such as "Drafting…",
-   * when the final message is posted as a new message.
+   * when the final message is posted as a new message. A channel thread root cannot be replaced: this throws a
+   * TypeError before posting or editing. Set `thread.root` on the first send so the temporary message is a reply.
    */
   replace?: string
 }
@@ -2968,6 +2969,12 @@ function teamsConnector(options: TeamsConnectorOptions = {}): TeamsConnector {
         const stored = receiptKey ? await teamsKVGet(kv, receiptKey) : undefined
         const savedRoot = await teamsKVGet(kv, `${key}:root`)
         let threadId = hasRuntimeType(savedRoot?.threadId, "string") ? savedRoot.threadId : undefined
+        if (replace && threadId) {
+          const replaced = await teamsKVGet(kv, `${key}:messages:${teamsHash(replace)}`)
+          if (hasRuntimeType(replaced?.id, "string") && decodeTeamsThread(teams, threadId).conversationId.endsWith(`;messageid=${replaced.id}`)) {
+            throw new TypeError("[vitehub] Teams replace cannot delete a channel thread root. Set thread.root on the first send so the temporary message is a reply.")
+          }
+        }
         if (hasRuntimeType(stored?.id, "string")) {
           // Inside a channel thread, Teams edits a message through the root thread ID, also when the message is the root.
           if (update && threadId) await teams.editMessage(threadId, stored.id, { markdown: text })

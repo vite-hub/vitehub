@@ -382,6 +382,8 @@ for the code format and an application catalog example.
 
 `teams.connector()` is an outbound connector for `defineOutboundChannel()`: `send(text, { recipient, thread?: { key, root? }, idempotencyKey?, update?, replace? })`. `recipient` is a Teams thread ID or `user:<id>`. `thread` keeps every send with one key under one channel root message. `idempotencyKey` returns the stored receipt instead of posting again. With `update: true`, it edits the stored message to the new text instead. `replace` names the `idempotencyKey` of an earlier send to the same recipient and thread: after this send, ViteHub deletes that message and its receipt. Roots and receipts live in `@vite-hub/kv` under `teams:`. Sends with the same key serialize within one process only.
 
+To replace a temporary message in a channel thread, set `thread.root` on the first send so the temporary message is a reply. Replacing the root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
+
 `teams()` requests descriptive Markdown source links. Chat SDK reply delivery replaces unresolved native web citations with `[source link unavailable]`, including in streams. Codex app-server does not expose a citation-ID-to-URL map; ViteHub preserves explicit source links and does not guess URLs for native IDs.
 
 Non-streaming chat replies answer the triggering message as a native reply when the Chat SDK adapter supports it, such as Telegram `reply_parameters`. Natively streamed replies, retries after a host restart, and adapters without native replies post a new thread message.
