@@ -178,4 +178,31 @@ describe("Console document preview renders", () => {
     expect(loading(reopened.wrapper)).toBe(false)
     reopened.wrapper.unmount()
   })
+
+  it("shows the error page of a draft render as a failure with Retry, never as the Draft page", async () => {
+    const { wrapper, preview } = setup([Promise.resolve(tokenOf("one")), Promise.resolve(tokenOf("two"))])
+    await flushPromises()
+    const [frame] = frames(wrapper)
+    expect(submitted).toHaveLength(1)
+    // The page the site answers when a redirect leaves it: same origin, so the preview reads its message.
+    const element = wrapper.get(`iframe[name="${frame!.name}"]`).element
+    const page = new (Reflect.get(globalThis, "DOMParser") as new () => { parseFromString(html: string, type: string): unknown })()
+      .parseFromString('<!doctype html><html><head><meta name="vitehub-content-preview-error" content="The page redirects to https://other.test, which is another site."></head><body></body></html>', "text/html")
+    const origin: string = Reflect.get(Reflect.get(globalThis, "location"), "origin")
+    Object.defineProperty(element, "contentWindow", { configurable: true, value: { location: { href: `${origin}/blog/hello`, origin } } })
+    Object.defineProperty(page, "location", { configurable: true, value: { pathname: "/blog/hello", search: "" } })
+    Object.defineProperty(element, "contentDocument", { configurable: true, value: page })
+    element.dispatchEvent(new Event("load"))
+    await flushPromises()
+    const alert = wrapper.get('[role="alert"]')
+    expect(alert.text()).toContain("The page redirects to https://other.test, which is another site.")
+    expect(wrapper.findAll("iframe")).toHaveLength(0)
+    expect(loading(wrapper)).toBe(false)
+
+    await alert.get("button").trigger("click")
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(submitted).toHaveLength(2)
+    expect(preview).toHaveBeenCalledTimes(1)
+  })
 })

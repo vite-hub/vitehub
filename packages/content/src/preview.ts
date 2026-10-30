@@ -2,6 +2,7 @@ import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
+import { followFrameRedirects, frameError, frameOrigins } from "./preview-frame.ts"
 import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
@@ -577,7 +578,7 @@ export function parseContentPreviewFrameForm(text: string): ContentPreviewFrameF
 }
 
 function forbidden(message: string): Response {
-  return new Response(message, { status: 403, headers: { "cache-control": "private, no-store", "content-type": "text/plain; charset=utf-8" } })
+  return frameError(403, message)
 }
 
 /**
@@ -713,26 +714,51 @@ function isFrameRequest(method: unknown, url: URL | undefined): url is URL {
   return String(method).toUpperCase() === "POST" && url !== undefined && url.searchParams.has(contentPreviewFrameParameter)
 }
 
+/** A Node request body: the stream of a server, or the text or bytes of an in-process request. */
+interface NodeBody {
+  body?: unknown
+  on?: unknown
+  off?: unknown
+  pause?: unknown
+}
+
 /**
  * Reads a frame form body of at most `maximumFrameBytes`, counting the bytes as they arrive. A declared length is not
- * trusted: reading stops at the first chunk over the limit and cancels the rest. A larger or broken body is undefined.
+ * trusted: reading pauses at the first chunk over the limit, and the caller closes the connection after its answer, so
+ * the rest is never read or held. A larger or broken body is undefined.
  */
-async function readNodeBody(request: AsyncIterable<unknown>): Promise<string | undefined> {
-  const chunks: Uint8Array[] = []
-  let size = 0
-  try {
-    // Leaving the loop early destroys the Node stream, so no more of the body is read.
-    for await (const chunk of request) {
-      const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
-      size += bytes.byteLength
-      if (size > maximumFrameBytes) return
-      chunks.push(bytes)
+function readNodeBody(request: NodeBody): Promise<string | undefined> {
+  const { body } = request
+  if (String(body) === body) return Promise.resolve(new TextEncoder().encode(body).byteLength > maximumFrameBytes ? undefined : body)
+  if (body instanceof Uint8Array) return Promise.resolve(body.byteLength > maximumFrameBytes ? undefined : decodeChunks([body], body.byteLength))
+  const { on, off, pause } = request
+  if (!(on instanceof Function) || !(off instanceof Function)) return Promise.resolve(undefined)
+  const unlisten = off
+  return new Promise((resolve) => {
+    const chunks: Uint8Array[] = []
+    let size = 0
+    const listeners: Record<string, (value?: unknown) => void> = {
+      data(chunk) {
+        const bytes = chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
+        size += bytes.byteLength
+        if (size <= maximumFrameBytes) {
+          chunks.push(bytes)
+          return
+        }
+        if (pause instanceof Function) Reflect.apply(pause, request, [])
+        done(undefined)
+      },
+      end: () => done(decodeChunks(chunks, size)),
+      error: () => done(undefined),
+      aborted: () => done(undefined),
     }
-  }
-  catch {
-    return
-  }
-  return decodeChunks(chunks, size)
+    function done(value: string | undefined): void {
+      for (const [name, listener] of Object.entries(listeners)) Reflect.apply(unlisten, request, [name, listener])
+      chunks.length = 0
+      resolve(value)
+    }
+    for (const [name, listener] of Object.entries(listeners)) Reflect.apply(on, request, [name, listener])
+  })
 }
 
 async function readRequestBody(request: Request): Promise<string | undefined> {
@@ -777,33 +803,54 @@ function decodeChunks(chunks: Uint8Array[], size: number): string {
   return new TextDecoder().decode(joined)
 }
 
-/** How many same-origin redirects a preview frame follows in the server before it returns the redirect. */
-const maximumFrameRedirects = 5
-
 /**
- * Runs a preview frame page and follows its same-origin redirects inside the frame scope, such as a locale or canonical
- * redirect. The browser would follow them without the form, and so without the token and the document on screen. The
- * frame shows the last page at the URL it posted to. A redirect to another origin, one that sets a cookie, or one past
- * the limit is returned.
+ * The Web response of a Nitro 2 `localCall()`: `{ status, statusText, headers, body }` of an in-process request. A
+ * handler that returns a Web `Response` or a stream leaves the stream as the body.
  */
-async function followFrameRedirects(first: Request, page: (url: URL) => Request, render: (request: Request) => unknown): Promise<unknown> {
-  let request = first
-  for (let hop = 0; ; hop++) {
-    const result = await render(request)
-    if (!isResponseLike(result) || !isRedirect(result.status) || hop === maximumFrameRedirects) return result
-    // A redirect that sets a cookie goes to the browser, which applies the cookie the way the next request expects.
-    // A combined header is enough to detect cookies, including on hosts without Headers.getSetCookie().
-    if (result.headers.get("set-cookie") !== null) return result
-    const location = result.headers.get("location")
-    if (location === null || !URL.canParse(location, request.url)) return result
-    const target = new URL(location, request.url)
-    if (target.origin !== new URL(first.url).origin) return result
-    result.body?.cancel().catch(() => undefined)
-    // A server never sees the fragment: the browser keeps it.
-    target.hash = ""
-    target.searchParams.delete(contentPreviewFrameParameter)
-    request = page(target)
+function nodeCallResponse(value: unknown): Response {
+  if (!isObject(value) || typeof value.status !== "number") return frameError(502, "The page did not answer the preview.")
+  const headers = new Headers()
+  for (const [name, entry] of Object.entries(isObject(value.headers) ? value.headers : {})) {
+    for (const item of [entry].flat()) {
+      if (item !== undefined && item !== null) headers.append(name, String(item))
+    }
   }
+  // h3 v1 writes text and bytes, and leaves a Web or Node stream as the body when the response has no socket.
+  const body = value.body
+  const content = String(body) === body
+    ? body
+    : body instanceof Uint8Array
+      ? new Uint8Array(body)
+      : body instanceof ReadableStream
+        ? body
+        : isObject(body) && Symbol.asyncIterator in body
+          // SAFETY: An object with Symbol.asyncIterator, such as a Node stream, is an async iterable.
+          ? ReadableStream.from(nodeChunks(body as AsyncIterable<unknown>))
+          : null
+  try {
+    return new Response([101, 204, 205, 304].includes(value.status) ? null : content, { status: value.status, statusText: String(value.statusText ?? ""), headers })
+  }
+  catch {
+    return frameError(502, "The page did not answer the preview.")
+  }
+}
+
+async function* nodeChunks(stream: AsyncIterable<unknown>): AsyncGenerator<Uint8Array> {
+  for await (const chunk of stream) yield chunk instanceof Uint8Array ? chunk : new TextEncoder().encode(String(chunk))
+}
+
+/** Writes a Web response to a Node server response that has not sent its head yet. */
+async function sendNodeResponse(response: Record<string, unknown>, result: Response, close: boolean, done: () => void): Promise<void> {
+  if (response.headersSent === true || !(response.end instanceof Function) || !(response.setHeader instanceof Function)) return
+  const bytes = result.body ? new Uint8Array(await result.arrayBuffer()) : undefined
+  response.statusCode = result.status
+  const cookies = result.headers.getSetCookie()
+  for (const [name, value] of result.headers) {
+    if (name !== "set-cookie") Reflect.apply(response.setHeader, response, [name, value])
+  }
+  if (cookies.length) Reflect.apply(response.setHeader, response, ["set-cookie", cookies])
+  if (close) Reflect.apply(response.setHeader, response, ["connection", "close"])
+  Reflect.apply(response.end, response, bytes ? [bytes, done] : [done])
 }
 
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
@@ -827,7 +874,9 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * stored draft. The page runs as a GET request without the parameter. Collection `get()` and `list()` without `ref` or
  * `revision` read that one document as a draft; every other read is published. Nothing is stored, and the response is
  * `private, no-store`. A form from another site, without a valid frame token, or with a document that the token does
- * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token.
+ * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token. A
+ * same-origin redirect of the page is followed in the server inside the frame scope, with the cookies it sets, through
+ * Nitro's `fetch` on Nitro 3 and `localCall()` on Nitro 2; a redirect to another origin or past five gets an error page.
  *
  * A request with `?vitehub-content-published` in its URL, or in its same-origin `Referer`, reads `published` even with a
  * preview cookie, such as the Published view of the Console. Its nested runs do too. The page sees its URL with the
@@ -858,10 +907,11 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
       markNodeRedirects(event)
       return preview.run(event, next).then(result => publishedRedirect(result, event))
     }
-    /** Checks a preview frame form and runs the page with its grant, or returns the 403 response. */
+    /** Checks a preview frame form and runs the page with its grant, or returns the 403 error page. */
     async function runFrame(blocked: boolean, body: string | undefined, next: () => unknown): Promise<unknown> {
       if (blocked) return forbidden("A preview frame must come from this site.")
-      const form = body === undefined ? undefined : parseContentPreviewFrameForm(body)
+      if (body === undefined) return forbidden("The preview form was larger than 1 MiB or did not arrive whole.")
+      const form = parseContentPreviewFrameForm(body)
       const ran = form && frame ? await frame.run(form, next) : undefined
       return ran ? privateResponse(ran.result) : forbidden("The preview expired. Open the preview again.")
     }
@@ -882,8 +932,17 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           const headers = new Headers(request.headers)
           headers.delete("content-type")
           headers.delete("content-length")
-          const page = (target: URL) => new Request(target, { method: "GET", headers, signal: request.signal })
-          return await runFrame(blocked, body, () => followFrameRedirects(page(url), page, next => scoped(next, () => Reflect.apply(fetch, nitroApp, [next, ...rest]))))
+          const page = (target: URL, cookie: string | undefined) => {
+            const pageHeaders = new Headers(headers)
+            if (cookie === undefined) pageHeaders.delete("cookie")
+            else pageHeaders.set("cookie", cookie)
+            return new Request(target, { method: "GET", headers: pageHeaders, signal: request.signal })
+          }
+          const start = { url, cookie: headers.get("cookie") ?? undefined, origins: frameOrigins(url, headers.get("x-forwarded-host") ?? undefined) }
+          return await runFrame(blocked, body, () => followFrameRedirects(start, async (target, cookie) => {
+            const next = page(target, cookie)
+            return await scoped(next, () => Reflect.apply(fetch, nitroApp, [next, ...rest]))
+          }))
         })()
       }
       return
@@ -896,37 +955,43 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
         const node = isObject(event) && isObject(event.node) ? event.node : undefined
         const request = isObject(node?.req) ? node.req : undefined
         const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
-        if (!event || !request || !isFrameRequest(request.method, url) || !(Symbol.asyncIterator in request)) {
+        if (!event || !request || !isFrameRequest(request.method, url)) {
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
         return (async () => {
           const headers = isObject(request.headers) ? request.headers : {}
           // A form from another site is refused before its body is read.
           const blocked = crossSite(headers, url)
-          // SAFETY: A Node IncomingMessage is an async iterable of its body chunks, checked above.
-          const body = blocked ? undefined : await readNodeBody(request as unknown as AsyncIterable<unknown>)
-          // The page sees a GET request for its own URL. h3 v1 caches the method, path, and headers on the event.
+          const body = blocked ? undefined : await readNodeBody(request)
           url.searchParams.delete(contentPreviewFrameParameter)
-          request.method = "GET"
-          request.url = `${url.pathname}${url.search}`
-          delete headers["content-type"]
-          delete headers["content-length"]
-          for (const cached of ["_method", "_path", "_headers"]) {
-            if (Reflect.has(Object(event), cached)) Reflect.set(Object(event), cached, undefined)
-          }
-          const result = await runFrame(blocked, body, () => scoped(event, () => Reflect.apply(handler, h3App, [event])))
-          if (!(result instanceof Response) || result.status !== 403 || !isObject(node?.res)) return result
-          const response = node.res
-          if (response.headersSent === true || !(response.end instanceof Function) || !(response.setHeader instanceof Function)) return result
-          response.statusCode = 403
-          for (const [name, value] of result.headers) Reflect.apply(response.setHeader, response, [name, value])
-          // The body of a form from another site is never read. Close the connection after the 403 instead of draining
-          // an upload that may be slow or large.
-          if (blocked) Reflect.apply(response.setHeader, response, ["connection", "close"])
-          const closeUnread = () => {
-            if (blocked && request.destroy instanceof Function) Reflect.apply(request.destroy, request, [])
-          }
-          Reflect.apply(response.end, response, [await result.text(), closeUnread])
+          const pageHeaders: Record<string, unknown> = { ...headers }
+          delete pageHeaders["content-type"]
+          delete pageHeaders["content-length"]
+          delete pageHeaders["transfer-encoding"]
+          delete pageHeaders.cookie
+          const start = { url, cookie: readHeader(headers, "cookie"), origins: frameOrigins(url, readHeader(headers, "x-forwarded-host")) }
+          // Each page runs as an in-process GET through Nitro's localCall, inside the frame scope. The server
+          // connection answers once, with the last page, so a redirect never reaches the browser without the form.
+          const result = await runFrame(blocked, body, () => followFrameRedirects(start, async (target, cookie) => {
+            const localCall = nitroApp.localCall
+            if (!(localCall instanceof Function)) return frameError(500, "This server cannot render a preview frame: its Nitro app has no localCall.")
+            const called: unknown = await Reflect.apply(localCall, nitroApp, [{
+              url: `${target.pathname}${target.search}`,
+              method: "GET",
+              headers: cookie === undefined ? pageHeaders : { ...pageHeaders, cookie },
+              protocol: target.protocol === "https:" ? "https" : "http",
+              context: request.__unenv__,
+            }])
+            return nodeCallResponse(called)
+          }))
+          const response = isObject(node?.res) ? node.res : undefined
+          if (!(result instanceof Response) || !response) return result
+          // The body of a refused form is not read. Close the connection after the answer instead of draining an upload
+          // that may be slow or large.
+          const unread = blocked || body === undefined
+          await sendNodeResponse(response, result, unread, () => {
+            if (unread && request.destroy instanceof Function) Reflect.apply(request.destroy, request, [])
+          })
         })()
       }
       // Route rule headers run inside the request, so mark the response private again just before it is sent.

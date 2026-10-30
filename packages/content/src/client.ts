@@ -17,4 +17,4 @@ export type {
 } from "./head.ts"
 export { contentField, contentFieldAttribute, formatContentField, parseContentField } from "./field.ts"
 export type { ContentFieldAddress } from "./field.ts"
-export { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
+export { contentPreviewErrorName, contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"

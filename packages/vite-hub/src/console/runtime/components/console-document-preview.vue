@@ -3,6 +3,7 @@ import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 
 import {
   consolePreviewAddress,
+  consolePreviewError,
   consolePreviewField,
   consolePreviewFormAction,
   consolePreviewFormValue,
@@ -178,6 +179,12 @@ function onFrameLoad(frame: Frame, event: Event): void {
     return;
   }
   address.value = consolePreviewAddress(page.location);
+  // The site could not show the document, so the frame would show its error page under the Draft label.
+  const error = draft.value ? consolePreviewError(page) : undefined;
+  if (error) {
+    failure.value = error;
+    return;
+  }
   if (scroll) page.defaultView?.scrollTo(0, scroll);
   instrument(page);
 }

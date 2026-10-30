@@ -1,4 +1,4 @@
-import { contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
+import { contentPreviewErrorName, contentPreviewFrameParameter, contentPreviewPublishedParameter, parseContentField } from "@vite-hub/content/client"
 
 /**
  * The side browser of the document editor. The site renders the page of a document with its own routes: a draft view
@@ -59,6 +59,14 @@ export function consolePreviewAddress(location: { pathname: string, search: stri
   search.delete(contentPreviewPublishedParameter)
   const query = search.toString()
   return query ? `${location.pathname}?${query}` : location.pathname
+}
+
+/**
+ * The message of the page a draft view gets when the site cannot show the document in it, such as an expired token or
+ * a redirect to another site. Undefined for a page of the site.
+ */
+export function consolePreviewError(page: { querySelector(selector: string): { getAttribute(name: string): string | null } | null }): string | undefined {
+  return page.querySelector(`meta[name="${contentPreviewErrorName}"]`)?.getAttribute("content") ?? undefined
 }
 
 /** The form field value of a draft view: the token of one document and the version of it on screen. */
