@@ -515,14 +515,13 @@ describe("Leaving Local only with pending body edits", () => {
       save: vi.fn(),
     }
     const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
-    const wrapper = shallowMount(ConsoleDocumentEditor, {
-      props: { changes: 0, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" },
-      global: { stubs: { ...stubs, ConsoleMarkdownEditor: false, UDropdownMenu: menu } },
-    })
+    const changes = ref(0)
+    const Host = defineComponent(() => () => h(ConsoleDocumentEditor, { changes: changes.value, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" }))
+    const wrapper = shallowMount(Host, { global: { stubs: { ...stubs, ConsoleDocumentEditor: false, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
     wrappers.push(wrapper)
     await flushPromises()
     client.get.mockResolvedValue(null)
-    await wrapper.setProps({ changes: 1 })
+    changes.value = 1
     await flushPromises()
     expect(wrapper.text()).toContain("The shared draft was deleted after your local edits started")
     expect(wrapper.text()).not.toContain("Local edits · not saved")
