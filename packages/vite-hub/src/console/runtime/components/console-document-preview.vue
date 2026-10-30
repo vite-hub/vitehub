@@ -232,10 +232,11 @@ function onPageClick(page: Document, event: MouseEvent): void {
 /** Edits a text field in the page. Enter or leaving the element ends the edit; Escape puts the text back. */
 function startEditing(page: Document, element: HTMLElement, field: string): void {
   const original = element.textContent ?? "";
-  // The element may format its field, such as "Category: News", so Escape puts back the field value, not the text.
+  // The element may format its field, such as "Category: News"; edit the raw value and keep the display for Escape.
   const stored = props.document.data[field];
   const value = String(stored) === stored ? stored : original;
   editing = element;
+  element.textContent = value;
   element.setAttribute("contenteditable", "plaintext-only");
   element.setAttribute("aria-label", `Edit ${field}`);
   element.focus();
@@ -255,6 +256,7 @@ function startEditing(page: Document, element: HTMLElement, field: string): void
     }
   };
   const onBlur = () => {
+    if (element.textContent === value) element.textContent = original;
     element.removeEventListener("input", onInput);
     element.removeEventListener("keydown", onKeydown);
     element.removeAttribute("contenteditable");

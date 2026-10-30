@@ -206,14 +206,14 @@ describe("Console document preview renders", () => {
     expect(preview).toHaveBeenCalledTimes(1)
   })
 
-  it("puts back the field value, not the formatted text, when Escape ends an edit in the page", async () => {
+  it("edits the raw field value and restores its formatted text on Escape", async () => {
     const { wrapper } = setup([Promise.resolve(tokenOf("one"))], "draft", ["title"])
     await flushPromises()
     const host = wrapper.findComponent(ConsoleDocumentPreview)
     const [frame] = frames(wrapper)
     const element = wrapper.get(`iframe[name="${frame!.name}"]`).element
     const page = new (Reflect.get(globalThis, "DOMParser") as new () => { parseFromString(html: string, type: string): unknown })()
-      .parseFromString('<!doctype html><html><head></head><body><h1 data-content-field="posts:hello#title">Title: First</h1></body></html>', "text/html") as { querySelector(selector: string): { click(): void, dispatchEvent(event: unknown): boolean } | null, defaultView: unknown }
+      .parseFromString('<!doctype html><html><head></head><body><h1 data-content-field="posts:hello#title">Title: First</h1></body></html>', "text/html") as { querySelector(selector: string): { textContent: string, click(): void, dispatchEvent(event: unknown): boolean } | null, defaultView: unknown }
     const origin: string = Reflect.get(Reflect.get(globalThis, "location"), "origin")
     Object.defineProperty(page, "location", { configurable: true, value: { pathname: "/blog/hello", search: "" } })
     Object.defineProperty(element, "contentWindow", { configurable: true, value: { location: { href: `${origin}/blog/hello`, origin } } })
@@ -222,9 +222,14 @@ describe("Console document preview renders", () => {
     await flushPromises()
     const heading = page.querySelector("h1")!
     heading.click()
+    heading.textContent += "!"
+    heading.dispatchEvent(new Event("input", { bubbles: true }))
+    await flushPromises()
+    expect(host.emitted("edit")?.at(-1)).toEqual(["title", "First!"])
     const KeyboardEvent = Reflect.get(globalThis, "KeyboardEvent") as new (type: string, init: object) => unknown
     heading.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
     await flushPromises()
     expect(host.emitted("edit")?.at(-1)).toEqual(["title", "First"])
+    expect(heading.textContent).toBe("Title: First")
   })
 })

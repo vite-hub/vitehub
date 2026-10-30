@@ -563,6 +563,43 @@ describe("content preview", { timeout: 30_000 }, () => {
     })
   })
 
+  it.each([
+    ["internal.foo.co.uk", "public.bar.co.uk", "co.uk", "foo.co.uk"],
+    ["internal.foo.github.io", "public.bar.github.io", "github.io", "foo.github.io"],
+  ])("rejects public-suffix Domain cookies from %s across permitted hosts", async (internal, publicHost, suffix, domain) => {
+    const { content } = await setup()
+    const seen: Record<string, string | null> = {}
+    const app = new H3()
+      .get("/login", () => {
+        const headers = new Headers({ location: "/bounce" })
+        headers.append("set-cookie", `rejected=secret; Domain=${suffix}; Path=/`)
+        headers.append("set-cookie", `accepted=1; Domain=${domain}; Path=/`)
+        return new Response(null, { status: 302, headers })
+      })
+      .get("/bounce", (event) => {
+        seen.bounce = event.req.headers.get("cookie")
+        return Response.redirect(`https://${publicHost}/account`, 302)
+      })
+      .get("/account", (event) => {
+        seen.account = event.req.headers.get("cookie")
+        return Response.redirect(`https://${internal}/home`, 302)
+      })
+      .get("/home", (event) => {
+        seen.home = event.req.headers.get("cookie")
+        return { ok: true }
+      })
+    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const response = await nitroApp.fetch(new Request(`https://${internal}/login?${contentPreviewFrameParameter}`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": publicHost },
+      body: frameForm(token),
+    }))
+    expect(response.status).toBe(200)
+    expect(seen).toEqual({ bounce: "accepted=1", account: null, home: "accepted=1" })
+  })
+
   it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
     const { content, posts } = await setup()
     const seen: Array<string | null> = []

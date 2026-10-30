@@ -1,3 +1,5 @@
+import { getDomain } from "tldts"
+
 import { contentPreviewErrorName, contentPreviewFrameParameter } from "./preview-parameters.ts"
 
 /** How many redirects a preview frame follows in the server before it shows an error. */
@@ -172,8 +174,8 @@ function domainMatches(host: string, domain: string): boolean {
 }
 
 /**
- * Keeps the cookies that a redirect sets in `jar`, when the browser would keep them: not for another domain, and not
- * `Secure` from plain HTTP other than localhost. A cookie of the same name, domain and path replaces the earlier one.
+ * Keeps the cookies that a redirect sets in `jar`, when the browser would keep them: not for another domain or a
+ * public suffix, and not `Secure` from plain HTTP other than localhost. Name, domain and path identify a cookie.
  */
 function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL): void {
   for (const line of setCookies) {
@@ -186,7 +188,8 @@ function keepCookies(jar: JarCookie[], setCookies: readonly string[], from: URL)
       return [(equals < 0 ? part : part.slice(0, equals)).trim().toLowerCase(), equals < 0 ? "" : part.slice(equals + 1).trim()] as const
     }))
     const domain = attributes.get("domain")?.replace(/^\./, "").toLowerCase()
-    if (domain && !domainMatches(from.hostname, domain)) continue
+    // Include private suffixes (such as github.io), which browsers also isolate between tenants.
+    if (domain && (!domainMatches(from.hostname, domain) || !getDomain(domain, { allowPrivateDomains: true }))) continue
     if (attributes.has("secure") && from.protocol !== "https:" && !localHost(from.hostname)) continue
     // Cookie prefixes: __Secure- needs Secure, and __Host- also needs Path=/ and no Domain.
     if (/^__secure-/i.test(name) && !attributes.has("secure")) continue
