@@ -1,11 +1,12 @@
 /**
- * The browser side of the page tools. The page gets one script, the loader. It asks `/_vitehub/page/session` which
- * tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
+ * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/session`
+ * which tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
+ * It finds the app base from its own URL, `<base>/_vitehub/page/assets/loader.js`, so it needs no configuration.
  *
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionPath, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -107,10 +108,10 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
 }
 
 export interface LoadViteHubPageToolsOptions {
-  /** The public session URL. A browser entry resolves it relative to its own loader URL. */
-  session?: string
   /** Imports the script of a tool. Default: a dynamic `import()`. */
   load?: (script: string) => Promise<unknown>
+  /** The URL of the session route. Default: the session route next to this script, below the same app base. */
+  session?: string
 }
 
 /**
@@ -125,7 +126,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(options.session ?? viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
+    const response = await fetch(options.session ?? viteHubPageSessionUrl(import.meta.url), { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }

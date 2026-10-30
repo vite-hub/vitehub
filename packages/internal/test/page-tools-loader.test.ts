@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { loadViteHubPageTools } from "../src/runtime/page-tools-loader.ts"
-import { readViteHubPageSession } from "../src/runtime/page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl } from "../src/runtime/page-tools-shared.ts"
 
 import type { ViteHubPageToolContext } from "../src/runtime/page-tools-loader.ts"
 
@@ -101,6 +101,16 @@ describe("loadViteHubPageTools", () => {
     expect(fetch).toHaveBeenCalledWith("/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
     expect(load.mock.calls).toEqual([["/comments.js"]])
     expect(started.map(context => [context.tool.id, context.open, context.signal.aborted])).toEqual([["comments", false, false]])
+  })
+
+  it("asks the session route below the app base of the loader", async () => {
+    expect(viteHubPageSessionUrl("http://site.test/portal/_vitehub/page/assets/loader.js?v=3")).toBe("/portal/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://site.test/_vitehub/page/assets/loader.js?v=3")).toBe("/_vitehub/page/session")
+    expect(viteHubPageSessionUrl("http://localhost:5173/src/loader.ts")).toBe("/_vitehub/page/session")
+    page("/portal/?vitehub")
+    const fetch = session({ tools: [] })
+    await loadViteHubPageTools({ load: modules().load, session: "/portal/_vitehub/page/session" })
+    expect(fetch).toHaveBeenCalledWith("/portal/_vitehub/page/session", { credentials: "same-origin", headers: { accept: "application/json" } })
   })
 
   it("does nothing more when no tool is allowed, or when the session fails", async () => {
