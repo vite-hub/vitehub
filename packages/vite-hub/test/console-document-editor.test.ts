@@ -15,7 +15,7 @@ import type { ConsoleDocument, ConsoleDocumentCollection } from "../src/console/
 const claimLease = vi.hoisted(() => vi.fn(async () => true))
 const beforeRouteLeave = vi.hoisted(() => vi.fn<(guard: () => Promise<false | undefined>) => void>())
 const beforeRouteUpdate = vi.hoisted(() => vi.fn<(guard: (to: { path: string }, from: { path: string }) => Promise<false | undefined> | undefined) => void>())
-const window: EventTarget = Reflect.get(globalThis, "window")
+const window: EventTarget & { readonly parent: unknown } = Reflect.get(globalThis, "window")
 
 vi.mock("vue-router", () => ({
   onBeforeRouteLeave: beforeRouteLeave,
@@ -119,7 +119,8 @@ async function mountEditor(published: () => Promise<ConsoleDocument | null>, ini
 describe("Embedded editor exit guards", () => {
   it.each(["shared", "local", "deleted"] as const)("reports pending %s edits to the page tools and clears the guard on unmount", async (mode) => {
     const postMessage = vi.fn()
-    const parent = vi.spyOn(globalThis.window, "parent", "get").mockReturnValue({ postMessage } as unknown as Window)
+    const parent = vi.spyOn(window, "parent", "get").mockReturnValue({ postMessage })
+    const origin: string = Reflect.get(Reflect.get(globalThis, "location"), "origin")
     try {
       const shared = { ...draft, conflict: undefined }
       if (mode !== "shared") {
@@ -137,13 +138,13 @@ describe("Embedded editor exit guards", () => {
       wrappers.push(wrapper)
       await flushPromises()
       if (mode === "shared") {
-        expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, location.origin)
+        expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, origin)
         await wrapper.get("textarea").setValue("Pending shared edits")
         await flushPromises()
       }
-      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: true }, location.origin)
+      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: true }, origin)
       wrapper.unmount()
-      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, location.origin)
+      expect(postMessage).toHaveBeenLastCalledWith({ type: "vitehub:dirty", dirty: false }, origin)
     } finally {
       parent.mockRestore()
     }
