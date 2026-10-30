@@ -84,6 +84,7 @@ describe("hubRealtime", () => {
 
     expect(config.nitro).toMatchObject({
       preset: "cloudflare-durable",
+      handlers: [expect.objectContaining({ route: "/wiki/api/_vitehub/realtime/**" })],
       cloudflare: {
         wrangler: {
           durable_objects: {
