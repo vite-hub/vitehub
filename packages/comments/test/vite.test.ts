@@ -105,12 +105,12 @@ describe("hubComments", () => {
     expect(nitro?.handlers?.map(handler => handler.route)).toEqual(["/portal/api/_vitehub/comments/**", "/portal/_vitehub/page/session"])
     expect(nitro?.publicAssets?.map(asset => asset.baseURL)).toEqual(["/portal/_vitehub/page/assets", "/portal/api/_vitehub/comments/assets"])
     const plugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(plugin).toContain("overlay: \"/api/_vitehub/comments/assets/overlay.js?v=2\", base: \"/portal\"")
+    expect(plugin).toContain("overlay: \"/api/_vitehub/comments/assets/overlay.js?v=3\", base: \"/portal\"")
     // Nitro serves its routes below its own baseURL, as Nuxt does for `app.baseURL`.
     const nested = await configure(hubComments(), root, "build", { base: "/portal/", nitro: { baseURL: "/portal/" } })
     expect(nested?.handlers?.map(handler => handler.route)).toEqual(["/api/_vitehub/comments/**", "/_vitehub/page/session"])
     // The overlay finds the API next to itself.
-    expect(commentsApiRoute("http://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=2")).toBe("/portal/api/_vitehub/comments")
+    expect(commentsApiRoute("http://site.test/portal/api/_vitehub/comments/assets/overlay.js?v=3")).toBe("/portal/api/_vitehub/comments")
     expect(commentsApiRoute("http://site.test/api/_vitehub/comments/assets/chunk-1.js")).toBe("/api/_vitehub/comments")
   })
 
@@ -284,7 +284,7 @@ export async function commentsAuthSession() { calls.push(true); throw new Error(
     expect(nitro?.handlers?.[0]?.route).toBe("/portal/api/_vitehub/comments/**")
     expect(nitro?.publicAssets).toEqual(expect.arrayContaining([expect.objectContaining({ baseURL: "/portal/api/_vitehub/comments/assets" })]))
     const mcpPlugin = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(mcpPlugin).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=2", base: "/portal"')
+    expect(mcpPlugin).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=3", base: "/portal"')
     expect(mcpPlugin).toContain('consoleSession: commentsConsoleSession(consoleRealtimeAccess("comments"))')
     const hook = plugin.transformIndexHtml
     const transform = typeof hook === "function" ? hook : hook?.handler
@@ -361,7 +361,7 @@ describe("comments() without vite-hub", () => {
       await app.close()
     }
     const generated = await readFile(join(root, ".vitehub/nitro/comments/plugin.mjs"), "utf8")
-    expect(generated).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=2", base: "/portal"')
+    expect(generated).toContain('overlay: "/api/_vitehub/comments/assets/overlay.js?v=3", base: "/portal"')
     expect(generated).toContain(`development: ${command === "serve"}`)
     expect(generated).toContain("session: githubLogin.user, githubLogin,")
     expect(generated).toContain('"basePath":"/portal/api/_vitehub/comments/auth"')

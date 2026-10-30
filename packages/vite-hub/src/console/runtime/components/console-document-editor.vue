@@ -428,6 +428,14 @@ const dataDirty = computed(() => Boolean(base.value) && stableConsoleJSON(compac
 const deleted = computed(() => !creating.value && !loading.value && !base.value && !local.value && state.value === "deleted");
 // A singleton that was never saved opens with its defaults instead.
 const missing = computed(() => !single.value && !creating.value && !loading.value && !base.value && !local.value && !loadError.value && state.value !== "deleted");
+// Local-only edits do not need a shared save, but removing the iframe still needs the page tools' exit guard.
+watch(() => dirty.value || localChanged.value || sharedGone.value, value => {
+  if (window.parent !== window) window.parent.postMessage({ type: "vitehub:dirty", dirty: value }, location.origin);
+}, { immediate: true });
+onBeforeUnmount(() => {
+  if (window.parent !== window) window.parent.postMessage({ type: "vitehub:dirty", dirty: false }, location.origin);
+});
+
 // Without a shared draft, Local only has nothing to publish: Apply or Discard the local edits first.
 const publishable = computed(() => canPublish.value && !creating.value && !sharedGone.value && (dirty.value || state.value === "draft" || state.value === "changed" || state.value === "deleted"));
 const title = computed(() => {

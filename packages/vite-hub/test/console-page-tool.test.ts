@@ -57,7 +57,7 @@ describe("the Console page tool", () => {
 
   it("is allowed for people that the Console access policy accepts, for any section", async () => {
     const { body, cookie } = await sessionTools({ mode: "open" })
-    expect(body).toEqual({ tools: [{ id: "console", label: "Console", icon: "i-lucide-square-terminal", script: "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
+    expect(body).toEqual({ tools: [{ id: "console", label: "Console", icon: "i-lucide-square-terminal", lazy: true, script: "/_vitehub/assets/__VITEHUB_CONSOLE_PAGE_TOOL_ASSET__" }] })
     expect(cookie).toContain("vitehub-tools=1")
     await expect(sessionTools({ mode: "open", authorize: async () => ({ sections: ["kv"] }) })).resolves.toMatchObject({ body: { tools: [{ id: "console" }] } })
   })

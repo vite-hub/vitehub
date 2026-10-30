@@ -71,7 +71,7 @@ describe("Comments page tool", () => {
     install(app, { authorize: ({ user, action }) => action === "read" && user?.id === "ada" })
     expect(await pageSession(app, "person=ada")).toEqual({
       cookie: "vitehub-tools=1; Path=/; Max-Age=2592000; SameSite=Lax",
-      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js" }] },
+      body: { tools: [{ id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/o.js", lazy: true }] },
     })
     expect(await pageSession(app, "person=ben")).toEqual({ cookie: "vitehub-tools=; Path=/; Max-Age=0; SameSite=Lax", body: { tools: [] } })
     // Without authorize, anonymous people may not read.

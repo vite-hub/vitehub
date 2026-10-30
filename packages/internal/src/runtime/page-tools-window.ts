@@ -28,12 +28,12 @@ button:focus-visible{outline:2px solid var(--focus);outline-offset:-2px}
 @media(forced-colors:active){.window{border:1px solid CanvasText}button:focus-visible{outline-color:Highlight}}
 `
 
-function icon(path: string): SVGSVGElement {
+function icon(data: string): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg")
   for (const [name, value] of Object.entries({ width: "16", height: "16", viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", "stroke-width": "1.75", "stroke-linecap": "round", "stroke-linejoin": "round", "aria-hidden": "true" })) svg.setAttribute(name, value)
-  const shape = document.createElementNS("http://www.w3.org/2000/svg", "path")
-  shape.setAttribute("d", path)
-  svg.append(shape)
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path")
+  path.setAttribute("d", data)
+  svg.append(path)
   return svg
 }
 
@@ -54,18 +54,17 @@ export function createViteHubPageWindow(options: ViteHubPageWindowOptions): Vite
   title.textContent = options.title
   const body = document.createElement("div")
   body.className = "body"
-  const expand = document.createElement("button")
-  expand.className = "expand"
-  expand.type = "button"
-  expand.setAttribute("aria-label", "Expand window")
-  expand.title = "Expand window"
-  expand.append(icon("M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"))
-  const hideButton = document.createElement("button")
-  hideButton.className = "hide"
-  hideButton.type = "button"
-  hideButton.setAttribute("aria-label", "Minimize window")
-  hideButton.title = "Minimize window"
-  hideButton.append(icon("M5 12h14"))
+  const control = (name: string, label: string, path: string) => {
+    const button = document.createElement("button")
+    button.className = name
+    button.type = "button"
+    button.setAttribute("aria-label", label)
+    button.title = label
+    button.append(icon(path))
+    return button
+  }
+  const expand = control("expand", "Expand window", "M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5")
+  const hideButton = control("hide", "Minimize window", "M5 12h14")
   header.append(title, expand, hideButton)
   panel.append(header, body)
   shadow.append(style, panel)
