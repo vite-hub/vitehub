@@ -116,6 +116,12 @@ Generated files under `.vitehub/nitro/comments` are inspectable build output, no
 - [Content](https://vitehub.dev/docs/content) covers collections, drafts, and publishing.
 - [Realtime](https://vitehub.dev/docs/realtime) covers room authorities.
 
+### Floating window
+
+Comments loads when its pill button is first used. Its thread list and replies open in the shared page-tools window. Expand or minimize it without replacing the reply form. Navigation updates the thread list to the current page. The pill asks before turning off tools with an unsent comment.
+
+With access to the Content page tool, selecting **Edit** and a marked field opens that document in the existing Content editor. Otherwise Comments keeps its plain-text inline editor. The Content write and publish rules do not change.
+
 ## Comments through Operations
 
 A default export from `server/comments.ts` selects numbered, policy-checked Comments Operations instead of the live-site API. See [Comment operations](https://vitehub.dev/docs/comments/operations/get-started). The browser client, RPC transport, and memory transport are available from `/client`, `/rpc`, and `/testing`. The operations schema is exported as `commentsOperationsSchema` from `/database` (or `commentsPostgresSchema` from `/database/postgres`).

@@ -131,6 +131,22 @@ function resolveRegistryValue(value: unknown, env: RuntimeEnv, path: string): un
   return output
 }
 
+/**
+ * Copy the namespace records of a resolved registry, so a caller that changes its result does not change the cached
+ * one. resolveRegistryValue() creates each namespace without a prototype, and provider getters keep their descriptor.
+ */
+function copyNamespaces(value: object): object {
+  const descriptors = Object.getOwnPropertyDescriptors(value)
+  for (const descriptor of Object.values(descriptors)) {
+    if (isNamespace(descriptor.value)) descriptor.value = copyNamespaces(descriptor.value)
+  }
+  return Object.create(null, descriptors)
+}
+
+function isNamespace(value: unknown): value is object {
+  return typeof value === "object" && value !== null && Object.getPrototypeOf(value) === null
+}
+
 function providerFor(name: string, providers: EnvProviders | undefined): EnvProvider {
   let provider: EnvProvider | undefined
   try {
@@ -394,11 +410,60 @@ async function inspectRegistryEntry(
   }
 }
 
+const registryEnvNames = new WeakMap<object, readonly string[] | null>()
+const resolvedServerEnvs = new WeakMap<object, { key: string, value: unknown }>()
+
+/** The env names a registry reads, or null when it declares an array or object, since each call returns its own copy. */
+function reusableEnvNames(registry: object): readonly string[] | null {
+  const known = registryEnvNames.get(registry)
+  if (known !== undefined) return known
+  let names: string[] | null = []
+  for (const { entry } of runtimeRegistryEntries(registry)) {
+    if (!isRuntimeEnvEntry(entry)) continue
+    if (entry.schema?.kind === "array" || entry.schema?.kind === "object") {
+      names = null
+      break
+    }
+    names.push(...entry.source.names || [entry.source.name])
+  }
+  registryEnvNames.set(registry, names)
+  return names
+}
+
+/** The values of every name the registry reads, as one string. Undefined when the result must not be reused. */
+function serverEnvKey(registry: object, event: unknown): string | undefined {
+  const names = reusableEnvNames(registry)
+  if (!names) return undefined
+  const host = processEnv()
+  const cloudflare = getCloudflareEnv(event) ?? {}
+  let key = ""
+  for (const name of names) {
+    const value = Object.hasOwn(cloudflare, name) ? cloudflare[name] : Object.hasOwn(host, name) ? host[name] : undefined
+    if (value === undefined) key += `${name}\0`
+    else if (typeof value === "string") key += `${name}=s${value.length}:${value}\0`
+    else if (typeof value === "number" || typeof value === "boolean") key += `${name}=${typeof value === "number" ? "n" : "b"}${String(value)}\0`
+    else return undefined
+  }
+  return key
+}
+
+/**
+ * Apps call `useServerEnv()` on hot paths, often once per listed row. The result is reused while every name the
+ * registry reads holds the same value, so a call does not copy the whole env and parse each declaration again. Each
+ * call still gets its own records.
+ */
 export function resolveServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(
   registry: EnvRuntimeRegistry<TServerEnv>,
   event?: unknown,
 ): TServerEnv {
-  return resolveRegistryValue(registry, runtimeEnv(event), "env.server") as TServerEnv
+  const key = serverEnvKey(registry, event)
+  if (key === undefined) return resolveRegistryValue(registry, runtimeEnv(event), "env.server") as TServerEnv
+  let cached = resolvedServerEnvs.get(registry)
+  if (cached?.key !== key) {
+    cached = { key, value: resolveRegistryValue(registry, runtimeEnv(event), "env.server") }
+    resolvedServerEnvs.set(registry, cached)
+  }
+  return (isNamespace(cached.value) ? copyNamespaces(cached.value) : cached.value) as TServerEnv
 }
 
 export async function loadServerEnv<TServerEnv extends Record<string, unknown> = Record<string, unknown>>(

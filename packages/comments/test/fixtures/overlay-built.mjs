@@ -51,7 +51,17 @@ try {
   })
   await overlay.link(() => { throw new Error("The built overlay must be self-contained") })
   await overlay.evaluate()
-  overlay.namespace.default({ bar: page.mainFrame.document.createElement("div"), signal: new page.mainFrame.window.AbortController().signal })
+  overlay.namespace.default({
+    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: `${base}/api/_vitehub/comments/assets/overlay.js` },
+    bar: page.mainFrame.document.createElement("div"),
+    signal: new page.mainFrame.window.AbortController().signal,
+    open: false,
+    exit() { throw new Error("Unexpected tool exit") },
+    createWindow() { throw new Error("Unexpected retained window") },
+    openTool: async () => false,
+    onOpen() {},
+    beforeExit() {},
+  })
   await connections
   console.log(JSON.stringify(sockets))
 }

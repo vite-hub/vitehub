@@ -8,7 +8,7 @@ export function mountPath(base: string | undefined, path: string): string {
   return `${viteHubBasePath(base)}${path}`
 }
 
-type NitroHandler = { handler: string; method?: string | string[]; middleware?: boolean; route: string }
+type NitroHandler = { handler: string; lazy?: boolean; method?: string | string[]; middleware?: boolean; route: string }
 const configuredMcpDiscovery = "virtual:vitehub/console-mcp-discovery"
 type NitroPublicAsset = { baseURL?: string, dir: string, fallthrough?: boolean, maxAge?: number }
 
@@ -35,7 +35,7 @@ export function addConsolePageHandlers(
       handlers.unshift({ handler: signIn, middleware: true, route: mountPath(base, suffix) })
     }
   }
-  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, route: mountPath(base, suffix) })
+  for (const suffix of ["/_vitehub", "/_vitehub/**"]) handlers.push({ handler: page, lazy: true, route: mountPath(base, suffix) })
   nitro.handlers = handlers
   nitro.publicAssets = [
     // Every Console asset name contains a content hash.
@@ -132,6 +132,9 @@ export function addConsoleRpcHandler(
     const handler: NitroHandler = { handler: registration.handler, route }
     if (registration.method) handler.method = registration.method
     if (registration.middleware) handler.middleware = true
+    // The Console's routes import Agents, Workspaces, Sources, and Comark. Loaded on their first request, they stay out
+    // of every cold start of the app around them.
+    else handler.lazy = true
     kit.addHandler(handler, registration.middleware ? "start" : "end")
   }
 

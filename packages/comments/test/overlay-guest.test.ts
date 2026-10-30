@@ -48,7 +48,12 @@ async function compose(user: CommentsSession["user"], realtime = false) {
   const bar = document.createElement("vitehub-tool")
   pill.append(bar)
   document.body.append(pill)
-  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, bar, signal: new AbortController().signal, open: false, exit: vi.fn() })
+  start({
+    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
+    bar, signal: new AbortController().signal, open: false, exit: vi.fn(),
+    createWindow: () => { throw new Error("Unexpected retained window") },
+    openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+  })
   const shadow = document.querySelector("vitehub-comments")!.shadowRoot!
   await vi.waitFor(() => expect(bar.shadowRoot!.querySelector(".toolbar button")).not.toBeNull())
   if (realtime) await vi.waitFor(() => expect(connectRealtimeRoom).toHaveBeenCalledTimes(1))

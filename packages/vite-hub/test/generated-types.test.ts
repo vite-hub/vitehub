@@ -933,7 +933,7 @@ export const content = defineContent({ route: publicRoute, source: { async items
     const contribution = await config(sourcePlugin())({ nitro: { handlers: [authMiddleware] }, root })
 
     expect(Reflect.get(Object(contribution), "nitro")).toEqual({
-      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), route: "/api/content/**" }],
+      handlers: [{ handler: join(root, ".vitehub/content/route.mjs"), lazy: true, route: "/api/content/**" }],
       modules: [expect.objectContaining({ name: "vite-hub/generated-route-guard" })],
       plugins: [join(root, ".vitehub/content/preview.mjs")],
     })
