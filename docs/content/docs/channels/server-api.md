@@ -62,9 +62,9 @@ if (error) throw error
 
 Keep `connector` explicit when a Channel has more than one delivery path. This makes the delivery choice visible at each call site.
 
-## Send to Microsoft Teams
+## Send through a Chat channel
 
-`teams.connector()` from `vite-hub/agent/channels` is a ready connector for Microsoft Teams. It builds the same adapter as the `teams()` Agent Channel, from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`, and enable KV when you use `thread` or `idempotencyKey`.
+Every Chat channel in `vite-hub/agent/channels` has a ready connector with the same `send()` contract: `teams.connector()`, `slack.connector()`, `discord.connector()`, and `telegram.connector()`. Each connector sends Markdown through one Chat SDK adapter. Enable KV when you use `thread`, `idempotencyKey`, or `replace`.
 
 ```ts [server/channels/teams/index.ts]
 import { teams } from 'vite-hub/agent/channels'
@@ -75,6 +75,15 @@ export default defineOutboundChannel({
   defaultConnector: 'teams',
 })
 ```
+
+| Connector | Adapter | `thread` | `replace` |
+| --- | --- | --- | --- |
+| `teams.connector()` | Built like the `teams()` Agent Channel, from `TEAMS_APP_ID`, `TEAMS_APP_PASSWORD`, `TEAMS_APP_TENANT_ID`, and `TEAMS_API_URL`. Install `@chat-adapter/teams`. | Yes | Yes |
+| `slack.connector({ adapter })` | Required. Pass your adapter, such as `createSlackAdapter()` from `@chat-adapter/slack`. | Yes | Yes |
+| `discord.connector()` | Built like `discord({ adapter: true })`, from `DISCORD_APPLICATION_ID`, `DISCORD_BOT_TOKEN`, and `DISCORD_PUBLIC_KEY`. Install `@chat-adapter/discord`. | No | Yes |
+| `telegram.connector()` | Built from `TELEGRAM_BOT_TOKEN` and `TELEGRAM_API_BASE_URL`. | No | Yes |
+
+Each connector also accepts `{ adapter }` with your own adapter or a function that returns it. A connector without `thread` support throws a `TypeError` for a send with `thread`.
 
 ```ts
 const [error] = await useChannel('teams').send('**Build failed**', {
@@ -87,11 +96,11 @@ if (error) throw error
 
 | Option | Value |
 | --- | --- |
-| `recipient` | A Teams thread ID that the bot received a message in, or `user:<id>` for a direct message. |
-| `thread` | Optional. Every send with the same `key` replies under one root message in a Teams channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
+| `recipient` | A Chat SDK thread ID that the bot received a message in, or `user:<id>` for a direct message. |
+| `thread` | Optional. Every send with the same `key` replies under one root message in a channel. ViteHub posts the root once, from `root` or else from the first text, and stores its thread in KV. The recipient must be a channel without a message ID. |
 | `idempotencyKey` | Optional. A repeated key for the same recipient returns the stored receipt and posts nothing. |
 | `update` | Optional. With `idempotencyKey`, a repeated key edits the stored message to the new text and returns the same receipt. Without a stored receipt, ViteHub posts as usual. |
-| `replace` | Optional. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
+| `replace` | Optional. Requires `idempotencyKey`. The `idempotencyKey` of an earlier send to the same `recipient` and `thread`. After this send posts or edits its message, ViteHub deletes the message stored for that key and removes its receipt. Without a stored receipt, ViteHub deletes nothing. It must not equal the `idempotencyKey` of this send. |
 
 Use `update` to keep one message current, such as a status card that changes as work progresses:
 
@@ -104,7 +113,7 @@ const [error] = await useChannel('teams').send(`Build ${buildId}: ${status}`, {
 if (error) throw error
 ```
 
-Use `replace` to remove a temporary message when the final message must be new. Teams does not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
+Use `replace` to remove a temporary message when the final message must be new. Teams and Slack do not notify users when a message is edited, so post the result as a new message and let ViteHub delete the temporary one:
 
 ```ts
 const options = { recipient: teamsChannelThreadId, thread: { key: `ticket:${ticketId}`, root: `Ticket ${ticketId}` } }
@@ -120,6 +129,6 @@ if (error) throw error
 
 For a channel thread, set `thread.root` on the first send so the temporary message is a reply under a stable root. Without `thread.root`, the first text becomes the root. Replacing that root throws a `TypeError` before posting or editing, preserving the thread and its stored receipts.
 
-ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that Teams no longer has counts as deleted.
+ViteHub stores the new receipt first and then deletes the replaced message. If the delete fails, the send returns the error. A retry with the same options returns the stored receipt and tries the delete again. A message that the platform no longer has counts as deleted.
 
-ViteHub stores roots and receipts in KV under `teams:` and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.
+ViteHub stores roots and receipts in KV under the channel name, such as `teams:` or `slack:`, and keeps them until you remove them. Sends with the same key run one after another within one process. Two processes that send with the same new key at the same time can each post a root, so keep one sender per key or one replica.

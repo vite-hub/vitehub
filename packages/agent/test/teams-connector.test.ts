@@ -178,9 +178,9 @@ describe("teams.connector()", () => {
     await connector.send("Working", { recipient: channel, idempotencyKey: "working" })
     await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).resolves.toEqual({ id: "101" })
     await expect(connector.send("Done", { recipient: channel, idempotencyKey: "done", replace: "working" })).resolves.toEqual({ id: "101" })
-    await connector.send("Other", { recipient: channel, replace: "missing" })
+    await connector.send("Other", { recipient: channel, idempotencyKey: "other", replace: "missing" })
     expect(adapter.deleteMessage.mock.calls).toEqual([[channel, "100"]])
-    expect(store.size).toBe(1)
+    expect(store.size).toBe(2)
   })
 
   it("keeps the replaced receipt when the delete fails and treats a missing Teams message as deleted", async () => {
@@ -196,9 +196,10 @@ describe("teams.connector()", () => {
     expect(store.size).toBe(1)
   })
 
-  it("rejects replace with the idempotency key of the same send", async () => {
+  it("rejects replace with the idempotency key of the same send or without one", async () => {
     const { adapter, connector } = await setup()
     await expect(connector.send("x", { recipient: channel, idempotencyKey: "same", replace: "same" })).rejects.toThrow(TypeError)
+    await expect(connector.send("x", { recipient: channel, replace: "earlier" })).rejects.toThrow(TypeError)
     expect(adapter.postMessage).not.toHaveBeenCalled()
   })
 
