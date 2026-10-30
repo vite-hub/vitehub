@@ -538,6 +538,45 @@ describe("Leaving Local only with pending body edits", () => {
   })
 })
 
+describe("Shared changes while Local only", () => {
+  it("reads the shared draft in place, without remounting the body editor, while the exit commit is pending", async () => {
+    const shared: ConsoleDocument = { ...draft, body: "Shared body", conflict: undefined }
+    const start = { body: shared.body!, data: shared.data }
+    writeConsoleLocalDraft(sessionStorage, "posts", "hello", { base: shared.digest, start, version: start })
+    const moved: ConsoleDocument = { ...shared, body: "Someone else's body", digest: "moved-digest" }
+    const client = { ...createConsoleDocumentsClient("", "content"), get: vi.fn(async (): Promise<ConsoleDocument | null> => structuredClone(shared)), save: vi.fn() }
+    const menu = defineComponent({ name: "UDropdownMenu", props: ["items"], setup: () => () => null })
+    // The list refresh counter that the Console bumps when someone else changes the collection.
+    const changes = ref(0)
+    const Host = defineComponent(() => () => h(ConsoleDocumentEditor, { changes: changes.value, client, collection: { ...collection, format: "markdown", path: "posts/*.md" }, documentId: "hello" }))
+    const wrapper = shallowMount(Host, { global: { stubs: { ...stubs, ConsoleDocumentEditor: false, ConsoleMarkdownEditor: false, UDropdownMenu: menu } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    const body = wrapper.getComponent({ name: "ConsoleMarkdownEditor" })
+    const pending = deferred<void>()
+    vi.spyOn(body.vm.$.exposed!, "commit").mockImplementation(async () => {
+      await pending.promise
+      if (!body.vm.$.isUnmounted) body.vm.$emit("update:modelValue", "Pending local body")
+    })
+    const items = wrapper.findAllComponents(menu).flatMap(item => item.props("items").flat()) as Array<{ label: string, onUpdateChecked?: () => void }>
+    items.find(item => item.label === "Collaborative")!.onUpdateChecked!()
+    await flushPromises()
+
+    // Someone saves the shared draft while the body editor still serializes the last keystrokes.
+    client.get.mockResolvedValue(structuredClone(moved))
+    changes.value = 1
+    await flushPromises()
+    expect(body.vm.$.isUnmounted).toBe(false)
+    expect(wrapper.findComponent({ name: "ConsoleMarkdownEditor" }).props("modelValue")).toBe("Shared body")
+
+    pending.resolve()
+    await flushPromises()
+    expect(wrapper.find('[data-label="Discard local edits"]').exists()).toBe(true)
+    expect(readConsoleLocalDraft(sessionStorage, "posts", "hello")).toMatchObject({ base: shared.digest, version: { body: "Pending local body" } })
+    expect(client.save).not.toHaveBeenCalled()
+  })
+})
+
 describe("Local only edits on the third review", () => {
   it("keeps the local edits of a singleton when its shared draft is gone", async () => {
     const settings: ConsoleDocumentCollection = { ...collection, kind: "singleton", label: "Settings", name: "settings", path: "settings.json" }

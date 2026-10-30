@@ -1846,7 +1846,9 @@ watch(() => props.changes, (next, previous) => {
   const own = Math.min(ownChanges, next - previous);
   ownChanges -= own;
   if (next - previous - own <= 0) return;
-  if (!dirty.value && !creating.value && !saving.value && !publishing.value) void load();
+  // Local only keeps its editor mounted, so a body edit that is still serializing, such as during the exit, stays.
+  if (local.value) void refreshShared();
+  else if (!dirty.value && !creating.value && !saving.value && !publishing.value) void load();
 });
 
 onBeforeRouteLeave(async () => {

@@ -43,7 +43,7 @@ afterEach(() => {
 })
 
 /** Mounts the preview. `tokens` answers its token requests in order, before the first render asks. */
-function setup(tokens: Array<Promise<PreviewToken>>, view: "draft" | "published" = "draft") {
+function setup(tokens: Array<Promise<PreviewToken>>, view: "draft" | "published" = "draft", textFields: string[] = []) {
   vi.spyOn(formPrototype, "submit").mockImplementation(function (this: SubmittedForm) {
     const input = this.querySelector("input")
     submitted.push({ target: this.target, value: JSON.parse(input?.value ?? "null"), connected: this.isConnected })
@@ -59,7 +59,7 @@ function setup(tokens: Array<Promise<PreviewToken>>, view: "draft" | "published"
     documentId: "hello",
     url: new URL("https://site.test/blog/hello"),
     document: state.document,
-    textFields: [],
+    textFields,
     local: false,
     reloads: state.reloads,
     overlay: false,
@@ -204,5 +204,27 @@ describe("Console document preview renders", () => {
     expect(wrapper.find('[role="alert"]').exists()).toBe(false)
     expect(submitted).toHaveLength(2)
     expect(preview).toHaveBeenCalledTimes(1)
+  })
+
+  it("puts back the field value, not the formatted text, when Escape ends an edit in the page", async () => {
+    const { wrapper } = setup([Promise.resolve(tokenOf("one"))], "draft", ["title"])
+    await flushPromises()
+    const host = wrapper.findComponent(ConsoleDocumentPreview)
+    const [frame] = frames(wrapper)
+    const element = wrapper.get(`iframe[name="${frame!.name}"]`).element
+    const page = new (Reflect.get(globalThis, "DOMParser") as new () => { parseFromString(html: string, type: string): unknown })()
+      .parseFromString('<!doctype html><html><head></head><body><h1 data-content-field="posts:hello#title">Title: First</h1></body></html>', "text/html") as { querySelector(selector: string): { click(): void, dispatchEvent(event: unknown): boolean } | null, defaultView: unknown }
+    const origin: string = Reflect.get(Reflect.get(globalThis, "location"), "origin")
+    Object.defineProperty(page, "location", { configurable: true, value: { pathname: "/blog/hello", search: "" } })
+    Object.defineProperty(element, "contentWindow", { configurable: true, value: { location: { href: `${origin}/blog/hello`, origin } } })
+    Object.defineProperty(element, "contentDocument", { configurable: true, value: page })
+    element.dispatchEvent(new Event("load"))
+    await flushPromises()
+    const heading = page.querySelector("h1")!
+    heading.click()
+    const KeyboardEvent = Reflect.get(globalThis, "KeyboardEvent") as new (type: string, init: object) => unknown
+    heading.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))
+    await flushPromises()
+    expect(host.emitted("edit")?.at(-1)).toEqual(["title", "First"])
   })
 })
