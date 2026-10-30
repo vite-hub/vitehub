@@ -212,6 +212,14 @@ export interface ConsoleDocumentPresence {
   user: ConsoleDocumentSessionUser | null
 }
 
+/** A token for one preview frame form. Mirrors `ViteHubConsoleDocumentPreview`. */
+export interface ConsoleDocumentPreview {
+  /** The search parameter and form field name. */
+  parameter: string
+  token: string
+  expiresAt: string
+}
+
 /** Every open tab in readable collections. */
 export interface ConsoleDocumentSessions {
   available: boolean
@@ -227,6 +235,7 @@ interface ConsoleDocumentActionResults {
   get: ConsoleDocument | null
   list: ConsoleDocumentPage
   overview: ConsoleDocumentOverview
+  preview: ConsoleDocumentPreview
   search: { items: ConsoleDocumentSearchResult[] }
   publish: ConsoleDocumentPublished
   raw: ConsoleRawDocument | null
@@ -249,6 +258,8 @@ export interface ConsoleDocumentsClient {
   overview(options?: { activity?: number }): Promise<ConsoleDocumentOverview>
   /** Finds drafts by title, id, fields, and body across every readable collection. */
   search(query: string, options?: { limit?: number, signal?: AbortSignal }): Promise<ConsoleDocumentSearchResult[]>
+  /** A short token for the side browser: the page renders the posted documents in place of their drafts. */
+  preview(collection: string, id: string): Promise<ConsoleDocumentPreview>
   /** Publishes exactly these drafts. A draft saved after review fails with a conflict and nothing is published. */
   publish(collection: string, expect: readonly ConsoleDocumentPublishExpectation[]): Promise<ConsoleDocumentPublished>
   /** Reads the stored file on the draft, or at an earlier revision, without validating it. */
@@ -286,6 +297,7 @@ export function createConsoleDocumentsClient(base: string, section: string): Con
     search: async (query: string, options: { limit?: number, signal?: AbortSignal } = {}) =>
       (await call("search", options.limit ? { limit: options.limit, query } : { query }, options.signal)).items,
     get: (collection: string, id: string, ref?: "draft" | "published") => call("get", ref === "published" ? { collection, id, ref } : { collection, id }),
+    preview: (collection: string, id: string) => call("preview", { collection, id }),
     raw: (collection: string, id: string, revision?: string) => call("raw", revision ? { collection, id, revision } : { collection, id }),
     save: (collection: string, id: string, input: { body: string, data: Record<string, unknown>, ifDigest: string | null, ifPublishedDigest?: string | null, live?: boolean, session?: string }) =>
       call("save", { collection, id, ...input }),
