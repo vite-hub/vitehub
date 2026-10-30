@@ -2276,6 +2276,11 @@ describe("ViteHub Nuxt integration", () => {
     expect(plugin).toContain(`installConsoleSections("/tmp/vitehub-nuxt", ["env"], true)`)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/api/_vitehub/console/auth/**")
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toContain("/portal/_vitehub/sign-in")
+    // The routes load on their first request; the middleware runs on every request, so it loads at startup.
+    const handlers = nitroOptions(production.nuxt).handlers as Array<{ route: string, lazy?: boolean, middleware?: boolean }>
+    for (const route of ["/portal/_vitehub/sign-in", "/portal/api/_vitehub/console/auth/**", "/portal/api/_vitehub/console/client.js"])
+      expect(handlers.filter(handler => handler.route === route)).toEqual([expect.objectContaining({ lazy: true })])
+    expect(handlers.find(handler => handler.middleware)).not.toHaveProperty("lazy", true)
     expect(nitroHandlerRoutes(nitroOptions(production.nuxt))).toEqual(expect.arrayContaining([
       "/.well-known/oauth-protected-resource",
       "/.well-known/oauth-protected-resource/**",
