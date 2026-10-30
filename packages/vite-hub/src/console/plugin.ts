@@ -13,7 +13,6 @@ import type { ConsoleSectionId } from "./runtime/sections.ts"
 
 import { consoleFixtureRevision, readConsoleFixture } from "./fixture.ts"
 import { createConsoleInvocationsIdentity } from "./internal.ts"
-import { mountPath } from "./nitro.ts"
 import { resolveConsoleProjectNameFromRoot } from "./project.ts"
 import { consoleRuntimeReaderModule, describeConsoleContributedSections, describeConsoleDocumentEditors, describeConsoleRuntimeReaders } from "./contributions.ts"
 import { withConsoleDocumentEditorSections } from "./build.ts"
@@ -298,7 +297,7 @@ function renderConsoleNitroPlugin(
       : []),
     // The Console link lives in the shared page tools pill.
     pageTools
-      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, ${JSON.stringify(mountPath(applicationBase, "/_vitehub/assets"))}) }`
+      ? `export default function viteHubConsolePlugin(nitroApp) { installConsolePageTool(nitroApp, { base: ${JSON.stringify(applicationBase)} }) }`
       : "export default function viteHubConsolePlugin() {}",
     "",
   ].join("\n")

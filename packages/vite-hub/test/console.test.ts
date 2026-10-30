@@ -646,7 +646,12 @@ describe("Agent invocation console", () => {
     }
   })
 
-  it.each(["/portal/", "https://cdn.example/portal/"])("prefixes Nitro Console routes and assets with the Vite base path %s", async (base) => {
+  it.each([
+    { base: "/portal/", mount: "/portal" },
+    { base: "/portal/", nitro: { baseURL: "/portal/", handlers: [], plugins: [], publicAssets: [] }, mount: "" },
+    { base: "https://cdn.example/portal/", mount: "" },
+    { base: "https://cdn.example/assets/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
+  ])("mounts Nitro Console routes and assets at the application base: %j", async ({ mount, ...bases }) => {
     const root = await mkdtemp(join(tmpdir(), "vitehub-console-base-host-"))
     try {
       await writeFile(join(root, "package.json"), "{}\n")
@@ -654,27 +659,27 @@ describe("Agent invocation console", () => {
       const configHook = plugin.config
       if (!configHook) throw new TypeError("Expected a console config hook.")
       const configHandler = "handler" in configHook ? configHook.handler : configHook
-      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { base, root }
+      const config: { base: string, nitro?: { handlers: Array<{ handler: string, route: string }>, plugins: string[], publicAssets: Array<{ baseURL: string, dir: string }> }, root: string } = { ...bases, root }
 
       await Reflect.apply(configHandler, {}, [config, { command: "build", mode: "production" }])
 
       expect(config.nitro?.handlers.map(handler => handler.route)).toEqual([
-        "/portal/api/_vitehub/console/status",
-        "/portal/api/_vitehub/console/usage",
-        "/portal/_vitehub",
-        "/portal/_vitehub/**",
-        "/portal/api/_vitehub/console/client.js",
-        "/portal/_vitehub/rpc/**",
-        "/portal/_vitehub/env/manage",
-        "/portal/_vitehub/channels/replay",
-        "/portal/_vitehub/schedules/run",
-        "/portal/_vitehub/mcp",
-        "/portal/_vitehub/page/session",
+        `${mount}/api/_vitehub/console/status`,
+        `${mount}/api/_vitehub/console/usage`,
+        `${mount}/_vitehub`,
+        `${mount}/_vitehub/**`,
+        `${mount}/api/_vitehub/console/client.js`,
+        `${mount}/_vitehub/rpc/**`,
+        `${mount}/_vitehub/env/manage`,
+        `${mount}/_vitehub/channels/replay`,
+        `${mount}/_vitehub/schedules/run`,
+        `${mount}/_vitehub/mcp`,
+        `${mount}/_vitehub/page/session`,
       ])
       expect(config.nitro?.publicAssets).toEqual([
-        expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }),
-        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
-        expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/assets` }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }),
       ])
     }
     finally {

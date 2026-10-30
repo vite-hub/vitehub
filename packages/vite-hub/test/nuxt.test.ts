@@ -2295,7 +2295,7 @@ describe("ViteHub Nuxt integration", () => {
     expect(nitroHandlerRoutes(config)).toEqual(expect.arrayContaining(["/portal/_vitehub", "/portal/_vitehub/**"]))
     expect(config.publicAssets).toContainEqual(expect.objectContaining({ baseURL: "/portal/_vitehub/assets" }))
     const plugin = await readFile("/tmp/vitehub-nuxt/.vitehub/nitro/console/plugin.mjs", "utf8")
-    expect(plugin).toContain('installConsolePageTool(nitroApp, "/portal/_vitehub/assets")')
+    expect(plugin).toContain('installConsolePageTool(nitroApp, { base: "/portal/" })')
   })
 
   it.each([false, { provider: "cloudflare-access" }] as const)("preserves application OAuth discovery routes with Nuxt Console auth %j", async (auth) => {
