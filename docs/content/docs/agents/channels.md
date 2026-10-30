@@ -275,6 +275,8 @@ webhooks: {
 }
 ```
 
+When a trigger result is invalid, for example queued input that is not JSON-serializable while the trigger uses `prepare`, the route answers with a 5xx, and the delivery is recorded as `failed` with the reason in `error`.
+
 Chat message webhooks always wait for admission. Logs use `scope: "vitehub.channel.delivery"` with the events `admission.deferred`, `admission.completed`, `admission.failed`, `inbox.replaying`, `inbox.replayed`, and `inbox.dropped`.
 
 ## See and export a conversation

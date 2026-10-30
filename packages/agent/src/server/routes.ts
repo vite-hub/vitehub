@@ -871,12 +871,19 @@ async function settleChannelDeliveryInvocation(
   await recordChannelDeliveryEvidence(delivery, { ...input, type: terminal })
 }
 
+/**
+ * Records the delivery's outcome before the route answers with `response`. A 5xx with a
+ * `message`, such as an invalid trigger result, is recorded as `failed` with that message,
+ * so the delivery log says why the provider got a server error.
+ */
 async function terminalChannelDeliveryResponse(
   delivery: AgentChannelDeliveryTracker,
   response: Response,
-  type: "completed" | "failed" | "rejected" = "rejected",
+  type?: "completed" | "failed" | "rejected",
 ): Promise<Response> {
-  await recordChannelDeliveryEvidence(delivery, { type })
+  const body: unknown = response.status >= 500 ? await response.clone().json().catch(() => undefined) : undefined
+  const error = isRecord(body) && isRuntimeString(body.message) ? body.message : undefined
+  await recordChannelDeliveryEvidence(delivery, { ...(error ? { error } : {}), type: type ?? (error ? "failed" : "rejected") })
   return response
 }
 
