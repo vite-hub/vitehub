@@ -129,6 +129,7 @@ class CommentsOverlay extends HTMLElement {
   private readonly pinElements = new Map<string, HTMLElement>()
   private readonly cursors = h("div", { className: "layer" })
   private readonly floating = h("div")
+  private readonly composeMentions = new WeakMap<HTMLTextAreaElement, CommentMention[]>()
   /** The Comments controls. They live in the tool's segment of the page tools pill, in a shadow root of their own. */
   private readonly toolbar = h("div", { className: "bar toolbar", role: "group", "aria-label": "Comments" })
   private session?: CommentsSession
@@ -765,13 +766,17 @@ class CommentsOverlay extends HTMLElement {
     const panelThreads = this.panel ? this.visibleThreads().map(thread => [thread.id, thread.status, thread.updatedAt, thread.comments.length, thread.comments[0]?.body]) : undefined
     const key = JSON.stringify([this.page, this.panel, panelThreads, this.showResolved, this.draft?.anchor, thread?.id, thread?.status, thread?.comments.length, thread?.can, this.threads.length, Boolean(this.toast)])
     if (this.panelBody && this.panel && this.panelBody.dataset.key !== key) {
-      const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, input.value]))
+      const drafts = new Map([...this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")].map(input => [input.closest<HTMLElement>("[data-card]")?.dataset.card, { value: input.value, mentions: this.composeMentions.get(input) ?? [] }]))
       this.panelBody.dataset.key = key
       this.panelBody.dataset.theme = hostIsDark() ? "dark" : "light"
       this.panelBody.replaceChildren(this.renderPanel(), ...(thread ? [this.renderThread(thread)] : []))
       for (const input of this.panelBody.querySelectorAll<HTMLTextAreaElement>("textarea")) {
         const draft = drafts.get(input.closest<HTMLElement>("[data-card]")?.dataset.card)
-        if (draft) { input.value = draft; input.dispatchEvent(new Event("input", { bubbles: true })) }
+        if (draft?.value) {
+          input.value = draft.value
+          this.composeMentions.get(input)?.push(...draft.mentions)
+          input.dispatchEvent(new Event("input", { bubbles: true }))
+        }
       }
     }
     if (this.floating.dataset.key === key) {
@@ -867,6 +872,7 @@ class CommentsOverlay extends HTMLElement {
     const needsName = !this.account() && !readGuest()
     const name = needsName ? h("input", { placeholder: "Your name", "aria-label": "Your name", maxlength: 64 }) : undefined
     const input = h("textarea", { placeholder: this.account() || readGuest() ? `${label}… Use @ to mention` : `${label}…`, "aria-label": label, "data-autofocus": autofocus || undefined, maxlength: 4000 })
+    this.composeMentions.set(input, mentions)
     const button = h("button", { className: "primary", disabled: true }, label)
     const suggest = h("div", { className: "suggest", role: "listbox", hidden: true })
     let options: CommentMention[] = []

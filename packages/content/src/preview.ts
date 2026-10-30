@@ -2,7 +2,7 @@ import { addCacheBypass } from "@vite-hub/internal/runtime/cache-bypass"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 
 import { contentErrorDiagnostics } from "./error-diagnostics.ts"
-import { followFrameRedirects, frameError, frameOrigins } from "./preview-frame.ts"
+import { frameAnswer, frameError, frameHop, framePageUrl } from "./preview-frame.ts"
 import { contentPreviewFrameParameter, contentPreviewPublishedParameter } from "./preview-parameters.ts"
 
 /** Name of the cookie that carries the Content preview token. */
@@ -853,6 +853,33 @@ async function sendNodeResponse(response: Record<string, unknown>, result: Respo
   Reflect.apply(response.end, response, bytes ? [bytes, done] : [done])
 }
 
+/**
+ * Keeps the page payload of a Nuxt frame request in its HTML. For a route with a `cache`, `swr`, or `isr` rule, Nuxt
+ * moves the payload to `_payload.json`, and the browser fetches it with a GET without the form, so the page would read
+ * published and replace the document on screen when it hydrates. The route rules of this request lose those keys;
+ * the cache is bypassed in preview anyway. Nitro 2 reads the rules into `event.context._nitro.routeRules` once.
+ */
+function inlineFramePayload(event: Record<string, unknown>): void {
+  const context = isObject(event.context) ? event.context : {}
+  event.context = context
+  const nitro = isObject(context._nitro) ? context._nitro : {}
+  context._nitro = nitro
+  const uncached = (value: unknown) => {
+    if (!isPlainRecord(value)) return value
+    const { cache: _cache, isr: _isr, swr: _swr, ...rules } = value
+    return rules
+  }
+  let rules = uncached(nitro.routeRules)
+  Object.defineProperty(nitro, "routeRules", {
+    configurable: true,
+    enumerable: true,
+    get: () => rules,
+    set: (value: unknown) => {
+      rules = uncached(value)
+    },
+  })
+}
+
 /** The part of a Content runtime the preview plugin needs. A runtime without `preview` leaves requests unchanged. */
 export interface ContentPreviewHost {
   preview?: ContentPreview
@@ -874,9 +901,11 @@ function hasPreviewCookie(event: ContentPreviewEvent): boolean {
  * stored draft. The page runs as a GET request without the parameter. Collection `get()` and `list()` without `ref` or
  * `revision` read that one document as a draft; every other read is published. Nothing is stored, and the response is
  * `private, no-store`. A form from another site, without a valid frame token, or with a document that the token does
- * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token. A
- * same-origin redirect of the page is followed in the server inside the frame scope, with the cookies it sets, through
- * Nitro's `fetch` on Nitro 3 and `localCall()` on Nitro 2; a redirect to another origin or past five gets an error page.
+ * not sign gets 403. A preview cookie token is not a frame token, and a frame token is not a cookie token. A redirect
+ * of the page to the same origin becomes a `307` with the frame parameter, so the browser posts the same form there with
+ * its own cookies for that URL and sets the cookies of the redirect itself. A redirect to another origin, or past five,
+ * gets an error page, so the form never leaves the origin. Nitro 2 runs the page through `localCall()`, and keeps the
+ * Nuxt payload of a frame page in its HTML.
  *
  * A request with `?vitehub-content-published` in its URL, or in its same-origin `Referer`, reads `published` even with a
  * preview cookie, such as the Published view of the Console. Its nested runs do too. The page sees its URL with the
@@ -928,21 +957,13 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           const blocked = crossSite(request.headers, url)
           if (blocked) discardRequestBody(request)
           const body = blocked ? undefined : await readRequestBody(request)
-          url.searchParams.delete(contentPreviewFrameParameter)
+          const page = framePageUrl(url)
           const headers = new Headers(request.headers)
           headers.delete("content-type")
           headers.delete("content-length")
-          const page = (target: URL, cookie: string | undefined) => {
-            const pageHeaders = new Headers(headers)
-            if (cookie === undefined) pageHeaders.delete("cookie")
-            else pageHeaders.set("cookie", cookie)
-            return new Request(target, { method: "GET", headers: pageHeaders, signal: request.signal })
-          }
-          const start = { url, cookie: headers.get("cookie") ?? undefined, origins: frameOrigins(url, headers.get("x-forwarded-host") ?? undefined) }
-          return await runFrame(blocked, body, () => followFrameRedirects(start, async (target, cookie) => {
-            const next = page(target, cookie)
-            return await scoped(next, () => Reflect.apply(fetch, nitroApp, [next, ...rest]))
-          }))
+          // The page runs as a GET of its own URL, with the cookies the browser sent for it.
+          const next = new Request(page, { method: "GET", headers, signal: request.signal })
+          return await runFrame(blocked, body, async () => frameAnswer(await scoped(next, () => Reflect.apply(fetch, nitroApp, [next, ...rest])), page, frameHop(url)))
         })()
       }
       return
@@ -956,6 +977,8 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
         const request = isObject(node?.req) ? node.req : undefined
         const url = isObject(event) ? frameUrl(request?.url, request?.headers, secureRequest(event)) : undefined
         if (!event || !request || !isFrameRequest(request.method, url)) {
+          // The page of a frame runs here through localCall, inside the frame scope.
+          if (isObject(event) && preview.frame() !== undefined) inlineFramePayload(event)
           return scoped(event, () => Reflect.apply(handler, h3App, [event]))
         }
         return (async () => {
@@ -963,27 +986,25 @@ export function defineContentPreviewPlugin(content: ContentPreviewHost): (nitroA
           // A form from another site is refused before its body is read.
           const blocked = crossSite(headers, url)
           const body = blocked ? undefined : await readNodeBody(request)
-          url.searchParams.delete(contentPreviewFrameParameter)
+          const page = framePageUrl(url)
           const pageHeaders: Record<string, unknown> = { ...headers }
           delete pageHeaders["content-type"]
           delete pageHeaders["content-length"]
           delete pageHeaders["transfer-encoding"]
-          delete pageHeaders.cookie
-          const start = { url, cookie: readHeader(headers, "cookie"), origins: frameOrigins(url, readHeader(headers, "x-forwarded-host")) }
-          // Each page runs as an in-process GET through Nitro's localCall, inside the frame scope. The server
-          // connection answers once, with the last page, so a redirect never reaches the browser without the form.
-          const result = await runFrame(blocked, body, () => followFrameRedirects(start, async (target, cookie) => {
+          // The page runs as an in-process GET of its own URL through Nitro's localCall, with the cookies the browser
+          // sent for it. The server connection answers with its response, so a redirect is checked before it is sent.
+          const result = await runFrame(blocked, body, async () => {
             const localCall = nitroApp.localCall
             if (!(localCall instanceof Function)) return frameError(500, "This server cannot render a preview frame: its Nitro app has no localCall.")
             const called: unknown = await Reflect.apply(localCall, nitroApp, [{
-              url: `${target.pathname}${target.search}`,
+              url: `${page.pathname}${page.search}`,
               method: "GET",
-              headers: cookie === undefined ? pageHeaders : { ...pageHeaders, cookie },
-              protocol: target.protocol === "https:" ? "https" : "http",
+              headers: pageHeaders,
+              protocol: page.protocol === "https:" ? "https" : "http",
               context: request.__unenv__,
             }])
-            return nodeCallResponse(called)
-          }))
+            return frameAnswer(nodeCallResponse(called), page, frameHop(url))
+          })
           const response = isObject(node?.res) ? node.res : undefined
           if (!(result instanceof Response) || !response) return result
           // The body of a refused form is not read. Close the connection after the answer instead of draining an upload
