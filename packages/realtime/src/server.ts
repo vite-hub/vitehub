@@ -63,6 +63,7 @@ import { hasNativeCloudflareSql } from "./cloudflare-sql.ts"
 import { getActiveCloudflareBinding } from "@vite-hub/internal/runtime/cloudflare-env"
 import { isH3V1Event, toH3V1Request } from "@vite-hub/internal/runtime/h3-v1-request"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
+import { realtimeDurableObjectKey } from "./durable-key.ts"
 
 export { applyRealtimeAwarenessUpdate, bindAwarenessIdentity, claimAwarenessClientIds, compactRealtimeAwareness } from "./awareness.ts"
 export { RealtimeDocumentConflict, isRealtimeDocumentConflict } from "./conflict.ts"
@@ -671,7 +672,7 @@ function toWebEvent(event: H3Event): H3Event {
   return isH3V1Event(event) ? new H3Event(toH3V1Request(event), event.context) : event
 }
 
-const durableObjectKey: unique symbol = Symbol.for("vitehub.realtime.durable-object")
+const durableObjectKey: unique symbol = Symbol.for(realtimeDurableObjectKey)
 // SAFETY: This module owns the process slot shared by the separately bundled handler and Nitro plugin.
 const durableScope = globalThis as typeof globalThis & { [durableObjectKey]?: { env: unknown, state: unknown } }
 

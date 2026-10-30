@@ -696,7 +696,8 @@ describe("ViteHub Nuxt integration", () => {
     await viteHubNuxtModule({ agent: true, blob: true, console: { auth: false }, kv: true, preset: "node" }, development.nuxt)
 
     // The Console renders in its own document: Nitro serves its page and hashed assets, and the host renders no Console page.
-    expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), route: "/_vitehub/**" })
+    // Its routes load on their first request, so the Console's server code stays out of the app's start.
+    expect(nitroOptions(development.nuxt).handlers).toContainEqual({ handler: expect.stringMatching(/server\/page\.get\.js$/), lazy: true, route: "/_vitehub/**" })
     expect(nitroOptions(development.nuxt).publicAssets).toEqual([{
       baseURL: "/_vitehub/assets",
       dir: expect.stringMatching(/console\/runtime\/public\/console$/),
@@ -3371,7 +3372,8 @@ describe("ViteHub Nuxt integration", () => {
       projectRoot: "/tmp/vitehub-nuxt",
       serverDirs: ["/tmp/vitehub-nuxt/custom-server"],
     })
-    expect(nitroConfig.handlers).toEqual([existing, generated])
+    // Generated routes load on their first request; unrelated handlers stay as they are.
+    expect(nitroConfig.handlers).toEqual([existing, { ...generated, lazy: true }])
   })
 
   it("restarts Nuxt with the current generated Source handlers", async () => {
@@ -3421,7 +3423,7 @@ describe("ViteHub Nuxt integration", () => {
     await expect(listener?.([second])).rejects.toThrow("restart failed")
     const failedNitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(failedNitroConfig)
-    expect(failedNitroConfig.handlers).toEqual([first])
+    expect(failedNitroConfig.handlers).toEqual([{ ...first, lazy: true }])
 
     await listener?.([second])
     expect(nuxt.callHook).toHaveBeenCalledWith("restart")
@@ -3430,7 +3432,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const nitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(nitroConfig)
-    expect(nitroConfig.handlers).toEqual([second])
+    expect(nitroConfig.handlers).toEqual([{ ...second, lazy: true }])
 
     let rejectOlderRestart: ((reason?: unknown) => void) | undefined
     const olderRestart = new Promise<void>((_resolve, reject) => {
@@ -3446,7 +3448,7 @@ describe("ViteHub Nuxt integration", () => {
 
     const concurrentNitroConfig: Record<string, unknown> = {}
     await runNitroConfigHook(concurrentNitroConfig)
-    expect(concurrentNitroConfig.handlers).toEqual([third])
+    expect(concurrentNitroConfig.handlers).toEqual([{ ...third, lazy: true }])
 
     let finishPendingPreparation: (() => void) | undefined
     prepareTypes.mockImplementationOnce(() => new Promise<void>((resolve) => {

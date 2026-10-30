@@ -294,13 +294,14 @@ function configureConsoleNitroRoutes(
       ...(consoleAuthHandlers?.signIn ? [{ handler: consoleAuthHandlers.signIn, route: consoleMountPath(mount, "/_vitehub/sign-in"), method: "get" }] : []),
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub") },
       { handler: join(consoleRuntimeRoot, "server/page.get.js"), route: consoleMountPath(mount, "/_vitehub/**") },
-    ]) kit.addHandler(handler)
+    ]) kit.addHandler({ ...handler, lazy: true })
     kit.addHandler({
       handler: consoleAuthHandlers?.client ?? join(consoleRuntimeRoot, "server/client.get.js"),
+      lazy: true,
       route: consoleMountPath(mount, "/api/_vitehub/console/client.js"),
       method: "get",
     })
-    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, route: consoleMountPath(mount, "/api/_vitehub/console/auth/**") })
+    if (consoleAuthHandlers?.route) kit.addHandler({ handler: consoleAuthHandlers.route, lazy: true, route: consoleMountPath(mount, "/api/_vitehub/console/auth/**") })
     if (consoleAuthHandlers) kit.addHandler({ handler: consoleAuthHandlers.middleware, middleware: true, route: "/**" })
   }
   addConsoleRpcHandler(kit.config, consoleRuntimeRoot, mount, sections, !rpcOnly && oauth)

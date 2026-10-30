@@ -520,7 +520,7 @@ async function installConsole(
   const clientHandler = join(consoleRuntimeRoot, "server/client.get.js")
   const clientRoute = mountPath(nuxt.options.app?.baseURL, "/api/_vitehub/console/client.js")
   if (!nitro.handlers?.some(handler => handler.route === clientRoute)) {
-    (nitro.handlers ??= []).push({ handler: clientHandler, route: clientRoute })
+    (nitro.handlers ??= []).push({ handler: clientHandler, lazy: true, route: clientRoute })
   }
   const plugins = (nitro.plugins ??= []).filter(candidate => !generatedConsolePluginRegistration(candidate))
   nitro.plugins = plugins
