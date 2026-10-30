@@ -710,6 +710,13 @@ export interface AgentWebhookRegistrationDefinition<TRuntimeConfig extends Agent
    * `"bearer"` compares `Authorization: Bearer <secretToken>` in constant time; `secretHeader` defaults to `"authorization"`.
    * A `secretToken` that resolves to no secret is a configuration error (HTTP 500) that names the Channel.
    */
+  /**
+   * The webhook State and queue scope, used instead of `webhook:<agent>:<origin>:<registration>:`. Set it to the old
+   * scope to keep accepted deliveries, cursors, and Channel State when a Channel moves to another owner, such as a
+   * Channel module in `server/channels`. Trailing colons are optional. Give each registration its own scope: two
+   * registrations with the same scope share one queue and one Channel State.
+   */
+  stateScope?: string
   signature?: "bearer" | "github-sha256" | "stripe-sha256" | (string & {}) | {
     /**
      * `secretHeader` carries `prefix` followed by the HMAC-SHA256 of the raw body.
