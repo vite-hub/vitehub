@@ -952,8 +952,14 @@ export type AgentChannelTriggerDefinition<
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentChannelTriggerContext<TRuntimeConfig>> & { durableState?: false })
   | (AgentTriggerDefinition<TRuntimeConfig, WorkspaceName, TInput, CALL_OPTIONS, AgentDurableChannelTriggerContext<TRuntimeConfig>> & { durableState: true })
 
-/** The accepted input and run metadata that `prepare` and a task's `run` receive. */
-export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run">
+/** The accepted input, run metadata and Invocation reference that `prepare` and a task's `run` receive. */
+export type AgentTriggerAcceptedInvocation<CALL_OPTIONS = unknown> = Pick<AgentTriggerRunInvokeResult<CALL_OPTIONS>, "input" | "run"> & {
+  /**
+   * Present when the delivery has a run ID. It is the Invocation that the accepted input starts:
+   * the task Agent's Invocation for a task with `agent`, otherwise the Invocation of the Agent that owns the trigger.
+   */
+  invocation?: AgentInvocationReference
+}
 
 /**
  * What `prepare` returns: new input to run, nothing to keep the accepted input, or a handled `Response`.
@@ -2580,10 +2586,11 @@ export interface AgentMessageChannelSettings<TRuntimeConfig extends AgentRuntime
   delivery?: "automatic" | "manual"
   durable?: boolean
   /**
-   * Add the Console URL of the failed Invocation to each error reply.
+   * Link the Invocation in the Console, for internal users. Error replies get `Details: <Console URL>`,
+   * and an inline loading message gets a `[Details](<Console URL>)` link that stays through commentary updates.
    * Off by default, because the link shows internal details to the people in the conversation.
    */
-  errorConsoleLink?: boolean
+  consoleLink?: boolean
   errorFallbackText?: string | null | ((context: AgentChatErrorHookArgs<TRuntimeConfig> & {
     /** The text ViteHub sends when `errorFallbackText` is not set. */
     defaultText: string

@@ -1,7 +1,7 @@
 import { isChatGPTGateway } from "@vite-hub/gateways/internal"
 import { agentEnvIdentity, createAgentEnvIdentity } from "./internal/env-identity.ts"
 export { registerResponseConstructor } from "./internal/response.ts"
-import { readWorkflowJournalName } from "./internal/workflow-journal-name.ts"
+import { agentInvocationName } from "./internal/agent-invocation-name.ts"
 import { withForgeAccess } from "./internal/forge-access.ts"
 import type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
 export type { AgentPresetConfig, AgentPresetOptions, ConfiguredAgentDefinition } from "./agent-presets.ts"
@@ -886,11 +886,6 @@ type IdentityRuntimeContext<TRuntimeConfig extends AgentRuntimeConfig = AgentRun
   [agentIdentityOwner]?: object
   [agentWorkflowDiscovery]?: boolean
   [agentEnvIdentity]?: AgentRuntimeContext["agentIdentity"]
-}
-
-// Name journal records like the Console lists them: explicit name, host identity, then discovered file name.
-function agentInvocationName(agent: { name?: string }, context: Pick<AgentRuntimeContext, "agentIdentity">): string | undefined {
-  return agent.name || context.agentIdentity?.name || readWorkflowJournalName(context, agent) || readDiscoveredAgentName(agent)
 }
 
 interface DefaultAgentWorkflowRuntimeBinding extends AgentWorkflowRuntimeBinding {
