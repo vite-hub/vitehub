@@ -7,6 +7,7 @@ import { join, resolve } from "node:path"
 import { createBuilder, resolveConfig } from "vite"
 import { describe, expect, it } from "vitest"
 
+// Generated server modules also import the package, so use one built module graph for request grants.
 import { vitehub } from "vite-hub"
 import { consoleRpcHeader } from "../src/console/runtime/rpc.ts"
 import { hostManagedAuthorize } from "./support/console-authorize.ts"
@@ -71,8 +72,8 @@ describe("Plugin order with the Nitro Vite plugin", () => {
           headers: { "content-type": "application/json", [consoleRpcHeader]: "1" },
           method: "POST",
         })
+        expect(rpc.status, await rpc.clone().text()).toBe(200)
         expect(await rpc.json()).toMatchObject({ ok: true })
-        expect(rpc.status).toBe(200)
       })
     }
     finally {

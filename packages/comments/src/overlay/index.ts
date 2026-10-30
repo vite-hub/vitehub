@@ -175,9 +175,12 @@ class CommentsOverlay extends HTMLElement {
 
     const [error, session] = await api.session()
     if (!this.active) return
-    if (error || !session.can.read) {
-      // The page tools session allowed the overlay, so this is an error or a change of access since then.
-      this.showToast(error ? error.why : "Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
+    if (error) {
+      this.showToast(error.why, "error", { keep: true, action: ["Close", () => this.exit()] })
+      return
+    }
+    if (!session.can.read) {
+      this.showDenied(session)
       return
     }
     this.session = session
@@ -570,6 +573,7 @@ class CommentsOverlay extends HTMLElement {
     const session = this.session
     if (!session) return
     const open = this.threads.filter(thread => thread.status === "open").length
+    const signOut = session.signOut
     const people = this.room?.people() ?? []
     const seen = new Set<string>()
     const avatars = people.filter(person => !seen.has(person.id) && seen.add(person.id)).slice(0, 5).map(person =>
@@ -585,6 +589,7 @@ class CommentsOverlay extends HTMLElement {
         this.render()
       } }, icons.list(), String(open)),
       avatars.length > 0 && h("span", { className: "people", "aria-label": `${people.length} on this page` }, ...avatars),
+      signOut && session.github && h("button", { className: "tool", title: `Signed in as @${session.github.login}. Sign out`, "aria-label": `Sign out @${session.github.login}`, onClick: () => void this.signOut(signOut) }, session.user?.image ? h("img", { className: "me", src: session.user.image, alt: "" }) : initials(session.user?.name ?? session.github.login)),
     ))
   }
 
@@ -901,6 +906,31 @@ class CommentsOverlay extends HTMLElement {
         this.render()
       }, kind === "error" ? 8000 : 5000)
     }
+  }
+
+  /** Why this person cannot comment, with **Sign in with GitHub** when the site offers it. */
+  private showDenied(session: CommentsSession) {
+    const signIn = session.signIn && `${session.signIn.url}?return=${encodeURIComponent(location.pathname + location.search + location.hash)}`
+    const github = session.github
+    if (github && session.signOut) {
+      const text = github.repository
+        ? `@${github.login} cannot push to ${github.repository}, so cannot comment here.`
+        : `Signed in as @${github.login}, but this site does not say which GitHub repository it is built from.`
+      const signOut = session.signOut
+      this.showToast(text, "error", { keep: true, action: ["Use another account", () => void this.signOut(signOut)] })
+      return
+    }
+    if (signIn) {
+      this.showToast("Sign in to comment on this page.", "info", { keep: true, link: ["Sign in with GitHub", signIn], action: ["Close", () => this.exit()] })
+      return
+    }
+    this.showToast("Comments are only for the site's team. Sign in with an account that may comment.", "error", { keep: true, action: ["Close", () => this.exit()] })
+  }
+
+  /** Ends the GitHub sign-in of Comments in this browser, then loads the page again. */
+  private async signOut(url: string) {
+    await fetch(url, { method: "POST", credentials: "same-origin", headers: { "content-type": "application/json" }, body: "{}" }).catch(() => undefined)
+    location.reload()
   }
 
   /** Ends comment and edit mode, then removes the overlay. The loader calls it when the page tools stop. */

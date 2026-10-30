@@ -10,6 +10,7 @@ import {
   consoleDocumentStateLabel,
   consoleErrorMessage,
   consoleFixFieldsLabel,
+  consolePublishedConflicts,
   consolePublishMismatches,
   consoleSingularLabel,
 } from "../client/documents";
@@ -190,7 +191,9 @@ async function publishAll(): Promise<void> {
   catch (publishError) {
     published.value = before;
     const moved = consolePublishMismatches(publishError);
-    if (moved) toast.error(moved.length === 1 ? "A draft changed after this page loaded. Refresh and publish again." : `${moved.length} drafts changed after this page loaded. Refresh and publish again.`, { label: "Refresh", onClick: () => emit("reload") });
+    const site = consolePublishedConflicts(publishError);
+    if (site?.length) toast.error(`${site.length === 1 ? "1 document" : `${site.length} documents`} also changed on the site. Open ${site.length === 1 ? "it" : "each one"} to compare, then publish again.`);
+    else if (moved) toast.error(moved.length === 1 ? "A draft changed after this page loaded. Refresh and publish again." : `${moved.length} drafts changed after this page loaded. Refresh and publish again.`, { label: "Refresh", onClick: () => emit("reload") });
     else toast.error(`Couldn't publish. ${consoleErrorMessage(publishError, "Try again.")}`, { label: "Retry", onClick: publishAll });
     emit("changed");
   }

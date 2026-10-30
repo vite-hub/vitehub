@@ -8,10 +8,13 @@ import { commentsMcpTools } from "./mcp.ts"
 import type { H3Event } from "h3"
 import type { Comments } from "../index.ts"
 import type { CommentsDatabase } from "../store.ts"
+import type { CommentsGitHubLogin } from "./github-login.ts"
 import type { CommentsSessionOptions } from "./session.ts"
 
 export interface CommentsPluginOptions extends CommentsSessionOptions {
   comments: Comments
+  /** Offers GitHub sign-in or account switching through the overlay, even before read access is granted. */
+  githubLogin?: CommentsGitHubLogin
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
   /**
@@ -21,6 +24,10 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   overlay: string
   /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
   base?: string
+  /** Vite's serve/build identity, recorded by the generated plugin. Defaults to false. */
+  development?: boolean
+  /** What the server log says when `database()` returns nothing. */
+  missingDatabase?: string
 }
 
 const runtimeKey = Symbol.for("vitehub.comments.runtime")
@@ -34,13 +41,13 @@ export function installedComments(): Comments | undefined {
 
 /**
  * The Nitro plugin of Comments. It connects the definition to its Database, and registers the overlay as the
- * `comments` page tool: the page tools session lets a visitor load it when `authorize` allows `read`.
+ * `comments` page tool: a visitor may load it when `authorize` allows `read` or GitHub sign-in is available.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
   return (nitroApp) => {
     const database = options.database()
-    if (database) installComments(options.comments, { database })
-    else console.warn("[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
+    if (database) installComments(options.comments, { database, development: options.development })
+    else console.warn(options.missingDatabase ?? "[vitehub] Comments has no Database. Enable one with `vitehub({ database: true })`, or set `defineComments({ database })` to a Database name.")
     Reflect.set(globalThis, runtimeKey, options.comments)
     // The ViteHub MCP server at `/_vitehub/mcp` lists them for people with Console access to Comments.
     registerViteHubMcpTools("comments", commentsMcpTools(options.comments, { session: options.session, consoleSession: options.consoleSession }))
@@ -52,8 +59,10 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       script: options.overlay,
       async allowed({ event }) {
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
-        const user = await resolveCommentsUser(options.comments, event as H3Event, options)
-        return user !== false && await options.comments.can({ user, action: "read" })
+        const user = await resolveCommentsUser(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
+        if (user === false) return false
+        return await options.comments.can({ user, action: "read" })
+          || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
       },
     })
     installViteHubPageTools(nitroApp, { base: options.base })

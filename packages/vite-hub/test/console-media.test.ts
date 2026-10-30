@@ -47,6 +47,7 @@ function actions(): ConsoleDocumentActions {
     list: unused,
     mediaAccess: () => roles[role]!,
     overview: unused,
+    preview: unused,
     publish: unused,
     raw: unused,
     references,

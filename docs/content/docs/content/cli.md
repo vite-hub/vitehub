@@ -1,12 +1,12 @@
 ---
 title: Content CLI
-description: List, read, edit, publish, and schedule Content documents from the terminal, with field issues, edit leases, and pinned digests.
+description: List, read, edit, delete, restore, publish, and schedule Content documents from the terminal, with field issues, edit leases, and pinned digests.
 navigation.title: CLI
 navigation.order: 13
 icon: i-lucide-terminal-square
 ---
 
-`vitehub content` reads, edits, publishes, and schedules the [document collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's Vite Development Server, then run the commands from another terminal. Each command runs a `content.*` [operation](/docs/development/operations) of the app. The operation uses the app's `server/content.ts`, so it reads and writes the same Workspace Store as the app.
+`vitehub content` reads, edits, deletes, restores, publishes, and schedules the [document collections and singletons](/docs/content/configure#document-collections) of a running app. Start the app's Vite Development Server, then run the commands from another terminal. Each command runs a `content.*` [operation](/docs/development/operations) of the app. The operation uses the app's `server/content.ts`, so it reads and writes the same Workspace Store as the app.
 
 ```bash [Terminal]
 pnpm vitehub content collections
@@ -32,6 +32,8 @@ The namespace appears when the app has a Content file. Without `--url`, the comm
 | `vitehub content diff <collection> [id]` | Print a unified diff of one document from `published` to `draft`, frontmatter included. |
 | `vitehub content revisions <collection> [id]` | List the revisions that saved, removed, restored, or published one document, newest first. |
 | `vitehub content edit <collection> [id]` | Edit the draft of one document in your editor, or save it from a file. |
+| `vitehub content rm <collection> [id]` | Delete one document from the draft. The next publish deletes it from the site. |
+| `vitehub content restore <collection> [id] --revision <id>` | Save the version of one document from an earlier revision as its draft. |
 | `vitehub content publish` | Publish the listed draft documents in one revision, exactly as listed. |
 | `vitehub content schedule --at <time>` | Publish the listed draft documents at a later time, exactly as listed. |
 | `vitehub content scheduled [collection] [id]` | List pending, overdue, and failed schedules. |
@@ -94,10 +96,22 @@ The draft has 1 field issue. Publishing refuses it until they are fixed:
 
 ```txt [Output]
 Nothing was saved. Ana holds the edit lease since 2026-10-15T09:12:03.000Z on posts/hello.
-Wait until they finish, or pass --override-lease to save anyway.
+Wait until they finish, or pass --override-lease to write anyway.
 ```
 
-With `--json`, the error is `CONTENT_LEASE_HELD` with `details.holder`. `--override-lease` saves with `lease: 'override'`.
+With `--json`, the error is `CONTENT_LEASE_HELD` with `details.holder`. `--override-lease` saves with `lease: 'override'`. `rm` and `restore` honour leases in the same way.
+
+## Delete and restore
+
+```bash [Terminal]
+pnpm vitehub content rm posts hello
+pnpm vitehub content revisions posts hello
+pnpm vitehub content restore posts hello --revision 01JB8Z7Q4M3T5V2X9K6N8P1R0S
+```
+
+`rm` reads the draft, asks `Delete? [y/N]`, and deletes the draft pinned to the digest that it read. If someone saves the document between the read and the delete, nothing is deleted. Pass `--yes` to skip the prompt; without a terminal, `rm` needs `--yes`. The document stays on the site until you publish: `status` shows it as `deleted`, and `publish` lists it as a `delete`.
+
+`restore` saves the version from `--revision` as the draft and publishes nothing. It also brings back a deleted draft. Like `edit`, it fails when the draft changed after the command read it. Take revision ids from `vitehub content revisions`, or from `--ref published` for a published version.
 
 ## Status
 

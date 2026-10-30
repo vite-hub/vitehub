@@ -41,7 +41,12 @@ export const contextSchema = v.object({
     colorScheme: v.optional(v.picklist(["light", "dark"])),
     timeZone: v.optional(short(64)),
   })),
-  build: v.optional(v.object({ commit: v.optional(short(64)), branch: v.optional(short(256)) })),
+  build: v.optional(v.object({
+    commit: v.optional(short(64)),
+    branch: v.optional(short(256)),
+    repository: v.optional(short(256)),
+    pullRequest: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+  })),
 })
 
 const metadataValue = v.union([v.pipe(v.string(), v.maxLength(4000)), v.number(), v.boolean(), v.null()])

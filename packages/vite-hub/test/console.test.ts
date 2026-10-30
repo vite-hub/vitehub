@@ -523,7 +523,11 @@ describe("Agent invocation console", () => {
         "/_vitehub/mcp",
         "/_vitehub/page/session",
       ])
-      expect(config.nitro.publicAssets).toEqual([expect.objectContaining({ baseURL: "/_vitehub/assets" }), expect.objectContaining({ baseURL: "/_vitehub/page/assets" })])
+      expect(config.nitro.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: "/_vitehub/assets" }),
+        expect.objectContaining({ baseURL: "/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: "/_vitehub/page/assets" }),
+      ])
       expect(config.nitro.plugins).toEqual([resolve(root, ".vitehub/nitro/console/plugin.mjs")])
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleSections(${JSON.stringify(root)}, ["agents","usage","blob","kv"])`)
       await expect(readFile(config.nitro.plugins[0]!, "utf8")).resolves.toContain(`installConsoleProjectName(${JSON.stringify(root)}, "console-host")`)
@@ -644,6 +648,7 @@ describe("Agent invocation console", () => {
 
   it.each([
     { base: "/portal/", mount: "/portal" },
+    { base: "/portal/", nitro: { baseURL: "/portal/", handlers: [], plugins: [], publicAssets: [] }, mount: "" },
     { base: "https://cdn.example/portal/", mount: "" },
     { base: "https://cdn.example/assets/", __vitehubAppBaseURL: "/portal/", mount: "/portal" },
   ])("mounts Nitro Console routes and assets at the application base: %j", async ({ mount, ...bases }) => {
@@ -671,7 +676,11 @@ describe("Agent invocation console", () => {
         `${mount}/_vitehub/mcp`,
         `${mount}/_vitehub/page/session`,
       ])
-      expect(config.nitro?.publicAssets).toEqual([expect.objectContaining({ baseURL: `${mount}/_vitehub/assets` }), expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` })])
+      expect(config.nitro?.publicAssets).toEqual([
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/assets` }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/.well-known/skills`, dir: expect.stringContaining("public/skills"), fallthrough: false }),
+        expect.objectContaining({ baseURL: `${mount}/_vitehub/page/assets` }),
+      ])
     }
     finally {
       await rm(root, { force: true, recursive: true })
@@ -712,6 +721,7 @@ describe("Agent invocation console", () => {
       ])
       expect(resolvedConfig.nitro?.publicAssets).toEqual([
         expect.objectContaining({ baseURL: "/portal/_vitehub/assets", dir: expect.stringContaining("public/console") }),
+        expect.objectContaining({ baseURL: "/portal/_vitehub/.well-known/skills", dir: expect.stringContaining("public/skills") }),
         { baseURL: "/portal/_vitehub/assets", dir: "/user-owned-assets" },
         expect.objectContaining({ baseURL: "/portal/_vitehub/page/assets" }),
       ])
@@ -721,18 +731,60 @@ describe("Agent invocation console", () => {
     }
   })
 
+  it.each(["open", "cloudflare-access", "rpc-only"] as const)("preserves application OAuth discovery routes with %s Console access", async (mode) => {
+    const root = await mkdtemp(join(tmpdir(), "vitehub-console-discovery-"))
+    try {
+      const applicationHandlers = [
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/**",
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/**",
+      ].map((route, index) => ({ handler: `/application/discovery-${index}.js`, route }))
+      const plugin = consoleVitePlugin({
+        console: mode === "rpc-only" ? undefined : { auth: mode === "open" ? false : { provider: "cloudflare-access" } },
+        rpcOnly: mode === "rpc-only",
+        preset: "node",
+      })
+      const config = { base: "/early/", root, nitro: { handlers: [...applicationHandlers] }, vitehubCliDiscovery: true }
+      await callPluginHook(plugin.config, {}, [config, { command: mode === "rpc-only" ? "serve" : "build", mode: "production" }])
+      const resolved = { ...config, base: "/portal/" }
+      await callPluginHook(plugin.configResolved, {}, [withViteLogger(resolved)])
+
+      expect(resolved.nitro.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual(applicationHandlers)
+      expect(resolved.nitro.handlers).toContainEqual(expect.objectContaining({ route: "/portal/_vitehub/mcp" }))
+    }
+    finally {
+      await rm(root, { force: true, recursive: true })
+    }
+  })
+
   it("remounts Console RPC routes when a later Vite base replaces the early base", () => {
     const config: { handlers: Array<{ handler: string, route: string }> } = { handlers: [] }
-    addConsoleRpcHandler(config, "/runtime", "/early/")
-    addConsoleRpcHandler(config, "/runtime", "/portal/")
+    addConsoleRpcHandler(config, "/runtime", "/early/", [], true)
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
 
     expect(config.handlers.map(handler => handler.route)).toEqual([
+      "/**",
       "/portal/_vitehub/rpc/**",
       "/portal/_vitehub/env/manage",
       "/portal/_vitehub/channels/replay",
       "/portal/_vitehub/schedules/run",
       "/portal/_vitehub/mcp",
+      "/.well-known/oauth-protected-resource",
+      "/.well-known/oauth-protected-resource/**",
+      "/.well-known/oauth-authorization-server",
+      "/.well-known/oauth-authorization-server/**",
     ])
+  })
+
+  it("removes stale Console OAuth discovery routes when access no longer uses OAuth", () => {
+    const applicationHandler = { handler: "/application/openid.js", route: "/.well-known/openid-configuration" }
+    const config = { handlers: [applicationHandler] }
+    addConsoleRpcHandler(config, "/runtime", "/portal/", [], true)
+    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/oauth-"))).toHaveLength(4)
+    addConsoleRpcHandler(config, "/runtime", "/portal/")
+    expect(config.handlers.filter(handler => handler.route.startsWith("/.well-known/"))).toEqual([applicationHandler])
+    expect(config.handlers.some(handler => handler.handler.endsWith("/mcp-discovery.js"))).toBe(false)
   })
 
   it("registers Blob inspection without loading the Agent server graph", async () => {
@@ -4951,7 +5003,8 @@ describe("Agent invocation console", () => {
     expect(response.headers.get("content-security-policy")).toContain("script-src 'self' 'wasm-unsafe-eval'")
     expect(response.headers.get("content-security-policy")).toContain("frame-ancestors 'none'")
     expect(response.headers.get("content-security-policy")).toContain("base-uri 'none'")
-    expect(response.headers.get("content-security-policy")).toContain("form-action 'none'")
+    expect(response.headers.get("content-security-policy")).toContain("form-action 'self'")
+    expect(response.headers.get("content-security-policy")).toContain("frame-src 'self'")
     expect(page).toContain('<meta name="robots" content="noindex, nofollow">')
     expect(response.headers.get("x-robots-tag")).toBe("noindex, nofollow")
     expect(response.headers.get("x-frame-options")).toBe("DENY")

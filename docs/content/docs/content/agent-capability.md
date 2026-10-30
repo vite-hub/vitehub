@@ -224,7 +224,7 @@ The Capability reports `mode: 'write'` when `write` or `publish` is enabled. Its
 
 ## Other operations
 
-`content()` has tools that are written for a model. To give an agent any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. It exposes each operation as a tool named after it (`content_publish`), checks `content.can()` with the same user and actor, and asks for approval for destructive operations (a dry run needs none). It also runs `console.authorize` for the user and drops the operations of sections that it does not allow. Without `console.authorize`, the `include` list is the only gate. `content.save` accepts `lease: 'override'` from an Agent only with `operations({ overrideLeases: true })`; `content()` keeps its own `lease: 'override'` option.
+`content()` has tools that are written for a model. To give an agent any other [operation](/docs/development/operations), use `operations({ include: ['content.*'] })`. It exposes each operation as a tool named after it (`content_publish`), checks `content.can()` with the same user and actor, and asks for approval for destructive operations (a dry run needs none). It also runs `console.authorize` for the user and drops the operations of sections that it does not allow. Without `console.authorize`, the `include` list is the only gate. `content.save`, `content.remove`, and `content.restore` accept `lease: 'override'` from an Agent or an MCP client only with `operations({ overrideLeases: true })`; `content()` keeps its own `lease: 'override'` option.
 
 ## Related pages
 

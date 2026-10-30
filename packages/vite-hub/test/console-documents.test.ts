@@ -52,6 +52,7 @@ function fakeActions(overrides: Partial<ConsoleDocumentActions> = {}): ConsoleDo
     list: unused,
     mediaAccess: () => ({ manage: true, read: true, write: true }),
     overview: unused,
+    preview: unused,
     publish: unused,
     raw: unused,
     references: unused,

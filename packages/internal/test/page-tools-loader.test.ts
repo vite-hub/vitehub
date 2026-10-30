@@ -61,6 +61,20 @@ afterEach(() => {
 })
 
 describe("loadViteHubPageTools", () => {
+  it.each([
+    ["?vitehub", "", 1],
+    ["?vitehub=comments", "", 1],
+    ["", "session=ada;vitehub-tools=1", 1],
+    ["", "", 0],
+    ["?other=1", "vitehub-tools=0", 0],
+  ])("requests a session only with a hint (query %j, cookie %j)", async (search, cookie, calls) => {
+    history.replaceState(null, "", `/${search}`)
+    vi.spyOn(document, "cookie", "get").mockReturnValue(cookie)
+    const fetch = session({ tools: [] })
+    await expect(loadViteHubPageTools()).resolves.toEqual([])
+    expect(fetch).toHaveBeenCalledTimes(calls)
+  })
+
   it("starts tools and keeps exit usable when Trusted Types blocks HTML sinks", async () => {
     page("/?vitehub")
     session({ tools: [consoleTool] })

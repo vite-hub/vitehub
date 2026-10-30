@@ -1,5 +1,5 @@
 import { createAuthConsole, type AuthConsole } from "./console-runtime.ts";
-import type { AuthConsoleOptions } from "./console-types.ts";
+import type { AuthConsoleHostOptions, AuthConsoleOptions } from "./console-types.ts";
 import discoveredDefinition from "#vitehub/auth/definition"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
 import { betterAuth } from "better-auth"
@@ -13,7 +13,7 @@ import { getAuthRuntimeState } from "./runtime-state.ts"
 import { withSessionMarker } from "./session-marker.ts"
 
 import type { AuthEventAggregates, AuthEventListInput, AuthEventPage, AuthEventStore, AuthEventWindow } from "./events.ts"
-import type { AuthRuntimeEnvResolver } from "./runtime-state.ts"
+import type { AuthAccessIdentityResolver, AuthRuntimeEnvResolver } from "./runtime-state.ts"
 import type { AccessAuthorizeOption, PublicUrlConfig } from "@vite-hub/runtime"
 import type {
   AuthAccessAuthorize,
@@ -703,13 +703,16 @@ async function checkAuthRequest(
   routeIndexes?: number[],
   requiredAuthorizeRouteIndexes: number[] = [],
   redirectToSignIn = true,
+  resolveIdentity?: AuthAccessIdentityResolver,
 ): Promise<AuthCheck> {
   const { auth, options, request, session } = await readRequestSession(input, definition)
-  if (session) {
+  const identity = await resolveIdentity?.(toRequest(request), input, Boolean(session))
+  if (isRuntimeResponse(identity)) return reject(identity)
+  if (identity || session) {
     const authorization: AuthAuthorization = Object.freeze({
       request,
-      session: session.session,
-      user: session.user,
+      session: identity ? {} : session!.session,
+      user: identity ?? session!.user,
     })
     if (routeIndexes === undefined) return { authorization }
 
@@ -851,6 +854,17 @@ export function getAuthorization(event: AuthRequestInput): AuthAuthorization {
   return authorizationGrant.verify(grant)
 }
 
+/**
+ * Let a trusted server integration authenticate one exact mounted path without a browser session.
+ * Resolved users still pass every matching Auth access route's authorize callback, with an empty session.
+ */
+export function setAuthAccessIdentityResolver(path: string, resolver: AuthAccessIdentityResolver | undefined): void {
+  const state = getAuthRuntimeState()
+  state.accessIdentityResolvers ??= new Map()
+  if (resolver) state.accessIdentityResolvers.set(path, resolver)
+  else state.accessIdentityResolvers.delete(path)
+}
+
 // Middleware records success for an opted-in guard; that guard also lets later middleware reuse its check.
 const reusableAccessChecks = new WeakMap<object, WeakMap<AuthDefinition, Map<string, boolean>>>()
 
@@ -866,7 +880,7 @@ async function checkAuthAccessRequest(
   let accepted = definitions?.get(definition)
   const reusable = accepted?.get(key)
   if (reusable === true || (options.reuse && reusable === false)) return
-  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false)
+  const { response } = await checkAuthRequest(input, definition, routeIndexes, requiredAuthorizeRouteIndexes, options.redirectToSignIn !== false, getAuthRuntimeState().accessIdentityResolvers?.get(new URL(unwrapAuthRequest(input).url).pathname))
   if (!response && (options.reuse || options.remember)) {
     if (!definitions) reusableAccessChecks.set(input, definitions = new WeakMap())
     if (!accepted) definitions.set(definition, accepted = new Map())
@@ -969,8 +983,11 @@ export async function aggregateAuthEvents(window: AuthEventWindow, definition?: 
   return store.aggregate(window)
 }
 
-/** Resolve the primary Definition once, with the same request context for the provider and Console policy. */
-export function getAuthConsoleForRequest(request: Request, event?: unknown): AuthConsole {
+/**
+ * Resolve the primary Definition once, with the same request context for the provider and Console policy.
+ * `host.impersonation` lets the Console start impersonation. It is off by default.
+ */
+export function getAuthConsoleForRequest(request: Request, event?: unknown, host?: AuthConsoleHostOptions): AuthConsole {
   const definition = resolveDefaultDefinition()
   const resolved = resolveAuthOptions(definition, {
     request,
@@ -981,5 +998,6 @@ export function getAuthConsoleForRequest(request: Request, event?: unknown): Aut
     createAuthenticationProvider(resolved.providerOptions),
     resolved.options.console as AuthConsoleOptions | undefined,
     resolved.options.events ? resolved.options.events.store : undefined,
+    host,
   );
 }
