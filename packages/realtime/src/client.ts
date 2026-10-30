@@ -21,6 +21,8 @@ import type { RealtimePerson, RealtimeWorkspaceChange } from "./types.ts"
 export type RealtimeRoomStatus = "connected" | "connecting" | "disconnected"
 
 export interface RealtimeRoomOptions {
+  /** The app base path for a prebuilt client, such as `/portal/`. Defaults to the app's build-time base. */
+  baseURL?: string
   /**
    * The person this browser shows as. A definition with `identify` or `auth: true` replaces it with the server's
    * identity, so only public definitions show it as given.
@@ -28,8 +30,6 @@ export interface RealtimeRoomOptions {
   identity?: { id: string, name?: string, image?: string }
   /** Also join the workspace events room of the definition, for `notify()` and `onChange()`. Default `false`. */
   changes?: boolean
-  /** Application mount path for prebuilt clients. Defaults to the base supplied by the host integration. */
-  baseURL?: string
 }
 
 export interface RealtimeRoom {
@@ -71,9 +71,7 @@ export function connectRealtimeRoom(definition: string, documentId: string, opti
   }
   const url = () => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:"
-    const path = `/api/_vitehub/realtime/${encodeURIComponent(definition)}`
-    const mounted = options.baseURL === undefined ? resolveRealtimeApplicationPath(path) : `${options.baseURL.replace(/\/+$/, "")}${path}`
-    return `${protocol}//${window.location.host}${mounted}`
+    return `${protocol}//${window.location.host}${resolveRealtimeApplicationPath(`/api/_vitehub/realtime/${encodeURIComponent(definition)}`, options.baseURL)}`
   }
   const room = documentId.split("/").map(encodeURIComponent).join("/")
   const localState: Record<string, unknown> = {}

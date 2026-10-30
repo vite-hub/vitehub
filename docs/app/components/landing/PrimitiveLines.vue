@@ -45,13 +45,10 @@ interface Field {
   cols: number;
   rows: number;
   brightness: Float32Array;
-  // Bright regions that a detection box can mark.
-  regions: { x: number; y: number; size: number }[];
 }
 
 let field: Field | null = null;
 let image: HTMLImageElement | null = null;
-let font = "ui-monospace, monospace";
 
 let entranceStart: number | null = null;
 let energy = 0;
@@ -59,9 +56,6 @@ let push = 0;
 let clock = 0;
 let lastFrame = 0;
 let pointer: { x: number; y: number } | null = null;
-let boxes: number[] = [];
-let boxesPickedAt = 0;
-let boxesShownAt = 0;
 let activeChangedAt = 0;
 
 const still = computed(() => reducedMotion.value === "reduce");
@@ -99,7 +93,6 @@ function measure() {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   element.width = Math.round(width * dpr);
   element.height = Math.round(height * dpr);
-  font = getComputedStyle(element).fontFamily || font;
 
   // The icon sits in the top right corner, above the name and description.
   const inset = 14;
@@ -129,23 +122,6 @@ function measure() {
     }
   }
 
-  // Score square regions and keep the bright ones as detection targets.
-  const regions: Field["regions"] = [];
-  const regionSize = Math.round(size / 4);
-  for (let ry = 0; ry + regionSize <= size; ry += regionSize / 2) {
-    for (let rx = 0; rx + regionSize <= size; rx += regionSize / 2) {
-      let sum = 0;
-      let count = 0;
-      for (let row = Math.floor(ry / CELL); row < Math.floor((ry + regionSize) / CELL); row++) {
-        for (let col = Math.floor(rx / PITCH); col < Math.floor((rx + regionSize) / PITCH); col++) {
-          sum += brightness[row * cols + col] ?? 0;
-          count++;
-        }
-      }
-      if (count && sum / count > 0.3) regions.push({ x: rx, y: ry, size: regionSize });
-    }
-  }
-
   field = {
     width,
     height,
@@ -156,43 +132,9 @@ function measure() {
     cols,
     rows,
     brightness,
-    regions,
   };
   draw(performance.now());
   wake();
-}
-
-// Choose two regions: the one under the pointer, then another one for the connector.
-function pickBoxes(now: number) {
-  if (!field || field.regions.length < 2) {
-    boxes = [];
-    return;
-  }
-  const { regions } = field;
-  const target = pointer ?? { x: field.x + field.size / 2, y: field.y + field.size / 2 };
-  let near = 0;
-  let nearest = Number.POSITIVE_INFINITY;
-  regions.forEach((region, index) => {
-    const cx = field!.x + region.x + region.size / 2;
-    const cy = field!.y + region.y + region.size / 2;
-    const distance = (cx - target.x) ** 2 + (cy - target.y) ** 2;
-    if (distance < nearest && index !== boxes[0]) {
-      nearest = distance;
-      near = index;
-    }
-  });
-  // The second box must not touch the first. Step through the candidates so it moves on each pick.
-  const first = regions[near]!;
-  const apart = regions
-    .map((region, index) => ({ region, index }))
-    .filter(({ region }) => Math.abs(region.x - first.x) > first.size || Math.abs(region.y - first.y) > first.size);
-  if (!apart.length) {
-    boxes = [];
-    return;
-  }
-  boxes = [near, apart[Math.floor(now / 1000) % apart.length]!.index];
-  boxesPickedAt = now;
-  boxesShownAt = now;
 }
 
 function draw(now: number) {
@@ -273,45 +215,9 @@ function draw(now: number) {
   }
   context.fill();
 
-  // Detection boxes mark bright regions while the tile is active.
-  if (energy > 0.01 && boxes.length === 2 && field.regions.length) {
-    const blink = still.value ? 1 : Math.min(1, (now - boxesShownAt) / 120);
-    const [first, second] = boxes.map(index => field!.regions[index]!);
-    const ax = originX + first!.x;
-    const ay = originY + first!.y;
-    const bx = originX + second!.x;
-    const by = originY + second!.y;
-    context.globalAlpha = energy * blink;
-    context.strokeStyle = context.fillStyle;
-    context.lineWidth = 1;
-    context.strokeRect(ax + 0.5, ay + 0.5, first!.size - 1, first!.size - 1);
-    context.strokeRect(bx + 0.5, by + 0.5, second!.size - 1, second!.size - 1);
-    context.globalAlpha = energy * blink * 0.6;
-    context.beginPath();
-    context.moveTo(ax + first!.size, ay);
-    context.lineTo(bx, by + second!.size);
-    context.lineWidth = 0.75;
-    context.stroke();
-    context.globalAlpha = energy * blink;
-    context.font = `500 7px ${font}`;
-    context.textBaseline = "middle";
-    for (const [boxX, boxY] of [[ax, ay], [bx, by]] as const) {
-      const label = `${Math.round(boxX)}, ${Math.round(boxY)}`;
-      const labelWidth = context.measureText(label).width + 6;
-      const labelX = Math.min(boxX, width - labelWidth - 1);
-      context.fillRect(labelX, boxY - 9, labelWidth, 9);
-      // Cut the label out of the tag, so the tile background shows through in both color modes.
-      context.globalCompositeOperation = "destination-out";
-      context.fillText(label, labelX + 3, boxY - 4.5);
-      context.globalCompositeOperation = "source-over";
-    }
-    context.globalAlpha = 1;
-  }
-
   const entering = !still.value && entranceStart !== null && entrance < 1;
   // Keep drawing while the CSS color transition runs, also when motion is reduced.
   const settling = Math.abs(energy - target) > 0.002 || push > 0.002 || now - activeChangedAt < 260;
-  if (props.active && !still.value && now - boxesPickedAt > 1000) pickBoxes(now);
   if (!entering && !settling && !(props.active && !still.value)) {
     pause();
     lastFrame = 0;
@@ -334,11 +240,7 @@ watch(() => props.play, (play) => {
 
 watch(() => props.active, (active) => {
   activeChangedAt = performance.now();
-  if (active) {
-    pickBoxes(performance.now());
-  } else {
-    pointer = null;
-  }
+  if (!active) pointer = null;
   wake();
 });
 
@@ -360,7 +262,7 @@ onMounted(readIcon);
 
 <template>
   <div class="pointer-events-none absolute inset-0" aria-hidden="true">
-    <canvas ref="canvas" class="size-full font-mono" />
+    <canvas ref="canvas" class="size-full" />
     <span ref="source" class="hidden">
       <UIcon :name="icon" mode="svg" />
     </span>

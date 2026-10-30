@@ -1,73 +1,39 @@
 <script setup lang="ts">
-import { useIntersectionObserver, usePreferredReducedMotion } from "@vueuse/core";
 import { tokenize } from "./code";
 import { agentStory } from "./content";
 
-const stepDuration = 2600;
-const lastStep = agentStory.steps.length - 1;
-
-const section = useTemplateRef<HTMLElement>("section");
-const reducedMotion = usePreferredReducedMotion();
-const activeIndex = ref(0);
-const played = ref(false);
-let timer: ReturnType<typeof setTimeout> | undefined;
-
-const activeStep = computed(() => agentStory.steps[activeIndex.value]!);
-const activeLines = computed<readonly number[]>(() => activeStep.value.lines);
-const traceNodes = computed(() => [
-  ...agentStory.steps.map((step, index) => ({ id: step.id, label: step.label, lit: index <= activeIndex.value })),
-  { id: "reply", label: "Reply", lit: activeIndex.value === lastStep },
-]);
-// Nodes sit at equal intervals. The last step also reaches the reply node.
-const traceProgress = computed(() =>
-  activeIndex.value === lastStep ? 1 : activeIndex.value / agentStory.steps.length,
-);
-
-function stopTour() {
-  clearTimeout(timer);
-  timer = undefined;
+interface Note {
+  id: string;
+  line: number;
+  lines: readonly number[];
+  text: string;
+  to: string;
 }
 
-function advance() {
-  if (activeIndex.value >= lastStep) {
-    stopTour();
-    return;
-  }
-  activeIndex.value += 1;
-  timer = setTimeout(advance, stepDuration);
+// The Agent file and the route that reads its store. Each file carries notes on the lines they explain.
+const files = [
+  { path: agentStory.path, lines: agentStory.code.map(tokenize), notes: agentStory.notes as readonly Note[] },
+  { path: agentStory.route.path, lines: agentStory.route.code.map(tokenize), notes: agentStory.route.notes as readonly Note[] },
+];
+
+// Pointing at a note lights the lines it explains. Nothing plays on its own.
+const activeNote = shallowRef<Note | null>(null);
+
+function noteOn(file: (typeof files)[number], line: number) {
+  return file.notes.find((note) => note.line === line);
 }
 
-// Play the story once when it enters the viewport, then leave control to the reader.
-useIntersectionObserver(
-  section,
-  ([entry]) => {
-    if (!entry?.isIntersecting || played.value || reducedMotion.value === "reduce") {
-      return;
-    }
-    played.value = true;
-    timer = setTimeout(advance, stepDuration);
-  },
-  { threshold: 0.45 },
-);
-
-function selectStep(index: number) {
-  played.value = true;
-  stopTour();
-  activeIndex.value = index;
+function lineState(file: (typeof files)[number], line: number) {
+  const note = activeNote.value;
+  if (!note || !file.notes.includes(note)) return undefined;
+  return note.lines.includes(line) ? "is-active" : "is-dimmed";
 }
-
-onBeforeUnmount(stopTour);
-
-const codeLines = agentStory.code.map(tokenize);
-const routeLines = agentStory.route.code.map(tokenize);
 </script>
 
 <template>
-  <section ref="section" class="border-b border-default bg-muted/20">
+  <section class="border-b border-default bg-muted/20">
     <div class="mx-auto max-w-[90rem] px-4 py-16 sm:px-8 sm:py-20 lg:px-12 lg:py-24">
-      <div
-        class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.6fr)] lg:items-end lg:gap-16"
-      >
+      <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,0.6fr)] lg:items-end lg:gap-16">
         <h2
           class="max-w-[13ch] text-4xl/10 font-semibold tracking-[-0.04em] text-highlighted text-balance sm:text-5xl/12 lg:text-6xl/14"
         >
@@ -78,252 +44,182 @@ const routeLines = agentStory.route.code.map(tokenize);
         </p>
       </div>
 
-      <div
-        class="mt-12 grid border border-default bg-default lg:mt-16 lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]"
-      >
-        <ol class="story-steps" :style="{ '--active-index': activeIndex, '--step-count': agentStory.steps.length }" aria-label="How the Agent runs">
-          <li v-for="(step, index) in agentStory.steps" :key="step.id">
-            <button
-              type="button"
-              class="story-step"
-              :class="{ 'is-active': index === activeIndex }"
-              :aria-pressed="index === activeIndex"
-              @click="selectStep(index)"
-            >
-              <span class="font-mono text-xs text-muted">
-                {{ String(index + 1).padStart(2, "0") }} · {{ step.label }}
-              </span>
-              <span class="story-step-title mt-1.5 block text-lg/7 font-medium sm:text-xl/7">
-                {{ step.title }}
-              </span>
-              <span class="mt-1 block max-w-[52ch] text-sm/6 text-muted">
-                {{ step.description }}
-              </span>
-            </button>
-          </li>
-        </ol>
-
-        <div class="flex min-w-0 flex-col border-t border-default lg:border-t-0 lg:border-l">
-          <div
-            class="flex min-h-11 items-center justify-between gap-3 border-b border-default px-4 font-mono text-xs text-muted"
-          >
-            <span class="flex min-w-0 items-center gap-2">
-              <UIcon name="i-lucide-file-code-2" class="size-3.5 shrink-0" aria-hidden="true" />
-              <span class="truncate">{{ agentStory.path }}</span>
-            </span>
-            <NuxtLink
-              :to="activeStep.to"
-              class="group inline-flex shrink-0 items-center gap-1 font-sans text-xs text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
-            >
-              {{ activeStep.label }} docs
-              <UIcon
-                name="i-lucide-arrow-right"
-                class="landing-cta-arrow size-3.5 transition-transform duration-200 motion-reduce:transition-none"
-                aria-hidden="true"
-              />
-            </NuxtLink>
-          </div>
-
-          <pre
-            class="story-code flex flex-1 flex-col justify-center overflow-x-auto py-5 font-mono text-xs/6 sm:text-[0.8125rem]/7 lg:text-sm/8"
-          ><code><span
-            v-for="(line, index) in codeLines"
-            :key="index"
-            class="story-line"
-            :class="{ 'is-active': activeLines.includes(index), 'is-dimmed': activeLines.length && !activeLines.includes(index) }"
-          ><span class="story-line-number" aria-hidden="true">{{ index + 1 }}</span><span
-            v-for="(token, tokenIndex) in line"
-            :key="tokenIndex"
-            :class="`token-${token.kind}`"
-          >{{ token.text }}</span>{{ "\n" }}</span></code></pre>
-
-          <div class="border-t border-default px-4 py-4 sm:px-6">
-            <p class="font-mono text-[0.6875rem] text-dimmed">Invocation</p>
-            <div class="story-trace mt-3" :style="{ '--trace-progress': traceProgress }">
-              <span class="story-trace-rail" aria-hidden="true"><span /></span>
-              <span
-                v-for="node in traceNodes"
-                :key="node.id"
-                class="story-trace-node"
-                :class="{ 'is-lit': node.lit, 'is-reply': node.id === 'reply' }"
-              >
-                <span class="story-trace-dot" aria-hidden="true" />
-                <span class="story-trace-label">{{ node.label }}</span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="grid border-x border-b border-default bg-default lg:grid-cols-[minmax(0,0.78fr)_minmax(0,1.22fr)]">
-        <div class="flex flex-col gap-5 p-5 sm:p-6 lg:p-8">
-          <div>
-            <h3 class="text-lg/7 font-medium text-highlighted">Read the store from a route</h3>
-            <p class="mt-1 max-w-[44ch] text-sm/6 text-muted">
-              The Agent writes reviews through its KV Capability. Your route reads that store with
-              the same API.
-            </p>
-          </div>
-          <div class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            <NuxtLink
-              :to="agentStory.tutorialPath"
-              class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-            >
-              Build your first Agent
-              <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
-            </NuxtLink>
-            <NuxtLink
-              :to="agentStory.route.to"
-              class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
-            >
-              How Capabilities use primitives
-            </NuxtLink>
-          </div>
-        </div>
-        <figure class="min-w-0 border-t border-default lg:border-t-0 lg:border-l">
+      <div class="mt-12 flex flex-col gap-6 lg:mt-16">
+        <figure v-for="file in files" :key="file.path" class="story-file">
           <figcaption class="flex min-h-11 items-center gap-2 border-b border-default px-4 font-mono text-xs text-muted">
             <UIcon name="i-lucide-file-code-2" class="size-3.5 shrink-0" aria-hidden="true" />
-            <span class="truncate">{{ agentStory.route.path }}</span>
+            <span class="truncate">{{ file.path }}</span>
           </figcaption>
-          <pre class="story-code overflow-x-auto py-5 font-mono text-xs/6 sm:text-[0.8125rem]/7"><code><span
-            v-for="(line, index) in routeLines"
-            :key="index"
-            class="story-line"
-          ><span class="story-line-number" aria-hidden="true">{{ index + 1 }}</span><span
-            v-for="(token, tokenIndex) in line"
-            :key="tokenIndex"
-            :class="`token-${token.kind}`"
-          >{{ token.text }}</span>{{ "\n" }}</span></code></pre>
+
+          <div class="story-code font-mono text-xs/6 sm:text-[0.8125rem]/7 xl:text-sm/8">
+            <template v-for="(line, index) in file.lines" :key="index">
+              <div class="story-line" :class="lineState(file, index)">
+                <span class="story-line-number" aria-hidden="true">{{ index + 1 }}</span>
+                <span class="whitespace-pre"><span
+                  v-for="(token, tokenIndex) in line"
+                  :key="tokenIndex"
+                  :class="`token-${token.kind}`"
+                >{{ token.text }}</span></span>
+                <span v-if="noteOn(file, index)" class="story-leader" aria-hidden="true" />
+              </div>
+              <div class="story-note">
+                <NuxtLink
+                  v-if="noteOn(file, index)"
+                  :to="noteOn(file, index)!.to"
+                  class="story-note-link"
+                  @pointerenter="activeNote = noteOn(file, index)!"
+                  @pointerleave="activeNote = null"
+                  @focus="activeNote = noteOn(file, index)!"
+                  @blur="activeNote = null"
+                >
+                  <span class="story-note-label">{{ noteOn(file, index)!.id }}</span>
+                  <span class="text-muted">{{ noteOn(file, index)!.text }}</span>
+                </NuxtLink>
+              </div>
+            </template>
+          </div>
+
+          <!-- Below xl the code takes the full width, so the notes follow it as a list. -->
+          <ul class="border-t border-default px-4 py-3 text-sm/6 xl:hidden">
+            <li v-for="note in file.notes" :key="note.id">
+              <NuxtLink :to="note.to" class="story-note-link py-1">
+                <span class="story-note-label">{{ note.id }}</span>
+                <span class="text-muted">{{ note.text }}</span>
+              </NuxtLink>
+            </li>
+          </ul>
         </figure>
+      </div>
+
+      <div class="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm">
+        <NuxtLink
+          :to="agentStory.tutorialPath"
+          class="group inline-flex min-h-10 items-center gap-2 border-b border-highlighted font-medium text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+        >
+          Build your first Agent
+          <UIcon name="i-lucide-arrow-right" class="landing-cta-arrow size-4 shrink-0 transition-transform duration-200 motion-reduce:transition-none" aria-hidden="true" />
+        </NuxtLink>
+        <NuxtLink
+          :to="agentStory.route.to"
+          class="inline-flex min-h-10 items-center text-muted transition-colors hover:text-highlighted focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-primary"
+        >
+          How Capabilities use primitives
+        </NuxtLink>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.story-steps {
-  position: relative;
-  display: grid;
-  grid-auto-rows: 1fr;
-}
-
-/* One rail marker moves between steps instead of each step drawing its own border. */
-.story-steps::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 1px;
-  background: var(--ui-border);
-  content: "";
-}
-
-.story-steps::after {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 2px;
-  height: calc(100% / var(--step-count));
-  background: var(--ui-text-highlighted);
-  content: "";
-  transform: translateY(calc(var(--active-index) * 100%));
-  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
-}
-
-.story-steps > li + li {
-  border-top: 1px solid var(--ui-border);
-}
-
-.story-step {
-  display: block;
-  width: 100%;
-  height: 100%;
-  padding: 1.125rem 1.25rem 1.125rem 1.5rem;
-  text-align: left;
-  transition: background-color 240ms ease;
-}
-
-.story-step-title {
-  color: var(--ui-text-toned);
-  transition: color 240ms ease;
-}
-
-.story-step.is-active .story-step-title {
-  color: var(--ui-text-highlighted);
-}
-
-.story-step.is-active {
-  background: color-mix(in srgb, var(--ui-bg-muted) 45%, transparent);
-}
-
-.story-step:focus-visible {
-  outline: 2px solid var(--ui-primary);
-  outline-offset: -2px;
-}
-
-@media (hover: hover) and (pointer: fine) {
-  .story-step:hover .story-step-title {
-    color: var(--ui-text-highlighted);
-  }
-
-  .group:hover .landing-cta-arrow {
-    transform: translateX(0.25rem);
-  }
-}
-
-@media (min-width: 64rem) {
-  .story-step {
-    padding: 1.375rem 2rem 1.375rem 2.25rem;
-  }
+.story-file {
+  min-width: 0;
+  border: 1px solid var(--ui-border);
+  background: var(--ui-bg);
 }
 
 .story-code {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  overflow-x: auto;
+  padding-block: 1.25rem;
   color: var(--ui-text-muted);
 }
 
-.story-code code {
-  display: block;
-  min-width: max-content;
+.story-note {
+  display: none;
+}
+
+/* Both files share one code column width, so their notes start on the same vertical line. */
+@media (min-width: 80rem) {
+  .story-code {
+    grid-template-columns: minmax(max-content, 46rem) minmax(0, 1fr);
+  }
+
+  .story-note {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    padding-inline: 0 1.5rem;
+    font-family: var(--font-sans);
+    font-size: 0.8125rem;
+  }
 }
 
 .story-line {
   position: relative;
-  display: block;
+  display: flex;
+  min-width: max-content;
+  align-items: center;
   padding-right: 1.5rem;
-  transition: opacity 280ms ease, background-color 280ms ease;
-}
-
-.story-line::before {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 2px;
-  background: var(--ui-text-highlighted);
-  content: "";
-  transform: scaleY(0);
-  transition: transform 280ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition: opacity 200ms ease, background-color 200ms ease;
 }
 
 .story-line.is-active {
-  background: color-mix(in srgb, var(--ui-bg-muted) 70%, transparent);
-}
-
-.story-line.is-active::before {
-  transform: scaleY(1);
+  background: color-mix(in srgb, var(--ui-bg-muted) 80%, transparent);
 }
 
 .story-line.is-dimmed {
-  opacity: 0.42;
+  opacity: 0.4;
 }
 
 .story-line-number {
   display: inline-block;
   width: 3rem;
+  flex: none;
   padding-right: 1.25rem;
   color: var(--ui-text-dimmed);
   text-align: right;
   user-select: none;
+}
+
+/* A dotted leader joins a line to its note, like a table of contents. */
+.story-leader {
+  display: none;
+}
+
+@media (min-width: 80rem) {
+  .story-leader {
+    display: block;
+    min-width: 1.5rem;
+    flex: 1;
+    margin-left: 1rem;
+    border-bottom: 1px dotted var(--ui-border-accented);
+  }
+
+  .story-line {
+    padding-right: 0.75rem;
+  }
+}
+
+.story-note-link {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 0.625rem;
+}
+
+.story-note-label {
+  flex: none;
+  color: var(--ui-text-highlighted);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  text-decoration: underline dotted var(--ui-border-accented);
+  text-underline-offset: 0.25rem;
+}
+
+.story-note-link:focus-visible {
+  outline: 2px solid var(--ui-primary);
+  outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .story-note-link:hover .story-note-label {
+    text-decoration-color: currentcolor;
+  }
+
+  .group:hover .landing-cta-arrow {
+    transform: translateX(0.25rem);
+  }
 }
 
 .token-keyword,
@@ -339,86 +235,8 @@ const routeLines = agentStory.route.code.map(tokenize);
   color: var(--ui-text-toned);
 }
 
-.story-trace {
-  position: relative;
-  display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-}
-
-.story-trace-rail {
-  position: absolute;
-  top: 0.3125rem;
-  right: 10%;
-  left: 10%;
-  height: 1px;
-  overflow: hidden;
-  background: var(--ui-border-accented);
-}
-
-.story-trace-rail > span {
-  position: absolute;
-  inset: 0;
-  background: var(--ui-text-highlighted);
-  transform: scaleX(var(--trace-progress));
-  transform-origin: left;
-  transition: transform 900ms cubic-bezier(0.65, 0, 0.35, 1);
-}
-
-.story-trace-node {
-  position: relative;
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.story-trace-dot {
-  width: 0.625rem;
-  height: 0.625rem;
-  border: 1px solid var(--ui-border-accented);
-  border-radius: 50%;
-  background: var(--ui-bg);
-  transition: background-color 200ms ease 250ms, border-color 200ms ease 250ms, transform 200ms ease 250ms;
-}
-
-.story-trace-node.is-lit .story-trace-dot {
-  border-color: var(--ui-text-highlighted);
-  background: var(--ui-text-highlighted);
-}
-
-.story-trace-node.is-reply.is-lit .story-trace-dot {
-  transform: scale(1.3);
-  transition-delay: 800ms;
-}
-
-.story-trace-label {
-  max-width: 100%;
-  overflow: hidden;
-  color: var(--ui-text-muted);
-  font-size: 0.6875rem;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  transition: color 200ms ease 250ms;
-}
-
-.story-trace-node.is-lit .story-trace-label {
-  color: var(--ui-text-highlighted);
-}
-
-.story-trace-node.is-reply.is-lit .story-trace-label {
-  transition-delay: 800ms;
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .story-steps::after,
-  .story-step,
-  .story-step-title,
-  .story-line,
-  .story-line::before,
-  .story-trace-rail > span,
-  .story-trace-dot,
-  .story-trace-label {
+  .story-line {
     transition: none;
   }
 }

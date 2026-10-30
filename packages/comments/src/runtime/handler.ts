@@ -1,7 +1,7 @@
 import { resolveWaitUntil } from "@vite-hub/internal/runtime/cloudflare-env"
 import { forwardedRequestOrigin } from "@vite-hub/internal/runtime/request-origin"
 import { defineGrant } from "@vite-hub/runtime/internal/grant"
-import { defineHandler } from "h3"
+import { defineEventHandler } from "h3"
 import * as v from "valibot"
 
 import { commentsErrors } from "../errors.ts"
@@ -160,7 +160,7 @@ function leaseHolder(error: unknown): string {
  * The Comments API at `/api/_vitehub/comments/**`. The overlay calls it; every route checks the `authorize` policy of
  * `defineComments()` for the user of the request, and inline edits also check `content.can()`.
  */
-export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineHandler> {
+export function createCommentsHandler(options: CommentsHandlerOptions): ReturnType<typeof defineEventHandler> {
   const { comments } = options
 
   async function resolveUser(event: H3Event, action: CommentsAction = "read"): Promise<CommentsUser | null | false> {
@@ -354,7 +354,7 @@ export function createCommentsHandler(options: CommentsHandlerOptions): ReturnTy
     }
   }
 
-  return defineHandler(async (event) => {
+  return defineEventHandler(async (event) => {
     const request = requestOf(event)
     const response = await route(event, request)
     // A change starts its pull request sync. Hosts that end work with the response keep it running until it ends.

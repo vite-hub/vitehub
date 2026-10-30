@@ -392,303 +392,111 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect((await posts.get("hello"))?.data.title).toBe("Published")
   })
 
-  it("follows same-origin redirects of a Nitro 3 preview frame inside its scope", async () => {
+  it("answers a same-origin redirect of a Nitro 3 preview frame with a 307 that posts the same form to the next page", async () => {
     const { content, posts } = await setup()
+    const seen: Array<{ url: string, method: string, cookie: string | null, type: string | null, frame?: string }> = []
     const app = new H3()
+      .use((event) => {
+        seen.push({ url: event.req.url, method: event.req.method, cookie: event.req.headers.get("cookie"), type: event.req.headers.get("content-type"), frame: content.preview.frame()?.id })
+      })
       .get("/blog/old", () => Response.redirect("https://site.test/en/blog/hello", 301))
-      .get("/en/blog/hello", () => new Response(null, { status: 302, headers: { location: "../../blog/hello?lang=en#top" } }))
+      .get("/en/blog/hello", () => {
+        const headers = new Headers({ location: "../../blog/hello?q=a%20b&flag#top" })
+        headers.append("set-cookie", "session=abc; Path=/; HttpOnly")
+        headers.append("set-cookie", "__Host-id=1; Secure; Path=/")
+        headers.append("set-cookie", "admin=; Path=/admin; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
+        headers.set("content-type", "text/plain")
+        return new Response("moved", { status: 302, headers })
+      })
+      .get("/blog/hello", async () => ({ get: (await posts.get("hello"))?.data.title }))
       .get("/blog/away", () => Response.redirect("https://other.test/blog/hello", 302))
-      .get("/blog/loop", () => new Response(null, { status: 302, headers: { location: "/blog/loop" } }))
-      .get("/blog/hello", async event => ({ url: event.req.url, get: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id }))
-      .get("/blog/page", async () => new Response(`<!doctype html><html><head><title>t</title></head><body>${(await posts.get("hello"))?.data.title}</body></html>`, { headers: { "content-type": "text/html; charset=utf-8" } }))
-      .get("/blog/to-page", () => new Response(null, { status: 302, headers: { location: "/blog/page?lang=en#intro" } }))
+      .get("/blog/http", () => Response.redirect("http://site.test/blog/hello", 302))
+      .get("/blog/port", () => Response.redirect("https://site.test:8443/blog/hello", 302))
+      .get("/blog/slashes", () => new Response(null, { status: 302, headers: { location: "//other.test/blog/hello" } }))
+      .get("/blog/script", () => new Response(null, { status: 302, headers: { location: "javascript:alert(1)" } }))
+      .get("/blog/invalid", () => new Response(null, { status: 302, headers: { location: "https://[" } }))
+      .get("/blog/loop", () => new Response(null, { status: 303, headers: { location: "/blog/loop" } }))
+      .get("/blog/not-modified", () => new Response(null, { status: 304, headers: { location: "/blog/hello" } }))
     const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
     defineContentPreviewPlugin(content)(nitroApp)
     const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const frame = (path: string, headers: Record<string, string> = {}) => nitroApp.fetch(new Request(`https://site.test${path}?${contentPreviewFrameParameter}`, {
+    // A browser does not send the fragment.
+    const frame = (url: string, headers: Record<string, string> = {}) => nitroApp.fetch(new Request(url.startsWith("/") ? `https://site.test${url}` : url.split("#", 1)[0]!, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: "https://site.test", ...headers },
+      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: "https://site.test", cookie: "prefs=1", ...headers },
       body: frameForm(token),
     }))
 
-    // A locale redirect, then a relative canonical one: the last page renders with the document on screen.
-    const followed = await frame("/blog/old")
-    expect(followed.status).toBe(200)
-    expect(followed.headers.get("cache-control")).toBe("private, no-store")
-    expect(await followed.json()).toEqual({ url: "https://site.test/blog/hello?lang=en", get: "On screen", frame: "hello" })
-    // An HTML page gets the address it has after the redirect, with the fragment of the redirect.
-    const page = await (await frame("/blog/to-page")).text()
-    expect(page).toContain("<body>On screen</body>")
-    expect(page).toContain(`<head><script>history.replaceState(history.state,"","/blog/page?lang=en&${contentPreviewFrameParameter}="+"#intro")</script><title>`)
-    // A redirect to another origin cannot keep the document on screen: the frame gets the error page, never the site.
-    const away = await frame("/blog/away")
-    expect(away.status).toBe(502)
-    expect(away.headers.get("location")).toBeNull()
-    expect(away.headers.get("cache-control")).toBe("private, no-store")
-    expect(await away.text()).toContain(`<meta name="${contentPreviewErrorName}" content="The page redirects to https://other.test, which is another site.`)
-    // The host a proxy forwards is this server too: its first value, and the request never leaves this server.
-    expect((await frame("/blog/away", { "x-forwarded-host": "other.test, proxy.test" })).status).toBe(200)
-    expect((await frame("/blog/away", { "x-forwarded-host": "proxy.test, other.test" })).status).toBe(502)
-    const proxied = await nitroApp.fetch(new Request(`https://internal.test/blog/away?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "x-forwarded-host": "other.test" },
-      body: frameForm(token),
-    }))
-    expect(await proxied.json()).toMatchObject({ url: "https://other.test/blog/hello", get: "On screen" })
-    // A loop stops after five redirects with the error page.
-    const loop = await frame("/blog/loop")
-    expect(loop.status).toBe(502)
-    expect(await loop.text()).toContain("redirects more than 5 times")
-  })
+    // A locale redirect: a 307 to its Location with the next hop. The page saw a GET with the browser's own cookies.
+    const first = await frame(`/blog/old?${contentPreviewFrameParameter}`)
+    expect(first.status).toBe(307)
+    expect(first.headers.get("location")).toBe(`https://site.test/en/blog/hello?${contentPreviewFrameParameter}=1`)
+    expect(first.headers.get("cache-control")).toBe("private, no-store")
+    expect(seen).toEqual([{ url: "https://site.test/blog/old", method: "GET", cookie: "prefs=1", type: null, frame: "hello" }])
+    // A relative canonical redirect keeps its query as it is written and its fragment, and every Set-Cookie unchanged.
+    const second = await frame(first.headers.get("location")!)
+    expect(second.status).toBe(307)
+    expect(second.headers.get("location")).toBe(`https://site.test/blog/hello?q=a%20b&flag&${contentPreviewFrameParameter}=2#top`)
+    expect(second.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly", "__Host-id=1; Secure; Path=/", "admin=; Path=/admin; Expires=Thu, 01 Jan 1970 00:00:00 GMT"])
+    expect(await second.text()).toBe("")
+    // The browser posts the form again: the last page renders the document on screen, with the query it was given.
+    const last = await frame(second.headers.get("location")!, { cookie: "prefs=1; session=abc" })
+    expect(last.status).toBe(200)
+    expect(await last.json()).toEqual({ get: "On screen" })
+    expect(seen.at(-1)).toEqual({ url: "https://site.test/blog/hello?q=a%20b&flag", method: "GET", cookie: "prefs=1; session=abc", type: null, frame: "hello" })
+    // No URL of the chain holds the token or the document.
+    for (const location of [first, second].map(response => response.headers.get("location")!)) {
+      expect(location).not.toContain(token)
+      expect(location).not.toContain("On%20screen")
+    }
 
-  it("gives a cookie without Path from a followed redirect the default path of the page that set it", async () => {
-    const { content } = await setup()
-    const seen: Array<string | null> = []
-    const app = new H3()
-      .get("/blog/hello", () => new Response(null, { status: 302, headers: { location: "/auth/login" } }))
-      .get("/auth/login", () => new Response(null, { status: 302, headers: { location: "/auth/account", "set-cookie": "session=abc; HttpOnly" } }))
-      .get("/auth/account", (event) => {
-        seen.push(event.req.headers.get("cookie"))
-        const headers = new Headers({ "content-type": "application/json" })
-        headers.append("set-cookie", "seen=1; Path=/blog/../auth")
-        headers.append("set-cookie", "last=1")
-        headers.append("set-cookie", "root=1; Path=/")
-        return new Response("{}", { headers })
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    expect(seen).toEqual(["session=abc"])
-    // The browser sets them from /blog/hello, so each gets the path of /auth, where the server set it.
-    expect(response.headers.getSetCookie()).toEqual(["session=abc; HttpOnly; Path=/auth", "seen=1; Path=/blog/../auth", "last=1; Path=/auth", "root=1; Path=/"])
-  })
+    // Another origin, scheme, or port, a scheme that is not HTTP, and a Location that is not valid get the error page.
+    for (const [path, message] of [
+      ["/blog/away", "https://other.test, which is another site"],
+      ["/blog/http", "http://site.test, which is another site"],
+      ["/blog/port", "https://site.test:8443, which is another site"],
+      ["/blog/slashes", "https://other.test, which is another site"],
+      ["/blog/script", "not valid"],
+      ["/blog/invalid", "not valid"],
+    ] as const) {
+      const refused = await frame(`${path}?${contentPreviewFrameParameter}`)
+      expect(refused.status).toBe(502)
+      expect(refused.headers.get("location")).toBeNull()
+      expect(refused.headers.get("cache-control")).toBe("private, no-store")
+      expect(await refused.text()).toContain(message)
+    }
+    // X-Forwarded-Host is not this origin: the form never goes there.
+    expect((await frame(`/blog/away?${contentPreviewFrameParameter}`, { "x-forwarded-host": "other.test" })).status).toBe(502)
+    // A loop stops at the sixth redirect, whatever hop the browser comes with.
+    const hops: number[] = []
+    let next = `/blog/loop?${contentPreviewFrameParameter}`
+    for (;;) {
+      const response = await frame(next)
+      hops.push(response.status)
+      if (response.status !== 307) {
+        expect(await response.text()).toContain("redirects more than 5 times")
+        break
+      }
+      next = response.headers.get("location")!
+    }
+    expect(hops).toEqual([307, 307, 307, 307, 307, 502])
+    // A status that a browser does not follow is not a redirect.
+    expect((await frame(`/blog/not-modified?${contentPreviewFrameParameter}`)).status).toBe(304)
 
-  it("leaves cookie prefix rules to the browser: a __Host- cookie without Path=/ stays invalid", async () => {
-    const { content } = await setup()
-    const seen: Array<string | null> = []
-    const app = new H3()
-      .get("/blog/hello", () => new Response(null, { status: 302, headers: { location: "/auth/login" } }))
-      .get("/auth/login", () => {
-        const headers = new Headers({ location: "/auth/account" })
-        headers.append("set-cookie", "__Host-bad=1; Secure")
-        headers.append("set-cookie", "__Host-good=1; Secure; Path=/")
-        headers.append("set-cookie", "__Secure-bad=1")
-        return new Response(null, { status: 302, headers })
-      })
-      .get("/auth/account", (event) => {
-        seen.push(event.req.headers.get("cookie"))
-        return { ok: true }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://site.test/blog/hello?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin" },
-      body: frameForm(token),
-    }))
-    expect(seen).toEqual(["__Host-good=1"])
-    // The invalid ones reach the browser unchanged, so it refuses them as it would on the redirect itself.
-    expect(response.headers.getSetCookie()).toEqual(["__Host-bad=1; Secure", "__Host-good=1; Secure; Path=/", "__Secure-bad=1; Path=/auth"])
-  })
-
-  it("keeps a path-scoped cookie of a redirect for a later hop under its path, past a hop outside it", async () => {
-    const { content } = await setup()
-    const seen: Record<string, string | null> = {}
-    const app = new H3()
-      .get("/a/login", () => new Response(null, { status: 302, headers: { location: "/b/bounce", "set-cookie": "token=1; Path=/a" } }))
-      .get("/b/bounce", (event) => {
-        seen.bounce = event.req.headers.get("cookie")
-        return new Response(null, { status: 302, headers: { location: "/a/home" } })
-      })
-      .get("/a/home", (event) => {
-        seen.home = event.req.headers.get("cookie")
-        return { ok: true }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://site.test/a/login?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", cookie: "keep=1" },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    expect(seen).toEqual({ bounce: "keep=1", home: "keep=1; token=1" })
-  })
-
-  it("keeps redirect cookies within their host or Domain scope across permitted hosts", async () => {
-    const { content } = await setup()
-    const seen: Record<string, string | null> = {}
-    const app = new H3()
-      .get("/a/login", () => {
-        const headers = new Headers({ location: "/b/bounce" })
-        headers.append("set-cookie", "session=internal; Path=/a")
-        headers.append("set-cookie", "shared=host; Path=/a")
-        headers.append("set-cookie", "shared=domain; Domain=site.test; Path=/a")
-        headers.append("set-cookie", "limited=1; Domain=internal.site.test; Path=/a")
-        return new Response(null, { status: 302, headers })
-      })
-      .get("/b/bounce", (event) => {
-        seen.bounce = event.req.headers.get("cookie")
-        return new Response(null, { status: 302, headers: { location: "https://public.site.test/a/account" } })
-      })
-      .get("/a/account", (event) => {
-        seen.account = event.req.headers.get("cookie")
-        return new Response(null, { status: 302, headers: { location: "https://internal.site.test/a/home", "set-cookie": "session=public; Path=/a" } })
-      })
-      .get("/a/home", (event) => {
-        seen.home = event.req.headers.get("cookie")
-        return { ok: true }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://internal.site.test/a/login?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": "public.site.test", cookie: "keep=1" },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    expect(seen).toEqual({
-      bounce: "keep=1",
-      account: "shared=domain",
-      home: "keep=1; session=internal; shared=host; shared=domain; limited=1",
-    })
-  })
-
-  it.each([
-    ["internal.foo.co.uk", "public.bar.co.uk", "co.uk", "foo.co.uk"],
-    ["internal.foo.github.io", "public.bar.github.io", "github.io", "foo.github.io"],
-  ])("rejects public-suffix Domain cookies from %s across permitted hosts", async (internal, publicHost, suffix, domain) => {
-    const { content } = await setup()
-    const seen: Record<string, string | null> = {}
-    const app = new H3()
-      .get("/login", () => {
-        const headers = new Headers({ location: "/bounce" })
-        headers.append("set-cookie", `rejected=secret; Domain=${suffix}; Path=/`)
-        headers.append("set-cookie", `accepted=1; Domain=${domain}; Path=/`)
-        return new Response(null, { status: 302, headers })
-      })
-      .get("/bounce", (event) => {
-        seen.bounce = event.req.headers.get("cookie")
-        return Response.redirect(`https://${publicHost}/account`, 302)
-      })
-      .get("/account", (event) => {
-        seen.account = event.req.headers.get("cookie")
-        return Response.redirect(`https://${internal}/home`, 302)
-      })
-      .get("/home", (event) => {
-        seen.home = event.req.headers.get("cookie")
-        return { ok: true }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://${internal}/login?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": publicHost },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    expect(seen).toEqual({ bounce: "accepted=1", account: null, home: "accepted=1" })
-  })
-
-  it.each(["localhost", "bar", "127.0.0.1", "co.uk", "github.io"])("keeps an exact-host Domain cookie on %s as host-only", async (host) => {
-    const { content } = await setup()
-    const other = host === "127.0.0.1" ? "localhost" : `sub.${host}`
-    const seen: Record<string, string | null> = {}
-    const app = new H3()
-      .get("/login", () => new Response(null, { status: 302, headers: { location: "/account", "set-cookie": `session=local; Domain=${host}; Path=/` } }))
-      .get("/account", (event) => {
-        seen.account = event.req.headers.get("cookie")
-        return Response.redirect(`https://${other}/bounce`, 302)
-      })
-      .get("/bounce", (event) => {
-        seen.bounce = event.req.headers.get("cookie")
-        return Response.redirect(`https://${host}/home`, 302)
-      })
-      .get("/home", (event) => {
-        seen.home = event.req.headers.get("cookie")
-        return { ok: true }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://${host}/login?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", "x-forwarded-host": other },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    expect(seen).toEqual({ account: "session=local", bounce: null, home: "session=local" })
-  })
-
-  it("keeps the cookies of redirects for the next page and the browser, on Nitro 3", async () => {
-    const { content, posts } = await setup()
-    const seen: Array<string | null> = []
-    const app = new H3()
-      .get("/login", () => {
-        const headers = new Headers({ location: "/account/" })
-        headers.append("set-cookie", "session=abc123; Path=/; HttpOnly; SameSite=Lax")
-        headers.append("set-cookie", "theme=dark; Path=/; Max-Age=3600")
-        headers.append("set-cookie", "legacy=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT")
-        headers.append("set-cookie", "other=x; Domain=elsewhere.test; Path=/")
-        headers.append("set-cookie", "scoped=1; Path=/admin")
-        return new Response(null, { status: 303, headers })
-      })
-      .get("/account/", async (event) => {
-        seen.push(event.req.headers.get("cookie"))
-        const session = /(?:^|; )session=([^;]*)/.exec(event.req.headers.get("cookie") ?? "")?.[1]
-        if (!session) return Response.redirect("https://site.test/login", 302)
-        return { session, title: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id }
-      })
-    const nitroApp = { fetch: (request: Request) => app.fetch(request), h3: app }
-    defineContentPreviewPlugin(content)(nitroApp)
-    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
-    const response = await nitroApp.fetch(new Request(`https://site.test/login?${contentPreviewFrameParameter}`, {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", cookie: "legacy=1; keep=yes" },
-      body: frameForm(token),
-    }))
-    expect(response.status).toBe(200)
-    // The cookie-dependent page reads the session the redirect set, and the document on screen.
-    expect(await response.json()).toEqual({ session: "abc123", title: "On screen", frame: "hello" })
-    expect(seen).toEqual(["keep=yes; session=abc123; theme=dark"])
-    // The browser gets every cookie, in order, as if it had followed the redirect.
-    expect(response.headers.getSetCookie()).toEqual([
-      "session=abc123; Path=/; HttpOnly; SameSite=Lax",
-      "theme=dark; Path=/; Max-Age=3600",
-      "legacy=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT",
-      "other=x; Domain=elsewhere.test; Path=/",
-      "scoped=1; Path=/admin",
-    ])
-    // The same Cookie header outside a frame keeps the ordinary redirect, and nothing changes the cookie.
-    const outside = await nitroApp.fetch(new Request("https://site.test/login", { headers: { cookie: "legacy=1; keep=yes" } }))
-    expect(outside.status).toBe(303)
-    expect(outside.headers.get("location")).toBe("/account/")
+    // Outside a frame the same request keeps the ordinary redirect.
+    const outside = await nitroApp.fetch(new Request("https://site.test/en/blog/hello", { headers: { cookie: "prefs=1" } }))
+    expect(outside.status).toBe(302)
+    expect(outside.headers.get("location")).toBe("../../blog/hello?q=a%20b&flag#top")
     expect(outside.headers.get("cache-control")).toBeNull()
   })
 
-  it.each([false, true])("handles frame redirects without Headers.getSetCookie (sets cookie: %s)", async (setsCookie) => {
-    const { content, posts } = await setup()
-    const render = vi.fn(async (request: Request) => {
-      if (new URL(request.url).pathname === "/start") {
-        const response = new Response(null, { status: 302, headers: {
-          location: "/blog/hello",
-          ...(setsCookie ? { "set-cookie": "locale=en; Path=/" } : {}),
-        } })
-        // Older Fetch hosts expose a combined Set-Cookie header without this newer method.
-        Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
-        return response
-      }
-      return Response.json({ title: (await posts.get("hello"))?.data.title, frame: content.preview.frame()?.id })
+  it("passes a joined Set-Cookie of a frame redirect on a host without Headers.getSetCookie", async () => {
+    const { content } = await setup()
+    const render = vi.fn(async (_request: Request) => {
+      const response = new Response(null, { status: 302, headers: { location: "/blog/hello", "set-cookie": "locale=en; Path=/" } })
+      // Older Fetch hosts expose a combined Set-Cookie header without this newer method.
+      Object.defineProperty(response.headers, "getSetCookie", { value: undefined })
+      return response
     })
     const nitroApp = { fetch: render }
     defineContentPreviewPlugin(content)(nitroApp)
@@ -696,22 +504,13 @@ describe("content preview", { timeout: 30_000 }, () => {
     const response = await nitroApp.fetch(new Request(`https://site.test/start?${contentPreviewFrameParameter}`, {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded", origin: "https://site.test" },
-      body: new URLSearchParams({ [contentPreviewFrameParameter]: JSON.stringify({ token, document: { collection: "posts", id: "hello", data: { title: "On screen" } } }) }),
+      body: frameForm(token),
     }))
-    expect(response.headers.get("cache-control")).toBe("private, no-store")
-    if (setsCookie) {
-      // The joined header cannot be split safely, so the frame says it cannot follow instead of dropping the cookie.
-      expect(response.status).toBe(502)
-      expect(await response.text()).toContain(`<meta name="${contentPreviewErrorName}" content="The page redirects and sets cookies that this server cannot read one by one`)
-      expect(render).toHaveBeenCalledOnce()
-    }
-    else {
-      expect(response.status).toBe(200)
-      expect(await response.json()).toEqual({ title: "On screen", frame: "hello" })
-      expect(render).toHaveBeenCalledTimes(2)
-    }
+    expect(response.status).toBe(307)
+    expect(response.headers.get("location")).toBe(`https://site.test/blog/hello?${contentPreviewFrameParameter}=1`)
+    expect(response.headers.get("set-cookie")).toBe("locale=en; Path=/")
+    expect(render).toHaveBeenCalledOnce()
   })
-
   it("lets a frame token read the draft of its one document, and no other draft through any read", async () => {
     vi.stubEnv("VITEHUB_CONTENT_KEY", key)
     const workspace = await historyWorkspace()
@@ -997,7 +796,7 @@ describe("content preview", { timeout: 30_000 }, () => {
     expect(nitroApp.calls).toMatchObject([{ method: "GET", url: "/blog/hello?lang=en", protocol: "http" }])
   })
 
-  it("follows same-origin redirects of a Nitro 2 preview frame in its scope, with their cookies, and stops at another site", async () => {
+  it("answers same-origin redirects of a Nitro 2 preview frame with a 307 on the connection, and refuses another site before it", async () => {
     const { content, posts } = await setup()
     const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
     let base = ""
@@ -1014,43 +813,74 @@ describe("content preview", { timeout: 30_000 }, () => {
       "/blog/loop": () => ({ status: 307, headers: { location: "/blog/loop" } }),
       // A handler that returns a Web Response, which h3 v1 sends as a stream.
       "/blog/stream": async () => ({ headers: { "content-type": "text/html" }, body: new Response(`<html><head></head><body>${(await posts.get("hello"))?.data.title}</body></html>`).body! }),
-      "/blog/to-stream": () => ({ status: 302, headers: { location: "/blog/stream" } }),
     }
     const nitroApp = await nitro2Server(request => pages[String(request.url).split("?", 1)[0]!]?.(request) ?? { status: 404 })
     defineContentPreviewPlugin(content)(nitroApp)
     base = await listen(nitroApp)
-    const frame = (path: string, cookie?: string) => fetch(`${base}${path}?${contentPreviewFrameParameter}`, {
+    const frame = (url: string, cookie?: string) => fetch(url.startsWith("/") ? `${base}${url}` : url, {
       method: "POST",
       redirect: "manual",
       headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: base, ...cookie ? { cookie } : {} },
       body: frameForm(token),
     })
 
-    const followed = await frame("/blog/old", "prefs=1")
-    expect(followed.status).toBe(200)
-    expect(followed.headers.get("cache-control")).toBe("private, no-store")
-    expect(followed.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly", "locale=en; Path=/; Max-Age=600"])
-    const html = await followed.text()
-    expect(html).toContain("<h1>On screen</h1><p>prefs=1; session=abc; locale=en</p>")
-    expect(html).toContain(`<head><script>history.replaceState(history.state,"","/account?lang=en&${contentPreviewFrameParameter}="+"#top")</script></head>`)
-    expect(nitroApp.calls.map(call => call.url)).toEqual(["/blog/old", "/en/blog/hello", "/account?lang=en"])
+    const first = await frame(`/blog/old?${contentPreviewFrameParameter}`, "prefs=1")
+    expect(first.status).toBe(307)
+    expect(first.headers.get("cache-control")).toBe("private, no-store")
+    expect(first.headers.get("location")).toBe(`${base}/en/blog/hello?${contentPreviewFrameParameter}=1`)
+    const second = await frame(first.headers.get("location")!, "prefs=1")
+    expect(second.status).toBe(307)
+    expect(second.headers.get("location")).toBe(`${base}/account?lang=en&${contentPreviewFrameParameter}=2#top`)
+    // The browser gets the cookies of the redirect itself and sends them with the next post.
+    expect(second.headers.getSetCookie()).toEqual(["session=abc; Path=/; HttpOnly", "locale=en; Path=/; Max-Age=600"])
+    const last = await frame(second.headers.get("location")!, "prefs=1; session=abc; locale=en")
+    expect(last.status).toBe(200)
+    expect(await last.text()).toBe("<html><head></head><body><h1>On screen</h1><p>prefs=1; session=abc; locale=en</p></body></html>")
+    // Each page ran as a GET of its own URL with the Cookie header of its own request only.
+    expect(nitroApp.calls.map(call => [call.method, call.url, call.headers.cookie, call.headers["content-type"]])).toEqual([
+      ["GET", "/blog/old", "prefs=1", undefined],
+      ["GET", "/en/blog/hello", "prefs=1", undefined],
+      ["GET", "/account?lang=en", "prefs=1; session=abc; locale=en", undefined],
+    ])
 
-    expect(await (await frame("/blog/stream")).text()).toBe("<html><head></head><body>On screen</body></html>")
-    expect(await (await frame("/blog/to-stream")).text()).toContain("<body>On screen</body>")
+    expect(await (await frame(`/blog/stream?${contentPreviewFrameParameter}`)).text()).toBe("<html><head></head><body>On screen</body></html>")
 
-    const away = await frame("/blog/away")
+    const away = await frame(`/blog/away?${contentPreviewFrameParameter}`)
     expect(away.status).toBe(502)
     expect(away.headers.get("location")).toBeNull()
     expect(away.headers.getSetCookie()).toEqual(["away=1; Path=/"])
     expect(await away.text()).toContain(`<meta name="${contentPreviewErrorName}"`)
-    expect((await frame("/blog/loop")).status).toBe(502)
+    expect((await frame(`/blog/loop?${contentPreviewFrameParameter}=5`)).status).toBe(502)
+    expect((await frame(`/blog/loop?${contentPreviewFrameParameter}=4`)).status).toBe(307)
 
     // Concurrent frames and ordinary requests on the same connection pool stay apart.
     const reads = await Promise.all(Array.from({ length: 12 }, async (_, index) => {
       if (index % 2) return { frame: false, text: await (await fetch(`${base}/account`, { headers: { cookie: "session=abc" } })).text() }
-      return { frame: true, text: await (await frame("/blog/old")).text() }
+      return { frame: true, text: await (await frame(`/account?${contentPreviewFrameParameter}=2`, "session=abc")).text() }
     }))
     for (const read of reads) expect(read.text).toContain(read.frame ? "<h1>On screen</h1>" : "<h1>Published</h1>")
+  })
+  it("keeps the Nuxt payload of a Nitro 2 frame page inline: its route rules lose cache, swr, and isr", async () => {
+    const { content } = await setup()
+    const { token } = await content.preview.sign({ collection: "posts", id: "hello" })
+    const seen: unknown[] = []
+    const rules = { cache: { swr: true, maxAge: 60 }, swr: 60, isr: false, headers: { "x-rule": "1" } }
+    const nitroApp = await nitro2Server(() => ({ body: "page" }))
+    const handler = nitroApp.h3App.handler
+    // Nitro 2 reads the route rules of a request into event.context._nitro.routeRules, as Nuxt's renderer does.
+    nitroApp.h3App.handler = async (event: { context?: { _nitro?: { routeRules?: unknown } } } & Parameters<typeof handler>[0]) => {
+      event.context ??= {}
+      event.context._nitro ??= {}
+      event.context._nitro.routeRules ??= structuredClone(rules)
+      seen.push(structuredClone(event.context._nitro.routeRules))
+      return await handler(event)
+    }
+    defineContentPreviewPlugin(content)(nitroApp)
+    const base = await listen(nitroApp)
+    const frame = await fetch(`${base}/post?${contentPreviewFrameParameter}`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", "sec-fetch-site": "same-origin", origin: base }, body: frameForm(token) })
+    expect(frame.status).toBe(200)
+    expect((await fetch(`${base}/post`)).status).toBe(200)
+    expect(seen).toEqual([{ headers: { "x-rule": "1" } }, rules])
   })
 
   it("checks a Nitro 2 frame Origin against the public protocol, from TLS or a proxy, and never from Origin", async () => {

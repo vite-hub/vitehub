@@ -177,13 +177,15 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* The panel fills the right half and stays in view, like an editor beside the tutorial. Narrow screens keep the code inline. */
+/* The panel fills the right half and stays in view, like an editor beside the tutorial. Narrow screens keep the code inline.
+   The file tree sits under the code, so each line gets the full panel width. */
 .vh-code-panel {
   position: sticky;
   top: var(--ui-header-height);
   display: none;
   height: calc(100dvh - var(--ui-header-height));
-  grid-template-columns: minmax(8rem, 36%) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-areas: "file" "tree";
   border-left: 1px solid var(--ui-border);
   background: var(--ui-bg);
 }
@@ -197,10 +199,12 @@ onBeforeUnmount(() => {
 .vh-code-panel-tree {
   display: flex;
   min-width: 0;
+  max-height: 30dvh;
+  grid-area: tree;
   flex-direction: column;
   overflow-y: auto;
   overflow-x: auto;
-  border-right: 1px solid var(--ui-border);
+  border-top: 1px solid var(--ui-border);
   background: var(--ui-bg-muted);
   padding: 0.5rem 0.375rem;
   font-family: var(--font-mono);
@@ -246,6 +250,7 @@ onBeforeUnmount(() => {
 
 .vh-code-panel-file {
   display: flex;
+  grid-area: file;
   min-width: 0;
   min-height: 0;
   flex-direction: column;

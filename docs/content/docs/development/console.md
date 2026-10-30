@@ -413,11 +413,11 @@ Each Console data route checks access itself. The Console Auth middleware stays 
 | `auth: { provider: 'cloudflare-access' }` | Verifies the Cloudflare Access token. Development has no Access edge, so the development server allows the request. |
 | `authorize` | Runs after any of the checks above. It can reject the request or limit it to some sections. |
 
-All Console paths in this guide include the resolved Vite `base` pathname. With `base: '/portal/'`, host middleware that you keep as a first layer must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Policies for only the root routes do not protect these mounted routes. Update host policies when changing the base or upgrading to base-aware Console routes. An absolute base such as `https://cdn.example/portal/` uses the same `/portal/` prefix. Relative bases (`''` or `'./'`) use root routes. Primary Auth access routes must also include the prefix; built-in Console Auth applies it automatically.
+All Console paths in this guide use the application base: an explicit ViteHub application base (set from Nuxt `app.baseURL`), otherwise a root-relative Vite `base`. With `base: '/portal/'`, host middleware that you keep as a first layer must authenticate and authorize `/portal/_vitehub/**` and `/portal/api/_vitehub/console/**` for every method, including assets, RPC, and invocation actions. Update host policies when changing the application base or upgrading to base-aware Console routes. Absolute and protocol-relative Vite bases such as `https://cdn.example/portal/` and `//cdn.example/portal/` are asset CDN URLs; without an explicit application base, protect `/_vitehub/**` and `/api/_vitehub/console/**` at root. Relative bases (`''` or `'./'`) also use root routes. When Nitro `baseURL` matches the application base, Nitro adds it once, so the Console is at `/portal/_vitehub`. Primary Auth access routes must also use the application base; built-in Console Auth applies it automatically.
 
 ### Open the Console from the app's pages
 
-The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** link that opens `/_vitehub` in a new tab, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
+The ViteHub tools pill shows at the bottom of the app's pages when a page has the `?vitehub` query or the `vitehub-tools` cookie. Opening the Console sets that cookie for you. When the Console is on, the pill has a **Console** button that opens the Console in a floating window, next to page tools such as [Comments](/docs/comments/configure#turn-comment-mode-on-and-off).
 
 The link uses the same access check as the Console data routes, for any section. A person that the Console rejects does not get the link. An `authorize` result with at least one section, such as `{ sections: ['content'] }`, allows the link. With the development default, the Console and its link exist on the development server only. **Turn off ViteHub tools**, the **×** of the pill, clears the cookie and removes the pill.
 
@@ -733,6 +733,18 @@ Images must be PNG, JPEG, WebP, or GIF, with at most ten images and 10 MiB combi
 Open the right panel's tab chooser and select **Capabilities**. Select a Capability to inspect its recorded data and tools. MCP groups tools by server and preserves original tool names and schemas. Title shows its generation settings, progress, and result. Other Capabilities have a default tools and configuration view.
 
 The panel reads the selected Invocation's snapshots. It does not run MCP discovery or title generation. Missing or truncated capture is marked. Developers can [contribute a read-only view](/docs/agents/capabilities/custom#contribute-an-inspection-view) with the shared JSON Render component catalog.
+
+## Work from a page
+
+After opening the Console, return to any application page. The ViteHub pill stays available while its hint cookie is present. You can also open a page with `?vitehub`. The server checks each tool's access; the cookie grants no permissions. Ordinary signed-out visitors do not get the editor.
+
+Choose **Console** to open it in a floating window. **Content** appears only when Content is installed and your Console permissions include the full `content` grant. A `content:read` grant keeps Content available through **Console**. Choose **Select field**, then a page element marked with `contentField()`, to open that document in the same Content editor. You can also browse collections with the keyboard inside the Content window. Content's own read, write, and publish policies still apply.
+
+Expand or minimize the window without losing the selected document or unsaved text. On a phone the editor fills the available screen. Client-side page navigation leaves the editor open on its current document. A full page reload cannot retain unsaved memory; the editor asks before leaving when it has unsaved changes. Window size and the selected editor route are remembered locally; document values are not stored by the pill.
+
+The editor loads on first use. Production embedding uses a same-origin iframe and requires an accepted Console session. A normal Console page still denies framing; `?embed=1` permits same-origin framing only after the Console access check. Hosts must permit the same-origin frame in their own Content Security Policy.
+
+Comments uses the same expandable window for the current page's thread list and replies. When the Content editing tool is available, Comments' **Edit** action opens the document editor. Otherwise its existing plain-text field editing remains available according to the Comments and Content policies.
 
 ## Inspect logs
 

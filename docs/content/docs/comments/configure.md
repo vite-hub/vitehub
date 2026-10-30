@@ -379,11 +379,17 @@ The Comments toolbar is one segment of the ViteHub tools pill at the bottom of t
 | <kbd>Esc</kbd> | Close the open thread, or turn **Comment** and **Edit** off. |
 | <kbd>⌘</kbd> <kbd>Enter</kbd> | Send the comment. |
 
-Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=2">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
+Without the hint, the server returns each page unchanged: no script, no request, and no extra cache variant. With the hint, it adds one loader script, `<script type="module" src="/_vitehub/page/assets/loader.js?v=8">`, before `</body>` of HTML responses and sends them with `cache-control: private, no-store`. The loader imports the overlay only for people that the session route allows. With an application base such as `/portal/`, the loader and session URLs start with `/portal/_vitehub/page/`. Paths under `/_vitehub` and `/api` within that application never get the loader.
 
 - Nitro 3 apps get the script from the server response. Nuxt 4 apps get it through Nitro's `render:html` hook, and also when a route returns the page as a `Response`.
-- A single-page app whose `index.html` Vite builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie.
-- A page that a CDN serves from its cache or as a static file never reaches the server, so it does not get the loader. Use the query on a page that the server renders, or serve the prerendered files through a route.
+- A single-page app whose `index.html` Vite serves or builds gets a short inline check instead. The check loads the page tools loader in the browser when it finds the query or the cookie. It is in the built `index.html`, so it also works when a host serves that file as a static file. The server does not add a second loader to a page that has the check.
+- Other pages that a CDN serves from its cache or as static files never reach the server, so they do not get the loader. Use the query on a page that the server renders, or serve the prerendered files through a route.
+
+### Apps below a base path
+
+When the app has a Vite `base`, such as `base: '/docs/'`, or a Nuxt `app.baseURL`, Comments and the page tools follow it. The session route is `/docs/_vitehub/page/session`, the loader is `/docs/_vitehub/page/assets/loader.js`, and the Comments API is `/docs/api/_vitehub/comments`. The loader and the overlay find the base from their own URL, so you do not configure it twice. Paths under `/docs/_vitehub` and `/docs/api` never get the loader.
+
+ViteHub registers these routes below the part of the base that Nitro does not add. When you also set Nitro `baseURL` to the same path, as Nuxt does for `app.baseURL`, Nitro adds the base and ViteHub adds nothing. A base that you set with `NUXT_APP_BASE_URL` when the server starts also works on Nuxt 4: the loader tag takes the base of each request.
 
 A prerendered site can keep its files and still show the overlay. Run the server first, and return the file from a route. In a Nuxt 4 app on Cloudflare, set `assets.run_worker_first` in `wrangler.jsonc` and read the file from the assets binding:
 

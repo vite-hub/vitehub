@@ -2,7 +2,6 @@ import { registerViteHubMcpTools } from "@vite-hub/internal/runtime/mcp-tools"
 import { installViteHubPageTools, registerViteHubPageTool } from "@vite-hub/internal/runtime/page-tools"
 
 import { installComments } from "../index.ts"
-import { commentsApiRoute, commentsRoute } from "../page.ts"
 import { resolveCommentsUser } from "./session.ts"
 import { commentsMcpTools } from "./mcp.ts"
 
@@ -18,8 +17,13 @@ export interface CommentsPluginOptions extends CommentsSessionOptions {
   githubLogin?: CommentsGitHubLogin
   /** The Database of `defineComments({ database })`, or undefined when the app has none. */
   database: () => CommentsDatabase | undefined
-  /** URL of the overlay script, including the GitHub sign-in prompt. */
+  /**
+   * Path of the overlay script below the app base, such as `/api/_vitehub/comments/assets/overlay.js`. The page tools
+   * loader imports it for people that may read comments.
+   */
   overlay: string
+  /** The app base, such as `/portal/`. The page tools use it for the loader tag of Nitro 3 pages. Default: the root. */
+  base?: string
   /** Vite's serve/build identity, recorded by the generated plugin. Defaults to false. */
   development?: boolean
   /** What the server log says when `database()` returns nothing. */
@@ -40,7 +44,6 @@ export function installedComments(): Comments | undefined {
  * `comments` page tool: a visitor may load it when `authorize` allows `read` or GitHub sign-in is available.
  */
 export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp: unknown) => void {
-  const base = commentsApiRoute(new URL(options.overlay, "http://localhost").href).slice(0, -commentsRoute.length)
   return (nitroApp) => {
     const database = options.database()
     if (database) installComments(options.comments, { database, development: options.development })
@@ -54,6 +57,7 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
       label: "Comments",
       icon: "i-lucide-message-square-text",
       script: options.overlay,
+      lazy: true,
       async allowed({ event }) {
         // SAFETY: the page tools session passes the H3 event of its Nitro route, which the session readers accept.
         const user = await resolveCommentsUser(options.comments, event as H3Event, { ...options, session: options.session ?? options.githubLogin?.user })
@@ -62,6 +66,6 @@ export function defineCommentsPlugin(options: CommentsPluginOptions): (nitroApp:
           || Boolean(!options.comments.options.identify && options.githubLogin?.configured() && (!user || user.github))
       },
     })
-    installViteHubPageTools(nitroApp, base)
+    installViteHubPageTools(nitroApp, { base: options.base })
   }
 }

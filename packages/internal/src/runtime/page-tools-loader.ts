@@ -1,11 +1,14 @@
+import { createViteHubPageWindow } from "./page-tools-window.ts"
+import type { ViteHubPageWindow, ViteHubPageWindowOptions } from "./page-tools-window.ts"
 /**
- * The browser side of the page tools. The page gets one script, the loader. It asks `/_vitehub/page/session` which
- * tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
+ * The browser side of the page tools. The page gets one script, the loader. It asks `<base>/_vitehub/page/session`
+ * which tools this visitor may use, draws the pill, then imports the script of each tool and calls its default export.
+ * It finds the app base from its own URL, `<base>/_vitehub/page/assets/loader.js`, so it needs no configuration.
  *
  * This file runs only in the browser. The package's Node program does not include it, because the DOM types conflict
  * with the Node stream types: `tsconfig.browser.json` checks it.
  */
-import { readViteHubPageSession, viteHubPageSessionPath, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { readViteHubPageSession, viteHubPageSessionUrl, viteHubPageToolsCookie, viteHubPageToolsQuery } from "./page-tools-shared.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
@@ -21,8 +24,12 @@ export interface ViteHubPageToolContext {
   bar: HTMLElement
   /** Aborts when the tool must stop, such as after `exit()`. The loader then also calls the cleanup function. */
   signal: AbortSignal
-  /** True when the page URL has `?vitehub=<this tool id>`. */
+  /** Whether the tool should open on startup, through query selection, activation, or restored state. */
   open: boolean
+  createWindow(options: Omit<ViteHubPageWindowOptions, "signal">): ViteHubPageWindow
+  openTool(id: string, path?: string): Promise<boolean>
+  onOpen(handler: (path?: string) => void): void
+  beforeExit(check: () => boolean): void
   /**
    * Turns the page tools off for this browser: clears the hint cookie and the query, stops every tool, and removes the
    * pill. The pill's exit button calls it, so a tool does not draw its own.
@@ -44,10 +51,10 @@ function startOf(module: unknown): ViteHubPageToolModule["default"] | undefined 
 // The pill takes its colors from `color-scheme`, which the loader sets from the page, and the page's font. The tools in
 // its segments inherit both. Each visible segment ends with a short divider.
 const pillStyles = `:host{all:initial;position:fixed;left:50%;bottom:16px;translate:-50% 0;z-index:2147483001;font-size:13px;line-height:1.5;color:light-dark(#3f3f46,#e4e4e7);-webkit-font-smoothing:antialiased}
-div{--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
-::slotted(*){display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
+div{max-width:calc(100vw - 24px);overflow-x:auto;--line:light-dark(#0000000f,#ffffff12);display:flex;align-items:center;gap:2px;padding:4px;border-radius:999px;background:light-dark(#fff,#1c1c1f);box-shadow:0 0 0 1px light-dark(#00000014,#ffffff1a),0 1px 2px #0000000a,0 8px 24px -6px light-dark(#00000029,#0009)}
+::slotted(*){flex-shrink:0;display:flex;align-items:center;padding-right:5px;margin-right:3px;background:linear-gradient(var(--line),var(--line)) right/1px 16px no-repeat}
 ::slotted([hidden]){display:none!important}
-button{all:unset;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
+button{all:unset;flex-shrink:0;position:sticky;right:0;width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;color:light-dark(#71717a,#a1a1aa)}
 button:hover{background:light-dark(#0000000d,#ffffff0f);color:light-dark(#18181b,#fafafa)}
 :focus-visible{outline:2px solid #2563eb;outline-offset:2px}`
 
@@ -107,16 +114,16 @@ function mountPill(tools: ViteHubPageToolInfo[], exit: () => void, signal: Abort
 }
 
 export interface LoadViteHubPageToolsOptions {
-  /** The public session URL. A browser entry resolves it relative to its own loader URL. */
-  session?: string
   /** Imports the script of a tool. Default: a dynamic `import()`. */
   load?: (script: string) => Promise<unknown>
+  /** The URL of the session route. Default: the session route next to this script, below the same app base. */
+  session?: string
 }
 
 /**
  * Asks the session route which tools this visitor may use, draws the pill, then starts each tool with its segment.
- * Without an allowed tool it does nothing more: the session route already cleared the hint cookie. When no tool starts,
- * it removes the pill. Returns the tools that it started.
+ * Without an allowed tool it does nothing more: the session route already cleared the hint cookie. The pill remains
+ * while a tool is mounted or available to launch or retry. Returns those available tools.
  */
 export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions = {}): Promise<ViteHubPageToolInfo[]> {
   // Vite pages load this external module under CSP; visitors without a hint make no session request.
@@ -125,7 +132,7 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   const load = options.load ?? ((script: string) => import(/* @vite-ignore */ script))
   let session: ViteHubPageSession
   try {
-    const response = await fetch(options.session ?? viteHubPageSessionPath, { credentials: "same-origin", headers: { accept: "application/json" } })
+    const response = await fetch(options.session ?? viteHubPageSessionUrl(import.meta.url), { credentials: "same-origin", headers: { accept: "application/json" } })
     if (!response.ok) return []
     session = readViteHubPageSession(await response.json())
   }
@@ -136,9 +143,13 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
   if (session.tools.length === 0 || document.querySelector("vitehub-pill")) return []
 
   const open = query.get(viteHubPageToolsQuery)
+  const querySelected = session.tools.some(tool => tool.id === open)
   const pillController = new AbortController()
   const controllers = session.tools.map(() => new AbortController())
+  const exitChecks = new Set<() => boolean>()
   const exit = () => {
+    if ([...exitChecks].some(check => !check())) return
+    for (const tool of session.tools) remember(tool.id, false)
     document.cookie = `${viteHubPageToolsCookie}=; Path=/; Max-Age=0; SameSite=Lax`
     const url = new URL(location.href)
     if (url.searchParams.has(viteHubPageToolsQuery)) {
@@ -149,28 +160,115 @@ export async function loadViteHubPageTools(options: LoadViteHubPageToolsOptions 
     pillController.abort()
   }
   const pill = mountPill(session.tools, exit, pillController.signal)
+  const windows = new Map<string, ViteHubPageWindow>()
+  const windowKey = (id: string) => `vitehub-open:${options.session ?? viteHubPageSessionUrl(import.meta.url)}:${id}`
+  const remember = (id: string, value: boolean) => { try { sessionStorage.setItem(windowKey(id), String(value)) } catch {} }
+  const restored = (id: string) => { try { return sessionStorage.getItem(windowKey(id)) === "true" } catch { return false } }
+  const activators = new Map<string, (path?: string) => Promise<boolean>>()
+  const openTool = async (id: string, path?: string) => await activators.get(id)?.(path) ?? false
   const started = await Promise.all(session.tools.map(async (tool, index) => {
     const { signal } = controllers[index]!
-    const bar = document.createElement("vitehub-tool")
+    let bar = document.createElement("vitehub-tool")
     bar.slot = tool.id
     pill.append(bar)
-    try {
-      const start = startOf(await load(tool.script))
-      if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
-      if (signal.aborted) return undefined
-      const cleanup = start({ tool, bar, signal, open: tool.id === open, exit })
-      if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
-      if (cleanup instanceof Function) {
-        if (signal.aborted) cleanup()
-        else signal.addEventListener("abort", () => cleanup(), { once: true })
-      }
-      return signal.aborted ? undefined : tool
+    let activate: ((path?: string) => void) | undefined
+    let starting: Promise<boolean> | undefined
+    let mounted = false
+    const replaceBar = () => {
+      const replacement = document.createElement("vitehub-tool")
+      replacement.slot = tool.id
+      bar.replaceWith(replacement)
+      bar = replacement
     }
-    catch (error) {
-      bar.remove()
-      console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
-      return undefined
+    const mountLaunch = () => {
+      const shadow = bar.attachShadow({ mode: "open" })
+      const style = document.createElement("style")
+      style.textContent = "button{all:unset;display:block;box-sizing:border-box;font:inherit;color:inherit;border-radius:999px;padding:0 12px;min-height:36px;cursor:pointer}button:focus-visible{outline:2px solid #2563eb;outline-offset:-2px}"
+      shadow.append(style, launch)
     }
+    const run = (path?: string, show = true): Promise<boolean> => {
+      if (signal.aborted) return Promise.resolve(false)
+      if (mounted) { activate?.(path); return Promise.resolve(true) }
+      if (starting) return starting.then(ok => { if (ok) activate?.(path); return ok })
+      starting = (async () => {
+        const attempt = new AbortController()
+        const stop = () => attempt.abort()
+        signal.addEventListener("abort", stop, { once: true })
+        try {
+          bar.setAttribute("aria-busy", "true")
+          const start = startOf(await load(tool.script))
+          if (!start) throw new TypeError(`The script ${tool.script} has no default export function.`)
+          if (signal.aborted) return false
+          // Tools own their segment's shadow root; discard the loader's launch control before startup.
+          launch.remove()
+          if (bar.shadowRoot) replaceBar()
+          else bar.replaceChildren()
+          const cleanup = start({
+            beforeExit: check => {
+              const guard = () => check()
+              exitChecks.add(guard)
+              attempt.signal.addEventListener("abort", () => exitChecks.delete(guard), { once: true })
+            }, tool, bar, signal: attempt.signal,
+            open: show && (tool.lazy === true || tool.id === open || restored(tool.id)), exit,
+            createWindow: options => {
+              const window = createViteHubPageWindow({ ...options, signal: attempt.signal, onHide: () => { remember(tool.id, false); options.onHide?.() } })
+              const retained = { ...window, show() {
+                if (attempt.signal.aborted) return
+                for (const [id, other] of windows) if (id !== tool.id) other.hide()
+                remember(tool.id, true)
+                window.show()
+              }, destroy() {
+                if (windows.get(tool.id) === retained) {
+                  windows.delete(tool.id)
+                  remember(tool.id, false)
+                }
+                window.destroy()
+              } }
+              windows.set(tool.id, retained)
+              return retained
+            }, openTool,
+            onOpen: handler => { activate = handler },
+          })
+          mounted = true
+          if (path) activate?.(path)
+          if (!bar.shadowRoot && !bar.hasChildNodes()) bar.hidden = true
+          if (cleanup instanceof Function) {
+            if (signal.aborted) cleanup()
+            else attempt.signal.addEventListener("abort", () => cleanup(), { once: true })
+          }
+          return !signal.aborted
+        }
+        catch (error) {
+          attempt.abort()
+          signal.removeEventListener("abort", stop)
+          if (windows.delete(tool.id)) remember(tool.id, false)
+          activate = undefined
+          mounted = false
+          console.error(`[vitehub] The page tool "${tool.id}" did not start.`, error)
+          if (tool.lazy) {
+            // A failed tool may have attached a shadow root; retries need a fresh segment.
+            replaceBar()
+            launch.textContent = `Retry ${tool.label}`
+            launch.title = "The tool could not load. Try again."
+            bar.hidden = false
+            mountLaunch()
+          }
+          else { activators.delete(tool.id); bar.remove() }
+          return false
+        }
+        finally { bar.removeAttribute("aria-busy"); starting = undefined }
+      })()
+      return starting
+    }
+    const launch = document.createElement("button")
+    launch.type = "button"
+    launch.textContent = tool.label
+    launch.addEventListener("click", () => void run())
+    activators.set(tool.id, run)
+    if (tool.lazy && tool.id !== open && !restored(tool.id)) { mountLaunch(); return tool }
+    // Restored tools may mount, but an explicit query selection owns the visible window.
+    const ok = await run(undefined, !querySelected || tool.id === open)
+    return !signal.aborted && (ok || tool.lazy) ? tool : undefined
   }))
   const tools = started.filter((tool): tool is ViteHubPageToolInfo => Boolean(tool))
   if (tools.length === 0) pillController.abort()

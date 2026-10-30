@@ -114,7 +114,6 @@ catalogs:
     nostics: 1.3.0
     ocache: ^0.3.0
     standard-context: 0.0.4
-    tldts: ^7.4.19
     valibot: ^1.5.0
     zod: ^4.6.7
   sandbox:

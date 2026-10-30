@@ -8,7 +8,7 @@ import { api } from "../src/overlay/api.ts"
 import type { PageThread } from "../src/overlay/api.ts"
 
 vi.mock("../src/overlay/api.ts", () => ({
-  api: { session: vi.fn(), threads: vi.fn(), reply: vi.fn(), remove: vi.fn(), removeComment: vi.fn(), field: vi.fn(), saveField: vi.fn() },
+  api: { session: vi.fn(), threads: vi.fn(), reply: vi.fn(), remove: vi.fn(), removeComment: vi.fn(), field: vi.fn(), saveField: vi.fn(), people: vi.fn() },
   readGuest: () => undefined,
   saveGuest: vi.fn(),
 }))
@@ -27,6 +27,7 @@ let pill: HTMLElement
 let bar: HTMLElement
 let overlay: HTMLElement
 let shadow: ShadowRoot
+let windowBody: HTMLElement
 
 function deferred<T>() {
   let resolve!: (value: T) => void
@@ -62,7 +63,7 @@ beforeEach(async () => {
   room.states.mockReturnValue(new Map())
   const { default: start } = await import("../src/overlay/index.ts")
   mountBar()
-  start({ tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" }, bar, signal: new AbortController().signal, open: false, exit: vi.fn() })
+  start(context())
   overlay = document.querySelector<HTMLElement>("vitehub-comments")!
   shadow = overlay.shadowRoot!
   await vi.waitFor(() => expect(shadow.querySelector(".pin-button")).not.toBeNull())
@@ -87,10 +88,23 @@ function mountBar() {
   document.body.append(pill)
 }
 
+function context() {
+  return {
+    tool: { id: "comments", label: "Comments", icon: "i-lucide-message-square-text", script: "/overlay.js" },
+    bar, signal: new AbortController().signal, open: false, exit: vi.fn(),
+    onOpen: vi.fn(), beforeExit: vi.fn(), openTool: vi.fn(async () => false),
+    createWindow: vi.fn(() => {
+      windowBody = document.createElement("div")
+      document.body.append(windowBody)
+      return { body: windowBody, show: vi.fn(), hide: vi.fn(), destroy: vi.fn() }
+    }),
+  }
+}
+
 function createOverlay() {
   mountBar()
   const element = document.createElement("vitehub-comments")
-  Reflect.set(element, "context", { bar, signal: new AbortController().signal, open: false, exit: vi.fn() })
+  Reflect.set(element, "context", context())
   return element
 }
 
@@ -118,7 +132,12 @@ describe("Comments overlay", () => {
     const { default: start } = await import("../src/overlay/index.ts")
     mountBar()
     const controller = new AbortController()
-    const cleanup = start({ tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, bar, signal: controller.signal, open: false, exit: vi.fn() })
+    const cleanup = start({
+      tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
+      bar, signal: controller.signal, open: false, exit: vi.fn(),
+      createWindow: () => { throw new Error("Unexpected retained window") },
+      openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+    })
     overlay = document.querySelector<HTMLElement>("vitehub-comments")!
     controller.abort()
     if (typeof cleanup === "function") cleanup()
@@ -224,14 +243,40 @@ describe("Comments overlay", () => {
 
   it("refreshes the thread panel after remote replies and resolution", async () => {
     bar.shadowRoot!.querySelector<HTMLButtonElement>('[aria-label="Comments on this page, 1 open thread"]')!.click()
+    const panel = windowBody.firstElementChild!.shadowRoot!
     const updated = thread()
     updated.comments.push({ ...updated.comments[0]!, id: "reply", body: "Remote reply" })
     vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(shadow.querySelector(".panel")?.textContent).toContain("1 reply")
+    expect(panel.querySelector(".panel")?.textContent).toContain("1 reply")
     vi.mocked(api.threads).mockResolvedValue([undefined, [{ ...updated, status: "resolved" }]])
     await vi.advanceTimersByTimeAsync(30_000)
-    expect(shadow.querySelector(".panel-item")).toBeNull()
+    expect(panel.querySelector(".panel-item")).toBeNull()
+  })
+
+  it("keeps selected reply mentions when polling rebuilds the retained panel", async () => {
+    const person = { id: "grace", name: "Grace Hopper" }
+    vi.mocked(api.people).mockResolvedValue([undefined, [person]])
+    bar.shadowRoot!.querySelector<HTMLButtonElement>('[title="Comments on this page"]')!.click()
+    const panel = windowBody.firstElementChild!.shadowRoot!
+    panel.querySelector<HTMLButtonElement>(".panel-item")!.click()
+    const input = panel.querySelector<HTMLTextAreaElement>("textarea")!
+    input.value = "@gra"
+    input.setSelectionRange(input.value.length, input.value.length)
+    input.dispatchEvent(new Event("input", { bubbles: true }))
+    await vi.waitFor(() => expect(panel.querySelector('[role="option"]')).not.toBeNull())
+    panel.querySelector<HTMLButtonElement>('[role="option"]')!.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }))
+
+    const updated = thread()
+    updated.comments.push({ ...updated.comments[0]!, id: "remote", body: "Remote reply" })
+    vi.mocked(api.threads).mockResolvedValue([undefined, [updated]])
+    await vi.advanceTimersByTimeAsync(30_000)
+    const restored = panel.querySelector<HTMLTextAreaElement>("textarea")!
+    expect(restored).not.toBe(input)
+    expect(restored.value).toBe("@Grace Hopper ")
+    vi.mocked(api.reply).mockResolvedValue([undefined, { ...updated.comments[0]!, id: "reply", body: restored.value.trim(), mentions: [person] }])
+    restored.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true }))
+    await vi.waitFor(() => expect(api.reply).toHaveBeenCalledWith("thread", { body: "@Grace Hopper", mentions: [person] }))
   })
 
   it("submits only once while a keyboard request is pending", async () => {

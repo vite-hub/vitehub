@@ -1,10 +1,11 @@
 import { isH3V1Event, toH3V1Request } from "./h3-v1-request.ts"
-import { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsPath, viteHubPageToolsQuery } from "./page-tools-shared.ts"
+import { pageToolsHtmlTransform } from "./page-tools-html.ts"
+import { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase } from "./page-tools-shared.ts"
 import { forwardedRequestOrigin } from "./request-origin.ts"
 
 import type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
-export { viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsQuery }
+export { viteHubBasePath, viteHubPageSessionPath, viteHubPageToolsAssets, viteHubPageToolsCookie, viteHubPageToolsLoader, viteHubPageToolsMarker, viteHubPageToolsQuery, withViteHubBase }
 export type { ViteHubPageSession, ViteHubPageToolInfo } from "./page-tools-shared.ts"
 
 /** What the visitor check of a tool gets: the request of the session route and its H3 event. */
@@ -54,15 +55,21 @@ export function registerViteHubPageTool(nitroApp: unknown, tool: ViteHubPageTool
   registry.set(tool.id, tool)
 }
 
+/** The path of a URL below the app base. A path outside the base stays as it is. */
+function pathBelow(base: string, pathname: string): string {
+  return base && (pathname === base || pathname.startsWith(`${base}/`)) ? pathname.slice(base.length) || "/" : pathname
+}
+
 /**
  * Whether a request asks for the page tools: the `?vitehub` query, or the `vitehub-tools=1` cookie that the session
- * route sets. It is a hint, never a credential. Paths under `/_vitehub` and `/api/` never get the page tools.
+ * route sets. It is a hint, never a credential. Paths under `<base>/_vitehub` and `<base>/api/` never get the page
+ * tools. `base` is the path of the app base, such as `/portal`.
  */
 export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
   const url = new URL(request.url)
-  base = viteHubPageToolsPath("", base)
+  base = viteHubBasePath(base)
   if (base && url.pathname !== base && !url.pathname.startsWith(`${base}/`)) return false
-  const path = url.pathname.slice(base.length)
+  const path = pathBelow(base, url.pathname)
   if (path.startsWith("/_vitehub") || path === "/api" || path.startsWith("/api/")) return false
   if (url.searchParams.has(viteHubPageToolsQuery)) return true
   const cookie = request.headers.get("cookie")
@@ -70,12 +77,12 @@ export function hasViteHubPageToolsHint(request: Request, base = ""): boolean {
 }
 
 /** Whether ViteHub adds the loader to the page of this request: it has the hint, and a tool is registered. */
-function wantsLoader(nitroApp: object, request: Request): boolean {
-  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, state().bases.get(nitroApp))
+function wantsLoader(nitroApp: object, request: Request, base: string): boolean {
+  return (state().tools.get(nitroApp)?.size ?? 0) > 0 && hasViteHubPageToolsHint(request, base)
 }
 
-function loaderTag(nonce?: string, base = ""): string {
-  return `<script type="module" src="${viteHubPageToolsPath(viteHubPageToolsLoader, base)}"${nonce ? ` nonce="${nonce}"` : ""} data-vitehub-page-tools></script>`
+function loaderTag(base: string, nonce?: string): string {
+  return `<script type="module" src="${base}${viteHubPageToolsLoader}"${nonce ? ` nonce="${nonce}"` : ""} ${viteHubPageToolsMarker}></script>`
 }
 
 const hintMaxAge = 60 * 60 * 24 * 30
@@ -87,9 +94,10 @@ function sessionResponse(value: ViteHubPageSession | { error: { code: string, wh
 }
 
 /**
- * Answers `GET /_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration order.
- * It sets the hint cookie when at least one tool is allowed, and clears it when none is. A tool whose check throws is
- * not allowed. Requests from other sites get 403 and run no check.
+ * Answers `GET <base>/_vitehub/page/session`: the tools whose `allowed` check passes for this visitor, in registration
+ * order. The app base is the part of the request path before the session path, as the Console finds its own base, and
+ * each tool `script` path gets it. It sets the hint cookie when at least one tool is allowed, and clears it when none
+ * is. A tool whose check throws is not allowed. Requests from other sites get 403 and run no check.
  */
 export async function respondViteHubPageSession(nitroApp: object, request: Request, event: unknown): Promise<Response> {
   if (request.method !== "GET" && request.method !== "HEAD") {
@@ -109,7 +117,12 @@ export async function respondViteHubPageSession(nitroApp: object, request: Reque
       return false
     }
   }))
-  const tools = registered.filter((_, index) => checks[index] === true).map(({ allowed: _allowed, ...tool }) => tool)
+  const pathname = new URL(request.url).pathname
+  const at = pathname.lastIndexOf(viteHubPageSessionPath)
+  const base = at > 0 ? pathname.slice(0, at) : ""
+  const tools = registered
+    .filter((_, index) => checks[index] === true)
+    .map(({ allowed: _allowed, ...tool }) => ({ ...tool, script: withViteHubBase(base, tool.script) }))
   return sessionResponse({ tools }, {
     cookie: tools.length
       ? `${viteHubPageToolsCookie}=1; Path=/; Max-Age=${hintMaxAge}; SameSite=Lax`
@@ -151,52 +164,24 @@ export function scriptNonce(headers: Headers): string | undefined {
 }
 
 /**
- * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. The page then
- * varies per person, so it drops `content-length` and sends `cache-control: private, no-store`. Other responses return
- * unchanged, including compressed HTML. `policyHeaders` supplies the effective CSP when the host keeps it outside
- * the Response.
+ * Inserts the loader script tag before `</body>` of a streamed HTML body, or at its end when it has none. `base` is the
+ * path of the app base, such as `/portal`. A page that already has the loader, such as a single page app whose
+ * `index.html` Vite changed, gets no second one. The generated SPA inline check becomes the external loader, with
+ * the response policy's nonce when present. This supports header or meta policies that allow same-origin external
+ * scripts but block inline scripts. The page varies per person, so it drops `content-length` and sends
+ * `cache-control: private, no-store`. Other responses return unchanged, including compressed HTML. `policyHeaders`
+ * supplies the effective CSP when the host keeps it outside the Response.
  */
-export function injectPageToolsLoader(response: Response, policyHeaders: Headers = response.headers, base = ""): Response {
+export function injectPageToolsLoader(response: Response, base = "", policyHeaders: Headers = response.headers): Response {
   const type = response.headers.get("content-type") ?? ""
   if (!response.body || response.status !== 200 || !type.includes("text/html")) return response
   const encoding = response.headers.get("content-encoding")
   if (encoding && encoding.toLowerCase() !== "identity") return response
-  const tag = loaderTag(scriptNonce(policyHeaders), base)
-  const decoder = new TextDecoder()
-  const encoder = new TextEncoder()
-  let tail = ""
-  let done = false
-  const transform = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      if (done) {
-        controller.enqueue(chunk)
-        return
-      }
-      const text = tail + decoder.decode(chunk, { stream: true })
-      const index = text.search(/<\/body\s*>/i)
-      if (index !== -1) {
-        done = true
-        controller.enqueue(encoder.encode(text.slice(0, index) + tag + text.slice(index)))
-        tail = ""
-        return
-      }
-      // Keep the end, so a `</body>` split across chunks is still found.
-      let keep = Math.max(0, text.length - 8)
-      // Encode a surrogate pair together when the retained tail starts inside an astral character.
-      const last = text.charCodeAt(keep - 1)
-      if (last >= 0xD800 && last <= 0xDBFF) keep--
-      controller.enqueue(encoder.encode(text.slice(0, keep)))
-      tail = text.slice(keep)
-    },
-    flush(controller) {
-      const rest = tail + decoder.decode()
-      controller.enqueue(encoder.encode(done ? rest : rest + tag))
-    },
-  })
+  const tag = loaderTag(base, scriptNonce(policyHeaders))
   const headers = new Headers(response.headers)
   headers.delete("content-length")
   headers.set("cache-control", "private, no-store")
-  return new Response(response.body.pipeThrough(transform), { headers, status: response.status, statusText: response.statusText })
+  return new Response(response.body.pipeThrough(pageToolsHtmlTransform(tag)), { headers, status: response.status, statusText: response.statusText })
 }
 
 /** The parts of an H3 1 event that the Nitro 2 hooks read. */
@@ -204,7 +189,7 @@ interface Nitro2Event {
   web?: { request?: Request }
   node?: {
     req?: { url?: string, originalUrl?: string, headers?: Record<string, string> }
-    res?: { setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
+    res?: { statusCode?: number, removeHeader?: (name: string) => void, setHeader?: (name: string, value: string) => void, getHeader?: (name: string) => unknown }
   }
 }
 
@@ -217,18 +202,39 @@ function nitro2Request(event: Nitro2Event): Request | undefined {
 }
 
 /**
+ * The app base of an H3 1 event, such as `/portal` for Nuxt `app.baseURL: "/portal/"`. Nitro 2 serves its routes below
+ * its `baseURL`, and H3 1 removes that part from `url` and keeps the full path in `originalUrl`. It follows a base that
+ * the server gets at runtime, such as `NUXT_APP_BASE_URL`.
+ */
+function nitro2Base(event: Nitro2Event): string {
+  const original = event.node?.req?.originalUrl?.split("?")[0]
+  const current = event.node?.req?.url?.split("?")[0]
+  if (!original || !current || original === current || !original.endsWith(current)) return ""
+  return viteHubBasePath(original.slice(0, original.length - current.length))
+}
+
+/** How the app installs the page tools. */
+export interface ViteHubPageToolsInstallOptions {
+  /**
+   * The app base, such as `/portal/` from the Vite `base`. The loader tag of Nitro 3 pages uses it. Nitro 2 reads the
+   * base of each request instead. Default: the root.
+   */
+  base?: string
+}
+
+/**
  * Adds the loader of the page tools to the HTML pages of a Nitro app, for requests with the hint, when at least one
  * tool is registered. Call it from each owner's Nitro plugin: it installs once per app, whatever the number of calls.
- * It reads that app's registry on each request, so plugin order does not matter. Owners may supply the application
- * base pathname even after installation, so reserved routes under that mount stay excluded.
- * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls.
+ * It reads that app's registry and configured base on each request, so plugin order does not matter.
+ * - Nitro 3: it wraps `nitroApp.fetch`, the Web entry that every preset calls. The tag uses `options.base`.
  * - Nitro 2 with Nuxt: it hooks `render:html` for rendered pages, and `beforeResponse` for pages that a route returns
- *   as a `Response`, such as a prerendered file that a Cloudflare Worker reads from its assets.
+ *   as a `Response`, string, or uncompressed byte buffer explicitly declared as UTF-8, including prerendered files.
+ *   The tag uses the base of the request.
  */
-export function installViteHubPageTools(nitroApp: unknown, base?: string): void {
+export function installViteHubPageTools(nitroApp: unknown, options: ViteHubPageToolsInstallOptions = {}): void {
   if (nitroApp === null || typeof nitroApp !== "object") return
   const { installed, bases } = state()
-  if (base !== undefined) bases.set(nitroApp, base)
+  if (options.base !== undefined) bases.set(nitroApp, viteHubBasePath(options.base))
   if (installed.has(nitroApp)) return
   installed.add(nitroApp)
 
@@ -238,7 +244,8 @@ export function installViteHubPageTools(nitroApp: unknown, base?: string): void 
       // Nitro 3 preserves the Web request as event.req. Each request carries its own app binding.
       if (request instanceof Request) state().apps.set(request, nitroApp)
       const response: unknown = await Reflect.apply(fetch, nitroApp, [request, ...rest])
-      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request) ? injectPageToolsLoader(response, response.headers, state().bases.get(nitroApp)) : response
+      const base = state().bases.get(nitroApp) ?? ""
+      return response instanceof Response && request instanceof Request && wantsLoader(nitroApp, request, base) ? injectPageToolsLoader(response, base) : response
     })
     return
   }
@@ -250,22 +257,41 @@ export function installViteHubPageTools(nitroApp: unknown, base?: string): void 
   }])
   Reflect.apply(hook, hooks, ["render:html", (html: { bodyAppend: string[] }, context: { event: Nitro2Event }) => {
     const request = nitro2Request(context.event)
-    if (!request || !wantsLoader(nitroApp, request)) return
+    const base = nitro2Base(context.event) || state().bases.get(nitroApp) || ""
+    if (!request || !wantsLoader(nitroApp, request, base)) return
     const res = context.event.node?.res
     const policy = res?.getHeader?.("content-security-policy")
-    html.bodyAppend.push(loaderTag(typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined, state().bases.get(nitroApp)))
+    html.bodyAppend.push(loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined))
     // As on the fetch path: a page with the loader must never reach a shared cache.
     res?.setHeader?.("cache-control", "private, no-store")
   }])
-  Reflect.apply(hook, hooks, ["beforeResponse", (event: Nitro2Event, response: { body?: unknown }) => {
-    if (!(response.body instanceof Response)) return
+  Reflect.apply(hook, hooks, ["beforeResponse", async (event: Nitro2Event, response: { body?: unknown }) => {
     const request = nitro2Request(event)
-    if (request && wantsLoader(nitroApp, request)) {
+    const base = nitro2Base(event) || state().bases.get(nitroApp) || ""
+    if (!request || !wantsLoader(nitroApp, request, base)) return
+    if (response.body instanceof Response) {
       // H3 preserves Node response headers unless the returned Response replaces them.
       const headers = new Headers(response.body.headers)
       const policy = event.node?.res?.getHeader?.("content-security-policy")
       if (!headers.has("content-security-policy") && typeof policy === "string") headers.set("content-security-policy", policy)
-      response.body = injectPageToolsLoader(response.body, headers, state().bases.get(nitroApp))
+      response.body = injectPageToolsLoader(response.body, base, headers)
+      return
     }
+    const res = event.node?.res
+    const type = res?.getHeader?.("content-type")
+    if (typeof type !== "string" || !type.toLowerCase().startsWith("text/html")) return
+    if (res?.getHeader?.("content-encoding") || (res?.statusCode ?? 200) !== 200) return
+    const body = response.body
+    if (typeof body !== "string" && !(body instanceof Uint8Array)) return
+    // Without an HTTP charset, HTML may select a legacy encoding from its metadata or fallback sniffing.
+    const charset = /;\s*charset\s*=\s*"?([^";]*)/i.exec(type)?.[1]?.trim()
+    if (body instanceof Uint8Array && !/^utf-?8$/i.test(charset ?? "")) return
+    const html = typeof body === "string" ? body : new TextDecoder().decode(body)
+    const policy = res?.getHeader?.("content-security-policy")
+    const tag = loaderTag(base, typeof policy === "string" ? scriptNonce(new Headers({ "content-security-policy": policy })) : undefined)
+    response.body = await new Response(new Blob([html]).stream().pipeThrough(pageToolsHtmlTransform(tag))).text()
+    res?.removeHeader?.("content-length")
+    res?.removeHeader?.("etag")
+    res?.setHeader?.("cache-control", "private, no-store")
   }])
 }

@@ -29,7 +29,12 @@ async function open(search: string, session = denied) {
   bar.slot = "comments"
   pill.append(bar)
   document.body.append(pill)
-  start({ bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" }, signal: new AbortController().signal, open: true, exit: vi.fn() })
+  start({
+    bar, tool: { id: "comments", label: "Comments", icon: "", script: "/overlay.js" },
+    signal: new AbortController().signal, open: true, exit: vi.fn(),
+    createWindow: () => { throw new Error("Unexpected retained window") },
+    openTool: vi.fn(async () => false), onOpen: vi.fn(), beforeExit: vi.fn(),
+  })
   const overlay = document.querySelector("vitehub-comments")!
   await Promise.resolve()
   return overlay
